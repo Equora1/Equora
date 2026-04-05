@@ -1,0 +1,191 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+  --font-plus-jakarta: "Inter", "Segoe UI", "Helvetica Neue", Arial, system-ui, sans-serif;
+  --font-display: var(--font-plus-jakarta);
+  --eq-bg: #080808;
+  --eq-panel: rgba(255, 255, 255, 0.04);
+  --eq-panel-strong: rgba(255, 255, 255, 0.06);
+  --eq-card: #0d0d0d;
+  --eq-muted-surface: #1f1c1a;
+  --eq-border: #221e1a;
+  --eq-text-muted: #998a72;
+  --eq-text-secondary: #b09a7a;
+  --eq-white: #ffffff;
+  --eq-gold: #c8823a;
+  --eq-gold-bright: #f0a855;
+  --eq-gold-dim: #a06828;
+  --eq-red: #e5484d;
+  --eq-gold-gradient: linear-gradient(135deg, hsl(35 100% 68%), hsl(28 90% 48%));
+  --eq-text-gradient: linear-gradient(135deg, hsl(30 95% 65%), hsl(25 90% 45%));
+  --eq-primary-glow: 0 0 30px hsl(28 90% 50% / 0.2), 0 0 60px hsl(28 90% 50% / 0.08);
+  --eq-gold-glow: 0 0 30px hsl(35 100% 58% / 0.2), 0 0 60px hsl(35 100% 58% / 0.08);
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  min-height: 100%;
+  background:
+    radial-gradient(circle at top right, rgba(240, 168, 85, 0.14), transparent 26%),
+    radial-gradient(circle at bottom left, rgba(200, 130, 58, 0.12), transparent 24%),
+    radial-gradient(circle at center top, rgba(160, 104, 40, 0.08), transparent 18%),
+    var(--eq-bg);
+  color: var(--eq-white);
+}
+
+body {
+  font-family: var(--font-plus-jakarta), system-ui, sans-serif;
+  letter-spacing: 0.01em;
+  font-smoothing: antialiased;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+@layer base {
+  input,
+  select,
+  textarea {
+    border-color: color-mix(in srgb, var(--eq-gold) 18%, transparent);
+    background: color-mix(in srgb, var(--eq-muted-surface) 84%, transparent);
+    color: var(--eq-white);
+    transition: border-color 160ms ease, box-shadow 160ms ease, background-color 160ms ease;
+  }
+
+  input::placeholder,
+  textarea::placeholder {
+    color: color-mix(in srgb, var(--eq-text-muted) 80%, transparent);
+  }
+
+  input:focus,
+  select:focus,
+  textarea:focus {
+    outline: none;
+    border-color: color-mix(in srgb, var(--eq-gold-bright) 42%, transparent);
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--eq-gold) 42%, transparent), var(--eq-primary-glow);
+  }
+
+  button {
+    transition: opacity 160ms ease, transform 160ms ease, border-color 160ms ease, background-color 160ms ease, box-shadow 160ms ease;
+  }
+}
+
+::selection {
+  background: rgba(240, 168, 85, 0.25);
+}
+
+::-webkit-scrollbar {
+  width: 12px;
+  height: 12px;
+}
+
+::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  border: 3px solid transparent;
+  background: linear-gradient(180deg, rgba(240, 168, 85, 0.75), rgba(160, 104, 40, 0.75));
+  background-clip: padding-box;
+}
+
+.eq-display {
+  font-family: var(--font-display, var(--font-plus-jakarta)), system-ui, sans-serif;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.eq-text-gradient {
+  background-image: var(--eq-text-gradient);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.eq-gold-glow {
+  box-shadow: var(--eq-gold-glow);
+}
+
+.eq-glass {
+  background: rgba(255, 255, 255, 0.04);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+
+.eq-card {
+  border: 1px solid color-mix(in srgb, var(--eq-gold) 14%, var(--eq-border));
+  background: color-mix(in srgb, var(--eq-card) 94%, transparent);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.42);
+}
+
+.eq-card-soft {
+  border: 1px solid color-mix(in srgb, var(--eq-gold) 10%, var(--eq-border));
+  background: color-mix(in srgb, var(--eq-muted-surface) 76%, transparent);
+}
+
+.eq-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--eq-gold) 26%, transparent);
+  background: color-mix(in srgb, var(--eq-gold) 10%, transparent);
+  color: color-mix(in srgb, var(--eq-gold-bright) 88%, white 12%);
+}
+
+.eq-pill-soft {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.04);
+  color: color-mix(in srgb, var(--eq-text-secondary) 88%, white 12%);
+}
+
+.eq-button-primary {
+  border: 1px solid color-mix(in srgb, var(--eq-gold) 34%, transparent);
+  background: var(--eq-gold-gradient);
+  color: #080808;
+  box-shadow: var(--eq-primary-glow);
+}
+
+.eq-button-secondary {
+  border: 1px solid color-mix(in srgb, var(--eq-gold) 18%, transparent);
+  background: color-mix(in srgb, var(--eq-muted-surface) 76%, transparent);
+  color: color-mix(in srgb, var(--eq-gold-bright) 84%, white 16%);
+}
+
+.eq-button-ghost {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.04);
+  color: color-mix(in srgb, var(--eq-text-secondary) 85%, white 15%);
+}
+
+.eq-eyebrow {
+  color: var(--eq-text-muted);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.28em;
+}
+
+.eq-copy {
+  color: var(--eq-text-muted);
+}
