@@ -1,0 +1,327 @@
+EQUORA JOURNAL – ÜBERGABE FÜR v57.61
+Stand: v57.60
+Datum: 30.07.2026
+
+================================================================================
+1. VERBINDLICHER PRODUKTKONTEXT
+================================================================================
+
+Equora ist ein Trading Journal sowie Analyse- und Review-Tool.
+Equora ist KEIN Trading-Bot, KEIN Signal-Service und führt keine Trades aus.
+
+Produktversprechen:
+„Equora macht dein Trading sichtbar, messbar und überprüfbar.“
+
+Equora darf:
+- Trades dokumentieren
+- Broker-Daten ausschließlich lesend abrufen
+- Daten visualisieren und analysieren
+- Review-Vorschläge anbieten, die der Nutzer bestätigt
+
+Equora darf nicht:
+- Orders erstellen, ändern oder schließen
+- Auszahlungen oder Transfers auslösen
+- individuelle Anlageberatung geben
+- Gewinne versprechen
+- Broker-Daten ohne Nutzerkontrolle final importieren
+
+================================================================================
+2. AKTUELLER HAUPTSTAND
+================================================================================
+
+Aktuelle Arbeitsversion:
+- Equora Starter v57.60
+
+Aktuelle ZIP:
+- Equora_Starter_v57.60.zip
+
+Produktstatus:
+- stabilisierte Beta-Basis aus v57.59
+- erster echter MEXC Futures Read-only-Connector vorhanden
+- Broker-Oberfläche vollständig benutzerfreundlich überarbeitet
+- gefundene Broker-Daten erscheinen nur als Vorschau
+- noch kein finaler Broker-Import in die Tabelle trades
+- keine Order-Ausführung
+
+Paketstand:
+- Next.js 15.5.21
+- Sharp 0.35.3
+- PostCSS 8.5.18
+- Node 24 LTS empfohlen
+
+================================================================================
+3. ÄNDERUNGEN IN v57.60
+================================================================================
+
+Oberfläche:
+- Navigation: „Broker Sync“ wurde zu „Broker verbinden“
+- „Raw Preview“ wurde zu „Datenvorschau“
+- „Sync Runs“ wurden zu „letzten Prüfungen“
+- „Fills“ werden als „Ausführungen“ bezeichnet
+- interne Begriffe wie Credential Reference, Datenmodell, RLS und Connector
+  erscheinen nicht mehr in der normalen Broker-Oberfläche
+
+MEXC-Verbindung:
+- Verbindung über API-Schlüssel und Secret Key
+- private MEXC Futures GET-Abfragen werden serverseitig signiert
+- MEXC-Zeitserver wird vor privaten Abfragen gelesen
+- letzte historische Orders werden abgerufen
+- Ausführungen für bis zu fünf zuletzt gefundene Märkte werden abgerufen
+- gefundene Daten werden in broker_raw_events gespeichert
+- Dubletten werden über Fingerprints erkannt
+- Nutzer kann die Daten erneut prüfen
+- Nutzer kann Verbindung und verschlüsselten Zugang entfernen
+
+Nicht enthalten:
+- POST- oder DELETE-Abfragen an MEXC
+- Order-Erstellung oder Stornierung
+- Transfer oder Auszahlung
+- automatischer finaler Trade-Import
+
+================================================================================
+4. SICHERHEIT
+================================================================================
+
+Neue Servervariable:
+- EQUORA_BROKER_SECRET_KEY
+
+Format:
+- 32 Byte als Base64
+oder
+- 64-stelliges Hex
+
+Erzeugung:
+node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
+
+Wichtig:
+- niemals als NEXT_PUBLIC_ Variable anlegen
+- niemals committen
+- nicht beliebig austauschen, solange bestehende Broker-Zugänge lesbar bleiben sollen
+
+Verschlüsselung:
+- AES-256-GCM
+- zusätzliche Bindung an Nutzer-ID und Provider
+- API-Schlüssel und Secret werden gemeinsam verschlüsselt
+- gespeicherte Zugangsdaten werden nicht an den Browser zurückgegeben
+- Secrets erscheinen nicht in Logs oder Vorschau-Datensätzen
+
+Neue Tabelle:
+- broker_credentials
+
+Eigenschaften:
+- RLS aktiviert
+- keine Nutzer-Policies
+- anon und authenticated besitzen keine Tabellenrechte
+- Zugriff ausschließlich serverseitig über die Supabase Service Role
+
+broker_connections.credential_reference:
+- enthält nur die ID des verschlüsselten Datensatzes
+- enthält keinen API-Schlüssel und kein Secret
+
+================================================================================
+5. MEXC API-STAND
+================================================================================
+
+Offizielle MEXC Contract API wurde vor Umsetzung geprüft.
+
+Verwendete Endpunkte:
+- GET /api/v1/contract/ping
+- GET /api/v1/private/order/list/history_orders
+- GET /api/v1/private/order/list/order_deals
+
+Authentifizierung privater GET-Abfragen:
+- ApiKey Header
+- Request-Time Header
+- Signature Header
+- HMAC-SHA256 über Access Key + Zeitstempel + sortierte Query-Parameter
+
+Der historische Order-Endpunkt benötigt MEXC Trade-Reading-Rechte.
+
+Wichtige Einschränkung:
+MEXC liefert über den verwendeten Leseendpunkt keine vollständige Übersicht aller
+am API-Schlüssel aktivierten Rechte. Equora prüft deshalb niemals schreibend.
+Der Nutzer muss bestätigen, dass Trading, Transfer und Auszahlung deaktiviert sind.
+
+================================================================================
+6. SQL / SUPABASE
+================================================================================
+
+Neuer Patch für bestehende Projekte:
+- supabase/schema-patch-v57.60.sql
+
+Er erstellt:
+- broker_credentials
+- Index idx_broker_credentials_user_created_at
+- RLS ohne Client-Policies
+- Rechteentzug für anon und authenticated
+
+Bestehende Broker-Grundlage weiterhin erforderlich:
+- supabase/schema-patch-v57.52.sql
+
+Für neue Projekte ist broker_credentials bereits in supabase/schema.sql enthalten.
+
+================================================================================
+7. WICHTIGE DATEIEN
+================================================================================
+
+Broker-Seite:
+- app/(journal)/broker-sync/page.tsx
+- components/broker-sync/broker-sync-hub.tsx
+- components/broker-sync/mexc-connection-panel.tsx
+
+Server-Aktionen:
+- app/actions/broker-sync.ts
+
+MEXC und Sicherheit:
+- lib/server/mexc-readonly.ts
+- lib/server/broker-secret-store.ts
+- lib/server/broker-preview.ts
+- lib/server/broker-sync.ts
+- lib/types/broker-sync.ts
+
+SQL:
+- supabase/schema-patch-v57.52.sql
+- supabase/schema-patch-v57.60.sql
+- supabase/schema.sql
+
+Dokumentation:
+- README.md
+- RELEASE-v57.60.md
+- BUILD-STATUS-v57.60.md
+- INSTALL-v57.60.md
+- BROKER-SYNC.md
+- MIGRATION.md
+- INTEGRATION.md
+- BETA-TEST.md
+
+================================================================================
+8. BUILD- UND TESTSTATUS
+================================================================================
+
+Erfolgreich:
+- Release-Check
+- Syntaxprüfung aller 218 TS-/TSX-Dateien
+- gezielte TypeScript-Prüfung der neuen Broker-Dateien
+- Verschlüsselungs-Roundtrip
+- Prüfung der Nutzer-/Provider-Bindung der Verschlüsselung
+- Scan auf schreibende MEXC-Endpunkte
+- ZIP-Hygiene
+
+Nicht in der Erstellungsumgebung möglich:
+- vollständiges npm install
+- npm audit
+- reguläres npm run typecheck mit echten Abhängigkeiten
+- npm run build
+- npm run build:turbopack
+
+Grund:
+- interne npm Quelle HTTP 404
+- öffentliche npm Registry in der Umgebung nicht erreichbar
+
+Lokal ausführen:
+cd "C:\Users\matth\Desktop\Equora Starter v57.60"
+npm install
+npm ls next sharp postcss
+npm audit
+npm run typecheck
+npm run build
+npm run build:turbopack
+npm run release:check
+
+Kein npm audit fix --force verwenden.
+
+================================================================================
+9. VERCEL-DEPLOYMENT
+================================================================================
+
+Vor Deployment:
+1. supabase/schema-patch-v57.60.sql ausführen
+2. EQUORA_BROKER_SECRET_KEY erzeugen
+3. Variable in Vercel hinterlegen
+4. vorhandene Supabase-Variablen prüfen
+5. lokal npm install, audit, typecheck und beide Builds ausführen
+
+Danach Git:
+git init
+git add .
+git commit -m "Equora v57.60"
+git branch -M main
+git remote add origin https://github.com/Equora1/Equora.git
+git push -f -u origin main
+
+Falls origin bereits existiert:
+git remote set-url origin https://github.com/Equora1/Equora.git
+git push -f -u origin main
+
+================================================================================
+10. NÄCHSTER PRODUKTBLOCK v57.61
+================================================================================
+
+Ziel:
+- gefundene MEXC-Daten in das Equora-Tradeformat übersetzen
+- noch immer kein autonomer Import
+
+Geplanter Umfang:
+- Orders und Ausführungen zu abgeschlossenen Trades gruppieren
+- Entry
+- Exit
+- Positionsgröße
+- Gebühren
+- Funding, soweit aus Daten ableitbar
+- P&L
+- Zeitstempel
+- Long / Short
+- Problemfälle und unvollständige Zuordnung anzeigen
+- Dubletten auf Trade-Ebene prüfen
+- Importvorschau anzeigen
+- Nutzer bestätigt den Import
+- bestehenden Import-Undo-Mechanismus weiterverwenden
+
+Wichtig:
+- keine automatische finale Übernahme
+- keine Order-Ausführung
+- keine Signale
+- klare Journal-Sprache beibehalten
+- SQL nur, wenn wirklich nötig
+
+================================================================================
+11. HINWEIS FÜR EXTERNE CODE-REVIEWS
+================================================================================
+
+Die Version kann durch Claude oder ein anderes Modell geprüft werden.
+
+Review-Schwerpunkte:
+- Sicherheit der AES-256-GCM-Implementierung
+- keine Secrets in Client-Komponenten oder Logs
+- serverseitige MEXC-Signatur
+- Fehlerbehandlung und Timeouts
+- Supabase Service-Role-Grenze
+- RLS und fehlende Client-Policies für broker_credentials
+- keine schreibenden MEXC-Endpunkte
+- verständliche Nutzeroberfläche
+- keine automatische Trade-Erstellung
+
+Änderungen aus externen Reviews nicht ungeprüft übernehmen.
+Die führende Versionslinie bleibt:
+- v57.60
+- v57.61
+- v57.62
+
+================================================================================
+12. ZIP-REGELN
+================================================================================
+
+Die ZIP enthält genau einen Root-Ordner:
+- Equora Starter v57.60
+
+Nicht enthalten:
+- .git
+- node_modules
+- .next
+- .env
+- .env.local
+- tsconfig.tsbuildinfo
+- Secrets
+- API Keys
+- lokale Logs
+- interne Registry-Adressen
