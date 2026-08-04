@@ -188,7 +188,7 @@ export async function connectMexcBroker(input: ConnectMexcInput): Promise<Broker
   if (secureStoreError) {
     return {
       success: false,
-      message: 'Der sichere Zugangsspeicher fehlt. Bitte zuerst den SQL-Patch v57.60 in Supabase ausführen.',
+      message: 'Der sichere Zugangsspeicher fehlt. Bitte zuerst die SQL-Patches v57.60 und v57.60.1 in Supabase ausführen.',
     }
   }
 
@@ -202,54 +202,26 @@ export async function connectMexcBroker(input: ConnectMexcInput): Promise<Broker
     return { success: false, message: 'Die MEXC-Verbindung konnte nicht geprüft werden.' }
   }
 
-  let credentialId: string | null = null
-  let connectionId: string | null = null
+  const credentialId = crypto.randomUUID()
+  const connectionId = crypto.randomUUID()
 
   try {
     const encryptedPayload = encryptBrokerCredentials({ apiKey, secretKey }, user.id, 'mexc')
-    const { data: credentialData, error: credentialError } = await supabase
-      .from('broker_credentials')
-      .insert({
-        user_id: user.id,
-        provider: 'mexc',
-        encrypted_payload: encryptedPayload,
-        key_version: 'v1',
-      })
-      .select('id')
-      .single()
-
-    if (credentialError || !credentialData) {
-      return {
-        success: false,
-        message: 'Der sichere Zugangsspeicher fehlt. Bitte zuerst den SQL-Patch v57.60 in Supabase ausführen.',
-      }
-    }
-    credentialId = String(credentialData.id)
-
     const now = new Date().toISOString()
-    const { data: connectionData, error: connectionError } = await supabase
-      .from('broker_connections')
-      .insert({
-        user_id: user.id,
-        provider: 'mexc',
-        account_label: accountLabel,
-        environment: 'live',
-        status: 'ready',
-        permissions: ['futures_read_verified', 'read_only_confirmed'],
-        sync_mode: 'manual',
-        credential_reference: credentialId,
-        last_sync_at: now,
-        last_error: null,
-        updated_at: now,
-      })
-      .select('id')
-      .single()
+    const { error: connectionError } = await supabase.rpc('equora_create_broker_connection_service_v1', {
+      p_connection_id: connectionId,
+      p_credential_id: credentialId,
+      p_user_id: user.id,
+      p_provider: 'mexc',
+      p_account_label: accountLabel,
+      p_encrypted_payload: encryptedPayload,
+      p_key_version: 'v1',
+      p_now: now,
+    })
 
-    if (connectionError || !connectionData) {
-      await supabase.from('broker_credentials').delete().eq('id', credentialId).eq('user_id', user.id)
-      return { success: false, message: 'Die geprüfte Verbindung konnte nicht gespeichert werden.' }
+    if (connectionError) {
+      return { success: false, message: 'Verbindung und Credential konnten nicht gemeinsam gespeichert werden. Bitte Migration v57.60.1 prüfen.' }
     }
-    connectionId = String(connectionData.id)
 
     const persisted = await persistMexcPreview(supabase, user.id, connectionId, readResult)
     revalidatePath('/broker-sync')
@@ -261,12 +233,10 @@ export async function connectMexcBroker(input: ConnectMexcInput): Promise<Broker
         ?? `MEXC wurde sicher verbunden. ${readResult.orders.length} Orders und ${readResult.executions.length} Ausführungen wurden zur Prüfung gefunden.`,
     }
   } catch {
-    if (connectionId) {
-      await supabase.from('broker_connections').delete().eq('id', connectionId).eq('user_id', user.id)
-    }
-    if (credentialId) {
-      await supabase.from('broker_credentials').delete().eq('id', credentialId).eq('user_id', user.id)
-    }
+    await supabase.rpc('equora_delete_broker_connection_service_v1', {
+      p_connection_id: connectionId,
+      p_user_id: user.id,
+    })
     return { success: false, message: 'Die MEXC-Verbindung konnte nicht sicher gespeichert werden.' }
   }
 }
@@ -342,39 +312,21 @@ export async function removeBrokerConnection(connectionId: string): Promise<Brok
   const normalizedId = connectionId.trim()
   if (!normalizedId) return { success: false, message: 'Es wurde keine Verbindung ausgewählt.' }
 
-  const problem = serverRuntimeProblem()
-  if (problem) return { success: false, message: problem }
+  if (!hasSupabaseClientEnv()) return { success: false, message: 'Die Broker-Verbindung braucht eine konfigurierte Supabase-Umgebung.' }
 
   const user = await currentUser()
   if (!user) return { success: false, message: 'Bitte zuerst einloggen.' }
 
-  const supabase = createSupabaseServerClient()
-  const { data: connectionData, error: connectionError } = await supabase
-    .from('broker_connections')
-    .select('id,provider,credential_reference')
-    .eq('id', normalizedId)
-    .eq('user_id', user.id)
-    .single()
-
-  if (connectionError || !connectionData) {
-    return { success: false, message: 'Die Verbindung wurde nicht gefunden.' }
-  }
-
-  const connection = connectionData as StoredConnection
-  const { error: deleteError } = await supabase
-    .from('broker_connections')
-    .delete()
-    .eq('id', normalizedId)
-    .eq('user_id', user.id)
-
-  if (deleteError) return { success: false, message: 'Die Verbindung konnte nicht entfernt werden.' }
-
-  if (connection.credential_reference) {
-    await supabase
-      .from('broker_credentials')
-      .delete()
-      .eq('id', connection.credential_reference)
-      .eq('user_id', user.id)
+  const supabase = await createSupabaseAuthServerClient()
+  const { error: deleteError } = await supabase.rpc('delete_own_broker_connection', { p_connection_id: normalizedId })
+  if (deleteError) {
+    const migrationMissing = deleteError.message.includes('PGRST202') || deleteError.message.toLowerCase().includes('schema cache')
+    return {
+      success: false,
+      message: migrationMissing
+        ? 'Die Datenbankmigration v57.60.1 fehlt. Verbindung und Credential wurden nicht verändert.'
+        : 'Verbindung und verschlüsselter Zugang konnten nicht gemeinsam entfernt werden. Es wurde nichts teilweise gelöscht.',
+    }
   }
 
   revalidatePath('/broker-sync')

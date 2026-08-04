@@ -1,6 +1,7 @@
 import { AppIcon } from '@/components/ui/app-icon'
 import { FuturisticCard } from '@/components/ui/futuristic-card'
 import type { CalendarDaySummary } from '@/lib/utils/calendar'
+import { formatMoney } from '@/lib/utils/currency'
 
 export function CalendarDayCard({
   day,
@@ -19,7 +20,7 @@ export function CalendarDayCard({
 }) {
   if (!day) return <div className="rounded-2xl border border-white/5 bg-black/10 p-3 opacity-30" />
 
-  const glow = summary ? (summary.netPnL > 0 ? 'emerald' : summary.netPnL < 0 ? 'red' : 'none') : 'none'
+  const glow = summary?.monetaryScope.isComparable ? (summary.netPnL > 0 ? 'emerald' : summary.netPnL < 0 ? 'red' : 'none') : 'none'
   const todayRing = isToday && !summary ? 'border-orange-400/55 outline outline-1 outline-offset-0 outline-orange-400/75 shadow-[0_0_24px_rgba(240,168,85,0.18)]' : ''
   const selectedRing = isSelected ? 'ring-1 ring-orange-300/55' : ''
 
@@ -40,15 +41,16 @@ export function CalendarDayCard({
           ) : summary ? (
             <span
               className={`rounded-full px-2 py-0.5 text-[10px] ${
-                summary.netPnL > 0
+                !summary.monetaryScope.isComparable
+                  ? 'bg-orange-400/10 text-orange-100'
+                  : summary.netPnL > 0
                   ? 'bg-emerald-400/10 text-emerald-300'
                   : summary.netPnL < 0
                     ? 'bg-red-400/10 text-red-300'
                     : 'bg-white/10 text-white/50'
               }`}
             >
-              {summary.netPnL >= 0 ? '+' : ''}
-              {summary.netPnL.toFixed(0)} €
+              {summary.monetaryScope.isComparable ? formatMoney(summary.netPnL, summary.monetaryScope.currency) : 'Gesperrt'}
             </span>
           ) : null}
         </div>

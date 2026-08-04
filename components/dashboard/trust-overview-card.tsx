@@ -26,7 +26,7 @@ export function TrustOverviewCard({ trades }: { trades: Trade[] }) {
           <p className="text-[10px] uppercase tracking-[0.24em] text-white/35">Belastbare Abdeckung</p>
           <p className="mt-3 text-3xl font-semibold text-emerald-200">{formatPlainNumber(summary.trustedCoverage, 0)}%</p>
           <p className="mt-2 text-sm text-white/50">{summary.trustedTrades} von {summary.totalTrades} Trades fließen aktuell in Equity und P&amp;L ein.</p>
-          <p className={`mt-4 text-xl font-semibold ${summary.trustedPnLNet >= 0 ? 'text-emerald-300' : 'text-red-300'}`}>{formatCurrency(summary.trustedPnLNet)}</p>
+          <p className={`mt-4 text-xl font-semibold ${!summary.monetaryScope.isComparable ? 'text-orange-100' : summary.trustedPnLNet >= 0 ? 'text-emerald-300' : 'text-red-300'}`}>{summary.monetaryScope.isComparable ? formatCurrency(summary.trustedPnLNet, 0, summary.monetaryScope.currency) : 'Geld-Auswertung gesperrt'}</p>
           <p className="mt-1 text-xs text-white/45">{summary.needsAttention > 0 ? `${summary.needsAttention} Trades brauchen Nacharbeit` : 'Keine offenen Datenlücken'}</p>
         </div>
       </div>

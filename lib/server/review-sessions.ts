@@ -4,6 +4,7 @@ import { createSupabaseServerClient } from '@/lib/supabase/server'
 import type { ReviewSessionRow } from '@/lib/types/db'
 import type { ReviewSessionPeriodPreset, ReviewSessionStatus, ReviewSessionType, ReviewSessionsPageResult, SavedReviewSession } from '@/lib/types/review-session'
 import { parseTradingNumber } from '@/lib/utils/calculations'
+import { normalizeTradeCurrency } from '@/lib/utils/currency'
 
 type ReviewSessionsQueryOptions = {
   page?: number
@@ -32,6 +33,13 @@ export function mapReviewSessionRow(
     tradeCount: row.trade_count ?? 0,
     visibleTradeCount: row.visible_trade_count ?? row.trade_count ?? 0,
     netPnL: parseTradingNumber(row.net_pnl) ?? 0,
+    currency: row.monetary_scope_kind === 'single' ? normalizeTradeCurrency(row.currency) : null,
+    monetaryScopeKind:
+      row.monetary_scope_kind === 'single' && normalizeTradeCurrency(row.currency)
+        ? 'single'
+        : row.monetary_scope_kind === 'empty' || row.monetary_scope_kind === 'mixed'
+          ? row.monetary_scope_kind
+          : 'unknown',
     averageR: parseTradingNumber(row.average_r) ?? 0,
     winRate: parseTradingNumber(row.win_rate) ?? 0,
     winners: row.winners ?? 0,

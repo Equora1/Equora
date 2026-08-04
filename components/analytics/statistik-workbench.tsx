@@ -15,6 +15,7 @@ import { buildTagStats } from '@/lib/utils/tag-analytics'
 import { getTradeTrustSummary, getTrustedTrades } from '@/lib/utils/trade-trust'
 import { buildSetupPerformanceRows, type SetupPerformanceRow } from '@/lib/utils/setup-analytics'
 import { buildAccountContexts, getTradeAccountLabel } from '@/lib/utils/account-context'
+import { formatMoney, getMonetaryScopeMessage } from '@/lib/utils/currency'
 
 const defaultFilters = { account: 'Alle', session: 'Alle', concept: 'Alle', quality: 'Alle', emotion: 'Alle', setup: 'Alle' }
 
@@ -30,17 +31,21 @@ function getUniqueValues(values: string[]) {
   return Array.from(new Set(values.filter((value) => value && value !== '—'))).sort((a, b) => a.localeCompare(b, 'de'))
 }
 
-function formatCurrency(value: number) {
-  const rounded = Math.round(value)
-  return `${rounded >= 0 ? '+' : ''}${rounded.toLocaleString('de-DE')} €`
+function formatCurrency(value: number, currency?: string | null) {
+  return formatMoney(value, currency)
 }
 
 function formatPercent(value: number) {
   return `${value.toFixed(1)}%`
 }
 
-function formatDepthCurrency(value: number) {
-  return `${Math.round(Math.abs(value)).toLocaleString('de-DE')} €`
+function formatDepthCurrency(value: number, currency?: string | null) {
+  return formatMoney(-Math.abs(value), currency)
+}
+
+function formatRowMoney(value: number, trades: number, currency?: string | null) {
+  if (!trades) return '—'
+  return currency ? formatCurrency(value, currency) : 'Gesperrt'
 }
 
 function formatAverageR(value: number | null, trades: number, rCount?: number) {
@@ -115,10 +120,10 @@ function getTimeWindowSummaryLead(bestWindow: TimeWindowPerformanceRow | null, w
 
 function getTimeWindowSummaryDetail(bestWindow: TimeWindowPerformanceRow | null, weakestWindow: TimeWindowPerformanceRow | null) {
   if (bestWindow && weakestWindow && bestWindow.key !== weakestWindow.key) {
-    return `Stärkstes Fenster: ${formatCurrency(bestWindow.netPnL)} bei ${bestWindow.winRate.toFixed(0)}% Winrate. Schwächstes Fenster: ${formatCurrency(weakestWindow.netPnL)}.`
+    return `Stärkstes Fenster: ${formatCurrency(bestWindow.netPnL, bestWindow.currency)} bei ${bestWindow.winRate.toFixed(0)}% Winrate. Schwächstes Fenster: ${formatCurrency(weakestWindow.netPnL, weakestWindow.currency)}.`
   }
 
-  if (bestWindow) return `${formatCurrency(bestWindow.netPnL)} bei ${bestWindow.winRate.toFixed(0)}% Winrate.`
+  if (bestWindow) return `${formatCurrency(bestWindow.netPnL, bestWindow.currency)} bei ${bestWindow.winRate.toFixed(0)}% Winrate.`
   return 'Mehr Daten nötig.'
 }
 
@@ -130,14 +135,14 @@ function getTimeWindowGuardrail(weakestWindow: TimeWindowPerformanceRow | null) 
 
 
 function getDrawdownLead(profile: ReturnType<typeof buildDrawdownProfile>) {
-  if (profile.activePhase) return `Aktuell läuft noch eine Delle von ${formatDepthCurrency(profile.currentDepth)}.`
-  if (profile.deepestPhase) return `Tiefste Delle im aktuellen Fenster: ${formatDepthCurrency(profile.maxDepth)}.`
+  if (profile.activePhase) return `Aktuell läuft noch eine Delle von ${formatDepthCurrency(profile.currentDepth, profile.monetaryScope.currency)}.`
+  if (profile.deepestPhase) return `Tiefste Delle im aktuellen Fenster: ${formatDepthCurrency(profile.maxDepth, profile.monetaryScope.currency)}.`
   return 'Noch wenig P&L-Daten.'
 }
 
 function getDrawdownDetail(profile: ReturnType<typeof buildDrawdownProfile>) {
   if (profile.activePhase) {
-    return `Offen seit ${formatPhaseDate(profile.activePhase.startAt)} über ${profile.activePhase.tradeCount} Trades. Tiefster Punkt bisher: ${formatDepthCurrency(profile.activePhase.depth)}.`
+    return `Offen seit ${formatPhaseDate(profile.activePhase.startAt)} über ${profile.activePhase.tradeCount} Trades. Tiefster Punkt bisher: ${formatDepthCurrency(profile.activePhase.depth, profile.monetaryScope.currency)}.`
   }
 
   if (profile.longestPhase) {
@@ -194,10 +199,10 @@ function getBucketSummaryLead(bestRow: SessionPerformanceRow | null, weakestRow:
 
 function getBucketSummaryDetail(bestRow: SessionPerformanceRow | null, weakestRow: SessionPerformanceRow | null, fallback: string) {
   if (bestRow && weakestRow && bestRow.key !== weakestRow.key) {
-    return `Stärkster Block: ${formatCurrency(bestRow.netPnL)} bei ${bestRow.winRate.toFixed(0)}% Winrate. Schwächster Block: ${formatCurrency(weakestRow.netPnL)}.`
+    return `Stärkster Block: ${formatCurrency(bestRow.netPnL, bestRow.currency)} bei ${bestRow.winRate.toFixed(0)}% Winrate. Schwächster Block: ${formatCurrency(weakestRow.netPnL, weakestRow.currency)}.`
   }
 
-  if (bestRow) return `${formatCurrency(bestRow.netPnL)} bei ${bestRow.winRate.toFixed(0)}% Winrate.`
+  if (bestRow) return `${formatCurrency(bestRow.netPnL, bestRow.currency)} bei ${bestRow.winRate.toFixed(0)}% Winrate.`
   return fallback
 }
 
@@ -245,6 +250,7 @@ export function StatistikWorkbench({ trades, tradeTags, setupTitles, initialLaye
   const strongestTag = tagStats.find((row) => row.netPnL > 0)
   const weakestTag = tagStats.find((row) => row.netPnL < 0)
   const negativeEmotion = useMemo(() => {
+    if (!metrics.monetaryScope.isComparable) return undefined
     const emotionRows = Object.entries(
       trustedTrades.reduce<Record<string, number>>((acc, trade) => {
         const key = trade.emotion || '—'
@@ -255,20 +261,20 @@ export function StatistikWorkbench({ trades, tradeTags, setupTitles, initialLaye
       .filter(([emotion, pnl]) => emotion !== '—' && pnl < 0)
       .sort((a, b) => a[1] - b[1])
     return emotionRows[0]
-  }, [trustedTrades])
+  }, [metrics.monetaryScope.isComparable, trustedTrades])
 
   const strongestSignal = strongestConcept
     ? { title: strongestConcept.concept, detail: `${strongestConcept.pnl} · ${strongestConcept.winRate} Winrate` }
     : bestMarket
-      ? { title: bestMarket[0], detail: `${bestMarket[1].toFixed(0)} € im aktuellen Fenster` }
+      ? { title: bestMarket[0], detail: `${formatCurrency(bestMarket[1], metrics.currency)} im aktuellen Fenster` }
       : { title: 'Noch kein Muster', detail: 'Mehr Daten helfen.' }
 
   const frictionSignal = weakestConcept
     ? { title: weakestConcept.concept, detail: `${weakestConcept.pnl} · ${weakestConcept.winRate} Winrate` }
     : weakestTag
-      ? { title: weakestTag.tag, detail: `${weakestTag.netPnL.toFixed(0)} € · ${weakestTag.totalTrades} Trades` }
+      ? { title: weakestTag.tag, detail: `${formatCurrency(weakestTag.netPnL, metrics.currency)} · ${weakestTag.totalTrades} Trades` }
       : negativeEmotion
-        ? { title: negativeEmotion[0], detail: `${negativeEmotion[1].toFixed(0)} € im aktuellen Fenster` }
+        ? { title: negativeEmotion[0], detail: `${formatCurrency(negativeEmotion[1], metrics.currency)} im aktuellen Fenster` }
         : { title: 'Noch kein Warnmuster', detail: 'Noch kein klares Negativmuster.' }
 
   const nextStep = strongestConcept
@@ -317,10 +323,16 @@ export function StatistikWorkbench({ trades, tradeTags, setupTitles, initialLaye
         </div>
 
         <div className="mt-7 grid gap-6 lg:grid-cols-3">
-          <MetricCard label="P&L" value={formatCurrency(metrics.netPnL)} detail={activeAccount ? activeAccount.label : `${trustedTrades.length} Trades`} tone="text-emerald-300" />
+          <MetricCard label="P&L" value={metrics.monetaryScope.isComparable ? formatCurrency(metrics.netPnL, metrics.currency) : 'Gesperrt'} detail={activeAccount ? activeAccount.label : `${trustedTrades.length} Trades`} tone={metrics.monetaryScope.isComparable ? 'text-emerald-300' : 'text-orange-200'} />
           <MetricCard label="Winrate" value={formatPercent(metrics.winRate)} detail={activeAccount ? `${activeAccount.trades} Konto-Trades` : bestEmotion ? bestEmotion.emotion : '—'} tone="text-white" />
           <MetricCard label="Erwartung" value={`${metrics.expectancyR >= 0 ? '+' : ''}${metrics.expectancyR.toFixed(2)}R`} detail={bestMarket ? bestMarket[0] : '—'} tone="text-orange-200" />
         </div>
+
+        {!metrics.monetaryScope.isComparable && metrics.monetaryScope.kind !== 'empty' ? (
+          <div className="mt-5 rounded-2xl border border-orange-300/25 bg-orange-300/10 px-4 py-3 text-sm leading-6 text-orange-100">
+            {getMonetaryScopeMessage(metrics.monetaryScope)} Nicht-monetäre Kennzahlen bleiben sichtbar; P&amp;L-Summen, Kurven und Rankings sind deaktiviert.
+          </div>
+        ) : null}
 
         {showQuality ? (
           <div className="mt-6 grid gap-3 sm:grid-cols-3">
@@ -475,7 +487,7 @@ export function StatistikWorkbench({ trades, tradeTags, setupTitles, initialLaye
           <p className="text-[10px] uppercase tracking-[0.24em] text-white/35">Regel</p>
           <h4 className="mt-3 text-2xl font-semibold text-white">{getStreakGuardrail(metrics.currentWinStreak, metrics.currentLossStreak, metrics.longestLossStreak)}</h4>
           <p className="mt-3 text-sm leading-7 text-white/60">
-            Max Drawdown: {formatCurrency(-metrics.maxDrawdown)}.
+            Max Drawdown: {formatCurrency(-metrics.maxDrawdown, metrics.currency)}.
           </p>
         </div>
       </section>
@@ -497,13 +509,13 @@ export function StatistikWorkbench({ trades, tradeTags, setupTitles, initialLaye
         <div className="mt-6 grid gap-5 xl:grid-cols-5">
           <MetricCard
             label="Tiefste Delle"
-            value={formatDepthCurrency(drawdownProfile.maxDepth)}
+            value={formatDepthCurrency(drawdownProfile.maxDepth, drawdownProfile.monetaryScope.currency)}
             detail={drawdownProfile.deepestPhase ? `${describePhaseRange(drawdownProfile.deepestPhase)} · ${drawdownProfile.deepestPhase.tradeCount} Trades` : 'Noch keine belastbare Drawdown-Phase'}
             tone="text-sky-200"
           />
           <MetricCard
             label="Aktuelle Delle"
-            value={drawdownProfile.activePhase ? formatDepthCurrency(drawdownProfile.currentDepth) : '0 €'}
+            value={drawdownProfile.activePhase ? formatDepthCurrency(drawdownProfile.currentDepth, drawdownProfile.monetaryScope.currency) : metrics.monetaryScope.isComparable ? formatCurrency(0, metrics.currency) : 'Gesperrt'}
             detail={drawdownProfile.activePhase ? `Offen seit ${formatPhaseDate(drawdownProfile.activePhase.startAt)}` : 'Keine offene Delle'}
             tone={drawdownProfile.activePhase ? 'text-red-300' : 'text-white'}
           />
@@ -527,6 +539,7 @@ export function StatistikWorkbench({ trades, tradeTags, setupTitles, initialLaye
               <DrawdownPhaseCard
                 key={phase.key}
                 phase={phase}
+                currency={drawdownProfile.monetaryScope.currency}
                 title={
                   phase.status === 'open'
                     ? 'Offene Delle'
@@ -605,8 +618,8 @@ function getSetupSummaryLead(bestRow: SetupPerformanceRow | null, weakestRow: Se
 }
 
 function getSetupSummaryDetail(bestRow: SetupPerformanceRow | null, weakestRow: SetupPerformanceRow | null) {
-  if (bestRow && weakestRow && bestRow.title !== weakestRow.title) return `${formatCurrency(bestRow.netPnL)} bei ${bestRow.winRate.toFixed(0)}% Winrate. PF ${formatProfitFactor(bestRow.profitFactor)}. Schwächstes Setup: ${formatCurrency(weakestRow.netPnL)}.`
-  if (bestRow) return `${formatCurrency(bestRow.netPnL)} bei ${bestRow.winRate.toFixed(0)}% Winrate. PF ${formatProfitFactor(bestRow.profitFactor)}.`
+  if (bestRow && weakestRow && bestRow.title !== weakestRow.title) return `${formatCurrency(bestRow.netPnL, bestRow.currency)} bei ${bestRow.winRate.toFixed(0)}% Winrate. PF ${formatProfitFactor(bestRow.profitFactor)}. Schwächstes Setup: ${formatCurrency(weakestRow.netPnL, weakestRow.currency)}.`
+  if (bestRow) return `${formatCurrency(bestRow.netPnL, bestRow.currency)} bei ${bestRow.winRate.toFixed(0)}% Winrate. PF ${formatProfitFactor(bestRow.profitFactor)}.`
   return 'Erst verknüpfte Trades machen die Karte scharf.'
 }
 
@@ -639,7 +652,7 @@ function SetupPerformanceRowCard({ row }: { row: SetupPerformanceRow }) {
         </div>
 
         <div className="grid gap-5 sm:grid-cols-5 xl:min-w-[640px] xl:text-right">
-          <InlineMetric label="P&L" value={formatCurrency(row.netPnL)} valueClassName={pnlClass} />
+          <InlineMetric label="P&L" value={formatRowMoney(row.netPnL, row.trades, row.currency)} valueClassName={pnlClass} />
           <InlineMetric label="Winrate" value={row.trades > 0 ? `${row.winRate.toFixed(0)}%` : '—'} />
           <InlineMetric label="PF" value={row.trades > 0 ? formatProfitFactor(row.profitFactor) : '—'} />
           <InlineMetric label="Ø R" value={row.trades > 0 && row.riskCoverage > 0 ? `${row.averageR >= 0 ? '+' : ''}${row.averageR.toFixed(2)}R` : row.trades > 0 ? 'R offen' : '—'} />
@@ -710,7 +723,7 @@ function TimeWindowCard({ row }: { row: TimeWindowPerformanceRow }) {
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0">
           <p className="text-[10px] uppercase tracking-[0.28em] text-white/36">{row.label}</p>
-          <p className="mt-3 whitespace-nowrap text-3xl font-semibold tracking-tight tabular-nums text-white">{formatCurrency(row.netPnL)}</p>
+          <p className="mt-3 whitespace-nowrap text-3xl font-semibold tracking-tight tabular-nums text-white">{formatRowMoney(row.netPnL, row.trades, row.currency)}</p>
         </div>
         <div className="rounded-full border border-white/10 bg-black/16 px-3 py-1 text-xs text-white/60">
           {row.trades} Trades
@@ -724,7 +737,7 @@ function TimeWindowCard({ row }: { row: TimeWindowPerformanceRow }) {
   )
 }
 
-function DrawdownPhaseCard({ title, phase }: { title: string; phase: DrawdownPhase }) {
+function DrawdownPhaseCard({ title, phase, currency }: { title: string; phase: DrawdownPhase; currency: string | null }) {
   const toneClass = phase.status === 'open'
     ? 'border-red-400/18 bg-red-400/8'
     : 'border-white/10 bg-black/25'
@@ -734,7 +747,7 @@ function DrawdownPhaseCard({ title, phase }: { title: string; phase: DrawdownPha
       <div className="flex items-start justify-between gap-3">
         <div>
           <p className="text-[10px] uppercase tracking-[0.28em] text-white/36">{title}</p>
-          <p className="mt-3 text-3xl font-semibold tracking-tight text-white">{formatDepthCurrency(phase.depth)}</p>
+          <p className="mt-3 text-3xl font-semibold tracking-tight text-white">{formatDepthCurrency(phase.depth, currency)}</p>
         </div>
         <div className="rounded-full border border-white/10 bg-black/16 px-3 py-1 text-xs text-white/60">
           {phase.status === 'open' ? 'offen' : 'erholt'}
@@ -830,7 +843,7 @@ function InsightBucketCard({ row }: { row: SessionPerformanceRow }) {
               {row.trades} Trades
             </span>
           </div>
-          <p className={`mt-3 whitespace-nowrap text-2xl font-semibold tracking-tight tabular-nums ${pnlClass}`}>{formatCurrency(row.netPnL)}</p>
+          <p className={`mt-3 whitespace-nowrap text-2xl font-semibold tracking-tight tabular-nums ${pnlClass}`}>{formatRowMoney(row.netPnL, row.trades, row.currency)}</p>
         </div>
 
         <div className="grid min-w-[210px] grid-cols-2 gap-5 text-right">

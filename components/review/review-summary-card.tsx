@@ -173,6 +173,8 @@ export function ReviewSummaryCard({
         tradeCount: snapshot.sessionDraft.tradeCount,
         visibleTradeCount: snapshot.sessionDraft.visibleTradeCount,
         netPnL: snapshot.sessionDraft.netPnL,
+        currency: snapshot.sessionDraft.currency,
+        monetaryScopeKind: snapshot.sessionDraft.monetaryScopeKind,
         averageR: snapshot.sessionDraft.averageR,
         winRate: snapshot.sessionDraft.winRate,
         winners: snapshot.sessionDraft.winners,
@@ -263,7 +265,7 @@ export function ReviewSummaryCard({
       <section className="rounded-3xl border border-white/10 bg-black/30 p-5">
         <p className="text-[10px] uppercase tracking-[0.24em] text-white/35">Heute / Woche / Verhalten</p>
         <div className="mt-4 grid gap-3 md:grid-cols-3">
-          <BulletCard title="Heute" body={actionPlan.checklist[0] ?? `P&L: ${formatCurrency(snapshot.sessionDraft.netPnL)}`} />
+          <BulletCard title="Heute" body={actionPlan.checklist[0] ?? `P&L: ${snapshot.sessionDraft.monetaryScopeKind === 'single' ? formatCurrency(snapshot.sessionDraft.netPnL, 0, snapshot.sessionDraft.currency) : 'Gesperrt'}`} />
           <BulletCard title="Woche" body={actionPlan.checklist[1] ?? warningSignal.title} />
           <BulletCard title="Verhalten" body={actionPlan.checklist[2] ?? actionPlan.dailyFocusSuggestion} />
         </div>
@@ -329,8 +331,8 @@ export function ReviewSummaryCard({
                         <p className="text-sm font-medium text-white">{session.title}</p>
                         <p className="mt-1 text-xs text-white/45">{session.periodLabel ?? session.createdAt} · {session.tradeCount} Trades</p>
                       </div>
-                      <span className={`rounded-full px-2.5 py-1 text-[11px] ${session.netPnL >= 0 ? 'border border-emerald-400/20 bg-emerald-400/10 text-emerald-200' : 'border border-red-400/20 bg-red-400/10 text-red-200'}`}>
-                        {formatCurrency(session.netPnL)}
+                      <span className={`rounded-full px-2.5 py-1 text-[11px] ${session.monetaryScopeKind !== 'single' ? 'border border-orange-400/20 bg-orange-400/10 text-orange-100' : session.netPnL >= 0 ? 'border border-emerald-400/20 bg-emerald-400/10 text-emerald-200' : 'border border-red-400/20 bg-red-400/10 text-red-200'}`}>
+                        {session.monetaryScopeKind === 'single' && session.currency ? formatCurrency(session.netPnL, 0, session.currency) : 'Gesperrt'}
                       </span>
                     </div>
                     <p className="mt-3 line-clamp-2 text-xs leading-5 text-white/55">{session.note || session.focusDescription || 'Ohne Notiz.'}</p>

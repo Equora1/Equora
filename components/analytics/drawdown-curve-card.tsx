@@ -2,6 +2,7 @@ import type { Trade } from '@/lib/types/trade'
 import { buildDrawdownSeries, chartFrame } from '@/lib/utils/chart-series'
 import { formatPlainNumber } from '@/lib/utils/calculations'
 import { getTradeTrustSummary } from '@/lib/utils/trade-trust'
+import { formatMoney, getMonetaryScopeMessage } from '@/lib/utils/currency'
 
 export function DrawdownCurveCard({ trades }: { trades: Trade[] }) {
   const series = buildDrawdownSeries(trades)
@@ -17,7 +18,7 @@ export function DrawdownCurveCard({ trades }: { trades: Trade[] }) {
           </p>
         </div>
         <div className="rounded-full border border-red-400/20 bg-red-400/10 px-3 py-1 text-xs text-red-200">
-          tiefste Delle {series.deepestValue.toFixed(0)} €
+          {series.monetaryScope.isComparable ? `tiefste Delle ${formatMoney(-series.deepestValue, series.monetaryScope.currency)}` : 'Geld-Auswertung gesperrt'}
         </div>
       </div>
 
@@ -36,7 +37,7 @@ export function DrawdownCurveCard({ trades }: { trades: Trade[] }) {
             ))}
           </svg>
         ) : (
-          <div className="flex h-full items-center justify-center text-sm text-white/40">Noch keine belastbaren Trades für eine Drawdown-Kurve vorhanden.</div>
+          <div className="flex h-full items-center justify-center px-6 text-center text-sm text-white/50">{getMonetaryScopeMessage(series.monetaryScope)}</div>
         )}
       </div>
     </div>

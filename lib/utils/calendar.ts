@@ -1,5 +1,6 @@
 import type { Trade } from '@/lib/types/trade'
 import { resolveTradeOccurredAt } from '@/lib/utils/trade-time'
+import { resolveMonetaryScope, type MonetaryScope } from '@/lib/utils/currency'
 
 export type CalendarDaySummary = {
   dateKey: string
@@ -8,6 +9,7 @@ export type CalendarDaySummary = {
   year: number
   tradeCount: number
   netPnL: number
+  monetaryScope: MonetaryScope
   setups: string[]
   markets: string[]
   openTradeCount: number
@@ -89,7 +91,11 @@ function isIncompleteTrade(trade: Trade) {
 }
 
 export function buildCalendarSummary(trades: Trade[]): CalendarDaySummary[] {
-  const grouped = trades.reduce<Record<string, CalendarDaySummary>>((acc, trade) => {
+  type MutableDaySummary = Omit<CalendarDaySummary, 'monetaryScope'> & {
+    monetaryCurrencies: Array<string | null | undefined>
+  }
+
+  const grouped = trades.reduce<Record<string, MutableDaySummary>>((acc, trade) => {
     const tradeDate = normalizeTradeDate(resolveTradeOccurredAt(trade))
     const year = tradeDate.getFullYear()
     const month = tradeDate.getMonth()
@@ -104,6 +110,7 @@ export function buildCalendarSummary(trades: Trade[]): CalendarDaySummary[] {
         year,
         tradeCount: 0,
         netPnL: 0,
+        monetaryCurrencies: [],
         setups: [],
         markets: [],
         openTradeCount: 0,
@@ -123,6 +130,9 @@ export function buildCalendarSummary(trades: Trade[]): CalendarDaySummary[] {
     const summary = acc[dateKey]
     summary.tradeCount += 1
     summary.netPnL += trade.netPnL ?? 0
+    if (trade.netPnL !== null && trade.netPnL !== undefined) {
+      summary.monetaryCurrencies.push(trade.accountCurrency)
+    }
     if (trade.setup) summary.setups.push(trade.setup)
     if (trade.market) summary.markets.push(trade.market)
     if (isOpenTrade(trade)) summary.openTradeCount += 1
@@ -155,8 +165,9 @@ export function buildCalendarSummary(trades: Trade[]): CalendarDaySummary[] {
   }, {})
 
   return Object.values(grouped)
-    .map((summary) => ({
+    .map(({ monetaryCurrencies, ...summary }) => ({
       ...summary,
+      monetaryScope: resolveMonetaryScope(monetaryCurrencies),
       setups: Array.from(new Set(summary.setups)).slice(0, 3),
       markets: Array.from(new Set(summary.markets)).slice(0, 4),
     }))

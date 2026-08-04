@@ -3,8 +3,11 @@ import type { TradeTag } from '@/lib/types/tag'
 import { formatCurrency, formatRMultiple } from '@/lib/utils/calculations'
 import { buildTagPairStats, buildTradesHref, clampNumber, getToneFromPnL, parseTagPair } from '@/lib/utils/review-helpers'
 import type { ReviewTagCombinationItem } from '@/lib/utils/review-types'
+import { getCoreMetrics } from '@/lib/utils/analytics'
 
 export function buildTagCombinations(tradesCurrent: Trade[], tradeTags: TradeTag[]): ReviewTagCombinationItem[] {
+  const currency = getCoreMetrics(tradesCurrent).currency
+  const money = (value: number) => formatCurrency(value, 0, currency)
   const pairs = buildTagPairStats(tradesCurrent, tradeTags).filter((pair) => pair.metrics.totalTrades > 0)
 
   if (!pairs.length) {
@@ -43,7 +46,7 @@ export function buildTagCombinations(tradesCurrent: Trade[], tradeTags: TradeTag
       ? {
           label: 'Beste Kombi',
           value: bestPair.pair,
-          detail: `${formatCurrency(bestPair.metrics.netPnL)} · ${clampNumber(bestPair.metrics.winRate)}% Win Rate in ${bestPair.metrics.totalTrades} Trades.`,
+          detail: `${money(bestPair.metrics.netPnL)} · ${clampNumber(bestPair.metrics.winRate)}% Win Rate in ${bestPair.metrics.totalTrades} Trades.`,
           tone: getToneFromPnL(bestPair.metrics.netPnL),
           href: buildTradesHref({ tags: parseTagPair(bestPair.pair), reviewFocus: `Review Drilldown · Beste Kombi: ${bestPair.pair}` }),
         }
@@ -52,7 +55,7 @@ export function buildTagCombinations(tradesCurrent: Trade[], tradeTags: TradeTag
       ? {
           label: 'Warn-Kombi',
           value: worstPair.pair,
-          detail: `${formatCurrency(worstPair.metrics.netPnL)} bei ${worstPair.metrics.totalTrades} Trades. Diese Paarung kippt aktuell zuverlässig rot.`,
+          detail: `${money(worstPair.metrics.netPnL)} bei ${worstPair.metrics.totalTrades} Trades. Diese Paarung kippt aktuell zuverlässig rot.`,
           tone: 'red',
           href: buildTradesHref({ tags: parseTagPair(worstPair.pair), outcome: 'Verlierer', reviewFocus: `Review Drilldown · Warn-Kombi: ${worstPair.pair}` }),
         }
@@ -77,4 +80,3 @@ export function buildTagCombinations(tradesCurrent: Trade[], tradeTags: TradeTag
       : null,
   ].filter(Boolean).slice(0, 4) as ReviewTagCombinationItem[]
 }
-

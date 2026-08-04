@@ -4,6 +4,8 @@ import { formatCurrency, formatPlainNumber } from '@/lib/utils/calculations'
 import { getDateKeyFromDate, normalizeTradeDate } from '@/lib/utils/calendar'
 import { resolveTradeOccurredAt } from '@/lib/utils/trade-time'
 import { getTrustedTrades } from '@/lib/utils/trade-trust'
+import { getCoreMetrics } from '@/lib/utils/analytics'
+import { getMonetaryScopeMessage, type MonetaryScope } from '@/lib/utils/currency'
 
 export const DAILY_NOTE_MOODS = [
   'Kontrolliert',
@@ -54,6 +56,7 @@ export type DailyNoteFlowSummary = {
   incompleteTrades: number
   totalTrades: number
   trustedPnL: number
+  monetaryScope: MonetaryScope
   averageR: number
   winCount: number
   lossCount: number
@@ -163,8 +166,9 @@ function getDominantValue(values: string[]) {
   return Object.entries(grouped).sort((left, right) => right[1] - left[1])[0]?.[0] ?? null
 }
 
-function buildHeadline(totalTrades: number, trustedPnL: number, trustedCoverage: number) {
+function buildHeadline(totalTrades: number, trustedPnL: number, trustedCoverage: number, monetaryScope: MonetaryScope) {
   if (totalTrades === 0) return 'Kein Handelstag, aber trotzdem ein wertvoller Tagesabschluss.'
+  if (!monetaryScope.isComparable && monetaryScope.kind !== 'empty') return 'Trades vorhanden, Geld-Auswertung wegen der Währungsdaten gesperrt.'
   if (trustedPnL > 0) return `${totalTrades} Trade${totalTrades === 1 ? '' : 's'} im Journal, grüner trusted Tag.`
   if (trustedPnL < 0) return `${totalTrades} Trade${totalTrades === 1 ? '' : 's'} im Journal, roter Tag mit Review-Material.`
   if (trustedCoverage < 100) return `${totalTrades} Capture${totalTrades === 1 ? '' : 's'} sind da, aber der Tag ist noch nicht komplett belastbar.`
@@ -200,8 +204,9 @@ function buildNoteStarter(input: {
   dominantSetup: string | null
   strongestEmotion: string | null
   incompleteTrades: number
+  monetaryScope: MonetaryScope
 }) {
-  const { totalTrades, trustedPnL, averageR, dominantSetup, strongestEmotion, incompleteTrades } = input
+  const { totalTrades, trustedPnL, averageR, dominantSetup, strongestEmotion, incompleteTrades, monetaryScope } = input
 
   if (totalTrades === 0) {
     return 'Heute kein Trade. Marktbeobachtung, Fokus und Disziplin trotzdem kurz festhalten.'
@@ -209,7 +214,9 @@ function buildNoteStarter(input: {
 
   const lines = [
     `Heute standen ${totalTrades} Trade${totalTrades === 1 ? '' : 's'} im Journal.${dominantSetup ? ` Das prägende Setup war ${dominantSetup}.` : ''}`,
-    `Belastbare P&L: ${formatCurrency(trustedPnL)}${Number.isFinite(averageR) ? ` bei Ø ${formatPlainNumber(averageR, 2)}R.` : '.'}`,
+    monetaryScope.isComparable
+      ? `Belastbare P&L: ${formatCurrency(trustedPnL, 0, monetaryScope.currency)}${Number.isFinite(averageR) ? ` bei Ø ${formatPlainNumber(averageR, 2)}R.` : '.'}`
+      : getMonetaryScopeMessage(monetaryScope),
     strongestEmotion ? `Emotional war der Tag vor allem ${strongestEmotion.toLowerCase()}.` : null,
     incompleteTrades > 0 ? `${incompleteTrades} Quick Capture${incompleteTrades === 1 ? '' : 's'} sollte${incompleteTrades === 1 ? '' : 'n'} noch vervollständigt werden.` : null,
     'Mein wichtigstes Learning:'
@@ -223,7 +230,8 @@ export function buildDailyNoteFlowSummary(trades: Trade[], dailyNotes: DailyNote
   const trustedTrades = getTrustedTrades(dayTrades)
   const existingNote = getDailyNoteByDate(dailyNotes, dateKey)
   const parsedExistingNote = parseDailyNoteStorage(existingNote?.note)
-  const trustedPnL = trustedTrades.reduce((sum, trade) => sum + (trade.netPnL ?? 0), 0)
+  const metrics = getCoreMetrics(trustedTrades)
+  const trustedPnL = metrics.netPnL
   const averageR = trustedTrades.length
     ? trustedTrades.reduce((sum, trade) => sum + (trade.rValue ?? 0), 0) / trustedTrades.length
     : 0
@@ -234,7 +242,7 @@ export function buildDailyNoteFlowSummary(trades: Trade[], dailyNotes: DailyNote
   const dominantSetup = getDominantValue(dayTrades.map((trade) => trade.setup))
   const strongestEmotion = getDominantValue(dayTrades.map((trade) => trade.emotion))
   const trustedCoverage = dayTrades.length ? Math.round((trustedTrades.length / dayTrades.length) * 100) : 0
-  const tone: DailyNoteFlowSummary['tone'] = trustedPnL > 0 ? 'emerald' : trustedPnL < 0 ? 'red' : 'orange'
+  const tone: DailyNoteFlowSummary['tone'] = metrics.monetaryScope.isComparable && trustedPnL > 0 ? 'emerald' : metrics.monetaryScope.isComparable && trustedPnL < 0 ? 'red' : 'orange'
 
   const prompts = [
     totalTradesLabel(dayTrades.length),
@@ -260,6 +268,7 @@ export function buildDailyNoteFlowSummary(trades: Trade[], dailyNotes: DailyNote
     incompleteTrades,
     totalTrades: dayTrades.length,
     trustedPnL,
+    monetaryScope: metrics.monetaryScope,
     averageR,
     winCount,
     lossCount,
@@ -267,10 +276,10 @@ export function buildDailyNoteFlowSummary(trades: Trade[], dailyNotes: DailyNote
     dominantSetup,
     strongestEmotion,
     tone,
-    headline: buildHeadline(dayTrades.length, trustedPnL, trustedCoverage),
+    headline: buildHeadline(dayTrades.length, trustedPnL, trustedCoverage, metrics.monetaryScope),
     copy: buildCopy(dayTrades.length, incompleteTrades, dominantSetup, strongestEmotion),
     titleSuggestion: existingNote?.title?.trim() || buildTitleSuggestion(dateKey, trustedPnL, dominantSetup),
-    noteStarter: parsedExistingNote.visibleNote || buildNoteStarter({ totalTrades: dayTrades.length, trustedPnL, averageR, dominantSetup, strongestEmotion, incompleteTrades }),
+    noteStarter: parsedExistingNote.visibleNote || buildNoteStarter({ totalTrades: dayTrades.length, trustedPnL, averageR, dominantSetup, strongestEmotion, incompleteTrades, monetaryScope: metrics.monetaryScope }),
     reviewHint:
       dayTrades.length === 0
         ? 'Auch ohne Trades lohnt sich eine Notiz, damit Kalender und Review echte Tageskontexte sehen.'

@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { createQuickTradeEntry, syncTradeMedia } from '@/app/actions/trades'
+import { requestUncommittedMediaCleanup } from '@/app/actions/media-cleanup'
 import { TradeTagSelector } from '@/components/trades/trade-tag-selector'
 import { SnippingAssistCard } from '@/components/trades/snipping-assist-dynamic'
 import { ChartUploadAdvanced } from '@/components/uploads/chart-upload-advanced'
@@ -165,16 +166,21 @@ export function QuickTradeForm({
       if (result.tradeId) setLastSavedTradeId(result.tradeId)
 
       if (pendingFiles.length && result.tradeId && result.mode === 'supabase') {
+        let uploaded: TradeMediaUploadInput[] = []
         try {
           setStatus('Screenshots werden in den Bucket geladen...')
-          const uploaded = await uploadTradeScreenshots(result.tradeId, pendingFiles)
+          uploaded = await uploadTradeScreenshots(result.tradeId, pendingFiles)
           const mediaResult = await syncTradeMedia(result.tradeId, normalizeMedia(uploaded))
           if (!mediaResult.success) {
+            await requestUncommittedMediaCleanup({ kind: 'trade', parentId: result.tradeId, storagePaths: uploaded.map((item) => item.storagePath) })
             setStatus(`${result.message} Screenshot-Sync hakt noch: ${mediaResult.message}`)
             return
           }
           setStatus(`${result.message} ${pendingFiles.length} Screenshot(s) angehängt.`)
         } catch (error) {
+          if (uploaded.length) {
+            await requestUncommittedMediaCleanup({ kind: 'trade', parentId: result.tradeId, storagePaths: uploaded.map((item) => item.storagePath) })
+          }
           setStatus(`${result.message} Screenshot-Upload hakt noch: ${error instanceof Error ? error.message : 'Unbekannter Fehler.'}`)
           return
         }

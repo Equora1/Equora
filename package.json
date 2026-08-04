@@ -1,6 +1,6 @@
 {
-  "name": "equora-starter-v57.60",
-  "version": "0.57.60",
+  "name": "equora-starter-v57.60.1",
+  "version": "0.57.60-1",
   "private": true,
   "scripts": {
     "dev": "next dev",
@@ -8,8 +8,10 @@
     "start": "next start",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
+    "test": "vitest run",
     "build:turbopack": "next build --turbopack",
-    "release:check": "node scripts/release-check.mjs"
+    "release:check": "node scripts/release-check.mjs",
+    "release:artifact": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-release-artifact.ps1"
   },
   "dependencies": {
     "@fontsource-variable/plus-jakarta-sans": "5.2.8",
@@ -27,21 +29,22 @@
     "@types/react": "19.2.14",
     "@types/react-dom": "19.2.3",
     "autoprefixer": "10.4.27",
-    "postcss": "8.5.18",
+    "postcss": "8.5.23",
     "tailwindcss": "3.4.19",
-    "typescript": "5.9.3"
+    "typescript": "5.9.3",
+    "vitest": "4.1.10"
   },
   "engines": {
     "node": ">=20.9.0 <26"
   },
   "overrides": {
     "next": {
-      "postcss": "8.5.18"
+      "postcss": "8.5.23"
     },
     "@supabase/realtime-js": {
       "ws": "8.21.0"
     },
     "sharp": "0.35.3",
-    "postcss": "8.5.18"
+    "postcss": "8.5.23"
   }
 }

@@ -19,6 +19,7 @@ export type TradeInstrumentType = 'stocks' | 'futures' | 'forex' | 'crypto' | 'c
 export type TradeCryptoMarketType = 'manual' | 'spot' | 'perps' | 'margin'
 export type TradeExecutionType = 'manual' | 'maker' | 'taker' | 'mixed'
 export type TradeFundingDirection = 'manual' | 'paid' | 'received' | 'flat'
+export type TradeCurrency = 'EUR' | 'USD' | 'GBP' | 'USDT' | 'USDC'
 export type TradeBrokerProfile =
   | 'manual'
   | 'ibkr-pro'
@@ -108,7 +109,7 @@ export type Trade = {
   accountLabel?: string | null
   accountTemplate?: TradeAccountTemplate
   marketTemplate?: TradeMarketTemplate
-  accountCurrency?: string | null
+  accountCurrency?: TradeCurrency | null
   positionSize?: number | null
   pointValue?: number | null
   instrumentType?: TradeInstrumentType
@@ -126,6 +127,7 @@ export type Trade = {
   isComplete?: boolean
   screenshotUrl?: string
   screenshotUrls?: string[]
+  screenshotItems?: Array<{ id: string; url: string }>
   screenshotCount?: number
   importPresetLabel?: string
   hasImportMeta?: boolean
@@ -153,6 +155,7 @@ export type TradeDetail = {
   reviewLesson?: string
   screenshotUrl?: string
   screenshotUrls?: string[]
+  screenshotItems?: Array<{ id: string; url: string }>
   screenshotCount?: number
   direction?: string
   riskReward?: string

@@ -6,6 +6,8 @@ export function buildTagStats(
   trades: Trade[],
   tradeTags: Array<{ trade_id: string; tag: string }>
 ): TagStat[] {
+  const monetaryScope = getCoreMetrics(trades).monetaryScope
+  if (monetaryScope.kind === 'mixed' || monetaryScope.kind === 'unknown') return []
   const grouped = tradeTags.reduce<Record<string, string[]>>((acc, item) => {
     ;(acc[item.tag] ||= []).push(item.trade_id)
     return acc
@@ -21,6 +23,7 @@ export function buildTagStats(
         winRate: metrics.winRate,
         avgR: metrics.averageR,
         netPnL: metrics.netPnL,
+        currency: metrics.currency,
         profitFactor: metrics.profitFactor,
       }
     })

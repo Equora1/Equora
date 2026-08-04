@@ -4,7 +4,6 @@ import { revalidatePath } from 'next/cache'
 import { isEquoraAdminUser } from '@/lib/server/admin'
 import { createSupabaseAuthServerClient } from '@/lib/supabase/server-auth'
 import { hasSupabaseClientEnv } from '@/lib/supabase/config'
-import type { SetupSuggestionRow } from '@/lib/types/db'
 import type { CreateSetupSuggestionInput, SetupSuggestionStatus } from '@/lib/types/setup-suggestion'
 
 function splitLines(value: string | undefined) {
@@ -132,71 +131,18 @@ export async function promoteSetupSuggestionToMaster(input: { suggestionId: stri
       return { success: false, message: 'Nur Admins können Vorschläge übernehmen.' }
     }
 
-    const { data: suggestionData, error: suggestionError } = await supabase
-      .from('setup_suggestions')
-      .select('*')
-      .eq('id', input.suggestionId)
-      .single()
-
-    if (suggestionError || !suggestionData) {
-      return { success: false, message: 'Vorschlag konnte nicht geladen werden.' }
-    }
-
-    const suggestion = suggestionData as SetupSuggestionRow
-    const title = suggestion.title?.trim()
-    if (!title) return { success: false, message: 'Vorschlag hat keinen Namen.' }
-
-    const now = new Date().toISOString()
-    const { data: lastSetup } = await supabase
-      .from('setups')
-      .select('sort_order')
-      .eq('user_id', user?.id)
-      .order('sort_order', { ascending: false })
-      .limit(1)
-      .maybeSingle()
-
-    const sortOrder = ((lastSetup as { sort_order?: number | null } | null)?.sort_order ?? -1) + 1
-
-    const { error: insertError } = await supabase.from('setups').insert({
-      id: crypto.randomUUID(),
-      user_id: user?.id,
-      created_at: now,
-      updated_at: now,
-      title,
-      category: suggestion.category?.trim() || 'Community',
-      description: suggestion.description?.trim() || null,
-      entry: suggestion.entry?.trim() || null,
-      exit: suggestion.exit?.trim() || null,
-      invalidation: suggestion.invalidation?.trim() || null,
-      playbook: null,
-      checklist: suggestion.checklist ?? [],
-      mistakes: suggestion.mistakes ?? [],
-      cover_image_url: null,
-      sort_order: sortOrder,
-      is_archived: false,
-      is_master: true,
+    const { error: acceptError } = await supabase.rpc('equora_accept_setup_suggestion_v1', {
+      p_suggestion_id: input.suggestionId,
+      p_admin_note: input.adminNote?.trim() || null,
     })
 
-    if (insertError) {
-      const normalized = insertError.message.toLowerCase()
+    if (acceptError) {
+      const normalized = acceptError.message.toLowerCase()
       if (normalized.includes('is_master')) {
         return { success: false, message: 'Die Master-Setup-Struktur fehlt noch. Bitte Setup-Patches bis v57.01 ausführen.' }
       }
-      return { success: false, message: 'Setup konnte nicht übernommen werden.' }
+      return { success: false, message: 'Vorschlag und Setup konnten nicht atomar übernommen werden.' }
     }
-
-    const { error: updateError } = await supabase
-      .from('setup_suggestions')
-      .update({
-        status: 'accepted',
-        admin_note: input.adminNote?.trim() || 'Als Master-Setup übernommen.',
-        reviewed_at: now,
-        reviewed_by: user?.email ?? null,
-        updated_at: now,
-      })
-      .eq('id', input.suggestionId)
-
-    if (updateError) return { success: false, message: 'Setup wurde übernommen, der Vorschlagsstatus aber nicht aktualisiert.' }
 
     revalidateSetupSuggestionSurfaces()
     revalidatePath('/trades')

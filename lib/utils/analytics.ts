@@ -9,6 +9,7 @@ import {
   parseR,
 } from '@/lib/utils/calculations'
 import { deriveTradeKillZoneLabel, deriveTradeSessionLabel, getTradeHourInTimezone, resolveTradeOccurredAt } from '@/lib/utils/trade-time'
+import { resolveMonetaryScope, type MonetaryScope } from '@/lib/utils/currency'
 
 export type TimeWindowPerformanceRow = {
   key: string
@@ -19,6 +20,7 @@ export type TimeWindowPerformanceRow = {
   averageR: number | null
   rCount: number
   tone: 'green' | 'red' | 'neutral'
+  currency: MonetaryScope['currency']
 }
 
 export type TimeWindowPerformance = {
@@ -27,6 +29,7 @@ export type TimeWindowPerformance = {
   missingTrades: number
   bestWindow: TimeWindowPerformanceRow | null
   weakestWindow: TimeWindowPerformanceRow | null
+  monetaryScope: MonetaryScope
 }
 
 export type SessionPerformanceRow = {
@@ -38,12 +41,14 @@ export type SessionPerformanceRow = {
   averageR: number | null
   rCount: number
   tone: 'green' | 'red' | 'neutral'
+  currency: MonetaryScope['currency']
 }
 
 export type SessionPerformance = {
   rows: SessionPerformanceRow[]
   bestRow: SessionPerformanceRow | null
   weakestRow: SessionPerformanceRow | null
+  monetaryScope: MonetaryScope
 }
 
 export type DrawdownPhase = {
@@ -68,6 +73,7 @@ export type DrawdownProfile = {
   activePhase: DrawdownPhase | null
   deepestPhase: DrawdownPhase | null
   longestPhase: DrawdownPhase | null
+  monetaryScope: MonetaryScope
 }
 
 export type StreakTodayStatus = 'win' | 'loss' | 'breakeven' | 'open' | 'no-trade'
@@ -103,6 +109,10 @@ function getTradePnL(trade: Trade): number | null {
 
 function getTradesWithResolvedPnL(trades: Trade[]) {
   return trades.filter((trade) => getTradePnL(trade) !== null)
+}
+
+function resolvePnLCurrencyScope(trades: Trade[]) {
+  return resolveMonetaryScope(getTradesWithResolvedPnL(trades).map((trade) => trade.accountCurrency))
 }
 
 function getTradeRValue(trade: Trade): number {
@@ -213,7 +223,10 @@ function getDayDifference(startAt: string, endAt: string) {
 
 export function buildDrawdownProfile(trades: Trade[]): DrawdownProfile {
   const phases: DrawdownPhase[] = []
-  const chronologicalTrades = sortTradesChronologically(getTradesWithResolvedPnL(trades))
+  const monetaryScope = resolvePnLCurrencyScope(trades)
+  const chronologicalTrades = monetaryScope.isComparable
+    ? sortTradesChronologically(getTradesWithResolvedPnL(trades))
+    : []
 
   let cumulative = 0
   let peak = 0
@@ -280,6 +293,7 @@ export function buildDrawdownProfile(trades: Trade[]): DrawdownProfile {
     activePhase: phases.find((phase) => phase.status === 'open') ?? null,
     deepestPhase,
     longestPhase,
+    monetaryScope,
   }
 }
 
@@ -292,25 +306,30 @@ export function getLosingTrades(trades: Trade[]) {
 }
 
 export function getGrossProfit(trades: Trade[]) {
-  return getWinningTrades(trades).reduce((sum, trade) => sum + (getTradePnL(trade) ?? 0), 0)
+  return resolvePnLCurrencyScope(trades).isComparable
+    ? getWinningTrades(trades).reduce((sum, trade) => sum + (getTradePnL(trade) ?? 0), 0)
+    : 0
 }
 
 export function getGrossLoss(trades: Trade[]) {
-  return getLosingTrades(trades).reduce((sum, trade) => sum + (getTradePnL(trade) ?? 0), 0)
+  return resolvePnLCurrencyScope(trades).isComparable
+    ? getLosingTrades(trades).reduce((sum, trade) => sum + (getTradePnL(trade) ?? 0), 0)
+    : 0
 }
 
 export function getCoreMetrics(trades: Trade[]) {
   const resolvedTrades = getTradesWithResolvedPnL(trades)
+  const monetaryScope = resolvePnLCurrencyScope(trades)
   const winners = getWinningTrades(resolvedTrades)
   const losers = getLosingTrades(resolvedTrades)
   const breakeven = resolvedTrades.length - winners.length - losers.length
-  const grossProfit = getGrossProfit(trades)
-  const grossLoss = getGrossLoss(trades)
+  const grossProfit = monetaryScope.isComparable ? getGrossProfit(trades) : 0
+  const grossLoss = monetaryScope.isComparable ? getGrossLoss(trades) : 0
   const netPnL = grossProfit + grossLoss
   const averageR = calculateAverageR(trades.map((trade) => getTradeRValue(trade)))
-  const avgWinner = winners.length ? grossProfit / winners.length : 0
-  const avgLoser = losers.length ? grossLoss / losers.length : 0
-  const expectancy = resolvedTrades.length ? netPnL / resolvedTrades.length : 0
+  const avgWinner = monetaryScope.isComparable && winners.length ? grossProfit / winners.length : 0
+  const avgLoser = monetaryScope.isComparable && losers.length ? grossLoss / losers.length : 0
+  const expectancy = monetaryScope.isComparable && resolvedTrades.length ? netPnL / resolvedTrades.length : 0
   const expectancyR = trades.length ? trades.reduce((sum, trade) => sum + getTradeRValue(trade), 0) / trades.length : 0
 
   return {
@@ -320,7 +339,7 @@ export function getCoreMetrics(trades: Trade[]) {
     breakeven,
     winRate: calculateWinRate(resolvedTrades.length, winners.length),
     averageR,
-    profitFactor: calculateProfitFactor(grossProfit, grossLoss),
+    profitFactor: monetaryScope.isComparable ? calculateProfitFactor(grossProfit, grossLoss) : 0,
     netPnL,
     grossProfit,
     grossLoss,
@@ -329,9 +348,11 @@ export function getCoreMetrics(trades: Trade[]) {
     expectancy,
     expectancyR,
     maxDrawdown: calculateMaxDrawdown(trades),
-    largestWin: winners.length ? Math.max(...winners.map((trade) => getTradePnL(trade) ?? 0)) : 0,
-    largestLoss: losers.length ? Math.min(...losers.map((trade) => getTradePnL(trade) ?? 0)) : 0,
+    largestWin: monetaryScope.isComparable && winners.length ? Math.max(...winners.map((trade) => getTradePnL(trade) ?? 0)) : 0,
+    largestLoss: monetaryScope.isComparable && losers.length ? Math.min(...losers.map((trade) => getTradePnL(trade) ?? 0)) : 0,
     resolvedTrades: resolvedTrades.length,
+    monetaryScope,
+    currency: monetaryScope.currency,
     ...buildStreakMetrics(trades),
   }
 }
@@ -344,13 +365,15 @@ export function groupTradesBySetup(trades: Trade[]) {
 }
 
 export function buildConceptPerformance(trades: Trade[]) {
+  const monetaryScope = resolvePnLCurrencyScope(trades)
+  if (!monetaryScope.isComparable) return []
   const grouped = groupTradesBySetup(trades)
   return Object.entries(grouped).map(([setup, setupTrades]) => {
     const metrics = getCoreMetrics(setupTrades)
     return {
       concept: setup,
       winRate: `${metrics.winRate.toFixed(0)}%`,
-      pnl: formatCurrency(metrics.netPnL),
+      pnl: formatCurrency(metrics.netPnL, 0, monetaryScope.currency),
       avgR: formatRMultiple(metrics.averageR),
       tone: metrics.netPnL >= 0 ? ('green' as const) : ('red' as const),
     }
@@ -358,6 +381,7 @@ export function buildConceptPerformance(trades: Trade[]) {
 }
 
 export function findBestMarket(trades: Trade[]) {
+  if (!resolvePnLCurrencyScope(trades).isComparable) return undefined
   const grouped = trades.reduce<Record<string, number>>((accumulator, trade) => {
     accumulator[trade.market] = (accumulator[trade.market] || 0) + (getTradePnL(trade) ?? 0)
     return accumulator
@@ -383,6 +407,7 @@ export function findBestEmotion(trades: Trade[]) {
 
 
 export function buildTimeWindowPerformance(trades: Trade[]): TimeWindowPerformance {
+  const monetaryScope = resolvePnLCurrencyScope(trades)
   const rows = TIME_WINDOWS.map((window) => {
     const windowTrades = getTradesWithResolvedPnL(trades).filter((trade) => {
       const occurredAt = resolveTradeOccurredAt(trade)
@@ -401,18 +426,19 @@ export function buildTimeWindowPerformance(trades: Trade[]): TimeWindowPerforman
       label: window.label,
       trades: windowTrades.length,
       winRate: metrics.winRate,
-      netPnL: metrics.netPnL,
+      netPnL: monetaryScope.isComparable ? metrics.netPnL : 0,
       averageR,
       rCount,
-      tone: windowTrades.length === 0 ? 'neutral' as const : metrics.netPnL > 0 ? 'green' as const : metrics.netPnL < 0 ? 'red' as const : 'neutral' as const,
+      tone: !monetaryScope.isComparable || windowTrades.length === 0 ? 'neutral' as const : metrics.netPnL > 0 ? 'green' as const : metrics.netPnL < 0 ? 'red' as const : 'neutral' as const,
+      currency: monetaryScope.currency,
     }
   })
 
   const coveredTrades = rows.reduce((sum, row) => sum + row.trades, 0)
   const missingTrades = Math.max(0, getTradesWithResolvedPnL(trades).length - coveredTrades)
   const populatedRows = rows.filter((row) => row.trades > 0)
-  const bestWindow = populatedRows.length ? [...populatedRows].sort((a, b) => b.netPnL - a.netPnL || b.winRate - a.winRate)[0] : null
-  const weakestWindow = populatedRows.length ? [...populatedRows].sort((a, b) => a.netPnL - b.netPnL || a.winRate - b.winRate)[0] : null
+  const bestWindow = monetaryScope.isComparable && populatedRows.length ? [...populatedRows].sort((a, b) => b.netPnL - a.netPnL || b.winRate - a.winRate)[0] : null
+  const weakestWindow = monetaryScope.isComparable && populatedRows.length ? [...populatedRows].sort((a, b) => a.netPnL - b.netPnL || a.winRate - b.winRate)[0] : null
 
   return {
     rows,
@@ -420,11 +446,13 @@ export function buildTimeWindowPerformance(trades: Trade[]): TimeWindowPerforman
     missingTrades,
     bestWindow,
     weakestWindow,
+    monetaryScope,
   }
 }
 
 
 function buildLabelPerformance(trades: Trade[], labels: string[], getLabel: (trade: Trade) => string): SessionPerformance {
+  const monetaryScope = resolvePnLCurrencyScope(trades)
   const rows = labels.map((label) => {
     const bucketTrades = getTradesWithResolvedPnL(trades).filter((trade) => getLabel(trade) === label)
     const metrics = getCoreMetrics(bucketTrades)
@@ -435,21 +463,23 @@ function buildLabelPerformance(trades: Trade[], labels: string[], getLabel: (tra
       label,
       trades: bucketTrades.length,
       winRate: metrics.winRate,
-      netPnL: metrics.netPnL,
+      netPnL: monetaryScope.isComparable ? metrics.netPnL : 0,
       averageR,
       rCount,
-      tone: bucketTrades.length === 0 ? 'neutral' as const : metrics.netPnL > 0 ? 'green' as const : metrics.netPnL < 0 ? 'red' as const : 'neutral' as const,
+      tone: !monetaryScope.isComparable || bucketTrades.length === 0 ? 'neutral' as const : metrics.netPnL > 0 ? 'green' as const : metrics.netPnL < 0 ? 'red' as const : 'neutral' as const,
+      currency: monetaryScope.currency,
     }
   })
 
   const populatedRows = rows.filter((row) => row.trades > 0)
-  const bestRow = populatedRows.length ? [...populatedRows].sort((a, b) => b.netPnL - a.netPnL || b.winRate - a.winRate)[0] : null
-  const weakestRow = populatedRows.length ? [...populatedRows].sort((a, b) => a.netPnL - b.netPnL || a.winRate - b.winRate)[0] : null
+  const bestRow = monetaryScope.isComparable && populatedRows.length ? [...populatedRows].sort((a, b) => b.netPnL - a.netPnL || b.winRate - a.winRate)[0] : null
+  const weakestRow = monetaryScope.isComparable && populatedRows.length ? [...populatedRows].sort((a, b) => a.netPnL - b.netPnL || a.winRate - b.winRate)[0] : null
 
   return {
     rows,
     bestRow,
     weakestRow,
+    monetaryScope,
   }
 }
 

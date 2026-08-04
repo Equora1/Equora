@@ -1,5 +1,6 @@
 import { FuturisticCard } from '@/components/ui/futuristic-card'
 import type { TagStat } from '@/lib/types/tag'
+import { formatMoney } from '@/lib/utils/currency'
 
 export function TagInsights({ rows }: { rows: TagStat[] }) {
   const hasComparison = rows.length > 1
@@ -30,7 +31,7 @@ export function TagInsights({ rows }: { rows: TagStat[] }) {
                 </p>
               </div>
               <span className={rows[0].netPnL >= 0 ? 'text-emerald-300' : 'text-red-300'}>
-                {rows[0].netPnL >= 0 ? '+' : ''}{rows[0].netPnL.toFixed(0)} €
+                {rows[0].currency ? formatMoney(rows[0].netPnL, rows[0].currency) : '—'}
               </span>
             </div>
           </div>
@@ -52,7 +53,7 @@ export function TagInsights({ rows }: { rows: TagStat[] }) {
                   </p>
                 </div>
                 <span className={row.netPnL >= 0 ? 'text-emerald-300' : 'text-red-300'}>
-                  {row.netPnL >= 0 ? '+' : ''}{row.netPnL.toFixed(0)} €
+                  {row.currency ? formatMoney(row.netPnL, row.currency) : '—'}
                 </span>
               </div>
             </div>

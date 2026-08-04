@@ -6,9 +6,9 @@ import { isEquoraAdminUser } from '@/lib/server/admin'
 import { hasSupabaseClientEnv } from '@/lib/supabase/config'
 import type { SetupMediaRow, SetupRow, SetupTradeLinkRow } from '@/lib/types/db'
 import type { SaveSetupInput, SavedSetup, SavedSetupMedia } from '@/lib/types/setup'
-
-const MEDIA_BUCKET = 'equora-media'
-
+import { signSetupMediaRows } from '@/lib/server/media-access'
+import { processMediaCleanupForPaths } from '@/lib/server/media-cleanup'
+import { assertOwnedSetupMediaPath } from '@/lib/utils/media-security'
 
 function mapSetupPersistenceError(message: string) {
   const normalized = message.toLowerCase()
@@ -54,12 +54,12 @@ function normalizeSetupMediaInput(media: SavedSetupMedia[] | undefined) {
   const items = Array.from(
     new Map(
       (media ?? [])
-        .filter((item) => item.publicUrl?.trim() && item.storagePath?.trim())
+        .filter((item) => item.storagePath?.trim())
         .map((item, index) => [
           item.storagePath,
           {
             storagePath: item.storagePath.trim(),
-            publicUrl: item.publicUrl.trim(),
+            publicUrl: '',
             fileName: item.fileName?.trim() || null,
             mimeType: item.mimeType?.trim() || null,
             byteSize: typeof item.byteSize === 'number' ? item.byteSize : null,
@@ -148,7 +148,8 @@ async function fetchSetupWithMedia(supabase: Awaited<ReturnType<typeof createSup
       .order('created_at', { ascending: true }),
   ])
 
-  return buildSavedSetup(setupRow as SetupRow, (mediaRows ?? []) as SetupMediaRow[], (linkRows ?? []) as SetupTradeLinkRow[])
+  const signedMediaRows = await signSetupMediaRows(supabase, (mediaRows ?? []) as SetupMediaRow[], userId)
+  return buildSavedSetup(setupRow as SetupRow, signedMediaRows, (linkRows ?? []) as SetupTradeLinkRow[])
 }
 
 export async function saveSetupEntry(input: SaveSetupInput) {
@@ -184,11 +185,22 @@ export async function saveSetupEntry(input: SaveSetupInput) {
     const normalizedMistakes = normalizeTextArray(input.mistakes)
     const normalizedLinkedTradeIds = Array.from(new Set((input.linkedTradeIds ?? []).map((value) => value.trim()).filter(Boolean)))
     const normalizedMedia = normalizeSetupMediaInput(input.media)
-    const coverImageUrl = normalizedMedia.find((item) => item.isCover)?.publicUrl ?? null
     const now = new Date().toISOString()
 
+    const setupId = input.id?.trim() || crypto.randomUUID()
+    const { data: existingSetup, error: existingSetupError } = await supabase
+      .from('setups')
+      .select('id')
+      .eq('id', setupId)
+      .eq('user_id', user.id)
+      .maybeSingle()
+    if (existingSetupError) {
+      return { success: false, mode: 'supabase' as const, message: 'Der bestehende Setup-Status konnte nicht sicher geprüft werden.' }
+    }
+    const isUpdate = Boolean(existingSetup)
+
     let sortOrder = typeof input.sortOrder === 'number' && Number.isFinite(input.sortOrder) ? input.sortOrder : 0
-    if (!input.id) {
+    if (!isUpdate) {
       const { data: lastSetup } = await supabase
         .from('setups')
         .select('sort_order')
@@ -210,97 +222,55 @@ export async function saveSetupEntry(input: SaveSetupInput) {
       playbook: input.playbook?.trim() || null,
       checklist: normalizedChecklist,
       mistakes: normalizedMistakes,
-      cover_image_url: coverImageUrl,
+      cover_image_url: null,
       is_archived: Boolean(input.isArchived),
       sort_order: sortOrder,
       updated_at: now,
       ...(input.isMaster !== undefined ? { is_master: wantsMasterSetup } : {}),
     }
 
-    const setupResponse = input.id?.trim()
-      ? await supabase.from('setups').update(payload).eq('id', input.id).eq('user_id', user.id).select('*').single()
-      : await supabase.from('setups').insert({ id: crypto.randomUUID(), created_at: now, ...payload }).select('*').single()
+    const { data: previousMediaRows } = isUpdate
+      ? await supabase.from('setup_media').select('storage_path').eq('setup_id', setupId).eq('user_id', user.id)
+      : { data: [] as Array<{ storage_path: string }> }
 
-    if (setupResponse.error || !setupResponse.data) {
-      return { success: false, mode: 'supabase' as const, message: `Setup konnte nicht gespeichert werden. ${mapSetupPersistenceError(setupResponse.error?.message ?? '')}`.trim() }
-    }
+    for (const item of normalizedMedia) assertOwnedSetupMediaPath(user.id, setupId, item.storagePath)
 
-    const setupId = (setupResponse.data as SetupRow).id
-
-    if (input.removedStoragePaths?.length) {
-      const removable = input.removedStoragePaths.filter(Boolean)
-      if (removable.length) await supabase.storage.from(MEDIA_BUCKET).remove(removable)
-    }
-
-    await supabase.from('setup_media').delete().eq('setup_id', setupId).eq('user_id', user.id)
-
-    if (normalizedMedia.length) {
-      const rows = normalizedMedia.map((item, index) => ({
-        id: crypto.randomUUID(),
-        setup_id: setupId,
-        user_id: user.id,
-        created_at: now,
-        storage_path: item.storagePath,
-        public_url: item.publicUrl,
-        file_name: item.fileName,
-        mime_type: item.mimeType,
-        byte_size: item.byteSize,
-        sort_order: index,
-        is_cover: item.isCover,
+    const { error: saveError } = await supabase.rpc('equora_save_setup_v1', {
+      p_setup_id: setupId,
+      p_setup: payload,
+      p_media: normalizedMedia.map((item) => ({
+        storagePath: item.storagePath,
+        fileName: item.fileName,
+        mimeType: item.mimeType,
+        byteSize: item.byteSize,
+        sortOrder: item.sortOrder,
+        isCover: item.isCover,
         caption: item.caption,
-        media_role: item.mediaRole,
-      }))
+        mediaRole: item.mediaRole,
+      })),
+      p_linked_trade_ids: normalizedLinkedTradeIds,
+      p_is_update: isUpdate,
+    })
 
-      const { error: mediaError } = await supabase.from('setup_media').insert(rows)
-      if (mediaError) {
-        return { success: false, mode: 'supabase' as const, message: `Setup-Medien konnten nicht gespeichert werden. ${mapSetupPersistenceError(mediaError.message)}` }
-      }
-
-      await supabase
-        .from('setups')
-        .update({ cover_image_url: normalizedMedia.find((item) => item.isCover)?.publicUrl ?? normalizedMedia[0]?.publicUrl ?? null, updated_at: now })
-        .eq('id', setupId)
-        .eq('user_id', user.id)
+    if (saveError) {
+      return { success: false, mode: 'supabase' as const, message: `Setup konnte nicht atomar gespeichert werden. ${mapSetupPersistenceError(saveError.message)}` }
     }
 
-    const { error: deleteLinkError } = await supabase.from('setup_trade_links').delete().eq('setup_id', setupId).eq('user_id', user.id)
-    if (deleteLinkError) {
-      return { success: false, mode: 'supabase' as const, message: `Trade-Verknüpfungen konnten nicht gespeichert werden. ${mapSetupPersistenceError(deleteLinkError.message)}` }
-    }
-
-    if (normalizedLinkedTradeIds.length) {
-      const { data: ownedTrades, error: ownedTradesError } = await supabase
-        .from('trades')
-        .select('id')
-        .eq('user_id', user.id)
-        .in('id', normalizedLinkedTradeIds)
-
-      if (ownedTradesError) {
-        return { success: false, mode: 'supabase' as const, message: `Trade-Verknüpfungen konnten nicht geprüft werden. ${ownedTradesError.message}` }
-      }
-
-      const ownedTradeIds = new Set(((ownedTrades ?? []) as Array<{ id: string }>).map((row) => row.id))
-      const rows = normalizedLinkedTradeIds
-        .filter((tradeId) => ownedTradeIds.has(tradeId))
-        .map((tradeId) => ({
-          id: crypto.randomUUID(),
-          setup_id: setupId,
-          trade_id: tradeId,
-          user_id: user.id,
-          created_at: now,
-        }))
-
-      if (rows.length) {
-        const { error: linkInsertError } = await supabase.from('setup_trade_links').insert(rows)
-        if (linkInsertError) {
-          return { success: false, mode: 'supabase' as const, message: `Trade-Verknüpfungen konnten nicht gespeichert werden. ${mapSetupPersistenceError(linkInsertError.message)}` }
-        }
-      }
-    }
+    const activePaths = new Set(normalizedMedia.map((item) => item.storagePath))
+    const obsoletePaths = ((previousMediaRows ?? []) as Array<{ storage_path: string }>)
+      .map((row) => row.storage_path)
+      .filter((path) => path && !activePaths.has(path))
+    const cleanup = await processMediaCleanupForPaths(obsoletePaths)
 
     const savedSetup = await fetchSetupWithMedia(supabase, setupId, user.id)
     revalidateSetupSurfaces()
-    return { success: true, mode: 'supabase' as const, setupId, setup: savedSetup, message: `Setup gespeichert: ${title}.` }
+    return {
+      success: true,
+      mode: 'supabase' as const,
+      setupId,
+      setup: savedSetup,
+      message: `Setup gespeichert: ${title}.${cleanup.pending ? ' Die Storage-Bereinigung läuft im Hintergrund weiter.' : ''}`,
+    }
   } catch (error) {
     return { success: false, mode: 'supabase' as const, message: `Setup konnte nicht gespeichert werden. ${mapSetupPersistenceError(error instanceof Error ? error.message : 'Unbekannter Fehler.')}` }
   }
@@ -323,15 +293,19 @@ export async function deleteSetupEntry(setupId: string) {
 
     if (!user) return { success: false, mode: 'supabase' as const, message: 'Bitte zuerst einloggen.' }
 
-    const { data: mediaRows } = await supabase.from('setup_media').select('storage_path').eq('setup_id', setupId).eq('user_id', user.id)
-    const storagePaths = ((mediaRows ?? []) as Array<{ storage_path: string | null }>).map((row) => row.storage_path).filter(Boolean) as string[]
-    if (storagePaths.length) await supabase.storage.from(MEDIA_BUCKET).remove(storagePaths)
-
-    const { error } = await supabase.from('setups').delete().eq('id', setupId).eq('user_id', user.id)
-    if (error) return { success: false, mode: 'supabase' as const, message: `Setup konnte nicht gelöscht werden. ${error.message}` }
+    const { data, error } = await supabase.rpc('equora_delete_setup_v1', { p_setup_id: setupId })
+    if (error) return { success: false, mode: 'supabase' as const, message: 'Setup konnte nicht atomar gelöscht werden.' }
+    const result = (data ?? {}) as { storagePaths?: string[]; alreadyAbsent?: boolean }
+    const cleanup = await processMediaCleanupForPaths(result.storagePaths ?? [])
 
     revalidateSetupSurfaces()
-    return { success: true, mode: 'supabase' as const, message: 'Setup gelöscht.' }
+    return {
+      success: true,
+      mode: 'supabase' as const,
+      message: result.alreadyAbsent
+        ? 'Setup war bereits gelöscht.'
+        : `Setup gelöscht.${cleanup.pending ? ' Die Storage-Bereinigung läuft im Hintergrund weiter.' : ''}`,
+    }
   } catch (error) {
     return { success: false, mode: 'supabase' as const, message: `Setup konnte nicht gelöscht werden. ${error instanceof Error ? error.message : 'Unbekannter Fehler.'}` }
   }

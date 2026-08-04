@@ -2,7 +2,7 @@ create extension if not exists pgcrypto;
 
 create table if not exists public.trades (
   id uuid primary key default gen_random_uuid(),
-  user_id uuid references auth.users (id) on delete cascade,
+  user_id uuid not null references auth.users (id) on delete cascade,
   created_at timestamptz not null default now(),
   market text not null,
   setup text not null,
@@ -36,6 +36,7 @@ create table if not exists public.trades (
   account_currency text,
   broker_profile text,
   account_template text,
+  account_label text,
   market_template text,
   crypto_market_type text,
   execution_type text,
@@ -71,7 +72,7 @@ create table if not exists public.trades (
 
 create table if not exists public.trade_import_batches (
   id uuid primary key default gen_random_uuid(),
-  user_id uuid references auth.users (id) on delete cascade,
+  user_id uuid not null references auth.users (id) on delete cascade,
   created_at timestamptz not null default now(),
   file_name text,
   preset_key text,
@@ -212,11 +213,18 @@ create table if not exists public.review_sessions (
   trade_count integer,
   visible_trade_count integer,
   net_pnl numeric,
+  currency text,
+  monetary_scope_kind text not null default 'unknown',
   average_r numeric,
   win_rate numeric,
   winners integer,
   losers integer,
   breakeven integer,
+  top_tags text[] not null default '{}'::text[],
+  best_trade_id uuid,
+  worst_trade_id uuid,
+  session_type text not null default 'spotlight',
+  session_status text not null default 'open',
   is_pinned boolean not null default false,
   status text,
   spotlight_title text,
@@ -278,6 +286,7 @@ create table if not exists public.shared_trade_submissions (
   shared_result text,
   shared_r_multiple numeric,
   shared_net_pnl numeric,
+  shared_currency text,
   shared_capture_status text,
   shared_capture_result text,
   shared_notes text,
@@ -394,16 +403,8 @@ create policy "users can read own broker connections" on public.broker_connectio
   for select using (auth.uid() = user_id);
 
 drop policy if exists "users can insert own broker connections" on public.broker_connections;
-create policy "users can insert own broker connections" on public.broker_connections
-  for insert with check (auth.uid() = user_id);
-
 drop policy if exists "users can update own broker connections" on public.broker_connections;
-create policy "users can update own broker connections" on public.broker_connections
-  for update using (auth.uid() = user_id) with check (auth.uid() = user_id);
-
 drop policy if exists "users can delete own broker connections" on public.broker_connections;
-create policy "users can delete own broker connections" on public.broker_connections
-  for delete using (auth.uid() = user_id);
 
 drop policy if exists "users can read own broker sync runs" on public.broker_sync_runs;
 create policy "users can read own broker sync runs" on public.broker_sync_runs
@@ -473,6 +474,7 @@ create index if not exists idx_user_cost_profiles_user_created_at on public.user
 create index if not exists idx_review_sessions_user_pinned_created_at on public.review_sessions (user_id, is_pinned desc, created_at desc);
 
 alter table public.trades enable row level security;
+alter table public.trade_import_batches enable row level security;
 alter table public.setups enable row level security;
 alter table public.trade_tags enable row level security;
 alter table public.trade_media enable row level security;
@@ -489,6 +491,9 @@ create policy "users can read own trades" on public.trades for select using (aut
 create policy "users can insert own trades" on public.trades for insert with check (auth.uid() = user_id);
 create policy "users can update own trades" on public.trades for update using (auth.uid() = user_id);
 create policy "users can delete own trades" on public.trades for delete using (auth.uid() = user_id);
+
+create policy "users can read own trade import batches" on public.trade_import_batches
+  for select using (auth.uid() = user_id);
 
 create policy "users can read own setups" on public.setups for select using (auth.uid() = user_id or is_master = true);
 create policy "users can insert own setups" on public.setups for insert with check (auth.uid() = user_id and (is_master = false or public.is_equora_admin(auth.uid())));
@@ -511,7 +516,6 @@ create policy "users can update own daily notes" on public.daily_notes for updat
 create policy "users can delete own daily notes" on public.daily_notes for delete using (auth.uid() = user_id);
 
 create policy "users can read own review sessions" on public.review_sessions for select using (auth.uid() = user_id);
-create policy "users can insert own review sessions" on public.review_sessions for insert with check (auth.uid() = user_id);
 create policy "users can update own review sessions" on public.review_sessions for update using (auth.uid() = user_id);
 create policy "users can delete own review sessions" on public.review_sessions for delete using (auth.uid() = user_id);
 
@@ -523,9 +527,6 @@ create policy "admins can read setup suggestions" on public.setup_suggestions fo
 create policy "admins can update setup suggestions" on public.setup_suggestions for update using (public.is_equora_admin(auth.uid())) with check (public.is_equora_admin(auth.uid()));
 
 create policy "users can read own shared trade submissions" on public.shared_trade_submissions for select using (auth.uid() = user_id);
-create policy "users can insert own shared trade submissions" on public.shared_trade_submissions for insert with check (auth.uid() = user_id);
-create policy "users can update own shared trade submissions" on public.shared_trade_submissions for update using (auth.uid() = user_id) with check (auth.uid() = user_id);
-create policy "users can delete own shared trade submissions" on public.shared_trade_submissions for delete using (auth.uid() = user_id);
 create policy "admins can read shared trade submissions" on public.shared_trade_submissions for select using (public.is_equora_admin(auth.uid()));
 create policy "admins can update shared trade submissions" on public.shared_trade_submissions for update using (public.is_equora_admin(auth.uid())) with check (public.is_equora_admin(auth.uid()));
 create policy "authenticated users can read featured vault submissions" on public.shared_trade_submissions for select using (auth.uid() is not null and status = 'featured' and vault_opt_in = true);
@@ -574,47 +575,67 @@ insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_typ
 values (
   'equora-media',
   'equora-media',
-  true,
+  false,
   10485760,
   array['image/png', 'image/jpeg', 'image/webp']
 )
 on conflict (id) do update
-set public = excluded.public,
+set public = false,
     file_size_limit = excluded.file_size_limit,
     allowed_mime_types = excluded.allowed_mime_types;
 
-create policy "users can view equora media bucket objects"
-on storage.objects for select
-using (bucket_id = 'equora-media');
+drop policy if exists "users can view own equora media" on storage.objects;
+drop policy if exists "users can upload own equora media" on storage.objects;
+drop policy if exists "users can update own equora media" on storage.objects;
+drop policy if exists "users can delete own equora media" on storage.objects;
+
+create policy "users can view own equora media"
+on storage.objects for select to authenticated
+using (
+  bucket_id = 'equora-media'
+  and (storage.foldername(name))[1] = (select auth.uid()::text)
+);
 
 create policy "users can upload own equora media"
 on storage.objects for insert to authenticated
 with check (
   bucket_id = 'equora-media'
-  and (storage.foldername(name))[1] = auth.uid()::text
+  and (storage.foldername(name))[1] = (select auth.uid()::text)
 );
 
 create policy "users can update own equora media"
 on storage.objects for update to authenticated
 using (
   bucket_id = 'equora-media'
-  and (storage.foldername(name))[1] = auth.uid()::text
+  and (storage.foldername(name))[1] = (select auth.uid()::text)
 )
 with check (
   bucket_id = 'equora-media'
-  and (storage.foldername(name))[1] = auth.uid()::text
+  and (storage.foldername(name))[1] = (select auth.uid()::text)
 );
 
 create policy "users can delete own equora media"
 on storage.objects for delete to authenticated
 using (
   bucket_id = 'equora-media'
-  and (storage.foldername(name))[1] = auth.uid()::text
+  and (storage.foldername(name))[1] = (select auth.uid()::text)
 );
 
-create policy "users can read own setup trade links" on public.setup_trade_links for select using (auth.uid() = user_id);
-create policy "users can insert own setup trade links" on public.setup_trade_links for insert with check (auth.uid() = user_id);
-create policy "users can update own setup trade links" on public.setup_trade_links for update using (auth.uid() = user_id) with check (auth.uid() = user_id);
+create policy "users can read own setup trade links" on public.setup_trade_links for select using (
+  auth.uid() = user_id
+  and exists (select 1 from public.setups where id = setup_id and user_id = auth.uid())
+  and exists (select 1 from public.trades where id = trade_id and user_id = auth.uid())
+);
+create policy "users can insert own setup trade links" on public.setup_trade_links for insert with check (
+  auth.uid() = user_id
+  and exists (select 1 from public.setups where id = setup_id and user_id = auth.uid())
+  and exists (select 1 from public.trades where id = trade_id and user_id = auth.uid())
+);
+create policy "users can update own setup trade links" on public.setup_trade_links for update using (auth.uid() = user_id) with check (
+  auth.uid() = user_id
+  and exists (select 1 from public.setups where id = setup_id and user_id = auth.uid())
+  and exists (select 1 from public.trades where id = trade_id and user_id = auth.uid())
+);
 create policy "users can delete own setup trade links" on public.setup_trade_links for delete using (auth.uid() = user_id);
 
 -- v57.56 page-specific query indexes

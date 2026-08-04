@@ -92,7 +92,7 @@ export function SetupImageLightbox({
         )}
         aria-label={`${alt} in Großansicht öffnen`}
       >
-        <Image src={src} alt={alt} width={1280} height={720} sizes="(min-width: 1024px) 640px, 100vw" className={joinClasses('aspect-video w-full object-cover transition duration-300 group-hover:scale-[1.015]', imageClassName)} />
+        <Image unoptimized src={src} alt={alt} width={1280} height={720} sizes="(min-width: 1024px) 640px, 100vw" className={joinClasses('aspect-video w-full object-cover transition duration-300 group-hover:scale-[1.015]', imageClassName)} />
         <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent px-3 py-3 opacity-100 transition duration-200 md:opacity-0 md:group-hover:opacity-100">
           <div className="flex items-center justify-between gap-3 text-[11px] uppercase tracking-[0.18em] text-white/78">
             <span>{hint}</span>
@@ -129,7 +129,7 @@ export function SetupImageLightbox({
                 </p>
               </div>
               <div className="bg-[#040404] p-2 md:p-3">
-                <Image src={src} alt={alt} width={1920} height={1080} sizes="100vw" className={joinClasses('max-h-[96vh] w-full rounded-[1.65rem] object-contain', dialogImageClassName)} />
+                <Image unoptimized src={src} alt={alt} width={1920} height={1080} sizes="100vw" className={joinClasses('max-h-[96vh] w-full rounded-[1.65rem] object-contain', dialogImageClassName)} />
               </div>
             </div>
           </div>

@@ -130,7 +130,7 @@ export function SetupCard({ setup, coverImage, performance, isActive = false, on
           {performance && performance.trades > 0 ? (
             <>
               <div className="grid grid-cols-3 gap-2">
-                <CardMetric label="P&L" value={formatCurrency(performance.netPnL)} />
+                <CardMetric label="P&L" value={formatCurrency(performance.netPnL, 0, performance.currency)} />
                 <CardMetric label="WR" value={`${performance.winRate.toFixed(0)}%`} />
                 <CardMetric label="PF" value={performance.profitFactor === Infinity ? '∞' : performance.profitFactor.toFixed(2)} />
               </div>

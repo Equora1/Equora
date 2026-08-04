@@ -22,7 +22,7 @@ export function TradeImageGallery({ images, tradeId, source = 'mock' }: TradeIma
     return status.ok ? 'text-emerald-300' : 'text-red-300'
   }, [status])
 
-  function handleDelete(imageId: string, imageUrl: string) {
+  function handleDelete(imageId: string) {
     if (!tradeId || source === 'mock') {
       setStatus({ text: source === 'mock' ? 'Demo-Modus: Bilder werden hier nicht wirklich gelöscht.' : 'Trade-ID fehlt zum Löschen des Bildes.', ok: false })
       return
@@ -30,7 +30,7 @@ export function TradeImageGallery({ images, tradeId, source = 'mock' }: TradeIma
 
     startTransition(async () => {
       setPendingImageId(imageId)
-      const result = await removeTradeMediaItem(tradeId, imageUrl)
+      const result = await removeTradeMediaItem(tradeId, imageId)
       setPendingImageId(null)
       setStatus({ text: result.message, ok: result.success })
       if (result.success) {
@@ -64,7 +64,7 @@ export function TradeImageGallery({ images, tradeId, source = 'mock' }: TradeIma
                 {canDelete ? (
                   <button
                     type="button"
-                    onClick={() => handleDelete(image.id, image.image_url)}
+                    onClick={() => handleDelete(image.id)}
                     disabled={isPending}
                     aria-label={`Trade-Screenshot ${index + 1} löschen`}
                     className="absolute right-2 top-2 inline-flex h-8 w-8 items-center justify-center rounded-full border border-red-400/25 bg-black/70 text-red-100 transition hover:border-red-400/40 hover:bg-red-400/15 disabled:cursor-not-allowed disabled:opacity-60"

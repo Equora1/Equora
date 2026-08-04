@@ -2,7 +2,9 @@
 
 import { useEffect, useMemo, useRef, useState, useTransition, type ChangeEvent, type DragEvent } from 'react'
 import { deleteSetupEntry, saveSetupEntry } from '@/app/actions/setups'
+import { requestUncommittedMediaCleanup } from '@/app/actions/media-cleanup'
 import { uploadSetupImages } from '@/lib/supabase/storage'
+import { hasSupabaseClientEnv } from '@/lib/supabase/config'
 import type { SavedSetup, SavedSetupMedia, SetupImageRole } from '@/lib/types/setup'
 import type { Trade } from '@/lib/types/trade'
 import { SetupStudioToolbar } from '@/components/setups/setup-studio-toolbar'
@@ -378,71 +380,26 @@ export function SetupStudio({ initialSetups, initialTrades, source, canManageMas
   function handleSave() {
     startTransition(async () => {
       setStatus('Setup wird gespeichert …')
-      const persistedMedia = draft.media
-        .filter((item) => item.persisted && item.storagePath)
-        .map<SavedSetupMedia>((item, index) => ({
-          storagePath: item.storagePath,
-          publicUrl: item.publicUrl,
-          fileName: item.fileName,
-          mimeType: item.mimeType,
-          byteSize: item.byteSize,
-          sortOrder: index,
-          isCover: item.isCover,
-          caption: item.caption,
-          mediaRole: item.mediaRole,
-        }))
-
-      const firstSave = await saveSetupEntry({
-        id: draft.id,
-        title: draft.title,
-        category: draft.category,
-        description: draft.description,
-        entry: draft.entry,
-        exit: draft.exit,
-        invalidation: draft.invalidation,
-        playbook: draft.playbook,
-        checklist: textToArray(draft.checklist),
-        mistakes: textToArray(draft.mistakes),
-        isArchived: draft.isArchived,
-        isMaster: canManageMaster ? draft.isMaster : undefined,
-        sortOrder: draft.sortOrder,
-        media: persistedMedia,
-        removedStoragePaths,
-        linkedTradeIds: draft.linkedTradeIds,
-      })
-
-      if (!firstSave.success || !firstSave.setupId) {
-        setStatus(firstSave.message)
-        return
-      }
-
       const pendingItems = draft.media.filter((item) => !item.persisted && item.file)
-      if (pendingItems.length && firstSave.mode === 'supabase') {
-        try {
-          const uploaded = await uploadSetupImages(firstSave.setupId, pendingItems.map((item) => item.file as File))
-          let uploadIndex = 0
-          const combinedMedia = draft.media.map<SavedSetupMedia>((item, index) => {
-            if (!item.persisted && item.file) {
-              const uploadedItem = uploaded[uploadIndex++]
-              return {
-                storagePath: uploadedItem.storagePath,
-                publicUrl: uploadedItem.publicUrl,
-                fileName: uploadedItem.fileName,
-                mimeType: uploadedItem.mimeType,
-                byteSize: uploadedItem.byteSize,
-                sortOrder: index,
-                isCover: item.isCover,
-                caption: item.caption,
-                mediaRole: item.mediaRole,
-              }
-            }
+      const setupId = draft.id ?? crypto.randomUUID()
+      let uploaded: Awaited<ReturnType<typeof uploadSetupImages>> = []
 
+      try {
+        if (pendingItems.length && hasSupabaseClientEnv()) {
+          uploaded = await uploadSetupImages(setupId, pendingItems.map((item) => item.file as File))
+        }
+
+        let uploadIndex = 0
+        const combinedMedia = draft.media
+          .filter((item) => item.persisted || (hasSupabaseClientEnv() && item.file))
+          .map<SavedSetupMedia>((item, index) => {
+            const uploadedItem = !item.persisted && item.file ? uploaded[uploadIndex++] : null
             return {
-              storagePath: item.storagePath,
-              publicUrl: item.publicUrl,
-              fileName: item.fileName,
-              mimeType: item.mimeType,
-              byteSize: item.byteSize,
+              storagePath: uploadedItem?.storagePath ?? item.storagePath,
+              publicUrl: uploadedItem?.publicUrl ?? item.publicUrl,
+              fileName: uploadedItem?.fileName ?? item.fileName,
+              mimeType: uploadedItem?.mimeType ?? item.mimeType,
+              byteSize: uploadedItem?.byteSize ?? item.byteSize,
               sortOrder: index,
               isCover: item.isCover,
               caption: item.caption,
@@ -450,59 +407,51 @@ export function SetupStudio({ initialSetups, initialTrades, source, canManageMas
             }
           })
 
-          const secondSave = await saveSetupEntry({
-            id: firstSave.setupId,
-            title: draft.title,
-            category: draft.category,
-            description: draft.description,
-            entry: draft.entry,
-            exit: draft.exit,
-            invalidation: draft.invalidation,
-            playbook: draft.playbook,
-            checklist: textToArray(draft.checklist),
-            mistakes: textToArray(draft.mistakes),
-            isArchived: draft.isArchived,
-            isMaster: canManageMaster ? draft.isMaster : undefined,
-            sortOrder: draft.sortOrder,
-            media: combinedMedia,
-            removedStoragePaths: [],
-            linkedTradeIds: draft.linkedTradeIds,
-          })
+        const result = await saveSetupEntry({
+          id: hasSupabaseClientEnv() ? setupId : draft.id,
+          title: draft.title,
+          category: draft.category,
+          description: draft.description,
+          entry: draft.entry,
+          exit: draft.exit,
+          invalidation: draft.invalidation,
+          playbook: draft.playbook,
+          checklist: textToArray(draft.checklist),
+          mistakes: textToArray(draft.mistakes),
+          isArchived: draft.isArchived,
+          isMaster: canManageMaster ? draft.isMaster : undefined,
+          sortOrder: draft.sortOrder,
+          media: combinedMedia,
+          removedStoragePaths,
+          linkedTradeIds: draft.linkedTradeIds,
+        })
 
-          if (!secondSave.success || !secondSave.setup) {
-            setStatus(secondSave.message)
-            return
+        if (!result.success) {
+          if (uploaded.length) {
+            await requestUncommittedMediaCleanup({ kind: 'setup', parentId: setupId, storagePaths: uploaded.map((item) => item.storagePath) })
           }
-
-          setSetups((current) => {
-            const rest = current.filter((item) => item.id !== secondSave.setup?.id)
-            return [...rest, secondSave.setup]
-          })
-          setIsCreatingNew(false)
-          setStudioView(getStudioViewForSetup(secondSave.setup))
-          setSelectedId(secondSave.setup.id)
-          setDraft(buildDraft(secondSave.setup))
-          setRemovedStoragePaths([])
-          setStatus(secondSave.message)
-          return
-        } catch (error) {
-          setStatus(error instanceof Error ? error.message : 'Bild-Upload fehlgeschlagen.')
+          setStatus(result.message)
           return
         }
-      }
 
-      if (firstSave.setup) {
-        setSetups((current) => {
-          const rest = current.filter((item) => item.id !== firstSave.setup?.id)
-          return [...rest, firstSave.setup]
-        })
-        setIsCreatingNew(false)
-        setStudioView(getStudioViewForSetup(firstSave.setup))
-        setSelectedId(firstSave.setup.id)
-        setDraft(buildDraft(firstSave.setup))
-        setRemovedStoragePaths([])
+        if (result.setup) {
+          setSetups((current) => {
+            const rest = current.filter((item) => item.id !== result.setup?.id)
+            return [...rest, result.setup]
+          })
+          setIsCreatingNew(false)
+          setStudioView(getStudioViewForSetup(result.setup))
+          setSelectedId(result.setup.id)
+          setDraft(buildDraft(result.setup))
+          setRemovedStoragePaths([])
+        }
+        setStatus(result.message)
+      } catch (error) {
+        if (uploaded.length) {
+          await requestUncommittedMediaCleanup({ kind: 'setup', parentId: setupId, storagePaths: uploaded.map((item) => item.storagePath) })
+        }
+        setStatus(error instanceof Error ? error.message : 'Setup konnte nicht gespeichert werden.')
       }
-      setStatus(firstSave.message)
     })
   }
 

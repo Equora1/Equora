@@ -13,8 +13,8 @@ export function TodaySummaryCard({ trades, dailyNotes }: { trades: Trade[]; dail
   const metrics = getCoreMetrics(trustedToday)
   const documentedRCount = trustedToday.filter(hasDocumentedR).length
   const note = dailyNotes.find((entry) => toLocalDateKey(entry.trade_date) === todayKey)
-  const headline = buildTodayHeadline(todaysTrades.length, trustedToday.length, metrics.netPnL)
-  const closingLine = buildClosingLine(todaysTrades.length, trustedToday.length, metrics.netPnL)
+  const headline = buildTodayHeadline(todaysTrades.length, trustedToday.length, metrics.netPnL, metrics.monetaryScope.isComparable)
+  const closingLine = buildClosingLine(todaysTrades.length, trustedToday.length, metrics.netPnL, metrics.monetaryScope.isComparable)
   const reviewState = getReviewState(todaysTrades.length, note)
   const streak = buildStreakMetrics(getTrustedTrades(trades))
   const streakLine = buildStreakLine(streak.currentWinStreak, streak.currentLossStreak)
@@ -37,7 +37,7 @@ export function TodaySummaryCard({ trades, dailyNotes }: { trades: Trade[]; dail
           <TodayStat label="Trades" value={String(todaysTrades.length)} detail="heute" />
           <TodayStat
             label="P&L"
-            value={trustedToday.length ? formatCurrency(metrics.netPnL) : '—'}
+            value={trustedToday.length ? metrics.monetaryScope.isComparable ? formatCurrency(metrics.netPnL, 0, metrics.currency) : 'Gesperrt' : '—'}
             detail={trustedToday.length ? (documentedRCount ? `Ø ${formatRMultiple(metrics.averageR)}` : 'R offen') : 'offen'}
             tone={trustedToday.length ? (metrics.netPnL >= 0 ? 'green' : 'red') : 'neutral'}
           />
@@ -70,17 +70,19 @@ function hasDocumentedR(trade: Trade) {
   return typeof trade.r === 'string' ? trade.r.trim().length > 0 : trade.r !== null && trade.r !== undefined
 }
 
-function buildTodayHeadline(todayTrades: number, trustedTrades: number, netPnL: number) {
+function buildTodayHeadline(todayTrades: number, trustedTrades: number, netPnL: number, moneyComparable: boolean) {
   if (!todayTrades) return 'Kein Trade heute'
   if (!trustedTrades) return todayTrades === 1 ? '1 Trade offen' : `${todayTrades} Trades offen`
+  if (!moneyComparable) return 'Geld-Auswertung gesperrt'
   if (netPnL > 0) return 'Grüner Tag'
   if (netPnL < 0) return 'Roter Tag'
   return 'Neutraler Tag'
 }
 
-function buildClosingLine(todayTrades: number, trustedTrades: number, netPnL: number) {
+function buildClosingLine(todayTrades: number, trustedTrades: number, netPnL: number, moneyComparable: boolean) {
   if (!todayTrades) return 'Kein Trade heute. Plan abwarten.'
   if (!trustedTrades) return todayTrades === 1 ? '1 Trade offen. Abschluss ergänzen.' : `${todayTrades} Trades offen. Abschluss ergänzen.`
+  if (!moneyComparable) return 'Währungen fehlen oder sind gemischt. P&L wird nicht summiert.'
   if (netPnL > 0) return 'Grüner Tag. Prozess halten und sauber abschließen.'
   if (netPnL < 0) return 'Roter Tag. Kurz prüfen, Druck rausnehmen.'
   return 'Neutraler Tag. Regel prüfen, nicht nachjagen.'

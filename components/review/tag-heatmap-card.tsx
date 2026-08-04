@@ -1,4 +1,5 @@
 import Link from 'next/link'
+import { formatMoney, type TradeCurrency } from '@/lib/utils/currency'
 
 function toneClasses(tone: 'emerald' | 'red' | 'orange') {
   if (tone === 'emerald') return 'border-emerald-400/20 bg-emerald-400/10 text-emerald-200'
@@ -14,21 +15,11 @@ type HeatmapData = {
     tag: string
     tradeCount: number
     netPnL: number
+    currency: TradeCurrency | null
     intensity: number
     tone: 'emerald' | 'red' | 'orange'
     href?: string
   }[]
-}
-
-function formatPnL(value: number) {
-  const formatted = new Intl.NumberFormat('de-DE', {
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0,
-  }).format(Math.abs(value))
-
-  if (value > 0) return `+${formatted} €`
-  if (value < 0) return `-${formatted} €`
-  return '±0 €'
 }
 
 export function TagHeatmapCard({ data }: { data: HeatmapData }) {
@@ -82,7 +73,7 @@ export function TagHeatmapCard({ data }: { data: HeatmapData }) {
                         <span className="text-[11px] uppercase tracking-[0.16em] text-white/45">Trades</span>
                         <span className="text-base font-semibold text-white">{cell?.tradeCount ?? 0}</span>
                       </div>
-                      <p className="mt-3 text-sm text-white/85">{cell ? formatPnL(cell.netPnL) : '±0 €'}</p>
+                      <p className="mt-3 text-sm text-white/85">{cell?.currency ? formatMoney(cell.netPnL, cell.currency) : '—'}</p>
                       {cell?.href ? <p className="mt-3 text-xs uppercase tracking-[0.18em] text-white/35">Drilldown öffnen</p> : null}
                     </div>
                   )

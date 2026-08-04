@@ -89,7 +89,7 @@ export function ReviewRhythmCard({
             <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
               <MetricCard label="Trades" value={String(daySummary.totalTrades)} tone="text-white" />
               <MetricCard label="Belastbar" value={`${daySummary.trustedTrades.length}/${daySummary.totalTrades || 0}`} tone="text-emerald-300" />
-              <MetricCard label="P&L" value={formatCurrency(daySummary.trustedPnL)} tone={daySummary.trustedPnL >= 0 ? 'text-emerald-300' : daySummary.trustedPnL < 0 ? 'text-red-300' : 'text-white'} />
+              <MetricCard label="P&L" value={daySummary.monetaryScope.isComparable ? formatCurrency(daySummary.trustedPnL, 0, daySummary.monetaryScope.currency) : 'Gesperrt'} tone={daySummary.monetaryScope.isComparable && daySummary.trustedPnL >= 0 ? 'text-emerald-300' : daySummary.monetaryScope.isComparable && daySummary.trustedPnL < 0 ? 'text-red-300' : 'text-orange-100'} />
               <MetricCard label="Dominantes Setup" value={daySummary.dominantSetup ?? '—'} tone="text-orange-100/90" />
             </div>
           </WidePanel>
@@ -121,7 +121,7 @@ export function ReviewRhythmCard({
           <WidePanel eyebrow="Woche" title={weeklySnapshot.headline}>
             <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
               <MetricCard label="Trades" value={String(weeklySnapshot.sessionDraft.tradeCount)} tone="text-white" />
-              <MetricCard label="P&L" value={formatCurrency(weeklySnapshot.sessionDraft.netPnL)} tone={weeklySnapshot.sessionDraft.netPnL >= 0 ? 'text-emerald-300' : weeklySnapshot.sessionDraft.netPnL < 0 ? 'text-red-300' : 'text-white'} />
+              <MetricCard label="P&L" value={weeklySnapshot.sessionDraft.monetaryScopeKind === 'single' ? formatCurrency(weeklySnapshot.sessionDraft.netPnL, 0, weeklySnapshot.sessionDraft.currency) : 'Gesperrt'} tone={weeklySnapshot.sessionDraft.monetaryScopeKind === 'single' && weeklySnapshot.sessionDraft.netPnL >= 0 ? 'text-emerald-300' : weeklySnapshot.sessionDraft.monetaryScopeKind === 'single' && weeklySnapshot.sessionDraft.netPnL < 0 ? 'text-red-300' : 'text-orange-100'} />
               <MetricCard label="Winrate" value={`${formatPlainNumber(weeklySnapshot.sessionDraft.winRate, 0)}%`} tone="text-orange-100/90" />
               <MetricCard label="Ø R" value={`${formatPlainNumber(weeklySnapshot.sessionDraft.averageR, 2)}R`} tone={weeklySnapshot.sessionDraft.averageR >= 0 ? 'text-emerald-300' : 'text-red-300'} />
             </div>

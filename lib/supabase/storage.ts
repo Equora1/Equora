@@ -2,9 +2,12 @@ import { hasSupabaseClientEnv } from '@/lib/supabase/config'
 import { createSupabaseBrowserClient } from '@/lib/supabase/client'
 import { getSupabaseSetupImagePath, getSupabaseTradeScreenshotPath } from '@/lib/utils/storage-paths'
 import type { SetupMediaUploadInput, TradeMediaUploadInput } from '@/lib/types/media'
+import { EQUORA_MEDIA_BUCKET, EQUORA_MEDIA_SIGNED_URL_TTL_SECONDS } from '@/lib/utils/media-security'
+import { registerPendingMediaUploads, requestUncommittedMediaCleanup } from '@/app/actions/media-cleanup'
 
-const EQUORA_MEDIA_BUCKET = 'equora-media'
 const MAX_UPLOAD_FILE_BYTES = 10 * 1024 * 1024
+const MAX_MEDIA_PER_OPERATION = 12
+const ALLOWED_UPLOAD_MIME_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp'])
 
 function ensureStorageReady() {
   if (!hasSupabaseClientEnv()) {
@@ -13,10 +16,16 @@ function ensureStorageReady() {
 }
 
 function validateUploadFiles(files: File[]) {
+  if (files.length > MAX_MEDIA_PER_OPERATION) {
+    throw new Error(`Zu viele Dateien. Maximal ${MAX_MEDIA_PER_OPERATION} Medien pro Vorgang.`)
+  }
   for (const file of files) {
     if (!file) continue
     if (file.size > MAX_UPLOAD_FILE_BYTES) {
       throw new Error(`Datei zu groß: ${file.name}. Maximal 10 MB pro Upload.`)
+    }
+    if (!ALLOWED_UPLOAD_MIME_TYPES.has(file.type)) {
+      throw new Error(`Nicht unterstützter Dateityp: ${file.name}. Erlaubt sind PNG, JPEG und WebP.`)
     }
   }
 }
@@ -40,27 +49,38 @@ export async function uploadTradeScreenshots(tradeId: string, files: File[], sta
   validateUploadFiles(files)
   const user = await getAuthenticatedUser()
   const uploaded: TradeMediaUploadInput[] = []
+  const supabase = createSupabaseBrowserClient()
+  const uploadedPaths = files.map((file) => getSupabaseTradeScreenshotPath(user.id, tradeId, file.name))
 
-  for (const [index, file] of files.entries()) {
-    const path = getSupabaseTradeScreenshotPath(user.id, tradeId, file.name)
-    const { error } = await createSupabaseBrowserClient().storage.from(EQUORA_MEDIA_BUCKET).upload(path, file, {
-      cacheControl: '3600',
-      upsert: false,
-      contentType: file.type || undefined,
-    })
+  try {
+    const registration = await registerPendingMediaUploads({ kind: 'trade', parentId: tradeId, storagePaths: uploadedPaths })
+    if (!registration.success) throw new Error('Der sichere Upload-Intent konnte nicht registriert werden.')
+    for (const [index, file] of files.entries()) {
+      const path = uploadedPaths[index]
+      const { error } = await supabase.storage.from(EQUORA_MEDIA_BUCKET).upload(path, file, {
+        cacheControl: '0',
+        upsert: false,
+        contentType: file.type || undefined,
+      })
 
-    if (error) throw new Error(error.message)
-
-    const { data } = createSupabaseBrowserClient().storage.from(EQUORA_MEDIA_BUCKET).getPublicUrl(path)
-    uploaded.push({
-      storagePath: path,
-      publicUrl: data.publicUrl,
-      fileName: file.name,
-      mimeType: file.type || null,
-      byteSize: Number.isFinite(file.size) ? file.size : null,
-      sortOrder: startIndex + index,
-      isPrimary: startIndex + index === 0,
-    })
+      if (error) throw new Error(error.message)
+      const { data: signedData, error: signedError } = await supabase.storage
+        .from(EQUORA_MEDIA_BUCKET)
+        .createSignedUrl(path, EQUORA_MEDIA_SIGNED_URL_TTL_SECONDS)
+      if (signedError || !signedData?.signedUrl) throw new Error('Die private Bildvorschau konnte nicht erzeugt werden.')
+      uploaded.push({
+        storagePath: path,
+        publicUrl: signedData.signedUrl,
+        fileName: file.name,
+        mimeType: file.type || null,
+        byteSize: Number.isFinite(file.size) ? file.size : null,
+        sortOrder: startIndex + index,
+        isPrimary: startIndex + index === 0,
+      })
+    }
+  } catch (error) {
+    await requestUncommittedMediaCleanup({ kind: 'trade', parentId: tradeId, storagePaths: uploadedPaths })
+    throw error
   }
 
   return uploaded
@@ -71,44 +91,41 @@ export async function uploadSetupImages(setupId: string, files: File[], startInd
   validateUploadFiles(files)
   const user = await getAuthenticatedUser()
   const uploaded: SetupMediaUploadInput[] = []
+  const supabase = createSupabaseBrowserClient()
+  const uploadedPaths = files.map((file) => getSupabaseSetupImagePath(user.id, setupId, file.name))
 
-  for (const [index, file] of files.entries()) {
-    const path = getSupabaseSetupImagePath(user.id, setupId, file.name)
-    const { error } = await createSupabaseBrowserClient().storage.from(EQUORA_MEDIA_BUCKET).upload(path, file, {
-      cacheControl: '3600',
-      upsert: false,
-      contentType: file.type || undefined,
-    })
+  try {
+    const registration = await registerPendingMediaUploads({ kind: 'setup', parentId: setupId, storagePaths: uploadedPaths })
+    if (!registration.success) throw new Error('Der sichere Upload-Intent konnte nicht registriert werden.')
+    for (const [index, file] of files.entries()) {
+      const path = uploadedPaths[index]
+      const { error } = await supabase.storage.from(EQUORA_MEDIA_BUCKET).upload(path, file, {
+        cacheControl: '0',
+        upsert: false,
+        contentType: file.type || undefined,
+      })
 
-    if (error) throw new Error(error.message)
-
-    const { data } = createSupabaseBrowserClient().storage.from(EQUORA_MEDIA_BUCKET).getPublicUrl(path)
-    uploaded.push({
-      storagePath: path,
-      publicUrl: data.publicUrl,
-      fileName: file.name,
-      mimeType: file.type || null,
-      byteSize: Number.isFinite(file.size) ? file.size : null,
-      sortOrder: startIndex + index,
-      isCover: startIndex + index === 0,
-      caption: null,
-      mediaRole: 'example',
-    })
+      if (error) throw new Error(error.message)
+      const { data: signedData, error: signedError } = await supabase.storage
+        .from(EQUORA_MEDIA_BUCKET)
+        .createSignedUrl(path, EQUORA_MEDIA_SIGNED_URL_TTL_SECONDS)
+      if (signedError || !signedData?.signedUrl) throw new Error('Die private Bildvorschau konnte nicht erzeugt werden.')
+      uploaded.push({
+        storagePath: path,
+        publicUrl: signedData.signedUrl,
+        fileName: file.name,
+        mimeType: file.type || null,
+        byteSize: Number.isFinite(file.size) ? file.size : null,
+        sortOrder: startIndex + index,
+        isCover: startIndex + index === 0,
+        caption: null,
+        mediaRole: 'example',
+      })
+    }
+  } catch (error) {
+    await requestUncommittedMediaCleanup({ kind: 'setup', parentId: setupId, storagePaths: uploadedPaths })
+    throw error
   }
 
   return uploaded
-}
-
-export async function deleteTradeScreenshots(storagePaths: string[]) {
-  if (!storagePaths.length) return
-  ensureStorageReady()
-  const { error } = await createSupabaseBrowserClient().storage.from(EQUORA_MEDIA_BUCKET).remove(storagePaths)
-  if (error) throw new Error(error.message)
-}
-
-export async function deleteSetupImages(storagePaths: string[]) {
-  if (!storagePaths.length) return
-  ensureStorageReady()
-  const { error } = await createSupabaseBrowserClient().storage.from(EQUORA_MEDIA_BUCKET).remove(storagePaths)
-  if (error) throw new Error(error.message)
 }

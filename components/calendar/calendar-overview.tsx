@@ -12,6 +12,7 @@ import type { Trade } from '@/lib/types/trade'
 import { formatCurrency, formatPartialExitCoverageLabel, formatPlainNumber, getPartialExitPlanInfo } from '@/lib/utils/calculations'
 import { buildCalendarSummary, getDateKeyFromDate, normalizeTradeDate } from '@/lib/utils/calendar'
 import { resolveTradeOccurredAt } from '@/lib/utils/trade-time'
+import { getMonetaryScopeMessage, resolveMonetaryScope } from '@/lib/utils/currency'
 
 const monthNames = ['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember']
 
@@ -39,12 +40,22 @@ export function CalendarOverview({
     () => summaries.filter((item) => item.year === year && item.month === month),
     [summaries, year, month],
   )
-  const positiveDays = monthSummaries.filter((item) => item.netPnL > 0).length
-  const negativeDays = monthSummaries.filter((item) => item.netPnL < 0).length
+  const monthTrades = useMemo(() => trades.filter((trade) => {
+    const date = normalizeTradeDate(resolveTradeOccurredAt(trade))
+    return date.getFullYear() === year && date.getMonth() === month
+  }), [month, trades, year])
+  const monthMonetaryScope = useMemo(() => resolveMonetaryScope(
+    monthTrades.filter((trade) => trade.netPnL !== null && trade.netPnL !== undefined).map((trade) => trade.accountCurrency),
+  ), [monthTrades])
+  const positiveDays = monthSummaries.filter((item) => item.monetaryScope.isComparable && item.netPnL > 0).length
+  const negativeDays = monthSummaries.filter((item) => item.monetaryScope.isComparable && item.netPnL < 0).length
   const screenshotDays = monthSummaries.filter((item) => item.screenshotTradeCount > 0).length
   const riskDays = monthSummaries.filter((item) => item.riskTradeCount > 0).length
   const openTradesInMonth = monthSummaries.reduce((sum, item) => sum + item.openTradeCount, 0)
-  const strongestDay = monthSummaries.reduce((best, item) => (!best || item.netPnL > best.netPnL ? item : best), monthSummaries[0])
+  const comparableMonthSummaries = monthSummaries.filter((item) => item.monetaryScope.isComparable)
+  const strongestDay = monthMonetaryScope.isComparable
+    ? comparableMonthSummaries.reduce((best, item) => (!best || item.netPnL > best.netPnL ? item : best), comparableMonthSummaries[0])
+    : undefined
   const highestMonthRiskPercent = monthSummaries.reduce((best, item) => item.maxActualRiskPercent !== null && item.maxActualRiskPercent !== undefined ? Math.max(best, item.maxActualRiskPercent) : best, 0)
 
   useEffect(() => {
@@ -66,6 +77,11 @@ export function CalendarOverview({
     )
   }, [selectedDateKey, trades])
   const selectedNetPnL = selectedTrades.reduce((sum, trade) => sum + (trade.netPnL ?? 0), 0)
+  const selectedMonetaryScope = resolveMonetaryScope(
+    selectedTrades
+      .filter((trade) => trade.netPnL !== null && trade.netPnL !== undefined || trade.plannedRiskAmount || trade.riskAmount || trade.marginUsed)
+      .map((trade) => trade.accountCurrency),
+  )
   const selectedAvgR = selectedTrades.length
     ? selectedTrades.reduce((sum, trade) => sum + (trade.rValue ?? 0), 0) / selectedTrades.length
     : 0
@@ -148,7 +164,7 @@ export function CalendarOverview({
             <CalendarHighlightTile label="Aktive Tage" value={String(monthSummaries.length)} detail="mit Trade" icon="calendar" tone="orange" />
             <CalendarHighlightTile label="Offene Trades" value={String(openTradesInMonth)} detail="im Monat" icon="spark" tone="emerald" />
             <CalendarHighlightTile label="Risk-Tage" value={String(riskDays)} detail="mit Risiko" icon="focus" tone="orange" />
-            <CalendarHighlightTile label="Höchstes Kontorisiko" value={highestMonthRiskPercent ? `${formatPlainNumber(highestMonthRiskPercent, 2)}%` : '—'} detail={highestMonthRiskPercent ? 'maximal im sichtbaren Monat' : strongestDay ? `${String(strongestDay.day).padStart(2, '0')}. ${monthNames[strongestDay.month]} als stärkster Tag` : 'Noch kein Kontorisiko hinterlegt'} icon="cost" tone={highestMonthRiskPercent > 1 ? 'red' : 'orange'} />
+            <CalendarHighlightTile label="Höchstes Kontorisiko" value={highestMonthRiskPercent ? `${formatPlainNumber(highestMonthRiskPercent, 2)}%` : '—'} detail={highestMonthRiskPercent ? 'maximal im sichtbaren Monat' : strongestDay ? `${String(strongestDay.day).padStart(2, '0')}. ${monthNames[strongestDay.month]} als stärkster Tag` : monthMonetaryScope.kind === 'mixed' || monthMonetaryScope.kind === 'unknown' ? 'Stärkster Geld-Tag wegen Währungen gesperrt' : 'Noch kein Kontorisiko hinterlegt'} icon="cost" tone={highestMonthRiskPercent > 1 ? 'red' : 'orange'} />
           </div>
         </div>
       </FuturisticCard>
@@ -157,7 +173,7 @@ export function CalendarOverview({
         <CalendarGrid year={year} month={month} summaries={summaries} selectedDateKey={selectedDateKey} onSelectDay={setSelectedDateKey} />
       </FuturisticCard>
 
-      <FuturisticCard glow={selectedNetPnL > 0 ? 'emerald' : selectedNetPnL < 0 ? 'red' : 'none'} className="p-5">
+      <FuturisticCard glow={selectedMonetaryScope.isComparable && selectedNetPnL > 0 ? 'emerald' : selectedMonetaryScope.isComparable && selectedNetPnL < 0 ? 'red' : 'none'} className="p-5">
         <SectionHeader
           eyebrow="Tag"
           title={selectedSummary ? `${String(selectedSummary.day).padStart(2, '0')}. ${monthNames[selectedSummary.month]} ${selectedSummary.year}` : 'Kein Handelstag'}
@@ -205,7 +221,7 @@ export function CalendarOverview({
                       <MetricTile label="Asset" value={featuredTrade.market || '—'} tone="neutral" />
                       <MetricTile label="Session" value={featuredTrade.session || '—'} tone="neutral" />
                       <MetricTile label="Entry" value={featuredEntry !== undefined && featuredEntry !== null ? String(featuredEntry) : '—'} tone="neutral" />
-                      <MetricTile label={featuredPartialPlan?.count ? 'Ø Exit' : 'P&L'} value={featuredPartialPlan?.count && featuredPartialPlan.effectiveExit !== null ? formatPlainNumber(featuredPartialPlan.effectiveExit, 4) : featuredTrade.netPnL !== undefined && featuredTrade.netPnL !== null ? `${featuredTrade.netPnL >= 0 ? '+' : ''}${featuredTrade.netPnL.toFixed(2)} €` : '—'} tone={featuredPartialPlan?.count ? 'orange' : featuredTrade.netPnL === undefined || featuredTrade.netPnL === null ? 'neutral' : featuredTrade.netPnL >= 0 ? 'emerald' : 'red'} />
+                      <MetricTile label={featuredPartialPlan?.count ? 'Ø Exit' : 'P&L'} value={featuredPartialPlan?.count && featuredPartialPlan.effectiveExit !== null ? formatPlainNumber(featuredPartialPlan.effectiveExit, 4) : featuredTrade.netPnL !== undefined && featuredTrade.netPnL !== null ? formatCurrency(featuredTrade.netPnL, 2, featuredTrade.accountCurrency) : '—'} tone={featuredPartialPlan?.count ? 'orange' : featuredTrade.netPnL === undefined || featuredTrade.netPnL === null ? 'neutral' : featuredTrade.netPnL >= 0 ? 'emerald' : 'red'} />
                     </div>
                     <div className="mt-4 flex flex-wrap gap-2 text-xs text-white/55">
                       <span className="rounded-full border border-white/10 bg-white/[0.03] px-3 py-1.5">Konzept: {featuredTrade.concept || '—'}</span>
@@ -225,11 +241,12 @@ export function CalendarOverview({
             <div className="rounded-3xl border border-white/10 bg-black/25 p-5">
               <p className="text-[10px] uppercase tracking-[0.24em] text-white/35">Tag im Überblick</p>
               <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-                <MetricTile label="P&amp;L" value={`${selectedNetPnL >= 0 ? '+' : ''}${selectedNetPnL.toFixed(0)} €`} tone={selectedNetPnL >= 0 ? 'emerald' : 'red'} />
+                <MetricTile label="P&amp;L" value={selectedMonetaryScope.isComparable ? formatCurrency(selectedNetPnL, 0, selectedMonetaryScope.currency) : 'Gesperrt'} tone={selectedMonetaryScope.isComparable ? selectedNetPnL >= 0 ? 'emerald' : 'red' : 'neutral'} />
                 <MetricTile label="Ø R" value={`${selectedAvgR >= 0 ? '+' : ''}${selectedAvgR.toFixed(2)}R`} tone={selectedAvgR >= 0 ? 'emerald' : 'red'} />
                 <MetricTile label="Offen" value={String(selectedSummary.openTradeCount)} tone={selectedSummary.openTradeCount ? 'emerald' : 'neutral'} />
                 <MetricTile label="Bilder" value={String(selectedSummary.screenshotTradeCount)} tone={selectedSummary.screenshotTradeCount ? 'orange' : 'neutral'} />
               </div>
+              {!selectedMonetaryScope.isComparable && selectedMonetaryScope.kind !== 'empty' ? <p className="mt-3 text-xs leading-5 text-orange-100/80">{getMonetaryScopeMessage(selectedMonetaryScope)}</p> : null}
               <div className="mt-4 flex flex-wrap gap-2 text-xs text-white/58">
                 {selectedSetups.length ? selectedSetups.map((setup) => <span key={setup} className="rounded-full border border-white/10 bg-white/[0.03] px-3 py-1.5">{setup}</span>) : <span className="rounded-full border border-white/10 bg-white/[0.03] px-3 py-1.5">Kein Setup hinterlegt</span>}
               </div>
@@ -250,9 +267,9 @@ export function CalendarOverview({
               </div>
 
               <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-                <MetricTile label="Geplantes Risiko" value={selectedPlannedRisk ? formatCurrency(selectedPlannedRisk, 0) : '—'} tone={selectedPlannedRisk ? 'orange' : 'neutral'} />
-                <MetricTile label="Stop-Risiko" value={selectedStopRisk ? formatCurrency(selectedStopRisk, 0) : '—'} tone={selectedStopRisk ? 'red' : 'neutral'} />
-                <MetricTile label="Gebundene Margin" value={selectedMarginUsed ? formatCurrency(selectedMarginUsed, 0) : '—'} tone={selectedMarginUsed ? 'orange' : 'neutral'} />
+                <MetricTile label="Geplantes Risiko" value={selectedPlannedRisk ? selectedMonetaryScope.isComparable ? formatCurrency(selectedPlannedRisk, 0, selectedMonetaryScope.currency) : 'Gesperrt' : '—'} tone={selectedPlannedRisk && selectedMonetaryScope.isComparable ? 'orange' : 'neutral'} />
+                <MetricTile label="Stop-Risiko" value={selectedStopRisk ? selectedMonetaryScope.isComparable ? formatCurrency(selectedStopRisk, 0, selectedMonetaryScope.currency) : 'Gesperrt' : '—'} tone={selectedStopRisk && selectedMonetaryScope.isComparable ? 'red' : 'neutral'} />
+                <MetricTile label="Gebundene Margin" value={selectedMarginUsed ? selectedMonetaryScope.isComparable ? formatCurrency(selectedMarginUsed, 0, selectedMonetaryScope.currency) : 'Gesperrt' : '—'} tone={selectedMarginUsed && selectedMonetaryScope.isComparable ? 'orange' : 'neutral'} />
                 <MetricTile label="Höchster Hebel" value={selectedHighestLeverage ? `${formatPlainNumber(selectedHighestLeverage, 2)}x` : '—'} tone={selectedHighestLeverage > 1 ? 'orange' : 'neutral'} />
                 <MetricTile label="Kontorisiko" value={selectedRiskCoverageCount ? `${selectedRiskCoverageCount}/${selectedTrades.length} Trades mit Konto-Risiko` : 'Noch kein Kontorisiko'} tone={selectedRiskCoverageCount ? 'emerald' : 'neutral'} />
                 <MetricTile label="Max. Konto-Risiko" value={selectedHighestRiskPercent ? `${formatPlainNumber(selectedHighestRiskPercent, 2)}%` : '—'} tone={selectedHighestRiskPercent ? (selectedHighestRiskPercent > 1 ? 'red' : 'orange') : 'neutral'} />
@@ -261,7 +278,7 @@ export function CalendarOverview({
               <div className="mt-4 flex flex-wrap gap-2 text-xs text-white/58">
                 <span className="rounded-full border border-white/10 bg-white/[0.03] px-3 py-1.5">{selectedSummary.riskTradeCount} Trades mit Risk-Kontext</span>
                 <span className="rounded-full border border-white/10 bg-white/[0.03] px-3 py-1.5">{selectedHighestRiskPercent ? `max ${formatPlainNumber(selectedHighestRiskPercent, 2)}% Konto` : 'Kein Kontorisiko ableitbar'}</span>
-                <span className="rounded-full border border-white/10 bg-white/[0.03] px-3 py-1.5">{selectedSummary.marginUsed ? `${formatPlainNumber(selectedSummary.marginUsed, 0)} € Margin im Tag` : 'Noch keine Margin im Tag erfasst'}</span>
+                <span className="rounded-full border border-white/10 bg-white/[0.03] px-3 py-1.5">{selectedSummary.marginUsed ? selectedMonetaryScope.isComparable ? `${formatCurrency(selectedSummary.marginUsed, 0, selectedMonetaryScope.currency)} Margin im Tag` : 'Margin-Summe gesperrt' : 'Noch keine Margin im Tag erfasst'}</span>
               </div>
             </div>
 
@@ -299,8 +316,8 @@ export function CalendarOverview({
                         <div className="flex flex-wrap gap-3 text-xs text-white/52">
                           <span>Setup: {trade.setup || '—'}</span>
                           <span>Session: {trade.session || '—'}</span>
-                          <span>P&amp;L: {trade.netPnL === undefined || trade.netPnL === null ? '—' : `${trade.netPnL >= 0 ? '+' : ''}${trade.netPnL.toFixed(2)} €`}</span>
-                          <span>Risk: {trade.actualRiskPercent !== null && trade.actualRiskPercent !== undefined ? `${formatPlainNumber(trade.actualRiskPercent, 2)}% Konto` : trade.marginUsed ? `${formatPlainNumber(trade.marginUsed, 0)} € Margin` : '—'}</span>
+                          <span>P&amp;L: {trade.netPnL === undefined || trade.netPnL === null ? '—' : formatCurrency(trade.netPnL, 2, trade.accountCurrency)}</span>
+                          <span>Risk: {trade.actualRiskPercent !== null && trade.actualRiskPercent !== undefined ? `${formatPlainNumber(trade.actualRiskPercent, 2)}% Konto` : trade.marginUsed ? `${formatCurrency(trade.marginUsed, 0, trade.accountCurrency)} Margin` : '—'}</span>
                           {trade.partialExitCoveragePercent ? <span>TP: {formatPartialExitCoverageLabel(trade.partialExitCoveragePercent, trade.partialExitRemainderPercent ?? null)}</span> : null}
                         </div>
                       </div>

@@ -34,7 +34,19 @@ function normalizeSavedSession(session: SavedReviewSession): SavedReviewSession 
     labels: Array.isArray(session.labels) ? session.labels.filter(Boolean) : [],
     sessionStatus: session.sessionStatus ?? 'open',
     isPinned: Boolean(session.isPinned),
+    currency: session.monetaryScopeKind === 'single' ? session.currency : null,
+    monetaryScopeKind: session.monetaryScopeKind === 'single' && session.currency
+      ? 'single'
+      : session.monetaryScopeKind === 'empty' || session.monetaryScopeKind === 'mixed'
+        ? session.monetaryScopeKind
+        : 'unknown',
   }
+}
+
+function formatSessionPnL(session: SavedReviewSession) {
+  return session.monetaryScopeKind === 'single' && session.currency
+    ? formatCurrency(session.netPnL, 0, session.currency)
+    : 'Gesperrt'
 }
 
 function mergeSavedSessions(...groups: SavedReviewSession[][]) {
@@ -206,10 +218,15 @@ export function ReviewSessionsHub({
     const rightTags = new Set(right.topTags)
     const leftTradeIds = new Set(left.tradeIds)
     const rightTradeIds = new Set(right.tradeIds)
+    const isMonetaryComparable = left.monetaryScopeKind === 'single'
+      && right.monetaryScopeKind === 'single'
+      && Boolean(left.currency)
+      && left.currency === right.currency
 
     return {
       left,
       right,
+      isMonetaryComparable,
       netPnLDelta: left.netPnL - right.netPnL,
       averageRDelta: left.averageR - right.averageR,
       winRateDelta: left.winRate - right.winRate,
@@ -232,6 +249,8 @@ export function ReviewSessionsHub({
       pinned: session.isPinned,
       count: session.tradeCount,
       pnl: session.netPnL,
+      currency: session.currency,
+      monetaryScopeKind: session.monetaryScopeKind,
     }))
   }, [visibleSessions])
 
@@ -404,7 +423,7 @@ export function ReviewSessionsHub({
                           <p className="mt-2 text-sm font-medium text-white">{session.title}</p>
                           <p className="mt-1 text-xs text-white/45">{session.periodLabel ?? formatSavedSessionDate(session.createdAt)} · {session.tradeCount} Trades</p>
                         </div>
-                        <span className={`rounded-full px-2.5 py-1 text-[11px] ${session.netPnL >= 0 ? 'border border-emerald-400/20 bg-emerald-400/10 text-emerald-200' : 'border border-red-400/20 bg-red-400/10 text-red-200'}`}>{formatCurrency(session.netPnL)}</span>
+                        <span className={`rounded-full px-2.5 py-1 text-[11px] ${session.monetaryScopeKind !== 'single' ? 'border border-orange-400/20 bg-orange-400/10 text-orange-100' : session.netPnL >= 0 ? 'border border-emerald-400/20 bg-emerald-400/10 text-emerald-200' : 'border border-red-400/20 bg-red-400/10 text-red-200'}`}>{formatSessionPnL(session)}</span>
                       </div>
                       <p className="mt-3 line-clamp-2 text-xs leading-5 text-white/55">{session.note || session.focusDescription || '—'}</p>
                       {session.labels.length ? (
@@ -462,7 +481,7 @@ export function ReviewSessionsHub({
                       {entry.pinned ? <span className="rounded-full border border-emerald-400/20 bg-emerald-400/10 px-2 py-0.5 text-[10px] text-emerald-200">Pinned</span> : null}
                       <span className={`rounded-full border px-2 py-0.5 text-[10px] ${getStatusClass(entry.status)}`}>{getStatusLabel(entry.status)}</span>
                     </div>
-                    <p className="mt-1 text-xs text-white/45">{entry.count} Trades · {formatCurrency(entry.pnl)}</p>
+                    <p className="mt-1 text-xs text-white/45">{entry.count} Trades · {entry.monetaryScopeKind === 'single' && entry.currency ? formatCurrency(entry.pnl, 0, entry.currency) : 'Gesperrt'}</p>
                   </div>
                 </button>
               )) : <div className="rounded-2xl border border-dashed border-white/10 bg-white/[0.02] p-4 text-sm text-white/45">Noch keine Verlauf-Einträge im aktuellen Filterraum.</div>}
@@ -526,7 +545,7 @@ export function ReviewSessionsHub({
                   <MetricTile label="Status" value={getStatusLabel(selectedSession.sessionStatus)} tone="text-white" />
                   <MetricTile label="Zeitraum" value={selectedSession.periodPreset ?? 'frei'} tone="text-white" />
                   <MetricTile label="Pinning" value={selectedSession.isPinned ? 'Angepinnt' : 'Normal'} tone={selectedSession.isPinned ? 'text-emerald-300' : 'text-white/80'} />
-                  <MetricTile label="P&L" value={formatCurrency(selectedSession.netPnL)} tone={selectedSession.netPnL >= 0 ? 'text-emerald-300' : 'text-red-300'} />
+                  <MetricTile label="P&L" value={formatSessionPnL(selectedSession)} tone={selectedSession.monetaryScopeKind !== 'single' ? 'text-orange-100' : selectedSession.netPnL >= 0 ? 'text-emerald-300' : 'text-red-300'} />
                   <MetricTile label="Ø R" value={formatRMultiple(selectedSession.averageR)} tone={selectedSession.averageR >= 0 ? 'text-emerald-300' : 'text-red-300'} />
                   <MetricTile label="Win Rate" value={`${formatPlainNumber(selectedSession.winRate, 1)}%`} tone={selectedSession.winRate >= 50 ? 'text-emerald-300' : 'text-orange-200'} />
                   <MetricTile label="Trades" value={String(selectedSession.tradeCount)} tone="text-white" />
@@ -556,7 +575,7 @@ export function ReviewSessionsHub({
                   <CompareCard title={comparison.right.title} subtitle={`${getTypeLabel(comparison.right.sessionType)} · ${getStatusLabel(comparison.right.sessionStatus)}`} />
                 </div>
                 <div className="grid gap-3 md:grid-cols-4">
-                  <MetricTile label="Δ P&L" value={formatCurrency(comparison.netPnLDelta)} tone={comparison.netPnLDelta >= 0 ? 'text-emerald-300' : 'text-red-300'} />
+                  <MetricTile label="Δ P&L" value={comparison.isMonetaryComparable ? formatCurrency(comparison.netPnLDelta, 0, comparison.left.currency) : 'Gesperrt'} tone={!comparison.isMonetaryComparable ? 'text-orange-100' : comparison.netPnLDelta >= 0 ? 'text-emerald-300' : 'text-red-300'} />
                   <MetricTile label="Δ Ø R" value={formatRMultiple(comparison.averageRDelta)} tone={comparison.averageRDelta >= 0 ? 'text-emerald-300' : 'text-red-300'} />
                   <MetricTile label="Δ Win Rate" value={`${formatPlainNumber(comparison.winRateDelta, 1)} pp`} tone={comparison.winRateDelta >= 0 ? 'text-emerald-300' : 'text-red-300'} />
                   <MetricTile label="Δ Trades" value={String(comparison.tradeCountDelta)} tone={comparison.tradeCountDelta >= 0 ? 'text-emerald-300' : 'text-red-300'} />

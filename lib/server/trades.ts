@@ -4,6 +4,7 @@ import { createSupabaseAuthServerClient } from '@/lib/supabase/server-auth'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 import type { TradeMediaRow, TradeRow } from '@/lib/types/db'
 import type { TradeTag } from '@/lib/types/tag'
+import { signTradeMediaRows } from '@/lib/server/media-access'
 
 const TRADE_DETAIL_SELECT_COLUMNS_LEGACY = TRADE_DETAIL_SELECT_COLUMNS
   .split(',')
@@ -143,7 +144,7 @@ export async function getTradeMediaServer(
     return []
   }
 
-  return (data ?? []) as TradeMediaRow[]
+  return signTradeMediaRows(supabase, (data ?? []) as TradeMediaRow[], userId)
 }
 
 export async function getTradeTagsServer(

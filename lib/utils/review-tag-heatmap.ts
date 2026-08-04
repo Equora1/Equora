@@ -33,6 +33,7 @@ export function buildTagHeatmap(tradesCurrent: Trade[], tradeTags: TradeTag[]): 
         tag,
         tradeCount: cellTrades.length,
         netPnL: metrics.netPnL,
+        currency: metrics.currency,
         href: cellTrades.length ? buildTradesHref({ tag, weekday, reviewFocus: `Review Drilldown · Heatmap: ${weekday} × ${tag}` }) : undefined,
       }
     })
@@ -50,5 +51,4 @@ export function buildTagHeatmap(tradesCurrent: Trade[], tradeTags: TradeTag[]): 
     })),
   }
 }
-
 

@@ -7,6 +7,8 @@ import { buildTagPairStats, buildTradeTagMap, buildTradesHref, ERROR_TAG_KEYWORD
 import type { ReviewSignal } from '@/lib/utils/review-types'
 
 export function buildErrorClusters(tradesCurrent: Trade[], tradeTags: TradeTag[]): ReviewSignal[] {
+  const currency = getCoreMetrics(tradesCurrent).currency
+  const money = (value: number) => formatCurrency(value, 0, currency)
   const losingTrades = tradesCurrent.filter((trade) => (trade.netPnL ?? 0) < 0)
   if (!losingTrades.length) {
     return [{ label: 'Fehlercluster', value: 'Noch kein Verlustmuster', detail: 'Wenn Verlusttrades auftauchen, verdichtet Equora hier die wiederkehrenden Fehler-Tags und Kombinationen.' }]
@@ -31,7 +33,7 @@ export function buildErrorClusters(tradesCurrent: Trade[], tradeTags: TradeTag[]
       ? {
           label: 'Häufigster Fehler-Tag',
           value: worstLossTag.tag,
-          detail: `${worstLossTag.totalTrades} Verlusttrades · ${formatCurrency(worstLossTag.netPnL)} im roten Bereich.`,
+          detail: `${worstLossTag.totalTrades} Verlusttrades · ${money(worstLossTag.netPnL)} im roten Bereich.`,
           href: buildTradesHref({ tag: worstLossTag.tag, outcome: 'Verlierer', reviewFocus: `Review Drilldown · Häufigster Fehler-Tag: ${worstLossTag.tag}` }),
         }
       : null,
@@ -39,14 +41,14 @@ export function buildErrorClusters(tradesCurrent: Trade[], tradeTags: TradeTag[]
       ? {
           label: 'Fehler-Familie',
           value: 'Prozessbruch-Tags',
-          detail: `${formatCurrency(errorMetrics.netPnL)} über ${errorTaggedTrades.length} Verlusttrades mit FOMO-, Revenge- oder Regelbruch-Mustern.`,
+          detail: `${money(errorMetrics.netPnL)} über ${errorTaggedTrades.length} Verlusttrades mit FOMO-, Revenge- oder Regelbruch-Mustern.`,
         }
       : null,
     lossPairs[0]
       ? {
           label: 'Härteste Verlust-Kombi',
           value: lossPairs[0].pair,
-          detail: `${lossPairs[0].trades.length} Trades · ${formatCurrency(lossPairs[0].metrics.netPnL)} zusammen.`,
+          detail: `${lossPairs[0].trades.length} Trades · ${money(lossPairs[0].metrics.netPnL)} zusammen.`,
           href: buildTradesHref({ tags: parseTagPair(lossPairs[0].pair), outcome: 'Verlierer', reviewFocus: `Review Drilldown · Härteste Verlust-Kombi: ${lossPairs[0].pair}` }),
         }
       : null,
@@ -62,4 +64,3 @@ export function buildErrorClusters(tradesCurrent: Trade[], tradeTags: TradeTag[]
 
   return items.length ? items : [{ label: 'Fehlercluster', value: 'Noch unscharf', detail: 'Mit mehr Verlusttrades und sauberem Tagging wird hier sichtbar, welche Muster wieder zuschlagen.' }]
 }
-

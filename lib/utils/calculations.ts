@@ -7,9 +7,11 @@ import type {
   TradeFundingDirection,
   TradeInstrumentType,
   TradeMarketTemplate,
+  TradeCurrency,
   TradePnLMode,
   TradePnLSource,
 } from '@/lib/types/trade'
+import { formatMoney, normalizeTradeCurrency } from '@/lib/utils/currency'
 
 import {
   type TradeBrokerProfilePreset,
@@ -307,7 +309,7 @@ export function derivePartialExitPnL({
     return sum + (priceMove * legSize * multiplier)
   }, 0)
 
-  const costShare = totalCosts > 0 ? (totalCosts * coveredPercent) / 100 : 0
+  const costShare = Number.isFinite(totalCosts) ? (totalCosts * coveredPercent) / 100 : 0
   const weightedPriceMove = coveredPercent > 0
     ? normalized.reduce((sum, leg) => sum + (leg.percent * (direction === 'short' ? entryValue - leg.price : leg.price - entryValue)), 0) / coveredPercent
     : null
@@ -327,13 +329,8 @@ export function derivePartialExitPnL({
   }
 }
 
-export function formatCurrency(value: number, fractionDigits = 0): string {
-  const formatter = new Intl.NumberFormat('de-DE', {
-    minimumFractionDigits: fractionDigits,
-    maximumFractionDigits: fractionDigits,
-  })
-
-  return `${value >= 0 ? '+' : '-'}${formatter.format(Math.abs(value))} €`
+export function formatCurrency(value: number, fractionDigits = 0, currency?: string | null): string {
+  return formatMoney(value, currency, fractionDigits)
 }
 
 export function formatRMultiple(value: number, fractionDigits = 2): string {
@@ -1007,7 +1004,7 @@ export type TradeComputation = {
   fundingIntervals: number | null
   quoteAsset: string | null
   leverage: number | null
-  accountCurrency: string | null
+  accountCurrency: TradeCurrency | null
   positionSize: number | null
   pointValue: number | null
   partialRealizedNetPnL: number | null
@@ -1271,7 +1268,7 @@ export function computeTradeMetrics({
     fundingIntervals: pnlComputation.fundingIntervals,
     quoteAsset: pnlComputation.quoteAsset,
     leverage: pnlComputation.leverage,
-    accountCurrency: accountCurrency?.trim() || brokerPreset.defaultCurrency || instrumentPreset.defaultCurrency,
+    accountCurrency: normalizeTradeCurrency(accountCurrency),
     positionSize: positionSizeValue,
     pointValue: pointValueValue,
     partialRealizedNetPnL: partialPlan.count ? partialRealized.netPnL : null,

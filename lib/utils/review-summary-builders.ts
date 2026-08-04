@@ -11,6 +11,9 @@ import { buildTagComparisons, getBestAndWorstBucket, getTagCoverage } from '@/li
 
 export function buildSummary(statsCurrent: ReturnType<typeof getCoreMetrics>, statsPrevious: ReturnType<typeof getCoreMetrics>) {
   const pnlDelta = statsCurrent.netPnL - statsPrevious.netPnL
+  const periodsComparable = statsCurrent.monetaryScope.isComparable
+    && statsPrevious.monetaryScope.isComparable
+    && statsCurrent.currency === statsPrevious.currency
   const winRateDelta = statsCurrent.winRate - statsPrevious.winRate
   const pfDelta =
     Number.isFinite(statsCurrent.profitFactor) && Number.isFinite(statsPrevious.profitFactor)
@@ -20,9 +23,9 @@ export function buildSummary(statsCurrent: ReturnType<typeof getCoreMetrics>, st
   return [
     {
       label: 'P&L',
-      value: formatCurrency(statsCurrent.netPnL),
-      hint: `${formatDelta(pnlDelta, ' €')} vs. Vorperiode`,
-      tone: statsCurrent.netPnL >= 0 ? ('emerald' as const) : ('red' as const),
+      value: statsCurrent.monetaryScope.isComparable ? formatCurrency(statsCurrent.netPnL, 0, statsCurrent.currency) : 'Gesperrt',
+      hint: periodsComparable ? `${formatCurrency(pnlDelta, 0, statsCurrent.currency)} vs. Vorperiode` : 'Währungen nicht vergleichbar',
+      tone: statsCurrent.monetaryScope.isComparable && statsCurrent.netPnL >= 0 ? ('emerald' as const) : ('orange' as const),
     },
     {
       label: 'Win Rate',
@@ -32,19 +35,19 @@ export function buildSummary(statsCurrent: ReturnType<typeof getCoreMetrics>, st
     },
     {
       label: 'Profit Factor',
-      value: statsCurrent.profitFactor === Infinity ? '∞' : clampNumber(statsCurrent.profitFactor, 2),
-      hint: `${formatDelta(pfDelta)} vs. Vorperiode`,
-      tone: statsCurrent.profitFactor >= 1.5 ? ('emerald' as const) : statsCurrent.profitFactor >= 1 ? ('orange' as const) : ('red' as const),
+      value: statsCurrent.monetaryScope.isComparable ? statsCurrent.profitFactor === Infinity ? '∞' : clampNumber(statsCurrent.profitFactor, 2) : 'Gesperrt',
+      hint: periodsComparable ? `${formatDelta(pfDelta)} vs. Vorperiode` : 'Keine währungsreine Basis',
+      tone: statsCurrent.monetaryScope.isComparable && statsCurrent.profitFactor >= 1.5 ? ('emerald' as const) : ('orange' as const),
     },
     {
       label: 'Erwartung',
-      value: formatCurrency(statsCurrent.expectancy),
+      value: statsCurrent.monetaryScope.isComparable ? formatCurrency(statsCurrent.expectancy, 0, statsCurrent.currency) : 'Gesperrt',
       hint: `${formatRMultiple(statsCurrent.expectancyR)} je Trade`,
       tone: statsCurrent.expectancy >= 0 ? ('emerald' as const) : ('red' as const),
     },
     {
       label: 'Max. Drawdown',
-      value: formatCurrency(-statsCurrent.maxDrawdown),
+      value: statsCurrent.monetaryScope.isComparable ? formatCurrency(-statsCurrent.maxDrawdown, 0, statsCurrent.currency) : 'Gesperrt',
       hint: `${statsCurrent.longestLossStreak}er Verlustserie im Zeitraum`,
       tone: statsCurrent.maxDrawdown <= Math.max(Math.abs(statsCurrent.netPnL) * 0.35, 1) ? ('orange' as const) : ('red' as const),
     },
@@ -57,6 +60,7 @@ export function buildHeadline(
   tradeDrift: ReviewTagComparisonItem[],
   errorClusters: ReviewSignal[]
 ) {
+  const money = (value: number) => formatCurrency(value, 0, statsCurrent.currency)
   if (!tradesCurrent.length) {
     return {
       headline: 'Noch keine Trades im aktuellen Review-Zeitraum',
@@ -70,14 +74,14 @@ export function buildHeadline(
   if (statsCurrent.netPnL > 0 && statsCurrent.profitFactor >= 1.5) {
     return {
       headline: 'Die Woche lief sauber über Prozess statt Aktionismus',
-      summary: `Du hast ${statsCurrent.totalTrades} Trades mit ${clampNumber(statsCurrent.winRate)}% Trefferquote und ${formatCurrency(statsCurrent.netPnL)} abgeschlossen.${slippingTag ? ` Beobachte trotzdem ${slippingTag.value}, damit der grüne Lauf nicht kippt.` : ''}`,
+      summary: `Du hast ${statsCurrent.totalTrades} Trades mit ${clampNumber(statsCurrent.winRate)}% Trefferquote und ${money(statsCurrent.netPnL)} abgeschlossen.${slippingTag ? ` Beobachte trotzdem ${slippingTag.value}, damit der grüne Lauf nicht kippt.` : ''}`,
     }
   }
 
   if (statsCurrent.netPnL < 0 || statsCurrent.profitFactor < 1) {
     return {
       headline: 'Die Woche zeigt Reibung, aber sie ist lesbar',
-      summary: `Der Datensatz markiert klar, wo Prozess und Selektivität nachgeschärft werden müssen. Aktuell stehen ${formatCurrency(statsCurrent.netPnL)} und ein Profit Factor von ${statsCurrent.profitFactor === Infinity ? '∞' : clampNumber(statsCurrent.profitFactor, 2)} im Raum.${mainErrorCluster ? ` Größter Hebel aktuell: ${mainErrorCluster.value}.` : ''}`,
+      summary: `Der Datensatz markiert klar, wo Prozess und Selektivität nachgeschärft werden müssen. Aktuell stehen ${money(statsCurrent.netPnL)} und ein Profit Factor von ${statsCurrent.profitFactor === Infinity ? '∞' : clampNumber(statsCurrent.profitFactor, 2)} im Raum.${mainErrorCluster ? ` Größter Hebel aktuell: ${mainErrorCluster.value}.` : ''}`,
     }
   }
 
@@ -88,6 +92,8 @@ export function buildHeadline(
 }
 
 export function buildTopPerformers(tradesCurrent: Trade[], tradeTags: TradeTag[]): ReviewSignal[] {
+  const currency = getCoreMetrics(tradesCurrent).currency
+  const money = (value: number) => formatCurrency(value, 0, currency)
   const bestSetup = getBestAndWorstBucket(tradesCurrent, (trade) => trade.setup).best
   const bestMarket = getBestAndWorstBucket(tradesCurrent, (trade) => trade.market).best
   const bestSession = getBestAndWorstBucket(tradesCurrent, (trade) => trade.session).best
@@ -100,7 +106,7 @@ export function buildTopPerformers(tradesCurrent: Trade[], tradeTags: TradeTag[]
       ? {
           label: 'Bestes Setup',
           value: bestSetup.key,
-          detail: `${formatCurrency(bestSetup.metrics.netPnL)} · ${clampNumber(bestSetup.metrics.winRate)}% Win Rate · ${formatRMultiple(bestSetup.metrics.averageR)}`,
+          detail: `${money(bestSetup.metrics.netPnL)} · ${clampNumber(bestSetup.metrics.winRate)}% Win Rate · ${formatRMultiple(bestSetup.metrics.averageR)}`,
           href: buildTradesHref({ setup: bestSetup.key, reviewFocus: `Review Drilldown · Bestes Setup: ${bestSetup.key}` }),
         }
       : null,
@@ -108,7 +114,7 @@ export function buildTopPerformers(tradesCurrent: Trade[], tradeTags: TradeTag[]
       ? {
           label: 'Stärkster Markt',
           value: bestMarket.key,
-          detail: `${formatCurrency(bestMarket.metrics.netPnL)} bei ${bestMarket.metrics.totalTrades} Trades.`,
+          detail: `${money(bestMarket.metrics.netPnL)} bei ${bestMarket.metrics.totalTrades} Trades.`,
           href: buildTradesHref({ market: bestMarket.key, reviewFocus: `Review Drilldown · Stärkster Markt: ${bestMarket.key}` }),
         }
       : null,
@@ -116,7 +122,7 @@ export function buildTopPerformers(tradesCurrent: Trade[], tradeTags: TradeTag[]
       ? {
           label: 'Sauberste Session',
           value: bestSession.key,
-          detail: `${bestSession.metrics.profitFactor === Infinity ? '∞' : clampNumber(bestSession.metrics.profitFactor, 2)} PF und ${formatCurrency(bestSession.metrics.netPnL)} im Zeitraum.`,
+          detail: `${bestSession.metrics.profitFactor === Infinity ? '∞' : clampNumber(bestSession.metrics.profitFactor, 2)} PF und ${money(bestSession.metrics.netPnL)} im Zeitraum.`,
           href: buildTradesHref({ session: bestSession.key, reviewFocus: `Review Drilldown · Sauberste Session: ${bestSession.key}` }),
         }
       : null,
@@ -124,7 +130,7 @@ export function buildTopPerformers(tradesCurrent: Trade[], tradeTags: TradeTag[]
       ? {
           label: 'Bester Tag-Cluster',
           value: positiveTags[0].tag,
-          detail: `${formatCurrency(positiveTags[0].netPnL)} · ${clampNumber(positiveTags[0].winRate)}% Win Rate in ${positiveTags[0].totalTrades} Trades.`,
+          detail: `${money(positiveTags[0].netPnL)} · ${clampNumber(positiveTags[0].winRate)}% Win Rate in ${positiveTags[0].totalTrades} Trades.`,
           href: buildTradesHref({ tag: positiveTags[0].tag, reviewFocus: `Review Drilldown · Bester Tag-Cluster: ${positiveTags[0].tag}` }),
         }
       : null,
@@ -136,6 +142,8 @@ export function buildTopPerformers(tradesCurrent: Trade[], tradeTags: TradeTag[]
 }
 
 export function buildWeakSpots(tradesCurrent: Trade[], tradeTags: TradeTag[]): ReviewSignal[] {
+  const currency = getCoreMetrics(tradesCurrent).currency
+  const money = (value: number) => formatCurrency(value, 0, currency)
   const worstSetup = getBestAndWorstBucket(tradesCurrent, (trade) => trade.setup).worst
   const worstWeekday = getBestAndWorstBucket(tradesCurrent, getWeekdayLabel).worst
   const negativeTags = buildTagStats(tradesCurrent, tradeTags)
@@ -155,7 +163,7 @@ export function buildWeakSpots(tradesCurrent: Trade[], tradeTags: TradeTag[]): R
       ? {
           label: 'Schwächstes Setup',
           value: worstSetup.key,
-          detail: `${formatCurrency(worstSetup.metrics.netPnL)} · ${clampNumber(worstSetup.metrics.winRate)}% Win Rate.`,
+          detail: `${money(worstSetup.metrics.netPnL)} · ${clampNumber(worstSetup.metrics.winRate)}% Win Rate.`,
           href: buildTradesHref({ setup: worstSetup.key, reviewFocus: `Review Drilldown · Schwächstes Setup: ${worstSetup.key}` }),
         }
       : null,
@@ -163,7 +171,7 @@ export function buildWeakSpots(tradesCurrent: Trade[], tradeTags: TradeTag[]): R
       ? {
           label: 'Härtester Handelstag',
           value: worstWeekday.key,
-          detail: `${formatCurrency(worstWeekday.metrics.netPnL)} an diesem Wochentag.`,
+          detail: `${money(worstWeekday.metrics.netPnL)} an diesem Wochentag.`,
           href: buildTradesHref({ weekday: worstWeekday.key, reviewFocus: `Review Drilldown · Härtester Handelstag: ${worstWeekday.key}` }),
         }
       : null,
@@ -171,7 +179,7 @@ export function buildWeakSpots(tradesCurrent: Trade[], tradeTags: TradeTag[]): R
       ? {
           label: 'Negativer Tag-Trigger',
           value: negativeTagLead.tag,
-          detail: `${formatCurrency(negativeTagLead.netPnL)} über ${negativeTagLead.totalTrades} markierte Trades.`,
+          detail: `${money(negativeTagLead.netPnL)} über ${negativeTagLead.totalTrades} markierte Trades.`,
           href: buildTradesHref({ tag: negativeTagLead.tag, outcome: 'Verlierer', reviewFocus: `Review Drilldown · Negativer Tag-Trigger: ${negativeTagLead.tag}` }),
         }
       : null,
@@ -196,6 +204,8 @@ export function buildWeakSpots(tradesCurrent: Trade[], tradeTags: TradeTag[]): R
 
 export function buildPatterns(tradesCurrent: Trade[], tradeTags: TradeTag[], tradesPrevious: Trade[], previousTags: TradeTag[]): string[] {
   const patterns: string[] = []
+  const currency = getCoreMetrics(tradesCurrent).currency
+  const money = (value: number) => formatCurrency(value, 0, currency)
   const aSetups = tradesCurrent.filter((trade) => trade.quality === 'A-Setup')
   const nonASetups = tradesCurrent.filter((trade) => trade.quality !== 'A-Setup')
   const aMetrics = getCoreMetrics(aSetups)
@@ -211,30 +221,30 @@ export function buildPatterns(tradesCurrent: Trade[], tradeTags: TradeTag[], tra
     .sort((left, right) => left.pnlDelta - right.pnlDelta)[0]
 
   if (aSetups.length && nonASetups.length) {
-    patterns.push(`A-Setups lieferten ${formatCurrency(aMetrics.netPnL)} bei ${clampNumber(aMetrics.winRate)}% Win Rate, der Rest ${formatCurrency(nonAMetrics.netPnL)}.`)
+    patterns.push(`A-Setups lieferten ${money(aMetrics.netPnL)} bei ${clampNumber(aMetrics.winRate)}% Win Rate, der Rest ${money(nonAMetrics.netPnL)}.`)
   }
 
   const patienceTag = tagStats.find((tag) => hasKeywordMatch(tag.tag, PROCESS_TAG_KEYWORDS))
   if (patienceTag) {
-    patterns.push(`Tag „${patienceTag.tag}“ zeigt ${formatCurrency(patienceTag.netPnL)} und wirkt wie ein brauchbarer Prozess-Anker.`)
+    patterns.push(`Tag „${patienceTag.tag}“ zeigt ${money(patienceTag.netPnL)} und wirkt wie ein brauchbarer Prozess-Anker.`)
   }
 
   const dangerTag = [...tagStats].sort((a, b) => a.netPnL - b.netPnL)[0]
   if (dangerTag && dangerTag.netPnL < 0) {
-    patterns.push(`Tag „${dangerTag.tag}“ kostet aktuell ${formatCurrency(dangerTag.netPnL)}. Das ist kein Etikett mehr, sondern ein Warnschild.`)
+    patterns.push(`Tag „${dangerTag.tag}“ kostet aktuell ${money(dangerTag.netPnL)}. Das ist kein Etikett mehr, sondern ein Warnschild.`)
   }
 
   const bestWeekday = getBestAndWorstBucket(tradesCurrent, getWeekdayLabel).best
   if (bestWeekday) {
-    patterns.push(`${bestWeekday.key} war der stärkste Wochentag mit ${formatCurrency(bestWeekday.metrics.netPnL)}.`)
+    patterns.push(`${bestWeekday.key} war der stärkste Wochentag mit ${money(bestWeekday.metrics.netPnL)}.`)
   }
 
   if (tagPairs[0]) {
-    patterns.push(`Die Tag-Kombi „${tagPairs[0].pair}“ markiert aktuell ${formatCurrency(tagPairs[0].metrics.netPnL)} in ${tagPairs[0].metrics.totalTrades} Trades.`)
+    patterns.push(`Die Tag-Kombi „${tagPairs[0].pair}“ markiert aktuell ${money(tagPairs[0].metrics.netPnL)} in ${tagPairs[0].metrics.totalTrades} Trades.`)
   }
 
   if (slippingTag?.current && slippingTag.pnlDelta < 0) {
-    patterns.push(`Gegenüber der Vorperiode ist „${slippingTag.tag}“ um ${formatCurrency(slippingTag.pnlDelta)} abgekippt. Das ist Drift, kein Zufall.`)
+    patterns.push(`Gegenüber der Vorperiode ist „${slippingTag.tag}“ um ${money(slippingTag.pnlDelta)} abgekippt. Das ist Drift, kein Zufall.`)
   }
 
   if (tradesCurrent.length > 0 && tagCoverage < 70) {
@@ -249,6 +259,7 @@ export function buildPatterns(tradesCurrent: Trade[], tradeTags: TradeTag[], tra
 export function buildPlaybook(tradesCurrent: Trade[], tradeTags: TradeTag[], tradesPrevious: Trade[], previousTags: TradeTag[]): string[] {
   const actions: string[] = []
   const metrics = getCoreMetrics(tradesCurrent)
+  const money = (value: number) => formatCurrency(value, 0, metrics.currency)
   const worstTag = buildTagStats(tradesCurrent, tradeTags).sort((a, b) => a.netPnL - b.netPnL)[0]
   const bestSetup = getBestAndWorstBucket(tradesCurrent, (trade) => trade.setup).best
   const tagCoverage = getTagCoverage(tradesCurrent, tradeTags)
@@ -260,7 +271,7 @@ export function buildPlaybook(tradesCurrent: Trade[], tradeTags: TradeTag[], tra
   })
 
   if (bestSetup) {
-    actions.push(`Mehr Gewicht auf ${bestSetup.key}: aktuell der sauberste Cluster mit ${formatCurrency(bestSetup.metrics.netPnL)}.`)
+    actions.push(`Mehr Gewicht auf ${bestSetup.key}: aktuell der sauberste Cluster mit ${money(bestSetup.metrics.netPnL)}.`)
   }
 
   if (worstTag && worstTag.netPnL < 0) {
@@ -268,7 +279,7 @@ export function buildPlaybook(tradesCurrent: Trade[], tradeTags: TradeTag[], tra
   }
 
   if (slippingTag?.current && slippingTag.pnlDelta < 0) {
-    actions.push(`„${slippingTag.tag}“ ist gegenüber der Vorperiode um ${formatCurrency(slippingTag.pnlDelta)} abgerutscht. Dieses Tag vor dem Entry bewusst gegenprüfen.`)
+    actions.push(`„${slippingTag.tag}“ ist gegenüber der Vorperiode um ${money(slippingTag.pnlDelta)} abgerutscht. Dieses Tag vor dem Entry bewusst gegenprüfen.`)
   }
 
   if (losingPairs[0] && losingPairs[0].trades.length >= 2) {
@@ -306,4 +317,3 @@ export function buildNoteMoments(notes: DailyNoteRow[], currentStart: Date, curr
       body: note.note ?? 'Keine Notiz hinterlegt.',
     }))
 }
-

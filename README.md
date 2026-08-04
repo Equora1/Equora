@@ -1,4 +1,26 @@
-# Equora Starter v57.60
+# Equora Starter v57.60.1
+
+## Sicherheits- und Integritätsrelease
+
+v57.60.1 schließt die vor der Pilotierung identifizierten Hard-Gate-Lücken:
+
+- private, nutzergebundene Medien mit kurzlebigen Signed URLs;
+- transaktionale Trade-, Setup-, Tag- und Import-Mutationen;
+- persistente Cleanup-Outbox für gelöschte Storage-Objekte;
+- explizite Währungspflicht und gesperrte Mischwährungs-Auswertungen;
+- atomare Löschung von Broker-Verbindung und Credential;
+- reproduzierbare Tests mit fest gepinntem Vitest und Lockfile.
+
+Verbindliche Dokumente:
+
+- `INSTALL-v57.60.1.md` – Migration, Konfiguration und Abnahme;
+- `OPERATIONS-SOP-v57.60.1.md` – Betriebs- und Releaseablauf;
+- `RELEASE-v57.60.1.md` – Scope, Evidenz und bekannte Restrisiken;
+- `supabase/schema-patch-v57.60.1.sql` – erforderliche Datenbankmigration.
+
+Wichtig: Die Anwendung bleibt ein Journal- und Analyseprodukt. Sie erteilt keine Handelssignale, verspricht keine Rendite und führt keine Orders aus.
+
+## Vorgängerfunktion: MEXC Read-only
 
 ## Schwerpunkt: erster MEXC Read-only-Connector
 
@@ -15,7 +37,7 @@ Neu:
 - Verbindung und verschlüsselten Zugang gemeinsam löschen
 - gefundene Daten bleiben Vorschau und werden nicht automatisch zu Journal-Trades
 
-Details: `RELEASE-v57.60.md` und `BROKER-SYNC.md`.
+Details zum Connector: `RELEASE-v57.60.md` und `BROKER-SYNC.md`.
 
 ## Installation
 
@@ -25,6 +47,8 @@ Empfohlen: Node 24 LTS.
 npm install
 npm audit
 npm run typecheck
+npm test
+npm run release:check
 npm run build
 npm run start
 ```
@@ -42,10 +66,13 @@ Festgelegt:
 - Next.js `15.5.21`
 - Sharp `0.35.3`
 - PostCSS `8.5.18`
+- Vitest `4.1.10`
 
 ## Supabase
 
-Für bestehende Projekte ist neu:
+Für bestehende v57.60-Projekte ist neu und verpflichtend:
+
+- `supabase/schema-patch-v57.60.1.sql`: private Medien, atomare RPCs, Währungs- und Credential-Gates
 
 - `supabase/schema-patch-v57.60.sql`: serverseitiger, verschlüsselter Broker-Zugangsspeicher
 
@@ -63,6 +90,7 @@ Zusätzlich zu den vorhandenen Supabase-Variablen wird benötigt:
 
 ```text
 EQUORA_BROKER_SECRET_KEY=<32-Byte-Schlüssel als Base64 oder 64-stelliges Hex>
+EQUORA_MAINTENANCE_SECRET=<separates zufälliges Secret für den Cleanup-Worker>
 ```
 
 Einmalig erzeugen:
@@ -92,3 +120,4 @@ Equora darf nicht:
 - v57.58: interne Performance-Diagnose
 - v57.59: stabilisierte Beta-Basis
 - v57.60: erster echter MEXC Read-only-Connector mit Datenvorschau
+- v57.60.1: Private-Media-, Transaktions-, Währungs- und Release-Hardening

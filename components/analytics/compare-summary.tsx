@@ -1,8 +1,9 @@
 import { FuturisticCard } from '@/components/ui/futuristic-card'
 import type { CompareResult } from '@/lib/utils/compare'
+import { formatMoney } from '@/lib/utils/currency'
 
-function formatPnL(value: number) {
-  return `${value >= 0 ? '+' : ''}${value.toFixed(0)} €`
+function formatPnL(row: CompareResult) {
+  return row.currency ? formatMoney(row.netPnL, row.currency) : '—'
 }
 
 function formatR(value: number) {
@@ -35,7 +36,7 @@ export function CompareSummary({ rows }: { rows: CompareResult[] }) {
             <p>Trades: {best.totalTrades}</p>
             <p>Winrate: {best.winRate.toFixed(1)}%</p>
             <p>Ø R: {formatR(best.avgR)}</p>
-            <p>P&amp;L: {formatPnL(best.netPnL)}</p>
+            <p>P&amp;L: {formatPnL(best)}</p>
           </div>
         </FuturisticCard>
 
@@ -59,7 +60,7 @@ export function CompareSummary({ rows }: { rows: CompareResult[] }) {
           <p>Trades: {best.totalTrades}</p>
           <p>Winrate: {best.winRate.toFixed(1)}%</p>
           <p>Ø R: {formatR(best.avgR)}</p>
-          <p>P&amp;L: {formatPnL(best.netPnL)}</p>
+          <p>P&amp;L: {formatPnL(best)}</p>
         </div>
       </FuturisticCard>
 
@@ -70,7 +71,7 @@ export function CompareSummary({ rows }: { rows: CompareResult[] }) {
           <p>Trades: {worst.totalTrades}</p>
           <p>Winrate: {worst.winRate.toFixed(1)}%</p>
           <p>Ø R: {formatR(worst.avgR)}</p>
-          <p>P&amp;L: {formatPnL(worst.netPnL)}</p>
+          <p>P&amp;L: {formatPnL(worst)}</p>
         </div>
       </FuturisticCard>
     </div>

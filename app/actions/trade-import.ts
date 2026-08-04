@@ -2,8 +2,8 @@
 
 import { revalidatePath } from "next/cache";
 import { createSupabaseAuthServerClient } from "@/lib/supabase/server-auth";
+import { processMediaCleanupForPaths } from "@/lib/server/media-cleanup";
 import { hasSupabaseClientEnv } from "@/lib/supabase/config";
-import { getDateKeyFromDate } from "@/lib/utils/calendar";
 import { inferTradeCaptureResultFromPnL } from "@/lib/utils/trade-capture";
 import { deriveTradeSessionLabel } from "@/lib/utils/trade-time";
 import {
@@ -16,12 +16,14 @@ import type {
   CsvImportPresetKey,
 } from "@/lib/utils/trade-import";
 import { appendTradeImportMeta } from "@/lib/utils/trade-import-meta";
+import { normalizeTradeCurrency } from "@/lib/utils/currency";
 
 export type CsvTradeImportInput = {
   rows: CsvImportDraft[];
   fileName?: string | null;
   presetLabel?: string | null;
   accountLabel?: string | null;
+  accountCurrency?: string | null;
   trustScore?: number | null;
   trustLabel?: string | null;
   warnings?: string[] | null;
@@ -61,17 +63,25 @@ function buildTradeFingerprint(input: {
   bias?: string | null;
   netPnL?: number | null;
   positionSize?: number | null;
+  accountCurrency?: string | null;
+  brokerProfile?: string | null;
+  accountTemplate?: string | null;
+  accountLabel?: string | null;
 }) {
   const date = new Date(input.createdAt);
-  const dateKey = Number.isNaN(date.getTime())
-    ? input.createdAt.slice(0, 10)
-    : getDateKeyFromDate(date);
+  const timestampKey = Number.isNaN(date.getTime())
+    ? input.createdAt.trim()
+    : date.toISOString();
   return [
-    dateKey,
+    timestampKey,
     input.market.trim().toLowerCase(),
     (input.bias ?? "").trim().toLowerCase(),
     input.netPnL ?? "",
     input.positionSize ?? "",
+    (input.accountCurrency ?? "").trim().toUpperCase(),
+    (input.brokerProfile ?? "").trim().toLowerCase(),
+    (input.accountTemplate ?? "").trim().toLowerCase(),
+    (input.accountLabel ?? "").trim().toLowerCase(),
   ].join("|");
 }
 
@@ -281,55 +291,22 @@ export async function revertTradeImportBatch(batchId: string) {
 
     if (!user) return { success: false, mode: "supabase" as const, message: "Bitte zuerst einloggen." };
 
-    const { data: trades, error: tradeLookupError } = await supabase
-      .from("trades")
-      .select("id")
-      .eq("user_id", user.id)
-      .eq("import_batch_id", batchId);
-
-    if (tradeLookupError) {
-      return { success: false, mode: "supabase" as const, message: `Import konnte nicht geprüft werden. ${tradeLookupError.message}` };
+    const { data, error: revertError } = await supabase.rpc("equora_revert_import_v1", { p_batch_id: batchId });
+    if (revertError) {
+      return { success: false, mode: "supabase" as const, message: "Import konnte nicht atomar rückgängig gemacht werden. Die Daten blieben unverändert." };
     }
-
-    const tradeIds = (trades ?? []).map((trade) => trade.id);
-    if (!tradeIds.length) {
-      const { error: markError } = await supabase
-        .from("trade_import_batches")
-        .update({ status: "reverted", reverted_at: new Date().toISOString() })
-        .eq("id", batchId)
-        .eq("user_id", user.id);
-
-      if (markError) return { success: false, mode: "supabase" as const, message: `Import konnte nicht markiert werden. ${markError.message}` };
-      revalidateTradeSurfaces();
-      return { success: true, mode: "supabase" as const, message: "Import hatte keine gespeicherten Trades mehr.", deletedCount: 0 };
-    }
-
-    await supabase.from("trade_tags").delete().in("trade_id", tradeIds);
-    await supabase.from("trade_media").delete().in("trade_id", tradeIds);
-    await supabase.from("setup_trade_links").delete().in("trade_id", tradeIds);
-
-    const { error: deleteError } = await supabase
-      .from("trades")
-      .delete()
-      .eq("user_id", user.id)
-      .eq("import_batch_id", batchId);
-
-    if (deleteError) {
-      return { success: false, mode: "supabase" as const, message: `Import konnte nicht gelöscht werden. ${deleteError.message}` };
-    }
-
-    const { error: markError } = await supabase
-      .from("trade_import_batches")
-      .update({ status: "reverted", reverted_at: new Date().toISOString() })
-      .eq("id", batchId)
-      .eq("user_id", user.id);
-
-    if (markError) {
-      return { success: false, mode: "supabase" as const, message: `Trades gelöscht, aber Importstatus nicht aktualisiert. ${markError.message}` };
-    }
+    const result = (data ?? {}) as { deletedCount?: number; storagePaths?: string[]; alreadyReverted?: boolean };
+    const cleanup = await processMediaCleanupForPaths(result.storagePaths ?? []);
 
     revalidateTradeSurfaces();
-    return { success: true, mode: "supabase" as const, message: `${tradeIds.length} importierte Trades gelöscht. Import rückgängig gemacht.`, deletedCount: tradeIds.length };
+    return {
+      success: true,
+      mode: "supabase" as const,
+      message: result.alreadyReverted
+        ? "Import war bereits rückgängig gemacht."
+        : `${result.deletedCount ?? 0} importierte Trades atomar gelöscht.${cleanup.pending ? " Die Storage-Bereinigung läuft weiter." : ""}`,
+      deletedCount: result.deletedCount ?? 0,
+    };
   } catch (error) {
     return { success: false, mode: "supabase" as const, message: `Import konnte nicht rückgängig gemacht werden. ${error instanceof Error ? error.message : "Unbekannter Fehler."}` };
   }
@@ -346,6 +323,15 @@ export async function importTradeCsvEntries(input: CsvTradeImportInput) {
       success: false,
       mode: hasSupabaseClientEnv() ? ("supabase" as const) : ("demo" as const),
       message: "Keine importierbaren Zeilen gefunden.",
+    };
+  }
+
+  const selectedCurrency = normalizeTradeCurrency(input.accountCurrency);
+  if (!selectedCurrency) {
+    return {
+      success: false,
+      mode: hasSupabaseClientEnv() ? ("supabase" as const) : ("demo" as const),
+      message: "Vor dem Import muss eine unterstützte Kontowährung ausgewählt werden: EUR, USD, GBP, USDT oder USDC.",
     };
   }
 
@@ -384,35 +370,9 @@ export async function importTradeCsvEntries(input: CsvTradeImportInput) {
     const batchPresetLabel = input.presetLabel?.trim() || importMetaForBatch.presetLabel;
     const batchAccountLabel = input.accountLabel?.trim() || null;
 
-    const { error: batchError } = await supabase.from("trade_import_batches").insert({
-      id: batchId,
-      user_id: user.id,
-      file_name: batchFileName,
-      preset_key: importMetaForBatch.normalized,
-      preset_label: batchPresetLabel,
-      account_label: batchAccountLabel,
-      imported_count: 0,
-      duplicate_count: 0,
-      skipped_count: 0,
-      trust_score: input.trustScore ?? null,
-      trust_label: input.trustLabel ?? null,
-      warnings: input.warnings ?? [],
-      status: "active",
-    });
-
-    if (batchError) {
-      return {
-        success: false,
-        mode: "supabase" as const,
-        message: isMissingImportBatchSchema(batchError.message)
-          ? "Import-Verlauf braucht den SQL-Patch v57.48."
-          : `Import-Batch konnte nicht vorbereitet werden. ${batchError.message}`,
-      };
-    }
-
     const { data: existingTrades, error: existingTradesError } = await supabase
       .from("trades")
-      .select("id, created_at, market, bias, net_pnl, position_size")
+      .select("id, created_at, market, bias, net_pnl, position_size, account_currency, broker_profile, account_template, account_label")
       .eq("user_id", user.id);
 
     if (existingTradesError) {
@@ -437,6 +397,10 @@ export async function importTradeCsvEntries(input: CsvTradeImportInput) {
             typeof trade.position_size === "number"
               ? trade.position_size
               : parseTradingNumber(trade.position_size),
+          accountCurrency: trade.account_currency,
+          brokerProfile: trade.broker_profile,
+          accountTemplate: trade.account_template,
+          accountLabel: trade.account_label,
         }),
       ),
     );
@@ -461,12 +425,25 @@ export async function importTradeCsvEntries(input: CsvTradeImportInput) {
       const netPnL = toNumericField(row.netPnL);
       const positionSize = toNumericField(row.positionSize);
       const bias = row.direction?.trim() || null;
+      const importMeta = resolveImportMeta(row.importPreset);
+      const rowCurrencyRaw = row.currency?.trim() ?? "";
+      const rowCurrency = rowCurrencyRaw
+        ? normalizeTradeCurrency(rowCurrencyRaw)
+        : selectedCurrency;
+      if (!rowCurrency) {
+        skippedCount += 1;
+        continue;
+      }
       const fingerprint = buildTradeFingerprint({
         createdAt: timestamp,
         market: row.market,
         bias,
         netPnL,
         positionSize,
+        accountCurrency: rowCurrency,
+        brokerProfile: importMeta.brokerProfile,
+        accountTemplate: importMeta.accountTemplate,
+        accountLabel: batchAccountLabel,
       });
 
       if (
@@ -501,7 +478,6 @@ export async function importTradeCsvEntries(input: CsvTradeImportInput) {
       const tags = Array.from(
         new Set((row.tags ?? []).map((tag) => tag.trim()).filter(Boolean)),
       );
-      const importMeta = resolveImportMeta(row.importPreset);
       const noteParts = [importMeta.noteLead, row.notes?.trim()].filter(
         Boolean,
       );
@@ -543,6 +519,7 @@ export async function importTradeCsvEntries(input: CsvTradeImportInput) {
         broker_profile: importMeta.brokerProfile,
         instrument_type: instrumentType,
         account_template: importMeta.accountTemplate,
+        account_label: batchAccountLabel,
         market_template: importMeta.marketTemplate,
         position_size: positionSize,
         point_value: null,
@@ -553,7 +530,7 @@ export async function importTradeCsvEntries(input: CsvTradeImportInput) {
         funding_intervals: null,
         spread_cost: null,
         slippage: null,
-        account_currency: importMeta.accountCurrency,
+        account_currency: rowCurrency,
         crypto_market_type: importMeta.cryptoMarketType,
         execution_type: "manual",
         funding_direction: "manual",
@@ -590,12 +567,6 @@ export async function importTradeCsvEntries(input: CsvTradeImportInput) {
     }
 
     if (!stagedTrades.length) {
-      await supabase
-        .from("trade_import_batches")
-        .update({ imported_count: 0, duplicate_count: duplicateCount, skipped_count: skippedCount, status: "reverted", reverted_at: new Date().toISOString() })
-        .eq("id", batchId)
-        .eq("user_id", user.id);
-
       return {
         success: false,
         mode: "supabase" as const,
@@ -609,40 +580,38 @@ export async function importTradeCsvEntries(input: CsvTradeImportInput) {
       };
     }
 
-    const { error: importError } = await supabase
-      .from("trades")
-      .insert(stagedTrades);
+    const importedCount = stagedTrades.length;
+    const tagsByTradeId = stagedTags.reduce<Record<string, string[]>>((map, row) => {
+      const tradeId = String(row.trade_id ?? "");
+      const tag = String(row.tag ?? "");
+      if (tradeId && tag) (map[tradeId] ||= []).push(tag);
+      return map;
+    }, {});
+    const { error: importError } = await supabase.rpc("equora_import_trades_v1", {
+      p_batch_id: batchId,
+      p_batch: {
+        file_name: batchFileName,
+        preset_key: importMetaForBatch.normalized,
+        preset_label: batchPresetLabel,
+        account_label: batchAccountLabel,
+        duplicate_count: duplicateCount,
+        skipped_count: skippedCount,
+        trust_score: input.trustScore ?? null,
+        trust_label: input.trustLabel ?? null,
+        warnings: input.warnings ?? [],
+      },
+      p_trades: stagedTrades.map((trade) => ({
+        trade,
+        tags: tagsByTradeId[String(trade.id ?? "")] ?? [],
+      })),
+    });
     if (importError) {
       return {
         success: false,
         mode: "supabase" as const,
-        message: `Import fehlgeschlagen. ${importError.message}`,
+        message: "Import wurde vollständig zurückgerollt. Bitte Datenbankmigration v57.60.1 und Eingabedaten prüfen.",
       };
     }
-
-    if (stagedTags.length) {
-      const { error: tagError } = await supabase
-        .from("trade_tags")
-        .insert(stagedTags);
-      if (tagError) {
-        return {
-          success: false,
-          mode: "supabase" as const,
-          message: `Trades wurden importiert, aber Tags nicht vollständig gespeichert. ${tagError.message}`,
-        };
-      }
-    }
-
-    const importedCount = stagedTrades.length;
-    await supabase
-      .from("trade_import_batches")
-      .update({
-        imported_count: importedCount,
-        duplicate_count: duplicateCount,
-        skipped_count: skippedCount,
-      })
-      .eq("id", batchId)
-      .eq("user_id", user.id);
 
     revalidateTradeSurfaces();
 

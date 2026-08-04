@@ -1,3 +1,5 @@
+import type { MonetaryScopeKind, TradeCurrency } from '@/lib/utils/currency'
+
 export type ReviewSessionType = 'spotlight' | 'review'
 export type ReviewSessionPeriodPreset = '7d' | '14d' | '30d' | '90d'
 export type ReviewSessionStatus = 'open' | 'watch' | 'closed'
@@ -15,6 +17,8 @@ export type SavedReviewSession = {
   tradeCount: number
   visibleTradeCount: number
   netPnL: number
+  currency: TradeCurrency | null
+  monetaryScopeKind: MonetaryScopeKind
   averageR: number
   winRate: number
   winners: number
@@ -44,6 +48,8 @@ export type SaveReviewSessionInput = {
   tradeCount: number
   visibleTradeCount: number
   netPnL?: number | null
+  currency?: TradeCurrency | null
+  monetaryScopeKind?: MonetaryScopeKind
   averageR?: number | null
   winRate?: number | null
   winners?: number

@@ -7,7 +7,7 @@ import { hasSupabaseClientEnv } from '@/lib/supabase/config'
 export async function addTradeTags(tradeId: string, tags: string[]) {
   const supabase = await createSupabaseAuthServerClient()
   if (!tags.length) return { success: true }
-  const { error } = await supabase.from('trade_tags').insert(tags.map((tag) => ({ trade_id: tradeId, tag })))
+  const { error } = await supabase.rpc('equora_add_trade_tags_v1', { p_trade_id: tradeId, p_tags: tags })
   if (error) throw new Error('Trade-Tags konnten nicht gespeichert werden.')
   return { success: true }
 }
@@ -68,25 +68,12 @@ export async function setTradeTagsForTrade(
       return { success: false, message: 'Trade nicht gefunden oder kein Zugriff.', tags: [] }
     }
 
-    // Alle bestehenden Tags des Trades löschen
-    const { error: deleteError } = await supabase.from('trade_tags').delete().eq('trade_id', tradeId)
-    if (deleteError) {
-      return { success: false, message: 'Bestehende Tags konnten nicht entfernt werden.', tags: [] }
-    }
-
-    // Neuen Tag-Satz einfügen (falls nicht leer)
-    if (deduplicated.length > 0) {
-      const rows = deduplicated.map((tag) => ({
-        id: crypto.randomUUID(),
-        trade_id: tradeId,
-        tag,
-        created_at: new Date().toISOString(),
-      }))
-
-      const { error: insertError } = await supabase.from('trade_tags').insert(rows)
-      if (insertError) {
-        return { success: false, message: 'Tags konnten nicht gespeichert werden.', tags: [] }
-      }
+    const { error: replaceError } = await supabase.rpc('equora_replace_trade_tags_v1', {
+      p_trade_id: tradeId,
+      p_tags: deduplicated,
+    })
+    if (replaceError) {
+      return { success: false, message: 'Tags konnten nicht atomar gespeichert werden.', tags: [] }
     }
 
     revalidatePath('/trades')
@@ -125,28 +112,11 @@ export async function bulkAddTradeTag(tradeIds: string[], tag: string) {
     } = await supabase.auth.getUser()
     if (!user) return { success: false, message: 'Bitte zuerst einloggen.' }
 
-    const { data: existingRows, error: existingError } = await supabase
-      .from('trade_tags')
-      .select('trade_id, tag')
-      .in('trade_id', tradeIds)
-      .eq('tag', normalizedTag)
-
-    if (existingError) return { success: false, message: 'Bestehende Tags konnten nicht geprüft werden.' }
-
-    const existingTradeIds = new Set((existingRows ?? []).map((row: { trade_id: string; tag: string }) => row.trade_id))
-    const rowsToInsert = tradeIds
-      .filter((tradeId) => !existingTradeIds.has(tradeId))
-      .map((tradeId) => ({
-        id: crypto.randomUUID(),
-        trade_id: tradeId,
-        tag: normalizedTag,
-        created_at: new Date().toISOString(),
-      }))
-
-    if (rowsToInsert.length) {
-      const { error } = await supabase.from('trade_tags').insert(rowsToInsert)
-      if (error) return { success: false, message: 'Bulk-Tagging konnte nicht gespeichert werden.' }
-    }
+    const { data: insertedCount, error } = await supabase.rpc('equora_bulk_add_trade_tag_v1', {
+      p_trade_ids: tradeIds,
+      p_tag: normalizedTag,
+    })
+    if (error) return { success: false, message: 'Bulk-Tagging konnte nicht atomar gespeichert werden.' }
 
     revalidatePath('/dashboard')
     revalidatePath('/trades')
@@ -154,13 +124,14 @@ export async function bulkAddTradeTag(tradeIds: string[], tag: string) {
     revalidatePath('/review')
     revalidatePath('/setups')
 
-    const skipped = tradeIds.length - rowsToInsert.length
+    const inserted = typeof insertedCount === 'number' ? insertedCount : 0
+    const skipped = tradeIds.length - inserted
     return {
       success: true,
       message:
         skipped > 0
-          ? `Tag "${normalizedTag}" auf ${rowsToInsert.length} Trades angewendet, ${skipped} waren bereits markiert.`
-          : `Tag "${normalizedTag}" auf ${rowsToInsert.length} Trades angewendet.`,
+          ? `Tag "${normalizedTag}" auf ${inserted} Trades angewendet, ${skipped} waren bereits markiert.`
+          : `Tag "${normalizedTag}" auf ${inserted} Trades angewendet.`,
     }
   } catch {
     return { success: false, message: 'Bulk-Tagging konnte nicht gespeichert werden.' }

@@ -33,7 +33,7 @@ export function BrokerSyncHub({ snapshot }: { snapshot: BrokerSyncSnapshot }) {
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
-            <StatusPill label="v57.60" tone="gold" />
+            <StatusPill label="v57.60.1" tone="gold" />
             <StatusPill
               label={snapshot.connectorReady ? 'MEXC bereit' : 'Einrichtung nötig'}
               tone={snapshot.connectorReady ? 'quiet' : 'warning'}
@@ -66,7 +66,7 @@ export function BrokerSyncHub({ snapshot }: { snapshot: BrokerSyncSnapshot }) {
           <SectionHeading eyebrow="Bereitschaft" title="Was schon funktioniert" />
           <div className="mt-5 space-y-3">
             <ReadinessRow label="Broker-Bereich" value={snapshot.schemaReady ? 'Bereit' : 'Grundlage fehlt'} />
-            <ReadinessRow label="Verschlüsselter Zugang" value={snapshot.secureStoreReady ? 'Bereit' : 'Patch v57.60 nötig'} />
+            <ReadinessRow label="Verschlüsselter Zugang" value={snapshot.secureStoreReady ? 'Bereit' : 'Patches v57.60 + v57.60.1 nötig'} />
             <ReadinessRow label="MEXC-Verbindung prüfen" value={snapshot.connectorReady ? 'Bereit' : 'Vercel prüfen'} />
             <ReadinessRow label="Automatisch ins Journal übernehmen" value="Noch ausgeschaltet" />
           </div>

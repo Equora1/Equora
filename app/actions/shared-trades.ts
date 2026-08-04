@@ -2,8 +2,9 @@
 
 import { revalidatePath } from 'next/cache'
 import { createSupabaseAuthServerClient } from '@/lib/supabase/server-auth'
+import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { isEquoraAdminUser } from '@/lib/server/admin'
-import { hasSupabaseClientEnv } from '@/lib/supabase/config'
+import { hasSupabaseClientEnv, hasSupabaseServerEnv } from '@/lib/supabase/config'
 import { computeTradeMetrics, parseTradingNumber } from '@/lib/utils/calculations'
 import { splitDraftItems, type SharedTradeShareMode, type SharedTradeStatus, type SharedTradeVisibility } from '@/lib/utils/trade-share'
 
@@ -50,6 +51,9 @@ export async function createTradeShareSubmission(input: {
 
   if (!hasSupabaseClientEnv()) {
     return { success: true, mode: 'demo' as const, message: 'Demo-Modus: Vault Submission wurde nur lokal simuliert.' }
+  }
+  if (!hasSupabaseServerEnv()) {
+    return { success: false, mode: 'supabase' as const, message: 'Der sichere serverseitige Vault-Speicher ist nicht konfiguriert.' }
   }
 
   try {
@@ -121,12 +125,15 @@ export async function createTradeShareSubmission(input: {
       shared_result: deriveResultLabel(trade.capture_result, trade.net_pnl),
       shared_r_multiple: metrics.rSource === 'missing' ? null : metrics.rValue,
       shared_net_pnl: metrics.netPnL,
+      shared_currency: metrics.accountCurrency,
       shared_capture_status: trade.capture_status ?? null,
       shared_capture_result: trade.capture_result ?? null,
       shared_notes: trade.notes ?? null,
       shared_quality: trade.quality ?? null,
       shared_tags: tags,
-      shared_screenshot_url: trade.screenshot_url ?? null,
+      // Private journal media is never copied into a persistent share snapshot.
+      // A future reviewed-vault flow must authorize and sign a media id explicitly.
+      shared_screenshot_url: null,
       admin_note: null,
       coach_feedback: null,
       learning_category: null,
@@ -147,8 +154,9 @@ export async function createTradeShareSubmission(input: {
       .eq('user_id', user.id)
       .maybeSingle()
 
+    const mutationClient = createSupabaseServerClient()
     if (existingSubmission?.id) {
-      const { error: updateError } = await supabase
+      const { error: updateError } = await mutationClient
         .from('shared_trade_submissions')
         .update(sharePayload)
         .eq('id', existingSubmission.id)
@@ -158,7 +166,7 @@ export async function createTradeShareSubmission(input: {
         return { success: false, mode: 'supabase' as const, message: 'Trade konnte nicht erneut in die Equora Vault gesendet werden.' }
       }
     } else {
-      const { error: insertError } = await supabase.from('shared_trade_submissions').insert({
+      const { error: insertError } = await mutationClient.from('shared_trade_submissions').insert({
         id: crypto.randomUUID(),
         created_at: timestamp,
         ...sharePayload,
@@ -188,6 +196,9 @@ export async function revokeTradeShareSubmission(submissionId: string) {
   if (!hasSupabaseClientEnv()) {
     return { success: true, mode: 'demo' as const, message: 'Demo-Modus: Vault Submission wurde als zurückgezogen markiert.' }
   }
+  if (!hasSupabaseServerEnv()) {
+    return { success: false, mode: 'supabase' as const, message: 'Der sichere serverseitige Vault-Speicher ist nicht konfiguriert.' }
+  }
 
   try {
     const supabase = await createSupabaseAuthServerClient()
@@ -197,7 +208,7 @@ export async function revokeTradeShareSubmission(submissionId: string) {
 
     if (!user) return { success: false, mode: 'supabase' as const, message: 'Bitte zuerst einloggen.' }
 
-    const { error } = await supabase
+    const { error } = await createSupabaseServerClient()
       .from('shared_trade_submissions')
       .update({ status: 'revoked', updated_at: new Date().toISOString() })
       .eq('id', submissionId)
@@ -241,6 +252,9 @@ export async function updateSharedTradeSubmissionByAdmin(input: {
       message: 'Admin-Zugriff ist noch nicht mit Supabase verbunden.',
     }
   }
+  if (!hasSupabaseServerEnv()) {
+    return { success: false, mode: 'supabase' as const, message: 'Der sichere serverseitige Vault-Speicher ist nicht konfiguriert.' }
+  }
 
   try {
     const supabase = await createSupabaseAuthServerClient()
@@ -254,7 +268,7 @@ export async function updateSharedTradeSubmissionByAdmin(input: {
 
     const timestamp = new Date().toISOString()
     const normalizedStatus = input.status
-    const { error } = await supabase
+    const { error } = await createSupabaseServerClient()
       .from('shared_trade_submissions')
       .update({
         status: normalizedStatus,

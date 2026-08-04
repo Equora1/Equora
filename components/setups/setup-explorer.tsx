@@ -121,7 +121,7 @@ export function SetupExplorer({
 
             <div className="grid gap-3 lg:grid-cols-4">
               <Metric label="Trades" value={String(linkedTrades.length)} note={selectedPerformance ? `${selectedPerformance.resolvedTrades} erledigt · ${selectedPerformance.openTrades} offen` : 'Historie'} />
-              <Metric label="P&L" value={selectedPerformance ? formatCurrency(selectedPerformance.netPnL) : '—'} note={selectedPerformance?.verdict ?? 'Noch keine Daten'} />
+              <Metric label="P&L" value={selectedPerformance ? formatCurrency(selectedPerformance.netPnL, 0, selectedPerformance.currency) : '—'} note={selectedPerformance?.verdict ?? 'Noch keine Daten'} />
               <Metric label="Winrate" value={selectedPerformance ? `${selectedPerformance.winRate.toFixed(0)}%` : '—'} note={selectedPerformance ? `${selectedPerformance.wins}W · ${selectedPerformance.losses}L · ${selectedPerformance.breakeven}BE` : 'Offen'} />
               <Metric label="PF / Ø R" value={selectedPerformance ? `${formatProfitFactor(selectedPerformance.profitFactor)} · ${formatRMultiple(selectedPerformance.averageR)}` : '—'} note={selectedPerformance ? `${selectedPerformance.riskCoverage}% Risiko dokumentiert` : 'Regel prüfen'} />
             </div>
@@ -129,7 +129,7 @@ export function SetupExplorer({
             {selectedPerformance ? (
               <div className={`rounded-2xl border px-4 py-3 text-sm leading-6 ${activeStatusTone}`}>
                 <span className="font-semibold">{selectedPerformance.statusLabel}.</span> {selectedPerformance.statusHint}
-                {selectedPerformance.lastTradeDate ? ` Letzter Trade: ${selectedPerformance.lastTradeDate}${selectedPerformance.lastTradePnL !== null ? ` · ${formatCurrency(selectedPerformance.lastTradePnL)}` : ''}.` : ''}
+                {selectedPerformance.lastTradeDate ? ` Letzter Trade: ${selectedPerformance.lastTradeDate}${selectedPerformance.lastTradePnL !== null ? ` · ${formatCurrency(selectedPerformance.lastTradePnL, 0, selectedPerformance.currency)}` : ''}.` : ''}
               </div>
             ) : null}
 
@@ -137,7 +137,7 @@ export function SetupExplorer({
               <div className="grid gap-3 md:grid-cols-3">
                 <MiniSignal label="Stark" value={selectedPerformance.bestSession} note={selectedPerformance.bestMarket} />
                 <MiniSignal label="Prüfen" value={selectedPerformance.weakestSession} note={selectedPerformance.weakestMarket} />
-                <MiniSignal label="Kosten" value={formatCurrency(selectedPerformance.totalCosts)} note={`${formatCurrency(selectedPerformance.averageCost)} je Trade`} />
+                <MiniSignal label="Kosten" value={selectedPerformance.costScopeKind === 'single' ? formatCurrency(selectedPerformance.totalCosts, 0, selectedPerformance.costCurrency) : 'Gesperrt'} note={selectedPerformance.costScopeKind === 'single' ? `${formatCurrency(selectedPerformance.averageCost, 0, selectedPerformance.costCurrency)} je Trade` : 'Währungen fehlen oder sind gemischt'} />
               </div>
             ) : null}
 
@@ -261,7 +261,7 @@ function SetupPerformanceTile({ row, active, onClick }: { row: SetupPerformanceR
         </div>
         <span className="rounded-full border border-white/10 bg-black/20 px-2.5 py-1 text-[11px] text-white/58">{row.winRate.toFixed(0)}%</span>
       </div>
-      <p className="mt-4 whitespace-nowrap text-2xl font-semibold tabular-nums text-white">{formatCurrency(row.netPnL)}</p>
+      <p className="mt-4 whitespace-nowrap text-2xl font-semibold tabular-nums text-white">{formatCurrency(row.netPnL, 0, row.currency)}</p>
       <div className="mt-3 grid grid-cols-3 gap-2 text-[11px] text-white/58">
         <span>PF {formatProfitFactor(row.profitFactor)}</span>
         <span>ØR {formatRMultiple(row.averageR)}</span>

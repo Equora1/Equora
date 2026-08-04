@@ -19,7 +19,7 @@ import type {
   TradeMarketTemplate,
 } from '@/lib/types/trade'
 import {
-  formatCurrency,
+  formatPlainNumber,
   normalizeInstrumentType,
   normalizeTradeBrokerProfile,
   normalizeTradeCostProfile,
@@ -760,7 +760,7 @@ export function CostProfilesHub({ initialProfiles, usageByProfileId, source }: C
               <Row label="Broker" value={getBrokerLabel(draft.brokerProfile)} />
               <Row label="Instrument" value={getInstrumentLabel(draft.instrumentType)} />
               <Row label="Kostenprofil" value={getCostProfileLabel(draft.costProfile)} />
-              <Row label="Basis-Kosten" value={formatCurrency(totalBaseFees)} />
+              <Row label="Basis-Kosten" value={`${formatPlainNumber(totalBaseFees, 2)} · Kontowährung je Trade`} />
               <Row label="Verwendet in Trades" value={String(totalUsage)} />
               {draft.instrumentType === 'crypto' ? (
                 <>

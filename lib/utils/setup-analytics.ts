@@ -3,6 +3,8 @@ import type { SavedSetup, SavedSetupMedia, SetupDetail, SetupImageItem, SetupLib
 import type { Trade } from '@/lib/types/trade'
 import { findBestMarket, getCoreMetrics } from '@/lib/utils/analytics'
 import { formatCurrency, formatRMultiple } from '@/lib/utils/calculations'
+import type { TradeCurrency } from '@/lib/types/trade'
+import { resolveMonetaryScope, type MonetaryScopeKind } from '@/lib/utils/currency'
 
 function normalizeCategory(category: string | null | undefined) {
   return category?.trim() || 'Custom'
@@ -41,6 +43,9 @@ export type SetupPerformanceRow = {
   tone: 'green' | 'red' | 'neutral'
   verdict: string
   guardrail: string
+  currency: TradeCurrency | null
+  costCurrency: TradeCurrency | null
+  costScopeKind: MonetaryScopeKind
 }
 
 export function getTradesForSetupTitle(title: string, trades: Trade[], savedSetups: Array<Pick<SavedSetup, 'title' | 'linkedTradeIds'>> = []) {
@@ -93,8 +98,22 @@ function formatTradeDate(value: string | null | undefined) {
   return date.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: '2-digit' })
 }
 
-function sumTradeCosts(trades: Trade[]) {
-  return trades.reduce((sum, trade) => sum + Math.abs(trade.totalCosts ?? trade.fees ?? 0), 0)
+function getTradeCosts(trade: Trade) {
+  if (trade.totalCosts !== undefined && trade.totalCosts !== null) return trade.totalCosts
+  if (trade.fees !== undefined && trade.fees !== null) return trade.fees
+  return null
+}
+
+function getCostSummary(trades: Trade[]) {
+  const costTrades = trades.filter((trade) => getTradeCosts(trade) !== null)
+  const monetaryScope = resolveMonetaryScope(costTrades.map((trade) => trade.accountCurrency))
+  return {
+    total: monetaryScope.isComparable
+      ? costTrades.reduce((sum, trade) => sum + (getTradeCosts(trade) ?? 0), 0)
+      : 0,
+    count: costTrades.length,
+    monetaryScope,
+  }
 }
 
 function buildBestWeakestLabel(trades: Trade[], getLabel: (trade: Trade) => string | null | undefined) {
@@ -132,7 +151,6 @@ export function buildSetupPerformanceRows(
   savedSetups: Array<Pick<SavedSetup, 'title' | 'linkedTradeIds'>> = [],
 ): SetupPerformanceRow[] {
   const titles = Array.from(new Set([...setupTitles.filter(Boolean), ...trades.map((trade) => trade.setup).filter(Boolean)]))
-
   return titles
     .map((title) => {
       const setupTrades = getTradesForSetupTitle(title, trades, savedSetups)
@@ -143,7 +161,8 @@ export function buildSetupPerformanceRows(
       const latestTrade = [...setupTrades].sort((left, right) => getTradeTimestamp(right) - getTradeTimestamp(left))[0]
       const sessionLabels = buildBestWeakestLabel(resolvedTrades, (trade) => trade.session)
       const marketLabels = buildBestWeakestLabel(resolvedTrades, (trade) => trade.market)
-      const totalCosts = sumTradeCosts(setupTrades)
+      const costSummary = getCostSummary(setupTrades)
+      const totalCosts = costSummary.total
       const riskCoverage = getRiskCoverage(setupTrades)
       const status = getSetupStatus(metrics, setupTrades.length, riskCoverage)
 
@@ -158,7 +177,7 @@ export function buildSetupPerformanceRows(
         grossProfit: metrics.grossProfit,
         grossLoss: metrics.grossLoss,
         totalCosts,
-        averageCost: setupTrades.length ? totalCosts / setupTrades.length : 0,
+        averageCost: costSummary.count ? totalCosts / costSummary.count : 0,
         averageR: metrics.averageR,
         expectancyR: metrics.expectancyR,
         wins: metrics.winners,
@@ -175,6 +194,9 @@ export function buildSetupPerformanceRows(
         tone,
         verdict: getSetupVerdict(metrics, setupTrades.length),
         guardrail: getSetupGuardrail(metrics, setupTrades.length),
+        currency: metrics.monetaryScope.currency,
+        costCurrency: costSummary.monetaryScope.currency,
+        costScopeKind: costSummary.monetaryScope.kind,
       } satisfies SetupPerformanceRow
     })
     .sort((left, right) => right.netPnL - left.netPnL || right.trades - left.trades || left.title.localeCompare(right.title, 'de'))
@@ -299,7 +321,7 @@ export function buildDynamicSetupDetail(
     playbook: row?.playbook ?? base?.playbook ?? undefined,
     performance:
       linkedTrades.length > 0
-        ? `${formatCurrency(metrics.netPnL)} · ${metrics.winRate.toFixed(0)}% Winrate · ${formatRMultiple(metrics.averageR)}`
+        ? `${formatCurrency(metrics.netPnL, 0, metrics.currency)} · ${metrics.winRate.toFixed(0)}% Winrate · ${formatRMultiple(metrics.averageR)}`
         : (base?.performance ?? 'Noch keine Performance-Daten vorhanden.'),
     bestMarket,
     bestSession,

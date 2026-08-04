@@ -11,5 +11,7 @@ export type TagStat = {
   winRate: number
   avgR: number
   netPnL: number
+  currency: TradeCurrency | null
   profitFactor: number
 }
+import type { TradeCurrency } from '@/lib/utils/currency'

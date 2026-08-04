@@ -1,6 +1,7 @@
 import type { Trade } from '@/lib/types/trade'
 import { resolveTradeOccurredAt } from '@/lib/utils/trade-time'
 import { getTrustedTrades } from '@/lib/utils/trade-trust'
+import { resolveTradeMonetaryScope } from '@/lib/utils/currency'
 
 const SVG_WIDTH = 600
 const SVG_HEIGHT = 240
@@ -59,7 +60,9 @@ function buildPath(points: ChartPoint[]) {
 }
 
 export function buildEquitySeries(trades: Trade[]) {
-  const sorted = sortTradesChronologically(getTrustedTrades(trades))
+  const trusted = getTrustedTrades(trades)
+  const monetaryScope = resolveTradeMonetaryScope(trusted)
+  const sorted = monetaryScope.isComparable ? sortTradesChronologically(trusted) : []
   let cumulative = 0
   const values = sorted.map((trade) => {
     cumulative += trade.netPnL ?? 0
@@ -75,11 +78,14 @@ export function buildEquitySeries(trades: Trade[]) {
       : '',
     latestValue: values.at(-1) ?? 0,
     totalPoints: points.length,
+    monetaryScope,
   }
 }
 
 export function buildPnLSeries(trades: Trade[]) {
-  const sorted = sortTradesChronologically(getTrustedTrades(trades))
+  const trusted = getTrustedTrades(trades)
+  const monetaryScope = resolveTradeMonetaryScope(trusted)
+  const sorted = monetaryScope.isComparable ? sortTradesChronologically(trusted) : []
   const values = sorted.map((trade) => trade.netPnL ?? 0)
   const points = buildChartPoints(values)
 
@@ -88,11 +94,14 @@ export function buildPnLSeries(trades: Trade[]) {
     linePath: buildPath(points),
     latestValue: values.at(-1) ?? 0,
     totalPoints: points.length,
+    monetaryScope,
   }
 }
 
 export function buildDrawdownSeries(trades: Trade[]) {
-  const sorted = sortTradesChronologically(getTrustedTrades(trades))
+  const trusted = getTrustedTrades(trades)
+  const monetaryScope = resolveTradeMonetaryScope(trusted)
+  const sorted = monetaryScope.isComparable ? sortTradesChronologically(trusted) : []
   let cumulative = 0
   let peak = 0
 
@@ -116,6 +125,7 @@ export function buildDrawdownSeries(trades: Trade[]) {
     deepestValue: Math.max(0, ...values.map((value) => Math.abs(value))),
     totalPoints: points.length,
     zeroLineY,
+    monetaryScope,
   }
 }
 

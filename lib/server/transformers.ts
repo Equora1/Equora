@@ -94,7 +94,7 @@ export function mapTradeRowToTrade(row: TradeRow, mediaRows: TradeMediaRow[] = [
     tradeOccurredAt,
     market: row.market,
     setup: linkedSetup?.title ?? row.setup,
-    result: metrics.netPnL !== null ? formatCurrency(metrics.netPnL) : captureResult ? getTradeCaptureResultLabel(captureResult) : '—',
+    result: metrics.netPnL !== null ? formatCurrency(metrics.netPnL, 0, metrics.accountCurrency) : captureResult ? getTradeCaptureResultLabel(captureResult) : '—',
     r: formatRMultiple(metrics.rValue),
     emotion: row.emotion ?? '—',
     quality: (row.quality ?? 'B-Setup') as Trade['quality'],
@@ -129,7 +129,7 @@ export function mapTradeRowToTrade(row: TradeRow, mediaRows: TradeMediaRow[] = [
     costProfile: metrics.costProfile,
     brokerProfile: metrics.brokerProfile,
     accountTemplate: (row.account_template ?? 'manual') as Trade['accountTemplate'],
-    accountLabel: getTradeAccountLabel({ accountTemplate: (row.account_template ?? 'manual') as Trade['accountTemplate'] }),
+    accountLabel: getTradeAccountLabel({ accountLabel: row.account_label, accountTemplate: (row.account_template ?? 'manual') as Trade['accountTemplate'] }),
     marketTemplate: (row.market_template ?? 'manual') as Trade['marketTemplate'],
     accountCurrency: metrics.accountCurrency,
     positionSize: metrics.positionSize,
@@ -206,13 +206,13 @@ export function mapTradeRowToTradeDetail(row: TradeRow, mediaRows: TradeMediaRow
   const costParts = [
     `${getCostProfileLabel(metrics.costProfile)} Profil`,
     `Broker ${getBrokerProfileLabel(metrics.brokerProfile)}`,
-    metrics.fees !== null ? `Kommission ${formatCurrency(metrics.fees)}` : null,
-    metrics.exchangeFees !== null ? `Börse ${formatCurrency(metrics.exchangeFees)}` : null,
-    metrics.fundingFees !== null ? `Funding ${formatCurrency(metrics.fundingFees)}` : null,
+    metrics.fees !== null ? `Kommission ${formatCurrency(metrics.fees, 0, metrics.accountCurrency)}` : null,
+    metrics.exchangeFees !== null ? `Börse ${formatCurrency(metrics.exchangeFees, 0, metrics.accountCurrency)}` : null,
+    metrics.fundingFees !== null ? `Funding ${formatCurrency(metrics.fundingFees, 0, metrics.accountCurrency)}` : null,
     metrics.fundingRateBps !== null ? `Funding-Rate ${formatPlainNumber(metrics.fundingRateBps, 2)} bps` : null,
-    metrics.spreadCost !== null ? `Spread ${formatCurrency(metrics.spreadCost)}` : null,
-    metrics.slippage !== null ? `Slippage ${formatCurrency(metrics.slippage)}` : null,
-    metrics.totalCosts ? `Total ${formatCurrency(metrics.totalCosts)}` : 'Total +0 €',
+    metrics.spreadCost !== null ? `Spread ${formatCurrency(metrics.spreadCost, 0, metrics.accountCurrency)}` : null,
+    metrics.slippage !== null ? `Slippage ${formatCurrency(metrics.slippage, 0, metrics.accountCurrency)}` : null,
+    metrics.totalCosts ? `Total ${formatCurrency(metrics.totalCosts, 0, metrics.accountCurrency)}` : `Total ${formatCurrency(0, 0, metrics.accountCurrency)}`,
   ].filter(Boolean)
 
   const sizeParts = [
@@ -243,7 +243,7 @@ export function mapTradeRowToTradeDetail(row: TradeRow, mediaRows: TradeMediaRow
     result: formatRMultiple(metrics.rValue),
     pnl:
       metrics.netPnL !== null
-        ? `${formatCurrency(metrics.netPnL)}${partialPlan.hasRemainder ? ' bisher realisiert · Rest läuft' : ''}`
+        ? `${formatCurrency(metrics.netPnL, 0, metrics.accountCurrency)}${partialPlan.hasRemainder ? ' bisher realisiert · Rest läuft' : ''}`
         : captureResult
           ? `${getTradeCaptureResultLabel(captureResult)} · Schnellerfassung`
           : 'Kein P&L hinterlegt',
@@ -257,6 +257,9 @@ export function mapTradeRowToTradeDetail(row: TradeRow, mediaRows: TradeMediaRow
     reviewLesson: row.review_lesson ?? '—',
     screenshotUrl: screenshotUrls[0] ?? undefined,
     screenshotUrls,
+    screenshotItems: mediaRows
+      .filter((media) => Boolean(media.public_url))
+      .map((media) => ({ id: media.id, url: media.public_url })),
     screenshotCount: screenshotUrls.length,
     direction:
       metrics.direction === 'long'
@@ -267,10 +270,10 @@ export function mapTradeRowToTradeDetail(row: TradeRow, mediaRows: TradeMediaRow
     riskReward:
       metrics.riskRewardRatio !== null ? `${formatPlainNumber(metrics.riskRewardRatio)} : 1 geplant` : 'Kein sauberes CRV ableitbar',
     riskAmount:
-      metrics.riskAmount !== null ? formatCurrency(metrics.riskAmount) : 'Nicht sicher berechenbar',
+      metrics.riskAmount !== null ? formatCurrency(metrics.riskAmount, 0, metrics.accountCurrency) : 'Nicht sicher berechenbar',
     riskPlanLabel:
       metrics.riskPercent !== null
-        ? `${formatPlainNumber(metrics.riskPercent, 2)}% geplant${metrics.plannedRiskAmount !== null ? ` · ${formatCurrency(metrics.plannedRiskAmount)}` : ''}`
+        ? `${formatPlainNumber(metrics.riskPercent, 2)}% geplant${metrics.plannedRiskAmount !== null ? ` · ${formatCurrency(metrics.plannedRiskAmount, 0, metrics.accountCurrency)}` : ''}`
         : metrics.accountSize !== null
           ? 'Kontogröße da, aber noch kein geplantes Risiko gesetzt'
           : 'Kontogröße optional. Mit Konto + Risiko % wird der Plan sichtbar',
@@ -298,7 +301,7 @@ export function mapTradeRowToTradeDetail(row: TradeRow, mediaRows: TradeMediaRow
         : metrics.pnlSource === 'manual'
           ? 'P&L manuell hinterlegt'
           : metrics.pnlSource === 'override'
-            ? `Auto-Netto ${metrics.autoNetPnL !== null ? formatCurrency(metrics.autoNetPnL) : '—'} wurde manuell überschrieben`
+            ? `Auto-Netto ${metrics.autoNetPnL !== null ? formatCurrency(metrics.autoNetPnL, 0, metrics.accountCurrency) : '—'} wurde manuell überschrieben`
             : metrics.pnlSource === 'derived'
               ? partialPlan.hasRemainder
                 ? 'P&L bisher aus bereits realisierten Teilverkäufen, Size und Kosten hergeleitet'
@@ -310,7 +313,7 @@ export function mapTradeRowToTradeDetail(row: TradeRow, mediaRows: TradeMediaRow
     costProfileLabel: `Kostenprofil: ${getCostProfileLabel(metrics.costProfile)}`,
     brokerProfileLabel: `Brokerprofil: ${getBrokerProfileLabel(metrics.brokerProfile)}`,
     accountTemplateLabel: `Account: ${getAccountTemplateLabel(row.account_template)}`,
-    accountLabel: getTradeAccountLabel({ accountTemplate: (row.account_template ?? 'manual') as Trade['accountTemplate'] }),
+    accountLabel: getTradeAccountLabel({ accountLabel: row.account_label, accountTemplate: (row.account_template ?? 'manual') as Trade['accountTemplate'] }),
     marketTemplateLabel: `Markt-Template: ${getMarketTemplateLabel(row.market_template)}`,
     userCostProfileLabel: row.user_cost_profile_id ? 'Eigenes Nutzer-Kostenprofil aktiv' : undefined,
     sizeLabel: sizeParts.length ? sizeParts.join(' · ') : 'Keine Size-/Punktwertdaten hinterlegt',
@@ -321,7 +324,7 @@ export function mapTradeRowToTradeDetail(row: TradeRow, mediaRows: TradeMediaRow
     partialExitRemainingLabel: partialPlan.count ? formatPartialExitRemainingLabel(partialPlan.remainderPercent, partialSizePlan.remainingSize) : undefined,
     partialExitStateLabel: partialPlan.count ? (partialSizePlan.hasOpenRemainder ? 'Teilprofit aktiv · Restposition läuft weiter' : 'Teilprofit komplett abgeschlossen') : undefined,
     effectiveExitLabel: partialPlan.effectiveExit !== null ? `${formatPlainNumber(partialPlan.effectiveExit, 4)} Ø Exit` : undefined,
-    executionLabel: metrics.grossPnL !== null ? `Brutto ${formatCurrency(metrics.grossPnL)} → Netto ${metrics.netPnL !== null ? formatCurrency(metrics.netPnL) : '—'}${metrics.pnlSource === 'override' && metrics.autoNetPnL !== null ? ` (Auto ${formatCurrency(metrics.autoNetPnL)})` : ''} · ${getExecutionTypeLabel(metrics.executionType)} · ${getFundingDirectionLabel(metrics.fundingDirection)}` : 'Keine belastbare Ausführungsrechnung möglich',
+    executionLabel: metrics.grossPnL !== null ? `Brutto ${formatCurrency(metrics.grossPnL, 0, metrics.accountCurrency)} → Netto ${metrics.netPnL !== null ? formatCurrency(metrics.netPnL, 0, metrics.accountCurrency) : '—'}${metrics.pnlSource === 'override' && metrics.autoNetPnL !== null ? ` (Auto ${formatCurrency(metrics.autoNetPnL, 0, metrics.accountCurrency)})` : ''} · ${getExecutionTypeLabel(metrics.executionType)} · ${getFundingDirectionLabel(metrics.fundingDirection)}` : 'Keine belastbare Ausführungsrechnung möglich',
     cryptoLabel: metrics.instrumentType === 'crypto' ? `Krypto-Modus: ${getCryptoMarketTypeLabel(metrics.cryptoMarketType)}${metrics.quoteAsset ? ` · Quote ${metrics.quoteAsset}` : ''}${metrics.leverage !== null ? ` · Hebel ${formatPlainNumber(metrics.leverage, 2)}x` : ''}${metrics.executionType ? ` · ${getExecutionTypeLabel(metrics.executionType)}` : ''}${metrics.fundingDirection ? ` · ${getFundingDirectionLabel(metrics.fundingDirection)}` : ''}` : undefined,
     captureStatusLabel: getTradeCaptureStatusLabel(captureStatus),
     sessionLabel: resolvedSession,

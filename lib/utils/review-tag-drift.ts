@@ -4,8 +4,11 @@ import { formatCurrency } from '@/lib/utils/calculations'
 import { buildTradesHref, clampNumber, formatDelta } from '@/lib/utils/review-helpers'
 import type { ReviewTagComparisonItem } from '@/lib/utils/review-types'
 import { buildTagComparisons, getProcessTagShare, getTagCoverage } from '@/lib/utils/review-builder-shared'
+import { getCoreMetrics } from '@/lib/utils/analytics'
 
 export function buildTagDrift(tradesCurrent: Trade[], currentTags: TradeTag[], tradesPrevious: Trade[], previousTags: TradeTag[]): ReviewTagComparisonItem[] {
+  const currency = getCoreMetrics(tradesCurrent).currency
+  const money = (value: number) => formatCurrency(value, 0, currency)
   const comparisons = buildTagComparisons(currentTags, previousTags, tradesCurrent, tradesPrevious)
   const tagCoverageCurrent = getTagCoverage(tradesCurrent, currentTags)
   const tagCoveragePrevious = getTagCoverage(tradesPrevious, previousTags)
@@ -32,7 +35,7 @@ export function buildTagDrift(tradesCurrent: Trade[], currentTags: TradeTag[], t
       ? {
           label: 'Aufsteiger-Tag',
           value: strongestImprover.tag,
-          detail: `${formatDelta(strongestImprover.pnlDelta, ' €')} und ${formatDelta(strongestImprover.winRateDelta, ' pp')} zur Vorperiode.`,
+          detail: `${money(strongestImprover.pnlDelta)} und ${formatDelta(strongestImprover.winRateDelta, ' pp')} zur Vorperiode.`,
           tone: strongestImprover.pnlDelta >= 0 ? ('emerald' as const) : ('orange' as const),
           href: buildTradesHref({ tag: strongestImprover.tag, reviewFocus: `Review Drilldown · Aufsteiger-Tag: ${strongestImprover.tag}` }),
         }
@@ -41,7 +44,7 @@ export function buildTagDrift(tradesCurrent: Trade[], currentTags: TradeTag[], t
       ? {
           label: 'Kippender Tag',
           value: biggestSlipper.tag,
-          detail: `${formatDelta(biggestSlipper.pnlDelta, ' €')} gegenüber der Vorperiode.`,
+          detail: `${money(biggestSlipper.pnlDelta)} gegenüber der Vorperiode.`,
           tone: biggestSlipper.pnlDelta < 0 ? ('red' as const) : ('orange' as const),
           href: buildTradesHref({ tag: biggestSlipper.tag, reviewFocus: `Review Drilldown · Kippender Tag: ${biggestSlipper.tag}` }),
         }
@@ -50,7 +53,7 @@ export function buildTagDrift(tradesCurrent: Trade[], currentTags: TradeTag[], t
       ? {
           label: 'Neuer Warn-Tag',
           value: newWarning.tag,
-          detail: `${formatCurrency(newWarning.current?.netPnL ?? 0)} ohne Vorperioden-Historie. Frischer Störsender im System.`,
+          detail: `${money(newWarning.current?.netPnL ?? 0)} ohne Vorperioden-Historie. Frischer Störsender im System.`,
           tone: 'red',
           href: buildTradesHref({ tag: newWarning.tag, outcome: 'Verlierer', reviewFocus: `Review Drilldown · Neuer Warn-Tag: ${newWarning.tag}` }),
         }
@@ -84,4 +87,3 @@ export function buildTagDrift(tradesCurrent: Trade[], currentTags: TradeTag[], t
         },
       ]
 }
-

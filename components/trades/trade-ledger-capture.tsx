@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState, useTransition } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { createTradeEntry } from '@/app/actions/trades'
 import { buildQuickPnLPreview, formatCurrency, formatRMultiple, parseTradingNumber } from '@/lib/utils/calculations'
+import { SUPPORTED_TRADE_CURRENCIES } from '@/lib/utils/currency'
 
 type LedgerRow = {
   id: string
@@ -15,6 +16,7 @@ type LedgerRow = {
   exit: string
   stopLoss: string
   positionSize: string
+  accountCurrency: '' | (typeof SUPPORTED_TRADE_CURRENCIES)[number]
   setup: string
   emotion: string
   status: string
@@ -39,6 +41,7 @@ function createBlankRow(prefill?: Partial<LedgerRow>): LedgerRow {
     exit: '',
     stopLoss: '',
     positionSize: '',
+    accountCurrency: '',
     setup: '',
     emotion: '',
     status: '',
@@ -54,6 +57,7 @@ function hasLedgerInput(row: LedgerRow) {
     row.exit.trim() ||
     row.stopLoss.trim() ||
     row.positionSize.trim() ||
+    row.accountCurrency ||
     row.setup.trim() ||
     row.emotion.trim(),
   )
@@ -104,7 +108,7 @@ function getLedgerQuickR(row: LedgerRow) {
 function getLedgerQuickPnLLabel(row: LedgerRow) {
   const preview = getLedgerQuickPnL(row)
   const quickR = getLedgerQuickR(row)
-  if (preview.netPnL !== null) return quickR !== null ? `${formatCurrency(preview.netPnL, 2)} · ${formatRMultiple(quickR, 2)}` : formatCurrency(preview.netPnL, 2)
+  if (preview.netPnL !== null) return quickR !== null ? `${formatCurrency(preview.netPnL, 2, row.accountCurrency)} · ${formatRMultiple(quickR, 2)}` : formatCurrency(preview.netPnL, 2, row.accountCurrency)
   if (!row.entry && !row.exit && !row.positionSize) return '—'
   return preview.missing.length ? preview.missing.join(' · ') : '—'
 }
@@ -203,6 +207,10 @@ export function TradeLedgerCapture({
       updateRow(row.id, { status: 'Bitte zuerst einen Markt eintragen.' })
       return
     }
+    if (!row.accountCurrency) {
+      updateRow(row.id, { status: 'Bitte eine Kontowährung auswählen.' })
+      return
+    }
 
     updateRow(row.id, { status: 'Speichert ...' })
 
@@ -242,7 +250,7 @@ export function TradeLedgerCapture({
         fundingIntervals: '',
         spreadCost: '',
         slippage: '',
-        accountCurrency: '',
+        accountCurrency: row.accountCurrency,
         cryptoMarketType: 'manual',
         executionType: 'manual',
         fundingDirection: 'manual',
@@ -301,7 +309,7 @@ export function TradeLedgerCapture({
         <table className="min-w-[1100px] w-full text-sm">
           <thead className="border-b border-white/10 bg-black/40 text-left text-[11px] uppercase tracking-[0.18em] text-orange-100/60">
             <tr>
-              {['Zeit', 'Markt', 'Richtung', 'Entry', 'Exit', 'Stop', 'Size', 'P&L', 'Setup', 'Emotion', 'Aktion'].map((label) => (
+              {['Zeit', 'Markt', 'Richtung', 'Entry', 'Exit', 'Stop', 'Size', 'Währung', 'P&L', 'Setup', 'Emotion', 'Aktion'].map((label) => (
                 <th key={label} className="px-3 py-3 font-medium whitespace-nowrap">{label}</th>
               ))}
             </tr>
@@ -347,6 +355,16 @@ export function TradeLedgerCapture({
                     />
                   </td>
                 ))}
+                <td className="px-3 py-3">
+                  <select
+                    value={row.accountCurrency}
+                    onChange={(event) => updateRow(row.id, { accountCurrency: event.target.value as LedgerRow['accountCurrency'], status: '' })}
+                    className="w-[100px] rounded-xl border border-orange-300/15 bg-black/25 px-3 py-2 text-sm text-white outline-none focus:border-orange-300/35"
+                  >
+                    <option value="" className="bg-black text-white">—</option>
+                    {SUPPORTED_TRADE_CURRENCIES.map((currency) => <option key={currency} value={currency} className="bg-black text-white">{currency}</option>)}
+                  </select>
+                </td>
                 <td className="px-3 py-3">
                   <div className={`w-[160px] rounded-xl border px-3 py-2 text-sm ${getLedgerQuickTone(row) === 'positive' ? 'border-emerald-400/20 bg-emerald-400/10 text-emerald-100' : getLedgerQuickTone(row) === 'negative' ? 'border-red-400/20 bg-red-400/10 text-red-100' : getLedgerQuickTone(row) === 'flat' ? 'border-white/15 bg-white/5 text-white/70' : 'border-white/10 bg-black/20 text-white/40'}`}>
                     {getLedgerQuickPnLLabel(row)}

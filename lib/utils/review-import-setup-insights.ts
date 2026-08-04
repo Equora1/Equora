@@ -46,6 +46,8 @@ function buildSetupBuckets(trades: Trade[]): SetupBucket[] {
 }
 
 export function buildReviewSetupInsights(trades: Trade[]): ReviewTagRadarItem[] {
+  const currency = getCoreMetrics(trades).currency
+  const money = (value: number) => formatCurrency(value, 0, currency)
   const buckets = buildSetupBuckets(trades)
   if (!buckets.length) {
     return [
@@ -68,7 +70,7 @@ export function buildReviewSetupInsights(trades: Trade[]): ReviewTagRadarItem[] 
     insights.push({
       label: 'Trägt',
       value: strongest.setup,
-      detail: `${strongest.trades.length} Trades · ${formatCurrency(strongest.netPnL)} · Winrate ${Math.round(strongest.winRate)}% · ØR ${formatRMultiple(strongest.averageR)}`,
+      detail: `${strongest.trades.length} Trades · ${money(strongest.netPnL)} · Winrate ${Math.round(strongest.winRate)}% · ØR ${formatRMultiple(strongest.averageR)}`,
       tone: toneFromPnL(strongest.netPnL),
       href: `/trades?setup=${encodeURIComponent(strongest.setup)}`,
     })
@@ -78,7 +80,7 @@ export function buildReviewSetupInsights(trades: Trade[]): ReviewTagRadarItem[] 
     insights.push({
       label: 'Prüfen',
       value: weakest.setup,
-      detail: `${weakest.trades.length} Trades · ${formatCurrency(weakest.netPnL)}. Regel oder Session enger fassen.`,
+      detail: `${weakest.trades.length} Trades · ${money(weakest.netPnL)}. Regel oder Session enger fassen.`,
       tone: 'red',
       href: `/trades?setup=${encodeURIComponent(weakest.setup)}&reviewFocus=${encodeURIComponent('Setup prüfen')}`,
     })
@@ -88,7 +90,7 @@ export function buildReviewSetupInsights(trades: Trade[]): ReviewTagRadarItem[] 
     insights.push({
       label: 'Häufig',
       value: mostTraded.setup,
-      detail: `${mostTraded.trades.length} Trades · ${formatCurrency(mostTraded.netPnL)}. Prüfen, ob Häufigkeit auch Qualität bringt.`,
+      detail: `${mostTraded.trades.length} Trades · ${money(mostTraded.netPnL)}. Prüfen, ob Häufigkeit auch Qualität bringt.`,
       tone: toneFromPnL(mostTraded.netPnL),
       href: `/trades?setup=${encodeURIComponent(mostTraded.setup)}`,
     })

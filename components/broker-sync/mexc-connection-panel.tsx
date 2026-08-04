@@ -99,7 +99,7 @@ export function MexcConnectionPanel({
           <div className="mt-5 rounded-2xl border border-[#e5a14d]/20 bg-[#e5a14d]/8 px-4 py-3 text-sm leading-6 text-[#efc98f]">
             {secureStoreReady
               ? 'Der Verschlüsselungsschlüssel fehlt noch. Hinterlege EQUORA_BROKER_SECRET_KEY in Vercel.'
-              : 'Bitte zuerst den SQL-Patch v57.60 ausführen und die Servervariablen in Vercel prüfen.'}
+              : 'Bitte zuerst die SQL-Patches v57.60 und v57.60.1 ausführen und die Servervariablen in Vercel prüfen.'}
           </div>
         ) : null}
 
@@ -222,7 +222,7 @@ export function MexcConnectionPanel({
                   </button>
                   <button
                     type="button"
-                    disabled={isPending || !connectorReady}
+                    disabled={isPending}
                     onClick={() => removeConnection(connection.id, title)}
                     className="rounded-full border border-white/10 bg-white/[0.03] px-3 py-1.5 text-xs text-white/48 transition hover:text-white/70 disabled:opacity-45"
                   >

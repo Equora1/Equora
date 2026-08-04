@@ -41,7 +41,7 @@ export function CloseTradeForm({
         { label: 'Bereits realisiert', value: trade.partialExitCoveragePercent ? `${Math.round(trade.partialExitCoveragePercent)}%` : 'Noch nichts' },
         { label: 'Rest offen', value: trade.partialExitRemainderPercent !== null && trade.partialExitRemainderPercent !== undefined ? `${Math.round(trade.partialExitRemainderPercent)}%` : '100%' },
         { label: 'Restgröße', value: trade.partialExitRemainingSize !== null && trade.partialExitRemainingSize !== undefined ? formatPlainNumber(trade.partialExitRemainingSize, 4) : '—' },
-        { label: 'Aktueller Stand', value: trade.netPnL !== null && trade.netPnL !== undefined ? formatCurrency(trade.netPnL) : 'Noch offen' },
+        { label: 'Aktueller Stand', value: trade.netPnL !== null && trade.netPnL !== undefined ? formatCurrency(trade.netPnL, 0, trade.accountCurrency) : 'Noch offen' },
       ]
     : []
 

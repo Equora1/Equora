@@ -51,7 +51,7 @@ type AdminDraft = {
 }
 
 function buildTradeLabel(trade: Trade) {
-  const pnlPart = trade.netPnL === null || trade.netPnL === undefined ? 'ohne P&L' : formatCurrency(trade.netPnL)
+  const pnlPart = trade.netPnL === null || trade.netPnL === undefined ? 'ohne P&L' : formatCurrency(trade.netPnL, 0, trade.accountCurrency)
   return `${trade.date} · ${trade.market} · ${trade.setup} · ${pnlPart}`
 }
 
@@ -349,7 +349,7 @@ export function EquoraShareHub({
                     <p className="mt-2 text-sm text-white/55">{selectedTrade.date}</p>
                     <div className="mt-4 grid gap-3 sm:grid-cols-2">
                       <MetricTile label="Resultat" value={selectedTrade.result} />
-                      <MetricTile label="P&L" value={selectedTrade.netPnL === null || selectedTrade.netPnL === undefined ? '—' : formatCurrency(selectedTrade.netPnL)} />
+                      <MetricTile label="P&L" value={selectedTrade.netPnL === null || selectedTrade.netPnL === undefined ? '—' : formatCurrency(selectedTrade.netPnL, 0, selectedTrade.accountCurrency)} />
                       <MetricTile label="R" value={selectedTrade.rMultiple === null || selectedTrade.rMultiple === undefined ? '—' : formatRMultiple(selectedTrade.rMultiple)} />
                       <MetricTile label="Status" value={selectedTrade.isComplete ? 'Komplett' : 'Kurz erfasst'} />
                     </div>
@@ -480,7 +480,7 @@ function FeaturedVaultCard({ submission }: { submission: SharedTradeSubmissionRo
     <div className="overflow-hidden rounded-3xl border border-white/10 bg-black/25">
       {submission.shared_screenshot_url ? (
         <div className="aspect-[16/9] overflow-hidden border-b border-white/10 bg-black/35">
-          <Image src={submission.shared_screenshot_url} alt={`${submission.shared_market} ${submission.shared_setup}`} width={960} height={540} sizes="(min-width: 1280px) 50vw, 100vw" className="h-full w-full object-cover" />
+          <Image unoptimized src={submission.shared_screenshot_url} alt={`${submission.shared_market} ${submission.shared_setup}`} width={960} height={540} sizes="(min-width: 1280px) 50vw, 100vw" className="h-full w-full object-cover" />
         </div>
       ) : null}
       <div className="p-5">
@@ -494,7 +494,7 @@ function FeaturedVaultCard({ submission }: { submission: SharedTradeSubmissionRo
 
         <h3 className="mt-4 text-xl font-semibold text-white">{submission.shared_market} · {submission.shared_setup}</h3>
         <p className="mt-2 text-sm text-white/55">
-          Resultat: {submission.shared_result ?? '—'} · P&amp;L {submission.shared_net_pnl === null || submission.shared_net_pnl === undefined ? '—' : formatCurrency(Number(submission.shared_net_pnl))} · R {submission.shared_r_multiple === null || submission.shared_r_multiple === undefined ? '—' : formatRMultiple(Number(submission.shared_r_multiple))}
+          Resultat: {submission.shared_result ?? '—'} · P&amp;L {submission.shared_net_pnl === null || submission.shared_net_pnl === undefined ? '—' : formatCurrency(Number(submission.shared_net_pnl), 0, submission.shared_currency)} · R {submission.shared_r_multiple === null || submission.shared_r_multiple === undefined ? '—' : formatRMultiple(Number(submission.shared_r_multiple))}
         </p>
 
         {submission.vault_blurb ? <TextPanel eyebrow="Notiz" tone="highlight">{submission.vault_blurb}</TextPanel> : null}
@@ -534,7 +534,7 @@ function SubmissionCard({
       <h3 className="mt-4 text-xl font-semibold text-white">{submission.shared_market} · {submission.shared_setup}</h3>
       <div className="mt-4 grid gap-3 sm:grid-cols-2">
         <MetricTile label="Resultat" value={submission.shared_result ?? '—'} />
-        <MetricTile label="P&L" value={submission.shared_net_pnl === null || submission.shared_net_pnl === undefined ? '—' : formatCurrency(Number(submission.shared_net_pnl))} />
+        <MetricTile label="P&L" value={submission.shared_net_pnl === null || submission.shared_net_pnl === undefined ? '—' : formatCurrency(Number(submission.shared_net_pnl), 0, submission.shared_currency)} />
         <MetricTile label="R" value={submission.shared_r_multiple === null || submission.shared_r_multiple === undefined ? '—' : formatRMultiple(Number(submission.shared_r_multiple))} />
         <MetricTile label="Tags" value={submission.shared_tags?.length ? submission.shared_tags.join(', ') : '—'} />
       </div>
@@ -662,7 +662,7 @@ function AdminQueue({ submissions }: { submissions: SharedTradeSubmissionRow[] }
                     </div>
                     <h3 className="mt-4 text-xl font-semibold text-white">{submission.shared_market} · {submission.shared_setup}</h3>
                     <p className="mt-2 text-sm text-white/55">
-                      Resultat: {submission.shared_result ?? '—'} · P&amp;L {submission.shared_net_pnl === null || submission.shared_net_pnl === undefined ? '—' : formatCurrency(Number(submission.shared_net_pnl))} · R {submission.shared_r_multiple === null || submission.shared_r_multiple === undefined ? '—' : formatRMultiple(Number(submission.shared_r_multiple))}
+                      Resultat: {submission.shared_result ?? '—'} · P&amp;L {submission.shared_net_pnl === null || submission.shared_net_pnl === undefined ? '—' : formatCurrency(Number(submission.shared_net_pnl), 0, submission.shared_currency)} · R {submission.shared_r_multiple === null || submission.shared_r_multiple === undefined ? '—' : formatRMultiple(Number(submission.shared_r_multiple))}
                     </p>
                     <p className="mt-2 text-sm text-white/45">
                       Tags: {submission.shared_tags?.length ? submission.shared_tags.join(', ') : '—'} · Sichtbarkeit: {getTradeShareVisibilityLabel(submission.visibility)}

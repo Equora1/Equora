@@ -94,7 +94,7 @@ export function SetupDetailCard({ title, data, linkedTrades, performance }: { ti
             </div>
             <p className="mt-3 rounded-2xl border border-[#c8823a]/18 bg-[#c8823a]/8 px-4 py-3 text-sm leading-6 text-[#f0a855]">
               {performance && performance.trades > 0
-                ? `${formatCurrency(performance.netPnL)} · ${performance.winRate.toFixed(0)}% Winrate · ${formatRMultiple(performance.averageR)} · ${performance.statusHint}`
+                ? `${formatCurrency(performance.netPnL, 0, performance.currency)} · ${performance.winRate.toFixed(0)}% Winrate · ${formatRMultiple(performance.averageR)} · ${performance.statusHint}`
                 : data?.performance || 'Noch keine Performance-Daten.'}
             </p>
           </RuleSection>

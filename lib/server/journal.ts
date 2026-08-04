@@ -16,6 +16,7 @@ import type {
 import type { TradeTag } from "@/lib/types/tag";
 import { normalizeTradeDate } from "@/lib/utils/calendar";
 import { measurePerformance } from "@/lib/server/performance";
+import { signSetupMediaRows, signTradeMediaRows } from "@/lib/server/media-access";
 
 export type JournalSnapshot = {
   tradeRows: TradeRow[];
@@ -729,12 +730,37 @@ export async function getJournalSnapshotServer(
         : Promise.resolve({ data: [], error: null }),
     ]);
 
+    const signedTradeMediaRows = await signTradeMediaRows(
+      supabase,
+      (tradeMediaResponse.data ?? []) as TradeMediaRow[],
+      scopedUserId,
+    );
+    const signedSetupMediaRows = await signSetupMediaRows(
+      supabase,
+      (setupMediaResponse.data ?? []) as SetupMediaRow[],
+      scopedUserId,
+    );
+    const primaryTradeUrlById = signedTradeMediaRows.reduce<Record<string, string>>((urls, media) => {
+      if (!urls[media.trade_id] && media.public_url) urls[media.trade_id] = media.public_url;
+      return urls;
+    }, {});
+    const coverSetupUrlById = signedSetupMediaRows.reduce<Record<string, string>>((urls, media) => {
+      if ((!urls[media.setup_id] || media.is_cover) && media.public_url) urls[media.setup_id] = media.public_url;
+      return urls;
+    }, {});
+
     return {
-      tradeRows: normalizedTradeRows,
+      tradeRows: normalizedTradeRows.map((trade) => ({
+        ...trade,
+        screenshot_url: primaryTradeUrlById[trade.id] ?? null,
+      })),
       tradeTags: (tagsResponse.data ?? []) as TradeTag[],
-      tradeMediaRows: (tradeMediaResponse.data ?? []) as TradeMediaRow[],
-      setupRows,
-      setupMediaRows: (setupMediaResponse.data ?? []) as SetupMediaRow[],
+      tradeMediaRows: signedTradeMediaRows,
+      setupRows: setupRows.map((setup) => ({
+        ...setup,
+        cover_image_url: coverSetupUrlById[setup.id] ?? null,
+      })),
+      setupMediaRows: signedSetupMediaRows,
       setupTradeLinkRows: (setupTradeLinksResponse.data ??
         []) as SetupTradeLinkRow[],
       dailyNotes: (dailyNotesResponse.data ?? []) as DailyNoteRow[],

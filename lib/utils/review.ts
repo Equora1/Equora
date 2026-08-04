@@ -27,6 +27,7 @@ import {
 } from '@/lib/utils/review-builders'
 import { buildReviewImportInsights, buildReviewSetupInsights } from '@/lib/utils/review-import-setup-insights'
 import { REVIEW_PERIOD_OPTIONS } from '@/lib/utils/review-types'
+import { getMonetaryScopeMessage } from '@/lib/utils/currency'
 import type {
   ReviewPeriodPreset,
   ReviewSnapshot,
@@ -86,14 +87,37 @@ export function buildReviewSnapshot(
   const tagsPrevious = tradeTags.filter((tag) => previousTradeIds.has(tag.trade_id))
   const metricsCurrent = getCoreMetrics(tradesCurrent)
   const metricsPrevious = getCoreMetrics(tradesPrevious)
-  const errorClusters = buildErrorClusters(tradesCurrent, tagsCurrent)
-  const tagDrift = buildTagDrift(tradesCurrent, tagsCurrent, tradesPrevious, tagsPrevious)
-  const { headline, summary } = buildHeadline(tradesCurrent, metricsCurrent, tagDrift, errorClusters)
-  const rankedTrades = [...tradesCurrent].sort((left, right) => (right.netPnL ?? 0) - (left.netPnL ?? 0))
-  const topTags = buildTagStats(tradesCurrent, tagsCurrent)
-    .sort((left, right) => right.totalTrades - left.totalTrades || right.netPnL - left.netPnL)
+  const monetaryAvailable = metricsCurrent.monetaryScope.isComparable
+  const periodsComparable = monetaryAvailable
+    && metricsPrevious.monetaryScope.isComparable
+    && metricsCurrent.currency === metricsPrevious.currency
+  const errorClusters = monetaryAvailable ? buildErrorClusters(tradesCurrent, tagsCurrent) : []
+  const tagDrift = periodsComparable ? buildTagDrift(tradesCurrent, tagsCurrent, tradesPrevious, tagsPrevious) : []
+  const comparablePreviousTrades = periodsComparable ? tradesPrevious : []
+  const comparablePreviousTags = periodsComparable ? tagsPrevious : []
+  const headlineResult = !tradesCurrent.length
+    ? buildHeadline(tradesCurrent, metricsCurrent, tagDrift, errorClusters)
+    : monetaryAvailable
+      ? buildHeadline(tradesCurrent, metricsCurrent, tagDrift, errorClusters)
+      : {
+          headline: metricsCurrent.monetaryScope.kind === 'empty' ? 'Trades erfasst, P&L noch offen' : 'Geld-Auswertung wegen Währungsdaten gesperrt',
+          summary: getMonetaryScopeMessage(metricsCurrent.monetaryScope),
+        }
+  const rankedTrades = monetaryAvailable
+    ? [...tradesCurrent].sort((left, right) => (right.netPnL ?? 0) - (left.netPnL ?? 0))
+    : []
+  const topTags = Array.from(tagsCurrent.reduce<Map<string, number>>((counts, item) => {
+    counts.set(item.tag, (counts.get(item.tag) ?? 0) + 1)
+    return counts
+  }, new Map()))
+    .sort((left, right) => right[1] - left[1])
     .slice(0, 5)
-    .map((item) => item.tag)
+    .map(([tag]) => tag)
+  const unavailableSignal = [{
+    label: 'Geld-Auswertung',
+    value: metricsCurrent.monetaryScope.kind === 'empty' ? 'P&L offen' : 'Gesperrt',
+    detail: getMonetaryScopeMessage(metricsCurrent.monetaryScope),
+  }]
 
   return {
     periodPreset: preset,
@@ -101,30 +125,34 @@ export function buildReviewSnapshot(
     periodLabel: buildWindowLabel(currentStart, currentEnd),
     previousPeriodLabel: buildWindowLabel(previousStart, previousEnd),
     previousNetPnL: metricsPrevious.netPnL,
+    currency: metricsCurrent.currency,
+    monetaryScopeKind: metricsCurrent.monetaryScope.kind,
     periodStart: currentStart.toISOString(),
     periodEnd: currentEnd.toISOString(),
     sourceLabel: source === 'supabase' ? 'Live-Review' : 'Demo-Review',
-    headline,
-    summary,
+    headline: headlineResult.headline,
+    summary: headlineResult.summary,
     stats: buildSummary(metricsCurrent, metricsPrevious),
-    topPerformers: buildTopPerformers(tradesCurrent, tagsCurrent),
-    weakSpots: buildWeakSpots(tradesCurrent, tagsCurrent),
-    patterns: buildPatterns(tradesCurrent, tagsCurrent, tradesPrevious, tagsPrevious),
-    playbook: buildPlaybook(tradesCurrent, tagsCurrent, tradesPrevious, tagsPrevious),
+    topPerformers: monetaryAvailable ? buildTopPerformers(tradesCurrent, tagsCurrent) : unavailableSignal,
+    weakSpots: monetaryAvailable ? buildWeakSpots(tradesCurrent, tagsCurrent) : unavailableSignal,
+    patterns: monetaryAvailable ? buildPatterns(tradesCurrent, tagsCurrent, comparablePreviousTrades, comparablePreviousTags) : [getMonetaryScopeMessage(metricsCurrent.monetaryScope)],
+    playbook: monetaryAvailable ? buildPlaybook(tradesCurrent, tagsCurrent, comparablePreviousTrades, comparablePreviousTags) : ['Kontowährungen vervollständigen oder nach genau einer Währung filtern; erst danach P&L-Muster bewerten.'],
     noteMoments: buildNoteMoments(dailyNotes, currentStart, currentEnd),
-    tagRadar: buildTagRadar(tradesCurrent, tagsCurrent),
+    tagRadar: monetaryAvailable ? buildTagRadar(tradesCurrent, tagsCurrent) : [],
     errorClusters,
     tagDrift,
-    tagCombinations: buildTagCombinations(tradesCurrent, tagsCurrent),
-    tagHeatmap: buildTagHeatmap(tradesCurrent, tagsCurrent),
-    setupInsights: buildReviewSetupInsights(tradesCurrent),
-    importInsights: buildReviewImportInsights(tradesCurrent),
+    tagCombinations: monetaryAvailable ? buildTagCombinations(tradesCurrent, tagsCurrent) : [],
+    tagHeatmap: monetaryAvailable ? buildTagHeatmap(tradesCurrent, tagsCurrent) : { weekdays: [], tags: [], cells: [] },
+    setupInsights: monetaryAvailable ? buildReviewSetupInsights(tradesCurrent) : [],
+    importInsights: monetaryAvailable ? buildReviewImportInsights(tradesCurrent) : [],
     reviewLayer: buildReviewLayerSnapshot(tradesCurrent),
     sessionDraft: {
       tradeIds: tradesCurrent.map((trade) => trade.id),
       tradeCount: metricsCurrent.totalTrades,
       visibleTradeCount: metricsCurrent.totalTrades,
       netPnL: metricsCurrent.netPnL,
+      currency: metricsCurrent.currency,
+      monetaryScopeKind: metricsCurrent.monetaryScope.kind,
       averageR: metricsCurrent.averageR,
       winRate: metricsCurrent.winRate,
       winners: metricsCurrent.winners,

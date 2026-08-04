@@ -10,12 +10,20 @@ import type {
   SavedReviewSession,
   UpdateReviewSessionInput,
 } from '@/lib/types/review-session'
+import { normalizeTradeCurrency } from '@/lib/utils/currency'
 
 function normalizeLabels(values?: string[]) {
   return Array.from(new Set((values ?? []).map((value) => value.trim()).filter(Boolean)))
 }
 
 function buildMockSession(input: SaveReviewSessionInput): SavedReviewSession {
+  const currency = input.monetaryScopeKind === 'single' ? normalizeTradeCurrency(input.currency) : null
+  const monetaryScopeKind = input.monetaryScopeKind === 'single' && currency
+    ? 'single'
+    : input.monetaryScopeKind === 'empty' || input.monetaryScopeKind === 'mixed'
+      ? input.monetaryScopeKind
+      : 'unknown'
+
   return {
     id: crypto.randomUUID(),
     title: input.title.trim(),
@@ -29,6 +37,8 @@ function buildMockSession(input: SaveReviewSessionInput): SavedReviewSession {
     tradeCount: Math.max(0, input.tradeCount),
     visibleTradeCount: Math.max(0, input.visibleTradeCount),
     netPnL: input.netPnL ?? 0,
+    currency,
+    monetaryScopeKind,
     averageR: input.averageR ?? 0,
     winRate: input.winRate ?? 0,
     winners: input.winners ?? 0,
@@ -54,6 +64,11 @@ export async function saveReviewSession(
   const title = input.title.trim()
   const tradeIds = Array.from(new Set(input.tradeIds.map((tradeId) => tradeId.trim()).filter(Boolean)))
   const labels = normalizeLabels(input.labels)
+  const currency = input.monetaryScopeKind === 'single' ? normalizeTradeCurrency(input.currency) : null
+
+  if (!hasSupabaseClientEnv() && input.monetaryScopeKind === 'single' && !currency) {
+    return { success: false, message: 'Die Review-Session hat keine unterstützte Währung und wurde nicht gespeichert.' }
+  }
 
   if (!title) {
     return { success: false, message: 'Bitte einen Titel für das Mini-Review vergeben.' }
@@ -81,36 +96,39 @@ export async function saveReviewSession(
       return { success: false, message: 'Bitte zuerst einloggen.' }
     }
 
-    const payload = {
-      user_id: user.id,
+    const sessionId = crypto.randomUUID()
+    const meta = {
       title,
       note: input.note?.trim() || null,
-      focus_title: input.focusTitle?.trim() || null,
-      focus_description: input.focusDescription?.trim() || null,
+      focusTitle: input.focusTitle?.trim() || null,
+      focusDescription: input.focusDescription?.trim() || null,
       chips: Array.from(new Set((input.chips ?? []).map((chip) => chip.trim()).filter(Boolean))),
       labels,
-      trade_ids: tradeIds,
-      trade_count: Math.max(tradeIds.length, input.tradeCount),
-      visible_trade_count: Math.max(0, input.visibleTradeCount),
-      net_pnl: input.netPnL ?? 0,
-      average_r: input.averageR ?? 0,
-      win_rate: input.winRate ?? 0,
-      winners: input.winners ?? 0,
-      losers: input.losers ?? 0,
-      breakeven: input.breakeven ?? 0,
-      top_tags: Array.from(new Set((input.topTags ?? []).map((tag) => tag.trim()).filter(Boolean))),
-      best_trade_id: input.bestTradeId ?? null,
-      worst_trade_id: input.worstTradeId ?? null,
-      session_type: input.sessionType ?? 'spotlight',
-      session_status: input.sessionStatus ?? 'open',
-      is_pinned: Boolean(input.isPinned),
-      period_preset: input.periodPreset ?? null,
-      period_label: input.periodLabel?.trim() || null,
-      period_start: input.periodStart ?? null,
-      period_end: input.periodEnd ?? null,
+      sessionType: input.sessionType ?? 'spotlight',
+      sessionStatus: input.sessionStatus ?? 'open',
+      isPinned: Boolean(input.isPinned),
+      periodPreset: input.periodPreset ?? null,
+      periodLabel: input.periodLabel?.trim() || null,
+      periodStart: input.periodStart ?? null,
+      periodEnd: input.periodEnd ?? null,
     }
 
-    const { data, error } = await supabase.from('review_sessions').insert(payload).select('*').single()
+    const { error: saveError } = await supabase.rpc('equora_save_review_session_v1', {
+      p_session_id: sessionId,
+      p_trade_ids: tradeIds,
+      p_meta: meta,
+    })
+
+    if (saveError) {
+      return { success: false, message: 'Mini-Review konnte nicht aus den serverseitigen Trade-Daten erzeugt werden.' }
+    }
+
+    const { data, error } = await supabase
+      .from('review_sessions')
+      .select('*')
+      .eq('id', sessionId)
+      .eq('user_id', user.id)
+      .single()
 
     if (error || !data) {
       return { success: false, message: 'Mini-Review konnte nicht gespeichert werden.' }

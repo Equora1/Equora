@@ -4,11 +4,13 @@ import Link from 'next/link'
 import { useEffect, useMemo, useState, useTransition, type ChangeEvent } from 'react'
 import { useRouter } from 'next/navigation'
 import { createTradeEntry, syncTradeMedia, updateTradeEntry } from '@/app/actions/trades'
+import { requestUncommittedMediaCleanup } from '@/app/actions/media-cleanup'
 import { deleteUserCostProfile, saveUserCostProfile } from '@/app/actions/user-cost-profiles'
 import { TradeTagSelector } from '@/components/trades/trade-tag-selector'
 import { SnippingAssistCard } from '@/components/trades/snipping-assist-dynamic'
 import { ChartUploadAdvanced } from '@/components/uploads/chart-upload-advanced'
 import { uploadTradeScreenshots } from '@/lib/supabase/storage'
+import { SUPPORTED_TRADE_CURRENCIES } from '@/lib/utils/currency'
 import {
   getTradeAccountTemplatePreset,
   getTradeBrokerProfilePreset,
@@ -241,7 +243,10 @@ export function TradeForm({
   const [instrumentType, setInstrumentType] = useState<TradeInstrumentType>(initialInstrumentType)
   const [pnlMode, setPnlMode] = useState<TradePnLMode>(initialPnlMode)
   const [costProfile, setCostProfile] = useState<TradeCostProfile>(initialCostProfile)
-  const [accountCurrency, setAccountCurrency] = useState(initialValues?.accountCurrency?.trim() || initialAccountPreset.defaultCurrency || initialBrokerPreset.defaultCurrency || initialInstrumentPreset.defaultCurrency)
+  const initialAccountCurrency = isEditMode
+    ? initialValues?.accountCurrency?.trim() || ''
+    : initialValues?.accountCurrency?.trim() || initialAccountPreset.defaultCurrency || initialBrokerPreset.defaultCurrency || initialInstrumentPreset.defaultCurrency
+  const [accountCurrency, setAccountCurrency] = useState(initialAccountCurrency)
   const [cryptoMarketType, setCryptoMarketType] = useState<TradeCryptoMarketType>(normalizeTradeCryptoMarketType(initialValues?.cryptoMarketType || initialAccountPreset.defaultCryptoMarketType))
   const [quoteAsset, setQuoteAsset] = useState(initialValues?.quoteAsset?.trim() || initialAccountPreset.defaultQuoteAsset || initialBrokerPreset.defaultQuoteAsset || '')
   const [leverage, setLeverage] = useState(stringifyInitialValue(initialValues?.leverage ?? initialAccountPreset.defaultLeverage))
@@ -402,7 +407,7 @@ export function TradeForm({
   }), [costSummary.totalCosts, derivedPositionSize, entryValue, exitValue, instrumentType, partialExitPreview.effectiveExit, pointValue, tradeDirection])
 
   const quickPnlLabel = quickPnlPreview.netPnL !== null
-    ? formatCurrency(quickPnlPreview.netPnL, 2)
+    ? formatCurrency(quickPnlPreview.netPnL, 2, accountCurrency)
     : quickPnlPreview.missing.length
       ? `Fehlt: ${quickPnlPreview.missing.join(' · ')}`
       : 'Noch offen'
@@ -1112,16 +1117,21 @@ export function TradeForm({
       }
 
       if (pendingFiles.length && result.tradeId && result.mode === 'supabase') {
+        let uploaded: TradeMediaUploadInput[] = []
         try {
           setStatus('Screenshots werden in den Storage-Bucket geladen...')
-          const uploaded = await uploadTradeScreenshots(result.tradeId, pendingFiles, currentMediaItems.length)
+          uploaded = await uploadTradeScreenshots(result.tradeId, pendingFiles, currentMediaItems.length)
           const syncResult = await syncTradeMedia(result.tradeId, normalizeTradeMediaItems([...currentMediaItems, ...uploaded]))
           if (!syncResult.success) {
+            await requestUncommittedMediaCleanup({ kind: 'trade', parentId: result.tradeId, storagePaths: uploaded.map((item) => item.storagePath) })
             setStatus(`${result.message} Screenshot-Sync hakt noch: ${syncResult.message}`)
             return
           }
           setStatus(`${result.message} ${pendingFiles.length} Screenshot(s) angehängt.`)
         } catch (error) {
+          if (uploaded.length) {
+            await requestUncommittedMediaCleanup({ kind: 'trade', parentId: result.tradeId, storagePaths: uploaded.map((item) => item.storagePath) })
+          }
           setStatus(`${result.message} Screenshot-Upload hakt noch: ${error instanceof Error ? error.message : 'Unbekannter Fehler.'}`)
           return
         }
@@ -1503,12 +1513,13 @@ export function TradeForm({
                 value={costProfile}
                 onChange={(event) => handleCostProfileChange(event.target.value as TradeCostProfile)}
               />
-              <ControlledInput
+              <ControlledSelect
                 name="account_currency"
                 label="Kontowährung"
-                placeholder="z. B. EUR"
+                options={SUPPORTED_TRADE_CURRENCIES.map((currency) => currency)}
+                values={SUPPORTED_TRADE_CURRENCIES.map((currency) => currency)}
                 value={accountCurrency}
-                onChange={(event) => setAccountCurrency(event.target.value.toUpperCase())}
+                onChange={(event) => setAccountCurrency(event.target.value)}
               />
               <ControlledInput
                 name="point_value"
@@ -1736,7 +1747,7 @@ export function TradeForm({
                 <div className="grid gap-3 md:grid-cols-2">
                   <div className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-xs text-white/65">
                     <p className="uppercase tracking-[0.18em] text-white/35">Realisiert</p>
-                    <p className="mt-2 text-sm text-white">{partialExitPreview.realizedSize !== null ? `${formatPlainNumber(partialExitPreview.realizedSize, 4)} ${instrumentPreset.sizeHint}` : partialExitPreview.coveredPercent > 0 ? `${formatPlainNumber(partialExitPreview.coveredPercent, 0)}% ohne Size-Basis` : 'Keine Teilverkäufe'}</p>{partialExitPreview.realizedNetPnL !== null ? <p className="mt-2 text-xs text-emerald-200/85">{formatCurrency(partialExitPreview.realizedNetPnL, 2)}{partialExitPreview.realizedR !== null ? ` · ${formatRMultiple(partialExitPreview.realizedR, 2)}` : ''}</p> : null}
+                    <p className="mt-2 text-sm text-white">{partialExitPreview.realizedSize !== null ? `${formatPlainNumber(partialExitPreview.realizedSize, 4)} ${instrumentPreset.sizeHint}` : partialExitPreview.coveredPercent > 0 ? `${formatPlainNumber(partialExitPreview.coveredPercent, 0)}% ohne Size-Basis` : 'Keine Teilverkäufe'}</p>{partialExitPreview.realizedNetPnL !== null ? <p className="mt-2 text-xs text-emerald-200/85">{formatCurrency(partialExitPreview.realizedNetPnL, 2, accountCurrency)}{partialExitPreview.realizedR !== null ? ` · ${formatRMultiple(partialExitPreview.realizedR, 2)}` : ''}</p> : null}
                   </div>
                   <div className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-xs text-white/65">
                     <p className="uppercase tracking-[0.18em] text-white/35">Rest</p>
@@ -1826,7 +1837,7 @@ export function TradeForm({
                   <InfoMini label="Margin" value={derivedMargin !== null ? `${formatPlainNumber(derivedMargin, 2)} ${accountCurrency || ''}`.trim() : 'Noch offen'} />
                   <InfoMini label="Stop-Risiko" value={derivedStopRisk !== null ? `${formatPlainNumber(derivedStopRisk, 2)} ${accountCurrency || ''}`.trim() : 'Noch offen'} />
                   <InfoMini label="Ø Exit" value={partialExitPreview.effectiveExit !== null ? formatPlainNumber(partialExitPreview.effectiveExit, 4) : 'Kein Teilverkauf'} />
-                  <InfoMini label="Realisiert" value={partialExitPreview.realizedNetPnL !== null ? `${formatCurrency(partialExitPreview.realizedNetPnL, 2)}${partialExitPreview.realizedR !== null ? ` · ${formatRMultiple(partialExitPreview.realizedR, 2)}` : ''}` : partialExitPreview.realizedSize !== null ? `${formatPlainNumber(partialExitPreview.realizedSize, 4)} ${instrumentPreset.sizeHint}` : partialExitPreview.coveredPercent > 0 ? `${formatPlainNumber(partialExitPreview.coveredPercent, 0)}% ohne Size-Basis` : 'Noch offen'} />
+                  <InfoMini label="Realisiert" value={partialExitPreview.realizedNetPnL !== null ? `${formatCurrency(partialExitPreview.realizedNetPnL, 2, accountCurrency)}${partialExitPreview.realizedR !== null ? ` · ${formatRMultiple(partialExitPreview.realizedR, 2)}` : ''}` : partialExitPreview.realizedSize !== null ? `${formatPlainNumber(partialExitPreview.realizedSize, 4)} ${instrumentPreset.sizeHint}` : partialExitPreview.coveredPercent > 0 ? `${formatPlainNumber(partialExitPreview.coveredPercent, 0)}% ohne Size-Basis` : 'Noch offen'} />
                   <InfoMini label="Rest offen" value={partialExitPreview.hasOpenRemainder ? (partialExitPreview.remainingSize !== null ? `${formatPlainNumber(partialExitPreview.remainingSize, 4)} ${instrumentPreset.sizeHint}` : `${formatPlainNumber(partialExitPreview.remainderPercent, 0)}%`) : 'Kein Rest'} />
                 </div>
               </div>
@@ -2180,4 +2191,3 @@ function ControlledSelect({
     </label>
   )
 }
-

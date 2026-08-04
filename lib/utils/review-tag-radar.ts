@@ -4,8 +4,11 @@ import { formatCurrency } from '@/lib/utils/calculations'
 import { buildTagStats } from '@/lib/utils/tag-analytics'
 import { buildTagPairStats, buildTradesHref, clampNumber, hasKeywordMatch, parseTagPair, PROCESS_TAG_KEYWORDS } from '@/lib/utils/review-helpers'
 import type { ReviewTagRadarItem } from '@/lib/utils/review-types'
+import { getCoreMetrics } from '@/lib/utils/analytics'
 
 export function buildTagRadar(tradesCurrent: Trade[], tradeTags: TradeTag[]): ReviewTagRadarItem[] {
+  const currency = getCoreMetrics(tradesCurrent).currency
+  const money = (value: number) => formatCurrency(value, 0, currency)
   const stats = buildTagStats(tradesCurrent, tradeTags).filter((tag) => tag.totalTrades > 0)
   if (!stats.length) {
     return [
@@ -38,7 +41,7 @@ export function buildTagRadar(tradesCurrent: Trade[], tradeTags: TradeTag[]): Re
       ? {
           label: 'Stärkster Tag',
           value: bestTag.tag,
-          detail: `${formatCurrency(bestTag.netPnL)} · ${clampNumber(bestTag.winRate)}% Win Rate in ${bestTag.totalTrades} Trades.`,
+          detail: `${money(bestTag.netPnL)} · ${clampNumber(bestTag.winRate)}% Win Rate in ${bestTag.totalTrades} Trades.`,
           tone: 'emerald',
           href: buildTradesHref({ tag: bestTag.tag, reviewFocus: `Review Drilldown · Stärkster Tag: ${bestTag.tag}` }),
         }
@@ -47,7 +50,7 @@ export function buildTagRadar(tradesCurrent: Trade[], tradeTags: TradeTag[]): Re
       ? {
           label: 'Prozess-Anker',
           value: processAnchor.tag,
-          detail: `${formatCurrency(processAnchor.netPnL)} und PF ${processAnchor.profitFactor === Infinity ? '∞' : clampNumber(processAnchor.profitFactor, 2)}. Diesen Zustand willst du replizieren.`,
+          detail: `${money(processAnchor.netPnL)} und PF ${processAnchor.profitFactor === Infinity ? '∞' : clampNumber(processAnchor.profitFactor, 2)}. Diesen Zustand willst du replizieren.`,
           tone: 'emerald',
           href: buildTradesHref({ tag: processAnchor.tag, reviewFocus: `Review Drilldown · Prozess-Anker: ${processAnchor.tag}` }),
         }
@@ -56,7 +59,7 @@ export function buildTagRadar(tradesCurrent: Trade[], tradeTags: TradeTag[]): Re
       ? {
           label: 'Warn-Tag',
           value: worstTag.tag,
-          detail: `${formatCurrency(worstTag.netPnL)} über ${worstTag.totalTrades} markierte Trades.`,
+          detail: `${money(worstTag.netPnL)} über ${worstTag.totalTrades} markierte Trades.`,
           tone: 'red',
           href: buildTradesHref({ tag: worstTag.tag, outcome: 'Verlierer', reviewFocus: `Review Drilldown · Warn-Tag: ${worstTag.tag}` }),
         }
@@ -74,11 +77,10 @@ export function buildTagRadar(tradesCurrent: Trade[], tradeTags: TradeTag[]): Re
       ? {
           label: 'Stärkste Tag-Kombi',
           value: tagPairs[0].pair,
-          detail: `${formatCurrency(tagPairs[0].metrics.netPnL)} in ${tagPairs[0].metrics.totalTrades} Trades.`,
+          detail: `${money(tagPairs[0].metrics.netPnL)} in ${tagPairs[0].metrics.totalTrades} Trades.`,
           tone: tagPairs[0].metrics.netPnL >= 0 ? 'emerald' : 'orange',
           href: buildTradesHref({ tags: parseTagPair(tagPairs[0].pair), reviewFocus: `Review Drilldown · Stärkste Tag-Kombi: ${tagPairs[0].pair}` }),
         }
       : null,
   ].filter(Boolean).slice(0, 4) as ReviewTagRadarItem[]
 }
-

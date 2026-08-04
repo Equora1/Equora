@@ -36,6 +36,7 @@ export type TradeRow = {
   account_currency?: string | null
   broker_profile?: 'manual' | 'ibkr-pro' | 'trade-republic' | 'tradovate-futures' | 'ftmo-cfd' | 'binance-spot' | 'coinbase-spot' | 'bybit-spot' | 'bybit-perps' | 'mexc-spot' | 'mexc-perps' | 'okx-perps' | null
   account_template?: 'manual' | 'swing-europe' | 'us-futures' | 'forex-london' | 'crypto-spot' | 'crypto-perps' | 'prop-index' | null
+  account_label?: string | null
   market_template?: 'manual' | 'dax-cfd' | 'nq-future' | 'es-future' | 'eurusd-london' | 'btc-spot' | 'eth-spot' | 'btc-perps' | 'eth-perps' | 'spy-swing' | null
   crypto_market_type?: 'manual' | 'spot' | 'perps' | 'margin' | null
   execution_type?: 'manual' | 'maker' | 'taker' | 'mixed' | null
@@ -192,6 +193,7 @@ export type SharedTradeSubmissionRow = {
   shared_result: string | null
   shared_r_multiple: NumericField
   shared_net_pnl: NumericField
+  shared_currency?: string | null
   shared_capture_status: string | null
   shared_capture_result: string | null
   shared_notes: string | null
@@ -215,6 +217,8 @@ export type ReviewSessionRow = {
   trade_count: number | null
   visible_trade_count: number | null
   net_pnl: NumericField
+  currency: string | null
+  monetary_scope_kind: 'empty' | 'single' | 'mixed' | 'unknown' | null
   average_r: NumericField
   win_rate: NumericField
   winners: number | null

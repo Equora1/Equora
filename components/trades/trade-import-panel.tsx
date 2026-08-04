@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { getTradeImportBatches, importTradeCsvEntries, revertTradeImportBatch, type TradeImportBatchSummary } from "@/app/actions/trade-import";
 import { getAccountTemplateLabel } from "@/lib/utils/trade-presets";
+import { SUPPORTED_TRADE_CURRENCIES } from "@/lib/utils/currency";
 import {
   buildCsvImportDrafts,
   buildCsvImportPreview,
@@ -178,6 +179,7 @@ export function TradeImportPanel() {
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [selectedPreset, setSelectedPreset] =
     useState<CsvImportPresetKey>("generic");
+  const [accountCurrency, setAccountCurrency] = useState("");
   const [fileName, setFileName] = useState("");
   const [headers, setHeaders] = useState<string[]>([]);
   const [rawRows, setRawRows] = useState<Array<Record<string, string>>>([]);
@@ -321,6 +323,7 @@ export function TradeImportPanel() {
 
   function handlePresetChange(nextPreset: CsvImportPresetKey) {
     setSelectedPreset(nextPreset);
+    setAccountCurrency("");
     setStatusMessage("");
     setLastImportReport(null);
     setRepairOverrides({});
@@ -367,6 +370,10 @@ export function TradeImportPanel() {
       setStatusMessage("Noch keine importierbaren Zeilen ausgewählt.");
       return;
     }
+    if (!accountCurrency) {
+      setStatusMessage("Vor dem Import eine Kontowährung auswählen. Sie wird nicht aus dem Preset geraten.");
+      return;
+    }
 
     startImporting(async () => {
       const result = await importTradeCsvEntries({
@@ -374,6 +381,7 @@ export function TradeImportPanel() {
         fileName,
         presetLabel: presetMeta.label,
         accountLabel: importAccountLabel,
+        accountCurrency,
         trustScore: trustSummary.score,
         trustLabel: trustSummary.label,
         warnings: trustSummary.warnings,
@@ -541,6 +549,18 @@ export function TradeImportPanel() {
             );
           })}
         </div>
+        <label className="mt-5 block rounded-2xl border border-orange-300/20 bg-black/25 p-4">
+          <span className="text-[10px] uppercase tracking-[0.24em] text-white/35">Kontowährung · Pflichtfeld</span>
+          <select
+            value={accountCurrency}
+            onChange={(event) => { setAccountCurrency(event.target.value); setStatusMessage(""); }}
+            className="mt-3 w-full rounded-xl border border-orange-300/20 bg-black/40 px-3 py-2.5 text-sm text-white outline-none focus:border-orange-300/45"
+          >
+            <option value="">Bitte bewusst auswählen</option>
+            {SUPPORTED_TRADE_CURRENCIES.map((currency) => <option key={currency} value={currency}>{currency}</option>)}
+          </select>
+          <span className="mt-2 block text-xs leading-5 text-white/50">Ein gültiger CSV-Zeilenwert überschreibt diesen Fallback. USD, USDT und USDC bleiben getrennt; es findet keine Umrechnung statt.</span>
+        </label>
       </div>
 
       <div className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">

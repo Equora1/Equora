@@ -2,8 +2,7 @@
 
 import { revalidatePath } from 'next/cache'
 import { createSupabaseAuthServerClient } from '@/lib/supabase/server-auth'
-import { hasSupabaseClientEnv, hasSupabaseServerEnv } from '@/lib/supabase/config'
-import { createSupabaseServerClient } from '@/lib/supabase/server'
+import { hasSupabaseClientEnv } from '@/lib/supabase/config'
 import {
   getTradeBrokerProfilePreset,
   getTradeCostProfilePreset,
@@ -31,6 +30,9 @@ import { inferTradeCaptureResultFromPnL } from '@/lib/utils/trade-capture'
 import { deriveTradeSessionLabel, resolveTradeTimeInputToIso } from '@/lib/utils/trade-time'
 import { appendTradeImportMeta, extractTradeImportMeta } from '@/lib/utils/trade-import-meta'
 import type { TradeMediaUploadInput } from '@/lib/types/media'
+import { assertOwnedTradeMediaPath } from '@/lib/utils/media-security'
+import { processMediaCleanupForPaths } from '@/lib/server/media-cleanup'
+import { normalizeTradeCurrency } from '@/lib/utils/currency'
 
 function toNumericField(value: string) {
   return value.trim() ? parseTradingNumber(value) : null
@@ -130,12 +132,12 @@ function revalidateTradeSurfaces() {
 function normalizeTradeMediaInput(media: TradeMediaUploadInput[]) {
   return Array.from(new Map(
     media
-      .filter((item) => item.publicUrl?.trim() && item.storagePath?.trim())
+      .filter((item) => item.storagePath?.trim())
       .map((item, index) => [
         item.storagePath,
         {
           storagePath: item.storagePath.trim(),
-          publicUrl: item.publicUrl.trim(),
+          publicUrl: '',
           fileName: item.fileName?.trim() || null,
           mimeType: item.mimeType?.trim() || null,
           byteSize: typeof item.byteSize === 'number' ? item.byteSize : null,
@@ -148,44 +150,17 @@ function normalizeTradeMediaInput(media: TradeMediaUploadInput[]) {
     .map((item, index) => ({ ...item, sortOrder: index, isPrimary: index === 0 }))
 }
 
-
-function isMissingTradeMediaSchema(message?: string | null) {
-  const normalized = message?.toLowerCase() ?? ''
-  return normalized.includes('trade_media') && (normalized.includes('schema cache') || normalized.includes('does not exist') || normalized.includes('relation'))
+function mapAtomicMutationError(message?: string | null) {
+  const normalized = message?.toUpperCase() ?? ''
+  if (normalized.includes('UNAUTHENTICATED')) return 'Bitte zuerst einloggen.'
+  if (normalized.includes('NOT_FOUND_OR_FORBIDDEN')) return 'Eintrag nicht gefunden oder kein Zugriff.'
+  if (normalized.includes('INVALID_SETUP')) return 'Das gewählte Setup gehört nicht zu diesem Konto.'
+  if (normalized.includes('INVALID_MEDIA_PATH')) return 'Ein Medienpfad ist ungültig oder gehört nicht zu diesem Eintrag.'
+  if (normalized.includes('INVALID_CURRENCY') || normalized.includes('CURRENCY_REQUIRED')) return 'Bitte eine unterstützte Kontowährung angeben, bevor Geldbeträge gespeichert werden.'
+  if (normalized.includes('PGRST202') || normalized.includes('SCHEMA CACHE')) return 'Die Datenbankmigration v57.60.1 fehlt. Die Änderung wurde nicht gespeichert.'
+  return 'Die Änderung konnte nicht atomar gespeichert werden.'
 }
 
-function stripUnsupportedTradeColumns<T extends Record<string, unknown>>(payload: T, errorMessage?: string | null) {
-  const normalized = errorMessage?.toLowerCase() ?? ''
-  const nextPayload = { ...payload }
-  let changed = false
-
-  const optionalColumns = ['review_lesson', 'review_repeatability', 'review_state', 'account_size', 'partial_exits'] as const
-  for (const column of optionalColumns) {
-    if (normalized.includes(`'${column}'`) || normalized.includes(`"${column}"`) || normalized.includes(`column ${column}`)) {
-      if (column in nextPayload) {
-        delete nextPayload[column]
-        changed = true
-      }
-    }
-  }
-
-  return { payload: nextPayload, changed }
-}
-
-async function updatePrimaryTradeScreenshot(
-  supabase: Awaited<ReturnType<typeof createSupabaseAuthServerClient>>,
-  tradeId: string,
-  userId: string,
-  primaryUrl: string | null,
-) {
-  const { error } = await supabase.from('trades').update({ screenshot_url: primaryUrl }).eq('id', tradeId).eq('user_id', userId)
-  return error
-}
-
-function isMissingSetupTradeLinkSchema(message?: string | null) {
-  const normalized = message?.toLowerCase() ?? ''
-  return normalized.includes('setup_trade_links') && (normalized.includes('schema cache') || normalized.includes('does not exist') || normalized.includes('relation'))
-}
 
 async function resolveOwnedSetupSelection(
   supabase: Awaited<ReturnType<typeof createSupabaseAuthServerClient>>,
@@ -221,42 +196,6 @@ async function resolveOwnedSetupSelection(
   return null
 }
 
-async function syncTradeSetupLink(
-  supabase: Awaited<ReturnType<typeof createSupabaseAuthServerClient>>,
-  userId: string,
-  tradeId: string,
-  setupId: string | null,
-) {
-  const { error: deleteError } = await supabase
-    .from('setup_trade_links')
-    .delete()
-    .eq('trade_id', tradeId)
-    .eq('user_id', userId)
-
-  if (deleteError) {
-    if (isMissingSetupTradeLinkSchema(deleteError.message)) return { success: true as const, warning: 'Trade wurde gespeichert, aber die Setup-Verknüpfung braucht noch `supabase/schema-patch-v56.56.sql`.' }
-    return { success: false as const, message: deleteError.message }
-  }
-
-  if (!setupId) return { success: true as const }
-
-  const { error: insertError } = await supabase.from('setup_trade_links').insert({
-    id: crypto.randomUUID(),
-    setup_id: setupId,
-    trade_id: tradeId,
-    user_id: userId,
-    created_at: new Date().toISOString(),
-  })
-
-  if (insertError) {
-    if (isMissingSetupTradeLinkSchema(insertError.message)) return { success: true as const, warning: 'Trade wurde gespeichert, aber die Setup-Verknüpfung braucht noch `supabase/schema-patch-v56.56.sql`.' }
-    return { success: false as const, message: insertError.message }
-  }
-
-  return { success: true as const }
-}
-
-
 export async function createTradeEntry(input: CreateTradeInput) {
   const tradeId = crypto.randomUUID()
   const normalizedInput = { ...input, exit: resolveEffectiveExit(input) }
@@ -269,6 +208,16 @@ export async function createTradeEntry(input: CreateTradeInput) {
       mode: hasSupabaseClientEnv() ? ('supabase' as const) : ('demo' as const),
       message: validation.summary,
       fieldErrors: validation.errors,
+    }
+  }
+
+  const normalizedSubmittedCurrency = normalizeTradeCurrency(input.accountCurrency)
+  if (!normalizedSubmittedCurrency) {
+    return {
+      success: false,
+      mode: hasSupabaseClientEnv() ? ('supabase' as const) : ('demo' as const),
+      message: 'Kontowährung fehlt oder wird nicht unterstützt. Erlaubt: EUR, USD, GBP, USDT, USDC.',
+      fieldErrors: { accountCurrency: 'Unterstützte Kontowährung auswählen.' },
     }
   }
 
@@ -391,7 +340,7 @@ export async function createTradeEntry(input: CreateTradeInput) {
       funding_intervals: toNumericField(input.fundingIntervals) ?? brokerPreset.defaultFundingIntervals ?? null,
       spread_cost: toNumericField(input.spreadCost) ?? brokerPreset.defaultSpreadCost ?? costPreset.defaultSpreadCost,
       slippage: toNumericField(input.slippage) ?? brokerPreset.defaultSlippage ?? costPreset.defaultSlippage,
-      account_currency: input.accountCurrency.trim() || brokerPreset.defaultCurrency || instrumentPreset.defaultCurrency,
+      account_currency: normalizedSubmittedCurrency,
       crypto_market_type: normalizedInstrumentType === 'crypto' ? normalizedCryptoMarketType : 'manual',
       execution_type: normalizedInstrumentType === 'crypto' ? normalizedExecutionType : 'manual',
       funding_direction: normalizedInstrumentType === 'crypto' ? normalizedFundingDirection : 'manual',
@@ -406,38 +355,26 @@ export async function createTradeEntry(input: CreateTradeInput) {
       captured_at: resolvedTradeOccurredAt,
       completed_at: requestedCaptureStatus === 'complete' ? timestamp : null,
       notes: normalizedInput.notes || null,
-      screenshot_url: input.screenshotUrl?.trim() || null,
+      screenshot_url: null,
       quality: input.tags.includes('A-Setup') ? 'A-Setup' : input.tags.includes('C-Setup') ? 'C-Setup' : 'B-Setup',
       session: deriveTradeSessionLabel(resolvedTradeOccurredAt),
       concept: null,
     }
 
-    let tradeInsert = await supabase.from('trades').insert(tradePayload)
-    if (tradeInsert.error) {
-      const legacyFallback = stripUnsupportedTradeColumns(tradePayload, tradeInsert.error.message)
-      if (legacyFallback.changed) {
-        tradeInsert = await supabase.from('trades').insert(legacyFallback.payload)
-      }
-    }
-    if (tradeInsert.error) return { success: false, mode: 'supabase' as const, message: `Trade konnte nicht gespeichert werden. ${tradeInsert.error.message}` }
-
-    if (input.tags.length) {
-      await supabase.from('trade_tags').insert(
-        input.tags.map((tag) => ({ id: crypto.randomUUID(), trade_id: tradeId, tag, created_at: timestamp })),
-      )
-    }
-
-    const setupLinkResult = await syncTradeSetupLink(supabase, user.id, tradeId, selectedSetup?.id ?? null)
-    if (!setupLinkResult.success) {
-      return { success: false, mode: 'supabase' as const, message: `Trade wurde gespeichert, aber die Setup-Verknüpfung hakt noch. ${setupLinkResult.message}` }
-    }
+    const { error: tradeInsertError } = await supabase.rpc('equora_create_trade_v1', {
+      p_trade_id: tradeId,
+      p_trade: tradePayload,
+      p_tags: input.tags,
+      p_setup_id: selectedSetup?.id ?? null,
+    })
+    if (tradeInsertError) return { success: false, mode: 'supabase' as const, message: mapAtomicMutationError(tradeInsertError.message) }
 
     revalidateTradeSurfaces()
     return {
       success: true,
       mode: 'supabase' as const,
       tradeId,
-      message: `Trade gespeichert: ${input.market} · ${resolvedSetupTitle}.${setupLinkResult.warning ? ` ${setupLinkResult.warning}` : ''}`,
+      message: `Trade gespeichert: ${input.market} · ${resolvedSetupTitle}.`,
     }
   } catch (error) {
     return { success: false, mode: 'supabase' as const, message: `Trade konnte nicht gespeichert werden. ${error instanceof Error ? error.message : 'Unbekannter Fehler.'}` }
@@ -457,6 +394,17 @@ export async function updateTradeEntry(tradeId: string, input: CreateTradeInput)
       tradeId,
       message: validation.summary,
       fieldErrors: validation.errors,
+    }
+  }
+
+  const normalizedSubmittedCurrency = normalizeTradeCurrency(input.accountCurrency)
+  if (!normalizedSubmittedCurrency) {
+    return {
+      success: false,
+      mode: hasSupabaseClientEnv() ? ('supabase' as const) : ('demo' as const),
+      tradeId,
+      message: 'Kontowährung fehlt oder wird nicht unterstützt. Erlaubt: EUR, USD, GBP, USDT, USDC.',
+      fieldErrors: { accountCurrency: 'Unterstützte Kontowährung auswählen.' },
     }
   }
 
@@ -592,7 +540,7 @@ export async function updateTradeEntry(tradeId: string, input: CreateTradeInput)
       funding_intervals: toNumericField(input.fundingIntervals) ?? brokerPreset.defaultFundingIntervals ?? null,
       spread_cost: toNumericField(input.spreadCost) ?? brokerPreset.defaultSpreadCost ?? costPreset.defaultSpreadCost,
       slippage: toNumericField(input.slippage) ?? brokerPreset.defaultSlippage ?? costPreset.defaultSlippage,
-      account_currency: input.accountCurrency.trim() || brokerPreset.defaultCurrency || instrumentPreset.defaultCurrency,
+      account_currency: normalizedSubmittedCurrency,
       crypto_market_type: normalizedInstrumentType === 'crypto' ? normalizedCryptoMarketType : 'manual',
       execution_type: normalizedInstrumentType === 'crypto' ? normalizedExecutionType : 'manual',
       funding_direction: normalizedInstrumentType === 'crypto' ? normalizedFundingDirection : 'manual',
@@ -607,57 +555,26 @@ export async function updateTradeEntry(tradeId: string, input: CreateTradeInput)
       captured_at: resolvedTradeOccurredAt,
       completed_at: existingTrade.completed_at ?? timestamp,
       notes: appendTradeImportMeta(normalizedInput.notes || null, preservedImportMeta),
-      screenshot_url: input.screenshotUrl?.trim() || null,
+      screenshot_url: null,
       quality: input.tags.includes('A-Setup') ? 'A-Setup' : input.tags.includes('C-Setup') ? 'C-Setup' : 'B-Setup',
       session: deriveTradeSessionLabel(resolvedTradeOccurredAt),
       concept: null,
     }
 
-    let tradeUpdate = await supabase
-      .from('trades')
-      .update(tradePayload)
-      .eq('id', tradeId)
-      .eq('user_id', user.id)
-
-    if (tradeUpdate.error) {
-      const legacyFallback = stripUnsupportedTradeColumns(tradePayload, tradeUpdate.error.message)
-      if (legacyFallback.changed) {
-        tradeUpdate = await supabase
-          .from('trades')
-          .update(legacyFallback.payload)
-          .eq('id', tradeId)
-          .eq('user_id', user.id)
-      }
-    }
-
-    if (tradeUpdate.error) return { success: false, mode: 'supabase' as const, message: `Trade konnte nicht aktualisiert werden. ${tradeUpdate.error.message}` }
-
-    const { error: deleteTagsError } = await supabase.from('trade_tags').delete().eq('trade_id', tradeId)
-    if (deleteTagsError) {
-      return { success: false, mode: 'supabase' as const, message: 'Trade wurde aktualisiert, aber bestehende Tags konnten nicht ersetzt werden.' }
-    }
-
-    if (input.tags.length) {
-      const { error: tagInsertError } = await supabase.from('trade_tags').insert(
-        input.tags.map((tag) => ({ id: crypto.randomUUID(), trade_id: tradeId, tag, created_at: timestamp })),
-      )
-
-      if (tagInsertError) {
-        return { success: false, mode: 'supabase' as const, message: 'Trade wurde aktualisiert, aber neue Tags konnten nicht gespeichert werden.' }
-      }
-    }
-
-    const setupLinkResult = await syncTradeSetupLink(supabase, user.id, tradeId, selectedSetup?.id ?? null)
-    if (!setupLinkResult.success) {
-      return { success: false, mode: 'supabase' as const, message: `Trade wurde aktualisiert, aber die Setup-Verknüpfung hakt noch. ${setupLinkResult.message}` }
-    }
+    const { error: tradeUpdateError } = await supabase.rpc('equora_update_trade_v1', {
+      p_trade_id: tradeId,
+      p_trade: tradePayload,
+      p_tags: input.tags,
+      p_setup_id: selectedSetup?.id ?? null,
+    })
+    if (tradeUpdateError) return { success: false, mode: 'supabase' as const, message: mapAtomicMutationError(tradeUpdateError.message) }
 
     revalidateTradeSurfaces()
     return {
       success: true,
       mode: 'supabase' as const,
       tradeId,
-      message: `Trade aktualisiert: ${input.market} · ${resolvedSetupTitle}.${setupLinkResult.warning ? ` ${setupLinkResult.warning}` : ''}`,
+      message: `Trade aktualisiert: ${input.market} · ${resolvedSetupTitle}.`,
     }
   } catch (error) {
     return { success: false, mode: 'supabase' as const, message: `Trade konnte nicht aktualisiert werden. ${error instanceof Error ? error.message : 'Unbekannter Fehler.'}` }
@@ -741,20 +658,19 @@ export async function createQuickTradeEntry(input: QuickTradeCaptureInput) {
       captured_at: capturedAt,
       completed_at: null,
       notes: input.notes.trim() || null,
-      screenshot_url: input.screenshotUrl?.trim() || null,
+      screenshot_url: null,
       quality: input.tags.includes('A-Setup') ? 'A-Setup' : input.tags.includes('C-Setup') ? 'C-Setup' : 'B-Setup',
       session: deriveTradeSessionLabel(capturedAt),
       concept: null,
     }
 
-    const { error: tradeError } = await supabase.from('trades').insert(tradePayload)
-    if (tradeError) return { success: false, mode: 'supabase' as const, message: `Schnellerfassung konnte nicht gespeichert werden. ${tradeError.message}` }
-
-    if (input.tags.length) {
-      await supabase.from('trade_tags').insert(
-        input.tags.map((tag) => ({ id: crypto.randomUUID(), trade_id: tradeId, tag, created_at: timestamp })),
-      )
-    }
+    const { error: tradeError } = await supabase.rpc('equora_create_trade_v1', {
+      p_trade_id: tradeId,
+      p_trade: tradePayload,
+      p_tags: input.tags,
+      p_setup_id: null,
+    })
+    if (tradeError) return { success: false, mode: 'supabase' as const, message: mapAtomicMutationError(tradeError.message) }
 
     const quickLabel = validation.normalizedCaptureResult === 'open' ? 'Offener Trade gesichert' : 'Schnellerfassung gespeichert'
     revalidateTradeSurfaces()
@@ -806,7 +722,7 @@ export async function closeTradeEntry(input: CloseTradeInput) {
 
     const { data: trade, error: tradeError } = await supabase
       .from('trades')
-      .select('id, user_id, market, setup, notes')
+      .select('id, user_id, market, setup, notes, account_currency')
       .eq('id', input.tradeId)
       .eq('user_id', user.id)
       .maybeSingle()
@@ -819,6 +735,9 @@ export async function closeTradeEntry(input: CloseTradeInput) {
     const tradeImport = extractTradeImportMeta(trade.notes)
     const mergedNotes = appendTradeImportMeta([tradeImport.cleanNotes.trim(), input.notes?.trim()].filter(Boolean).join('\n\n') || null, tradeImport.meta)
     const resolvedNetPnL = toNumericField(input.netPnL ?? '')
+    if (resolvedNetPnL !== null && !normalizeTradeCurrency(trade.account_currency)) {
+      return { success: false, mode: 'supabase' as const, message: 'Der Trade hat keine unterstützte Kontowährung. Bitte zuerst im vollständigen Edit-Flow eine Währung setzen.' }
+    }
     const resolvedPnLMode = normalizeTradePnLMode(undefined, resolvedNetPnL)
     const inferredResult = inferTradeCaptureResultFromPnL(resolvedNetPnL)
     const resolvedCaptureResult = inferredResult && inferredResult !== 'open' ? inferredResult : input.captureResult
@@ -883,68 +802,29 @@ export async function syncTradeMedia(tradeId: string, media: TradeMediaUploadInp
     } = await supabase.auth.getUser()
     if (!user) return { success: false, mode: 'supabase' as const, message: 'Bitte zuerst einloggen.' }
 
-    const { data: trade, error: tradeError } = await supabase
-      .from('trades')
-      .select('id, user_id')
-      .eq('id', tradeId)
-      .eq('user_id', user.id)
-      .maybeSingle()
+    for (const item of normalizedMedia) assertOwnedTradeMediaPath(user.id, tradeId, item.storagePath)
 
-    if (tradeError || !trade) {
-      return { success: false, mode: 'supabase' as const, message: 'Trade für Screenshot-Sync nicht gefunden.' }
-    }
-
-    const primaryUrl = normalizedMedia[0]?.publicUrl ?? null
-    let tradeMediaMissing = false
-
-    const { error: deleteError } = await supabase.from('trade_media').delete().eq('trade_id', tradeId).eq('user_id', user.id)
-    if (deleteError) {
-      if (isMissingTradeMediaSchema(deleteError.message)) {
-        tradeMediaMissing = true
-      } else {
-        return { success: false, mode: 'supabase' as const, message: `Trade-Medien konnten nicht aktualisiert werden. ${deleteError.message}` }
-      }
-    }
-
-    if (!tradeMediaMissing && normalizedMedia.length) {
-      const rows = normalizedMedia.map((item, index) => ({
-        id: crypto.randomUUID(),
-        trade_id: tradeId,
-        user_id: user.id,
-        storage_path: item.storagePath,
-        public_url: item.publicUrl,
-        file_name: item.fileName,
-        mime_type: item.mimeType,
-        byte_size: item.byteSize,
-        sort_order: index,
-        is_primary: index === 0,
-      }))
-
-      const { error: insertError } = await supabase.from('trade_media').insert(rows)
-      if (insertError) {
-        if (isMissingTradeMediaSchema(insertError.message)) {
-          tradeMediaMissing = true
-        } else {
-          return { success: false, mode: 'supabase' as const, message: `Trade-Medien konnten nicht gespeichert werden. ${insertError.message}` }
-        }
-      }
-    }
-
-    const screenshotError = await updatePrimaryTradeScreenshot(supabase, tradeId, user.id, primaryUrl)
-    if (screenshotError) {
-      return { success: false, mode: 'supabase' as const, message: `Trade-Screenshot konnte nicht aktualisiert werden. ${screenshotError.message}` }
-    }
+    const { error: syncError } = await supabase.rpc('equora_upsert_trade_media_v1', {
+      p_trade_id: tradeId,
+      p_media: normalizedMedia.map((item) => ({
+        storagePath: item.storagePath,
+        fileName: item.fileName,
+        mimeType: item.mimeType,
+        byteSize: item.byteSize,
+        sortOrder: item.sortOrder,
+        isPrimary: item.isPrimary,
+      })),
+    })
+    if (syncError) return { success: false, mode: 'supabase' as const, message: mapAtomicMutationError(syncError.message) }
 
     revalidateTradeSurfaces()
     return {
       success: true,
       mode: 'supabase' as const,
       tradeId,
-      message: tradeMediaMissing
-        ? `${normalizedMedia.length ? 1 : 0} Haupt-Screenshot direkt am Trade gespeichert. Für Galerie und Mehrfachbilder bitte noch schema-patch-v56.13.sql ausführen.`
-        : normalizedMedia.length
-          ? `${normalizedMedia.length} Screenshot(s) am Trade gespeichert.`
-          : 'Screenshots entfernt.',
+      message: normalizedMedia.length
+        ? `${normalizedMedia.length} private Screenshot(s) am Trade gespeichert.`
+        : 'Keine neuen Screenshots zu synchronisieren.',
     }
   } catch (error) {
     return { success: false, mode: 'supabase' as const, message: `Trade-Medien konnten nicht synchronisiert werden. ${error instanceof Error ? error.message : 'Unbekannter Fehler.'}` }
@@ -952,12 +832,12 @@ export async function syncTradeMedia(tradeId: string, media: TradeMediaUploadInp
 }
 
 
-export async function removeTradeMediaItem(tradeId: string, publicUrl: string) {
-  if (!tradeId.trim() || !publicUrl.trim()) {
+export async function removeTradeMediaItem(tradeId: string, mediaId: string) {
+  if (!tradeId.trim() || !mediaId.trim()) {
     return {
       success: false,
       mode: hasSupabaseClientEnv() ? ('supabase' as const) : ('demo' as const),
-      message: 'Trade oder Bild-URL fehlt.',
+      message: 'Trade oder Medien-ID fehlt.',
     }
   }
 
@@ -977,62 +857,27 @@ export async function removeTradeMediaItem(tradeId: string, publicUrl: string) {
     } = await supabase.auth.getUser()
     if (!user) return { success: false, mode: 'supabase' as const, message: 'Bitte zuerst einloggen.' }
 
-    const { data: trade, error: tradeError } = await supabase
-      .from('trades')
-      .select('id, screenshot_url, market, setup')
-      .eq('id', tradeId)
-      .eq('user_id', user.id)
-      .maybeSingle()
+    const { data, error: removeError } = await supabase.rpc('equora_remove_trade_media_v1', {
+      p_trade_id: tradeId,
+      p_media_id: mediaId,
+    })
+    if (removeError) return { success: false, mode: 'supabase' as const, message: mapAtomicMutationError(removeError.message) }
 
-    if (tradeError || !trade) {
-      return { success: false, mode: 'supabase' as const, message: 'Trade nicht gefunden oder kein Zugriff.' }
-    }
-
-    const { data: mediaRows } = await supabase
-      .from('trade_media')
-      .select('id, storage_path, public_url, sort_order')
-      .eq('trade_id', tradeId)
-      .eq('user_id', user.id)
-      .order('sort_order', { ascending: true })
-      .order('created_at', { ascending: true })
-
-    const matchingRows = (mediaRows ?? []).filter((row) => row.public_url === publicUrl)
-    const storagePaths = matchingRows.map((row) => row.storage_path).filter(Boolean)
-
-    if (matchingRows.length) {
-      const { error: deleteMediaError } = await supabase
-        .from('trade_media')
-        .delete()
-        .eq('trade_id', tradeId)
-        .eq('user_id', user.id)
-        .eq('public_url', publicUrl)
-
-      if (deleteMediaError) {
-        return { success: false, mode: 'supabase' as const, message: `Bild konnte nicht gelöscht werden. ${deleteMediaError.message}` }
-      }
-    }
-
-    const remainingRows = (mediaRows ?? []).filter((row) => row.public_url !== publicUrl)
-    const nextPrimaryUrl = remainingRows[0]?.public_url ?? (trade.screenshot_url === publicUrl ? null : trade.screenshot_url ?? null)
-
-    const screenshotError = await updatePrimaryTradeScreenshot(supabase, tradeId, user.id, nextPrimaryUrl)
-    if (screenshotError) {
-      return { success: false, mode: 'supabase' as const, message: `Trade-Screenshot konnte nicht aktualisiert werden. ${screenshotError.message}` }
-    }
-
-    if (storagePaths.length && hasSupabaseServerEnv()) {
-      const serviceSupabase = createSupabaseServerClient()
-      await serviceSupabase.storage.from('equora-media').remove(storagePaths)
-    }
+    const result = (data ?? {}) as { alreadyAbsent?: boolean; storagePath?: string }
+    const cleanup = result.storagePath
+      ? await processMediaCleanupForPaths([result.storagePath])
+      : { completed: 0, pending: 0 }
 
     revalidateTradeSurfaces()
     return {
       success: true,
       mode: 'supabase' as const,
       tradeId,
-      message: matchingRows.length
-        ? `Bild aus ${trade.market} · ${trade.setup} entfernt.`
-        : 'Bild aus der Galerie entfernt.',
+      message: cleanup.pending
+        ? 'Bild aus dem Journal entfernt. Die physische Storage-Bereinigung wird erneut versucht.'
+        : result.alreadyAbsent
+          ? 'Bild war bereits entfernt.'
+          : 'Bild sicher aus dem Journal entfernt.',
     }
   } catch (error) {
     return { success: false, mode: 'supabase' as const, message: `Bild konnte nicht gelöscht werden. ${error instanceof Error ? error.message : 'Unbekannter Fehler.'}` }
@@ -1075,38 +920,20 @@ export async function deleteTradeEntry(tradeId: string) {
       return { success: false, mode: 'supabase' as const, message: 'Trade nicht gefunden oder kein Zugriff.' }
     }
 
-    let storagePaths: string[] = []
+    const { data, error: deleteError } = await supabase.rpc('equora_delete_trade_v1', { p_trade_id: tradeId })
+    if (deleteError) return { success: false, mode: 'supabase' as const, message: mapAtomicMutationError(deleteError.message) }
 
-    const { data: mediaRows, error: mediaError } = await supabase
-      .from('trade_media')
-      .select('storage_path')
-      .eq('trade_id', tradeId)
-      .eq('user_id', user.id)
-
-    if (!mediaError && mediaRows?.length) {
-      storagePaths = mediaRows.map((row) => row.storage_path).filter(Boolean)
-    }
-
-    await supabase.from('shared_trade_submissions').delete().eq('trade_id', tradeId).eq('user_id', user.id)
-    await supabase.from('trade_tags').delete().eq('trade_id', tradeId)
-    await supabase.from('trade_media').delete().eq('trade_id', tradeId).eq('user_id', user.id)
-
-    const { error: deleteError } = await supabase.from('trades').delete().eq('id', tradeId).eq('user_id', user.id)
-    if (deleteError) {
-      return { success: false, mode: 'supabase' as const, message: `Trade konnte nicht gelöscht werden. ${deleteError.message}` }
-    }
-
-    if (storagePaths.length && hasSupabaseServerEnv()) {
-      const serviceSupabase = createSupabaseServerClient()
-      await serviceSupabase.storage.from('equora-media').remove(storagePaths)
-    }
+    const result = (data ?? {}) as { storagePaths?: string[]; alreadyAbsent?: boolean }
+    const cleanup = await processMediaCleanupForPaths(result.storagePaths ?? [])
 
     revalidateTradeSurfaces()
     return {
       success: true,
       mode: 'supabase' as const,
       deletedId: tradeId,
-      message: `Trade gelöscht: ${trade.market} · ${trade.setup}.`,
+      message: result.alreadyAbsent
+        ? 'Trade war bereits gelöscht.'
+        : `Trade gelöscht: ${trade.market} · ${trade.setup}.${cleanup.pending ? ' Die Storage-Bereinigung läuft im Hintergrund weiter.' : ''}`,
     }
   } catch (error) {
     return { success: false, mode: 'supabase' as const, message: `Trade konnte nicht gelöscht werden. ${error instanceof Error ? error.message : 'Unbekannter Fehler.'}` }

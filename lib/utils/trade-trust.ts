@@ -1,7 +1,8 @@
 import type { Trade } from '@/lib/types/trade'
+import { normalizeTradeCurrency, resolveTradeMonetaryScope } from '@/lib/utils/currency'
 import { inferTradeCaptureResultFromPnL, normalizeTradeCaptureStatus } from '@/lib/utils/trade-capture'
 
-export type TradeTrustState = 'trusted' | 'incomplete' | 'missing-pnl' | 'open' | 'conflict'
+export type TradeTrustState = 'trusted' | 'incomplete' | 'missing-pnl' | 'missing-currency' | 'open' | 'conflict'
 
 export type TradeTrustMeta = {
   state: TradeTrustState
@@ -34,6 +35,10 @@ export function getTradeTrustState(trade: Trade): TradeTrustState {
 
   if (captureStatus === 'incomplete') {
     return 'incomplete'
+  }
+
+  if (trade.netPnL !== undefined && trade.netPnL !== null && !normalizeTradeCurrency(trade.accountCurrency)) {
+    return 'missing-currency'
   }
 
   return trade.netPnL !== undefined && trade.netPnL !== null ? 'trusted' : 'missing-pnl'
@@ -88,6 +93,18 @@ export function getTradeTrustMeta(trade: Trade): TradeTrustMeta {
       shortLabel: 'Ohne P&L',
       description: 'Der Trade ist als vollständig markiert, aber noch ohne belastbare P&L-Grundlage.',
       tone: 'neutral',
+      reliable: false,
+      needsAttention: true,
+    }
+  }
+
+  if (state === 'missing-currency') {
+    return {
+      state,
+      label: 'P&L ohne bestätigte Währung',
+      shortLabel: 'Währung fehlt',
+      description: 'Eine Zahl ohne verlässliche Geldeinheit darf nicht in P&L-, Equity- oder Kosten-Auswertungen einfließen.',
+      tone: 'red',
       reliable: false,
       needsAttention: true,
     }
@@ -161,6 +178,7 @@ export function getTradeTrustSummary(trades: Trade[]) {
   const trustedTrades = trades.filter((trade) => getTradeTrustState(trade) === 'trusted')
   const incompleteTrades = trades.filter((trade) => getTradeTrustState(trade) === 'incomplete')
   const completeWithoutPnL = trades.filter((trade) => getTradeTrustState(trade) === 'missing-pnl')
+  const missingCurrencyTrades = trades.filter((trade) => getTradeTrustState(trade) === 'missing-currency')
   const openTrades = trades.filter((trade) => getTradeTrustState(trade) === 'open')
   const conflictingTrades = trades.filter((trade) => getTradeTrustState(trade) === 'conflict')
   const totalTrades = trades.length
@@ -170,10 +188,12 @@ export function getTradeTrustSummary(trades: Trade[]) {
     trustedTrades: trustedTrades.length,
     incompleteTrades: incompleteTrades.length,
     completeWithoutPnL: completeWithoutPnL.length,
+    missingCurrencyTrades: missingCurrencyTrades.length,
     openTrades: openTrades.length,
     conflictingTrades: conflictingTrades.length,
     trustedCoverage: totalTrades ? (trustedTrades.length / totalTrades) * 100 : 0,
     trustedPnLNet: trustedTrades.reduce((sum, trade) => sum + (trade.netPnL ?? 0), 0),
-    needsAttention: incompleteTrades.length + completeWithoutPnL.length + openTrades.length + conflictingTrades.length,
+    monetaryScope: resolveTradeMonetaryScope(trustedTrades),
+    needsAttention: incompleteTrades.length + completeWithoutPnL.length + missingCurrencyTrades.length + openTrades.length + conflictingTrades.length,
   }
 }

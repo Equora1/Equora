@@ -1,5 +1,6 @@
 import type { Trade } from '@/lib/types/trade'
 import { getCoreMetrics } from '@/lib/utils/analytics'
+import type { TradeCurrency } from '@/lib/utils/currency'
 
 export type CompareDimension = 'setup' | 'session' | 'emotion' | 'market' | 'quality' | 'concept' | 'tag'
 
@@ -9,6 +10,7 @@ export type CompareResult = {
   winRate: number
   avgR: number
   netPnL: number
+  currency: TradeCurrency | null
   profitFactor: number
 }
 
@@ -35,6 +37,7 @@ function buildRow(label: string, groupTrades: Trade[]): CompareResult {
     winRate: metrics.winRate,
     avgR: metrics.averageR,
     netPnL: metrics.netPnL,
+    currency: metrics.currency,
     profitFactor: metrics.profitFactor,
   }
 }
@@ -60,6 +63,8 @@ export function buildComparison(
   dimension: CompareDimension,
   tradeTags: CompareTradeTag[] = [],
 ): CompareResult[] {
+  const monetaryScope = getCoreMetrics(trades).monetaryScope
+  if (monetaryScope.kind === 'mixed' || monetaryScope.kind === 'unknown') return []
   if (dimension === 'tag') {
     return buildTagComparison(trades, tradeTags)
   }

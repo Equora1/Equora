@@ -1,9 +1,11 @@
 import { normalizeTradeDate } from "@/lib/utils/calendar";
 import { normalizeInstrumentType, parseTradingNumber } from "@/lib/utils/calculations";
+import { normalizeTradeCurrency } from "@/lib/utils/currency";
 
 export type CsvImportFieldKey =
   | "date"
   | "market"
+  | "currency"
   | "netPnL"
   | "entry"
   | "exit"
@@ -66,6 +68,7 @@ export type CsvImportPreviewRow = {
   normalized: {
     date: string | null;
     market: string | null;
+    currency: string | null;
     netPnL: string | null;
     entry: string | null;
     exit: string | null;
@@ -104,6 +107,7 @@ export type CsvImportDraft = {
   importTrustLabel?: string;
   date: string;
   market: string;
+  currency?: string | null;
   netPnL?: string | null;
   entry?: string | null;
   exit?: string | null;
@@ -133,6 +137,11 @@ export const csvImportFieldDefinitions: CsvImportFieldDefinition[] = [
     label: "Markt / Symbol",
     required: true,
     helper: "Pflichtfeld für Asset oder Symbol.",
+  },
+  {
+    key: "currency",
+    label: "Kontowährung",
+    helper: "Zeilenwert überschreibt die für fehlende Werte gewählte Import-Währung.",
   },
   { key: "netPnL", label: "P&L", helper: "Schnelles P&L-Bild." },
   { key: "entry", label: "Entry", helper: "Optionaler Einstiegskurs." },
@@ -205,6 +214,15 @@ const fieldAliases: Record<CsvImportFieldKey, string[]> = {
     "coin",
     "base asset",
     "trading pair",
+  ],
+  currency: [
+    "currency",
+    "account currency",
+    "settlement currency",
+    "quote currency",
+    "kontowährung",
+    "währung",
+    "ccy",
   ],
   netPnL: [
     "net pnl",
@@ -988,6 +1006,13 @@ export function buildCsvImportPreview(
         rowNumber,
         repairOverrides,
       ),
+      currency: getPreviewValue(
+        row,
+        mapping,
+        "currency",
+        rowNumber,
+        repairOverrides,
+      ),
       netPnL:
         mexcOverride?.netPnL ??
         getPreviewValue(
@@ -1079,6 +1104,14 @@ export function buildCsvImportPreview(
         row,
         mapping,
         "market",
+        rowNumber,
+        presetKey,
+        repairOverrides,
+      ),
+      currency: getPreviewValueSource(
+        row,
+        mapping,
+        "currency",
         rowNumber,
         presetKey,
         repairOverrides,
@@ -1200,6 +1233,7 @@ export function buildCsvImportPreview(
     const normalized = {
       date: normalizeDateValue(previewValues.date),
       market: previewValues.market.trim() || null,
+      currency: previewValues.currency.trim().toUpperCase() || null,
       netPnL: previewValues.netPnL.trim() || null,
       entry: previewValues.entry.trim() || null,
       exit: previewValues.exit.trim() || null,
@@ -1223,6 +1257,9 @@ export function buildCsvImportPreview(
     if (mexcOverride?.skipReason) issues.push(mexcOverride.skipReason);
     if (!normalized.date) issues.push("Datum fehlt oder ist nicht lesbar.");
     if (!normalized.market) issues.push("Markt / Symbol fehlt.");
+    if (normalized.currency && !normalizeTradeCurrency(normalized.currency)) {
+      issues.push("Kontowährung ist nicht unterstützt; erlaubt sind EUR, USD, GBP, USDT und USDC.");
+    }
     if (normalized.date && normalized.market && !hasEnoughContext(normalized)) {
       issues.push("Basisdaten vorhanden, aber ohne P&L oder Preiskontext.");
     }
@@ -1246,7 +1283,7 @@ export function buildCsvImportPreview(
 
     let status: CsvImportPreviewStatus = "importable";
     if (mexcOverride?.skipReason) status = "skip";
-    else if (!normalized.date || !normalized.market) status = "skip";
+    else if (!normalized.date || !normalized.market || (normalized.currency !== null && !normalizeTradeCurrency(normalized.currency))) status = "skip";
     else if (!hasEnoughContext(normalized)) status = "check";
 
     const trust = buildImportTrust({
@@ -1294,6 +1331,7 @@ export function buildCsvImportDrafts(
       importTrustLabel: row.trustLabel,
       date: row.normalized.date ?? new Date().toISOString(),
       market: row.normalized.market ?? "Unbekannt",
+      currency: row.normalized.currency,
       netPnL: row.normalized.netPnL,
       entry: row.normalized.entry,
       exit: row.normalized.exit,

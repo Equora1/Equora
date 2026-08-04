@@ -285,7 +285,9 @@ export function TradeDetailCard({
               <div>
                 <p className="mb-3 text-[10px] uppercase tracking-[0.2em] text-white/35">Bilder · {detail.screenshotCount ?? detail.screenshotUrls.length}</p>
                 <TradeImageGallery
-                  images={detail.screenshotUrls.map((imageUrl, index) => ({ id: `${tradeId ?? detail.title}-image-${index}`, image_url: imageUrl }))}
+                  images={(detail.screenshotItems?.length
+                    ? detail.screenshotItems.map((item) => ({ id: item.id, image_url: item.url }))
+                    : detail.screenshotUrls.map((imageUrl, index) => ({ id: `${tradeId ?? detail.title}-image-${index}`, image_url: imageUrl })))}
                   tradeId={tradeId}
                   source={source}
                 />

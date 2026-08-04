@@ -1,5 +1,6 @@
 import type { Trade } from '@/lib/types/trade'
 import type { TagStat } from '@/lib/types/tag'
+import type { MonetaryScopeKind, TradeCurrency } from '@/lib/utils/currency'
 
 export type ReviewTone = 'emerald' | 'red' | 'orange'
 
@@ -52,6 +53,7 @@ export type ReviewTagHeatmapCell = {
   tag: string
   tradeCount: number
   netPnL: number
+  currency: TradeCurrency | null
   intensity: number
   tone: ReviewTone
   href?: string
@@ -89,6 +91,8 @@ export type ReviewSnapshot = {
   periodLabel: string
   previousPeriodLabel: string
   previousNetPnL: number
+  currency: TradeCurrency | null
+  monetaryScopeKind: MonetaryScopeKind
   periodStart: string
   periodEnd: string
   sourceLabel: string
@@ -113,6 +117,8 @@ export type ReviewSnapshot = {
     tradeCount: number
     visibleTradeCount: number
     netPnL: number
+    currency: TradeCurrency | null
+    monetaryScopeKind: MonetaryScopeKind
     averageR: number
     winRate: number
     winners: number
