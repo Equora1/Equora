@@ -7,7 +7,7 @@ import type { BrokerSyncRunRow } from '@/lib/types/db'
 
 const workflow = [
   ['1', 'Leseschlüssel anlegen', 'Bei MEXC nur Futures-Leserechte aktivieren. Trading, Transfer und Auszahlung bleiben aus.'],
-  ['2', 'Verbindung prüfen', 'Equora bestätigt den Zugriff, ohne jemals eine Testorder zu senden.'],
+  ['2', 'Lesecapabilities prüfen', 'Equora prüft später nur fest benannte Leseabrufe; eine Testorder ist technisch nicht vorgesehen.'],
   ['3', 'Gefundene Daten ansehen', 'Orders und Ausführungen erscheinen zuerst als übersichtliche Vorschau.'],
   ['4', 'Später bewusst importieren', 'Erst in der nächsten Ausbaustufe entscheidest du, welche Trades ins Journal kommen.'],
 ] as const
@@ -35,7 +35,7 @@ export function BrokerSyncHub({ snapshot }: { snapshot: BrokerSyncSnapshot }) {
           <div className="flex flex-wrap gap-2">
             <StatusPill label="v57.60.1" tone="gold" />
             <StatusPill
-              label={snapshot.connectorReady ? 'MEXC bereit' : 'Einrichtung nötig'}
+              label={snapshot.connectorReady ? 'MEXC bereit' : snapshot.runtimeGate === 'g1_transport_only' ? 'G1 gesperrt' : 'Einrichtung nötig'}
               tone={snapshot.connectorReady ? 'quiet' : 'warning'}
             />
           </div>
@@ -52,9 +52,9 @@ export function BrokerSyncHub({ snapshot }: { snapshot: BrokerSyncSnapshot }) {
         <FuturisticCard className="p-6">
           <SectionHeading eyebrow="Sicherheitsgrenze" title="Equora darf lesen, sonst nichts" />
           <div className="mt-5 grid gap-3 sm:grid-cols-3">
-            <PermissionCard title="Daten lesen" description="Orders, Ausführungen, Gebühren und Ergebnisse abrufen." state="Erlaubt" />
-            <PermissionCard title="Trades ausführen" description="Keine Order öffnen, ändern oder schließen." state="Aus" />
-            <PermissionCard title="Geld bewegen" description="Keine Auszahlung und kein interner Transfer." state="Aus" />
+            <PermissionCard title="Daten lesen" description="Orders, Ausführungen, Gebühren und Ergebnisse abrufen." state="Bis G1 gesperrt" />
+            <PermissionCard title="Trades ausführen" description="Keine Order öffnen, ändern oder schließen." state="Nicht vorhanden" />
+            <PermissionCard title="Geld bewegen" description="Keine Auszahlung und kein interner Transfer." state="Nicht vorhanden" />
           </div>
           <p className="mt-5 rounded-2xl border border-white/8 bg-white/[0.025] p-4 text-sm leading-6 text-white/48">
             API-Schlüssel und Secret werden verschlüsselt in einem eigenen, serverseitigen Zugangsspeicher abgelegt.
@@ -67,7 +67,7 @@ export function BrokerSyncHub({ snapshot }: { snapshot: BrokerSyncSnapshot }) {
           <div className="mt-5 space-y-3">
             <ReadinessRow label="Broker-Bereich" value={snapshot.schemaReady ? 'Bereit' : 'Grundlage fehlt'} />
             <ReadinessRow label="Verschlüsselter Zugang" value={snapshot.secureStoreReady ? 'Bereit' : 'Patches v57.60 + v57.60.1 nötig'} />
-            <ReadinessRow label="MEXC-Verbindung prüfen" value={snapshot.connectorReady ? 'Bereit' : 'Vercel prüfen'} />
+            <ReadinessRow label="MEXC-Verbindung prüfen" value={snapshot.connectorReady ? 'Bereit' : snapshot.runtimeGate === 'g1_transport_only' ? 'Bis G1 gesperrt' : 'Vercel prüfen'} />
             <ReadinessRow label="Automatisch ins Journal übernehmen" value="Noch ausgeschaltet" />
           </div>
         </FuturisticCard>
@@ -167,12 +167,12 @@ function StatusPill({ label, tone }: { label: string; tone: 'gold' | 'quiet' | '
   return <span className={`rounded-full border px-3 py-1.5 text-[10px] uppercase tracking-[0.16em] ${className}`}>{label}</span>
 }
 
-function PermissionCard({ title, description, state }: { title: string; description: string; state: 'Erlaubt' | 'Aus' }) {
+function PermissionCard({ title, description, state }: { title: string; description: string; state: 'Bis G1 gesperrt' | 'Nicht vorhanden' }) {
   return (
     <div className="rounded-2xl border border-white/8 bg-white/[0.022] p-4">
       <div className="flex items-center justify-between gap-3">
         <p className="text-sm font-medium text-white">{title}</p>
-        <span className={`text-[10px] uppercase tracking-[0.14em] ${state === 'Erlaubt' ? 'text-[#f0a855]' : 'text-white/35'}`}>{state}</span>
+        <span className={`text-[10px] uppercase tracking-[0.14em] ${state === 'Bis G1 gesperrt' ? 'text-[#f0a855]' : 'text-white/35'}`}>{state}</span>
       </div>
       <p className="mt-3 text-xs leading-5 text-white/42">{description}</p>
     </div>
@@ -236,7 +236,7 @@ function runStatus(status: string) {
   const labels: Record<string, string> = {
     pending: 'Wartet',
     running: 'Wird geprüft',
-    completed: 'Erfolgreich geprüft',
+    completed: 'Legacy-Vorschau abgeschlossen',
     partial: 'Teilweise gespeichert',
     failed: 'Prüfung fehlgeschlagen',
     cancelled: 'Abgebrochen',

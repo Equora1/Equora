@@ -20,7 +20,7 @@ const advancedNavItems = [
   { label: 'Vault', href: '/share', icon: 'vault', hint: 'Geteilte Trades & Community-Setups' },
   { label: 'Kosten', href: '/cost-profiles', icon: 'cost', hint: 'Gebühren und Kostenprofile' },
   { label: 'Daily Note', href: '/daily-note', icon: 'note', hint: 'Optionale Tagesnotiz' },
-  { label: 'Broker verbinden', href: '/broker-sync', icon: 'sync', hint: 'Trades sicher und nur lesend abrufen' },
+  { label: 'Broker verbinden', href: '/broker-sync', icon: 'sync', hint: 'Historische Brokerdaten für einen Scope vorbereiten' },
 ] satisfies NavItem[]
 
 type NavItem = { label: string; href: string; icon: AppIconName; hint?: string }

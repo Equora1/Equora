@@ -90,15 +90,15 @@ export function MexcConnectionPanel({
           <p className="eq-display text-[0.58rem] text-[#b09a7a]">MEXC Futures</p>
           <h3 className="mt-2 text-xl font-semibold text-white">Neue Verbindung einrichten</h3>
           <p className="mt-3 text-sm leading-6 text-white/48">
-            Equora prüft den Schlüssel serverseitig und lädt nur eine Vorschau deiner letzten Orders und Ausführungen.
-            Es wird noch kein Trade in das Journal übernommen.
+            Nach einem bestandenen G1 darf Equora fest benannte Lesecapabilities für einen gewählten Scope prüfen.
+            Derzeit sind Brokerabruf und Journalimport vollständig gesperrt.
           </p>
         </div>
 
         {!connectorReady ? (
           <div className="mt-5 rounded-2xl border border-[#e5a14d]/20 bg-[#e5a14d]/8 px-4 py-3 text-sm leading-6 text-[#efc98f]">
             {secureStoreReady
-              ? 'Der Verschlüsselungsschlüssel fehlt noch. Hinterlege EQUORA_BROKER_SECRET_KEY in Vercel.'
+              ? 'Der MEXC-Connector ist bis zum bestandenen Gate G1 gesperrt. Es werden keine Brokerrequests ausgeführt.'
               : 'Bitte zuerst die SQL-Patches v57.60 und v57.60.1 ausführen und die Servervariablen in Vercel prüfen.'}
           </div>
         ) : null}
@@ -166,7 +166,7 @@ export function MexcConnectionPanel({
             disabled={disabled}
             className="w-full rounded-2xl border border-[#c8823a]/35 bg-[#c8823a]/15 px-4 py-3 text-sm font-medium text-[#ffd3a0] transition hover:bg-[#c8823a]/22 disabled:cursor-not-allowed disabled:opacity-45"
           >
-            {isPending && activeConnectionId === 'new' ? 'Verbindung wird geprüft …' : 'Verbindung sicher prüfen'}
+            {isPending && activeConnectionId === 'new' ? 'Lesecapabilities werden geprüft …' : 'Lesecapabilities prüfen'}
           </button>
         </form>
 
@@ -195,9 +195,9 @@ export function MexcConnectionPanel({
                 <div className="flex items-start justify-between gap-4">
                   <div>
                     <p className="text-sm font-medium text-white">{title}</p>
-                    <p className="mt-1 text-xs text-white/38">MEXC Futures · nur lesend</p>
+                    <p className="mt-1 text-xs text-white/38">MEXC Futures · gespeicherte Verbindung</p>
                   </div>
-                  <ConnectionStatus status={connection.status} />
+                  <ConnectionStatus status={connection.status} connectorReady={connectorReady} />
                 </div>
 
                 <dl className="mt-4 grid gap-2 text-xs">
@@ -258,9 +258,12 @@ export function MexcConnectionPanel({
   )
 }
 
-function ConnectionStatus({ status }: { status: string }) {
+function ConnectionStatus({ status, connectorReady }: { status: string; connectorReady: boolean }) {
+  if (!connectorReady) {
+    return <span className="rounded-full border border-white/10 bg-white/[0.03] px-2.5 py-1 text-[10px] uppercase tracking-[0.14em] text-white/52">G1 gesperrt</span>
+  }
   const labels: Record<string, string> = {
-    ready: 'Bereit',
+    ready: 'Legacy-Vorschau',
     draft: 'Noch offen',
     paused: 'Pausiert',
     error: 'Prüfen',
@@ -284,8 +287,10 @@ function ConnectionDetail({ label, value }: { label: string; value: string }) {
 
 function permissionLabel(permissions?: string[] | null) {
   if (!permissions?.length) return 'Noch nicht bestätigt'
-  if (permissions.includes('futures_read_verified')) return 'Futures-Daten lesbar'
-  return 'Leserechte gespeichert'
+  if (permissions.includes('historical_orders_read_observed') && permissions.includes('historical_executions_read_observed')) return 'Orders und Ausführungen beobachtet (Legacy)'
+  if (permissions.includes('historical_orders_read_observed')) return 'Historische Orders beobachtet (Legacy)'
+  if (permissions.includes('read_only_user_attested')) return 'Read-only vom Nutzer bestätigt'
+  return 'Gespeicherter Legacy-Status'
 }
 
 function formatDate(value?: string | null) {

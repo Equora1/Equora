@@ -3,6 +3,7 @@ import { createSupabaseAuthServerClient } from '@/lib/supabase/server-auth'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { hasBrokerSecretKey } from '@/lib/server/broker-secret-store'
 import { mapRawEventToPreview } from '@/lib/server/broker-preview'
+import { isMexcRuntimeActivated, MEXC_RUNTIME_GATE } from '@/lib/server/mexc-runtime'
 import type { BrokerPreviewItem } from '@/lib/types/broker-sync'
 import type { BrokerConnectionRow, BrokerRawEventRow, BrokerSyncRunRow } from '@/lib/types/db'
 
@@ -13,6 +14,7 @@ export type BrokerSyncSnapshot = {
   schemaReady: boolean
   secureStoreReady: boolean
   connectorReady: boolean
+  runtimeGate: typeof MEXC_RUNTIME_GATE
   source: 'demo' | 'supabase'
   notice: string | null
 }
@@ -74,6 +76,7 @@ function emptySnapshot(overrides: Partial<BrokerSyncSnapshot> = {}): BrokerSyncS
     schemaReady: false,
     secureStoreReady: false,
     connectorReady: false,
+    runtimeGate: MEXC_RUNTIME_GATE,
     source: 'supabase',
     notice: null,
     ...overrides,
@@ -159,9 +162,12 @@ export async function getBrokerSyncSnapshotServer(userId?: string | null): Promi
       preview: ((previewResponse.data ?? []) as unknown as BrokerRawEventRow[]).map(mapRawEventToPreview),
       schemaReady: true,
       secureStoreReady,
-      connectorReady: serverAvailable && secureStoreReady && hasBrokerSecretKey(),
+      connectorReady: serverAvailable && secureStoreReady && hasBrokerSecretKey() && isMexcRuntimeActivated(),
+      runtimeGate: MEXC_RUNTIME_GATE,
       source: 'supabase',
-      notice: null,
+      notice: serverAvailable && secureStoreReady && hasBrokerSecretKey()
+        ? 'Der MEXC-Connector bleibt bis zum bestandenen Gate G1 deaktiviert. Es werden keine Brokerrequests ausgeführt.'
+        : null,
     }
   } catch {
     return emptySnapshot({

@@ -5,6 +5,7 @@ import { findBestMarket, getCoreMetrics } from '@/lib/utils/analytics'
 import { formatCurrency, formatRMultiple } from '@/lib/utils/calculations'
 import type { TradeCurrency } from '@/lib/types/trade'
 import { resolveMonetaryScope, type MonetaryScopeKind } from '@/lib/utils/currency'
+import { MIN_ANALYTICS_BUCKET_SIZE } from '@/lib/utils/statistics-scope'
 
 function normalizeCategory(category: string | null | undefined) {
   return category?.trim() || 'Custom'
@@ -117,13 +118,19 @@ function getCostSummary(trades: Trade[]) {
 }
 
 function buildBestWeakestLabel(trades: Trade[], getLabel: (trade: Trade) => string | null | undefined) {
-  const grouped = trades.reduce<Record<string, number>>((acc, trade) => {
+  const grouped = trades.reduce<Record<string, { count: number; netPnL: number }>>((acc, trade) => {
     const label = getLabel(trade)?.trim() || '—'
     if (label === '—') return acc
-    acc[label] = (acc[label] ?? 0) + (getTradePnL(trade) ?? 0)
+    const current = acc[label] ?? { count: 0, netPnL: 0 }
+    acc[label] = {
+      count: current.count + 1,
+      netPnL: current.netPnL + (getTradePnL(trade) ?? 0),
+    }
     return acc
   }, {})
-  const rows = Object.entries(grouped).sort((left, right) => right[1] - left[1])
+  const rows = Object.entries(grouped)
+    .filter(([, value]) => value.count >= MIN_ANALYTICS_BUCKET_SIZE)
+    .sort((left, right) => right[1].netPnL - left[1].netPnL)
   return {
     best: rows[0]?.[0] ?? '—',
     weakest: rows.length > 1 ? rows[rows.length - 1]?.[0] ?? '—' : rows[0]?.[0] ?? '—',
@@ -155,7 +162,7 @@ export function buildSetupPerformanceRows(
     .map((title) => {
       const setupTrades = getTradesForSetupTitle(title, trades, savedSetups)
       const metrics = getCoreMetrics(setupTrades)
-      const tone = setupTrades.length === 0 ? 'neutral' : metrics.netPnL > 0 ? 'green' : metrics.netPnL < 0 ? 'red' : 'neutral'
+      const tone = setupTrades.length < MIN_ANALYTICS_BUCKET_SIZE ? 'neutral' : metrics.netPnL > 0 ? 'green' : metrics.netPnL < 0 ? 'red' : 'neutral'
 
       const resolvedTrades = setupTrades.filter((trade) => getTradePnL(trade) !== null)
       const latestTrade = [...setupTrades].sort((left, right) => getTradeTimestamp(right) - getTradeTimestamp(left))[0]

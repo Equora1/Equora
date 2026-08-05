@@ -1,6 +1,9 @@
 'use client'
 
 import type { FilterState } from '@/lib/types/trade'
+import { getTradeDateKey } from '@/lib/utils/trade-time'
+
+type ChoiceFilterKey = Exclude<keyof FilterState, 'dateFrom' | 'dateTo'>
 
 function FilterGroup({
   label,
@@ -12,7 +15,7 @@ function FilterGroup({
   compact = false,
 }: {
   label: string
-  filterKey: keyof FilterState
+  filterKey: ChoiceFilterKey
   values: string[]
   filters: FilterState
   onChange: (next: FilterState) => void
@@ -65,7 +68,8 @@ export function FilterDeck({
   onChange: (next: FilterState) => void
   onReset: () => void
 }) {
-  const activeCount = Object.entries(filters).filter(([, value]) => value !== 'Alle').length
+  const activeCount = Object.entries(filters).filter(([, value]) => value !== 'Alle' && Boolean(value)).length
+  const hasInvalidDateRange = Boolean(filters.dateFrom && filters.dateTo && filters.dateFrom > filters.dateTo)
 
   return (
     <section className="rounded-[30px] border border-orange-400/15 bg-white/5 p-5 shadow-2xl">
@@ -89,7 +93,61 @@ export function FilterDeck({
         </div>
       </div>
 
-      <div className="mt-5 grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
+      <div className={`mt-5 rounded-[26px] border p-4 ${hasInvalidDateRange ? 'border-red-400/25 bg-red-400/[0.06]' : 'border-orange-400/15 bg-black/35'}`}>
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+          <div>
+            <p className="text-[10px] uppercase tracking-[0.24em] text-orange-200/70">Auswertungszeitraum</p>
+            <p className="mt-2 max-w-2xl text-sm leading-6 text-white/55">
+              Nur Trades innerhalb dieses Zeitraums fließen in Kennzahlen, Vergleiche und Kurven ein. Das Journal selbst bleibt unverändert.
+            </p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => onChange({ ...filters, dateFrom: getTradeDateKey(new Date().toISOString()) ?? '' })}
+                className="rounded-full border border-orange-300/20 bg-orange-400/[0.08] px-3 py-1.5 text-xs text-orange-100/85 transition hover:border-orange-300/40"
+              >
+                Ab heute auswerten
+              </button>
+              {filters.dateFrom || filters.dateTo ? (
+                <button
+                  type="button"
+                  onClick={() => onChange({ ...filters, dateFrom: '', dateTo: '' })}
+                  className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5 text-xs text-white/60 transition hover:border-white/20 hover:text-white"
+                >
+                  Auswertungszeitraum zurücksetzen
+                </button>
+              ) : null}
+            </div>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <label className="text-xs text-white/55">
+              <span className="mb-2 block uppercase tracking-[0.18em]">Von</span>
+              <input
+                type="date"
+                value={filters.dateFrom}
+                max={filters.dateTo || undefined}
+                onChange={(event) => onChange({ ...filters, dateFrom: event.target.value })}
+                className="min-h-10 rounded-xl border border-white/10 bg-black/30 px-3 text-sm text-white outline-none transition focus:border-orange-300/40"
+              />
+            </label>
+            <label className="text-xs text-white/55">
+              <span className="mb-2 block uppercase tracking-[0.18em]">Bis</span>
+              <input
+                type="date"
+                value={filters.dateTo}
+                min={filters.dateFrom || undefined}
+                onChange={(event) => onChange({ ...filters, dateTo: event.target.value })}
+                className="min-h-10 rounded-xl border border-white/10 bg-black/30 px-3 text-sm text-white outline-none transition focus:border-orange-300/40"
+              />
+            </label>
+          </div>
+        </div>
+        {hasInvalidDateRange ? (
+          <p className="mt-3 text-sm text-red-200">Das Bis-Datum muss am oder nach dem Von-Datum liegen.</p>
+        ) : null}
+      </div>
+
+      <div className="mt-4 grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
         <div className="space-y-4 rounded-[28px] border border-orange-400/15 bg-black/35 p-4">
           <div>
             <p className="text-[10px] uppercase tracking-[0.24em] text-orange-200/70">Kernfilter</p>
