@@ -53,6 +53,17 @@ export type MexcCapturedPageInput = Readonly<{
 export type MexcCapturedPageResult = Readonly<{
   orchestratorVersion: typeof MEXC_CAPTURE_ORCHESTRATOR_VERSION
   status: 'page_committed' | 'pagination_blocked_before_ledger'
+  commitPrecondition: Readonly<{
+    workUnitId: string
+    runId: string
+    brokerAccountId: string
+    connectionAccountId: string
+    syncActivationId: string
+    activationGeneration: number
+    scopeDigest: string
+    expectedCheckpointMac: string
+    expectedLedgerGeneration: number
+  }>
   syncScope: MexcSyncScope
   oracleResult: MexcOracleResult
   pageObservation: MexcPageObservation
@@ -80,6 +91,8 @@ export class MexcCaptureOrchestratorError extends Error {
 const PROFILE = BROKER_RAW_CAPTURE_PROVIDER_PROFILES.mexc
 const PROVIDER_ID_PATTERN = /^(?:0|[1-9]\d{0,39})$/
 const CONSUMED_CAPTURE_RESPONSES = new WeakSet<object>()
+const MEXC_CAPTURE_RESULT_PROVENANCE = new WeakSet<object>()
+const MEXC_CAPTURE_RESULT_WIRE_RESPONSE = new WeakMap<object, MexcWireResponse>()
 
 const EVENT_MAPPING = Object.freeze({
   historical_orders_v1: Object.freeze({ eventType: 'order' as const, idField: 'orderId', timeField: 'createTime' }),
@@ -292,10 +305,22 @@ export function applyMexcCapturedPage(input: MexcCapturedPageInput): MexcCapture
   })
   const pageTransition = recordMexcPage(input.checkpoint, observation, input.checkpointIntegrityKey)
   const pageWasCommitted = pageTransition.checkpoint.totalSuccessfulPages === input.checkpoint.totalSuccessfulPages + 1
+  const commitPrecondition = Object.freeze({
+    workUnitId: response.captureBinding!.workUnitReference.value,
+    runId: response.captureBinding!.runReference.value,
+    brokerAccountId: response.captureBinding!.brokerAccountId,
+    connectionAccountId: response.captureBinding!.connectionAccountId,
+    syncActivationId: response.captureBinding!.syncActivationId,
+    activationGeneration: response.captureBinding!.activationGeneration,
+    scopeDigest: response.captureBinding!.scopeDigest.digest,
+    expectedCheckpointMac: input.checkpoint.checkpointMac,
+    expectedLedgerGeneration: input.expectedLedgerGeneration,
+  })
   if (!pageWasCommitted) {
-    return Object.freeze({
+    const result = Object.freeze({
       orchestratorVersion: MEXC_CAPTURE_ORCHESTRATOR_VERSION,
       status: 'pagination_blocked_before_ledger',
+      commitPrecondition,
       syncScope,
       oracleResult,
       pageObservation: observation,
@@ -303,6 +328,9 @@ export function applyMexcCapturedPage(input: MexcCapturedPageInput): MexcCapture
       rawLedgerTransition: null,
       authorityBlocked: true,
     })
+    MEXC_CAPTURE_RESULT_PROVENANCE.add(result)
+    MEXC_CAPTURE_RESULT_WIRE_RESPONSE.set(result, response)
+    return result
   }
 
   const ledgerTransition = applyBrokerRawPage(input.ledgerState, input.expectedLedgerGeneration, {
@@ -340,9 +368,10 @@ export function applyMexcCapturedPage(input: MexcCapturedPageInput): MexcCapture
     events: derived.events,
   })
 
-  return Object.freeze({
+  const result = Object.freeze({
     orchestratorVersion: MEXC_CAPTURE_ORCHESTRATOR_VERSION,
     status: 'page_committed',
+    commitPrecondition,
     syncScope,
     oracleResult,
     pageObservation: observation,
@@ -350,4 +379,34 @@ export function applyMexcCapturedPage(input: MexcCapturedPageInput): MexcCapture
     rawLedgerTransition: ledgerTransition,
     authorityBlocked: true,
   })
+  MEXC_CAPTURE_RESULT_PROVENANCE.add(result)
+  MEXC_CAPTURE_RESULT_WIRE_RESPONSE.set(result, response)
+  return result
+}
+
+export function inspectMexcCapturedPageResult(result: MexcCapturedPageResult): MexcCapturedPageResult {
+  if (
+    !result
+    || typeof result !== 'object'
+    || Array.isArray(result)
+    || !Object.isFrozen(result)
+    || !MEXC_CAPTURE_RESULT_PROVENANCE.has(result)
+    || result.orchestratorVersion !== MEXC_CAPTURE_ORCHESTRATOR_VERSION
+    || result.authorityBlocked !== true
+  ) {
+    fail('invalid_input', 'MEXC Capture Result besitzt keine authentische Orchestratorprovenienz.')
+  }
+  return result
+}
+
+export function inspectMexcCapturedPageResultForWireResponse(
+  result: MexcCapturedPageResult,
+  wireResponse: MexcWireResponse,
+): MexcCapturedPageResult {
+  inspectMexcCapturedPageResult(result)
+  inspectMexcWireResponse(wireResponse)
+  if (MEXC_CAPTURE_RESULT_WIRE_RESPONSE.get(result) !== wireResponse) {
+    fail('wire_context_mismatch', 'MEXC Capture Result und Wire Response besitzen nicht dieselbe authentische Ursprungsrelation.')
+  }
+  return result
 }

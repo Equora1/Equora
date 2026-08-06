@@ -40,6 +40,7 @@ export type MexcBoundCredentialContext = Readonly<{
   credentials: MexcCredentials
   accountIdentity: MexcTransportCaptureBinding['accountIdentity']
   brokerAccountId: string
+  connectionAccountId: string
   syncActivationId: string
   activationGeneration: number
 }>
@@ -100,9 +101,14 @@ export type MexcTransportCaptureBinding = Readonly<{
     verificationStatus: 'unverified_reference'
   }>
   brokerAccountId: string
+  connectionAccountId: string
   syncActivationId: string
   activationGeneration: number
   scopeDigest: EquoraTcjDigest<'sync_scope'>
+  workUnitReference: Readonly<{
+    referenceType: 'capture_work_unit_id_v1'
+    value: string
+  }>
   runReference: Readonly<{
     referenceType: 'sync_run_id_v1'
     value: string
@@ -118,6 +124,7 @@ export type MexcWireResponse = Readonly<{
   request: MexcPreparedRequest
   captureBinding: MexcTransportCaptureBinding | null
   data: MexcJsonValue
+  rawBodyBase64: string
   rawBodyDigest: EquoraTcjDigest<'raw_response_body'>
   rawBodyBytes: number
   requestDurationMs: number
@@ -202,25 +209,35 @@ function canonicalCaptureBinding(input: unknown): MexcTransportCaptureBinding {
     'activationGeneration',
     'bindingVersion',
     'brokerAccountId',
+    'connectionAccountId',
     'requestResultReference',
     'requestSequence',
     'runReference',
     'scopeDigest',
     'syncActivationId',
+    'workUnitReference',
   ])) throw new MexcTransportError('transport_contract_violation', 'MEXC Capture Binding besitzt unbekannte oder fehlende Felder.')
   const accountIdentity = canonicalAccountIdentity(input.accountIdentity)
+  const workUnitReference = input.workUnitReference
   const runReference = input.runReference
   const requestResultReference = input.requestResultReference
   if (
     input.bindingVersion !== 'mexc-transport-capture-binding-v1'
     || typeof input.brokerAccountId !== 'string'
     || !UUID_PATTERN.test(input.brokerAccountId)
+    || typeof input.connectionAccountId !== 'string'
+    || !UUID_PATTERN.test(input.connectionAccountId)
     || typeof input.syncActivationId !== 'string'
     || !UUID_PATTERN.test(input.syncActivationId)
     || !Number.isSafeInteger(input.activationGeneration)
     || (input.activationGeneration as number) < 1
     || (input.activationGeneration as number) > 2_147_483_647
     || !isEquoraTcjDigest(input.scopeDigest, 'sync_scope')
+    || !isRecord(workUnitReference)
+    || !hasExactKeys(workUnitReference, ['referenceType', 'value'])
+    || workUnitReference.referenceType !== 'capture_work_unit_id_v1'
+    || typeof workUnitReference.value !== 'string'
+    || !UUID_PATTERN.test(workUnitReference.value)
     || !isRecord(runReference)
     || !hasExactKeys(runReference, ['referenceType', 'value'])
     || runReference.referenceType !== 'sync_run_id_v1'
@@ -240,9 +257,11 @@ function canonicalCaptureBinding(input: unknown): MexcTransportCaptureBinding {
     bindingVersion: 'mexc-transport-capture-binding-v1',
     accountIdentity,
     brokerAccountId: input.brokerAccountId,
+    connectionAccountId: input.connectionAccountId,
     syncActivationId: input.syncActivationId,
     activationGeneration: input.activationGeneration as number,
     scopeDigest: Object.freeze({ ...input.scopeDigest }) as EquoraTcjDigest<'sync_scope'>,
+    workUnitReference: Object.freeze({ ...workUnitReference }) as MexcTransportCaptureBinding['workUnitReference'],
     runReference: Object.freeze({ ...runReference }) as MexcTransportCaptureBinding['runReference'],
     requestResultReference: Object.freeze({ ...requestResultReference }) as MexcTransportCaptureBinding['requestResultReference'],
     requestSequence: input.requestSequence as number,
@@ -429,7 +448,7 @@ function resolveCredentialMaterial(
     throw new MexcTransportError('transport_contract_violation', 'MEXC Capture benötigt einen credentialgebundenen Account-/Aktivierungskontext.')
   }
   if (
-    !hasExactKeys(input, ['accountIdentity', 'activationGeneration', 'brokerAccountId', 'credentials', 'syncActivationId'])
+    !hasExactKeys(input, ['accountIdentity', 'activationGeneration', 'brokerAccountId', 'connectionAccountId', 'credentials', 'syncActivationId'])
     || !isRecord(input.credentials)
     || !isRecord(input.accountIdentity)
   ) throw new MexcTransportError('transport_contract_violation', 'MEXC Capture benötigt einen credentialgebundenen Account-/Aktivierungskontext.')
@@ -438,6 +457,8 @@ function resolveCredentialMaterial(
   if (
     typeof input.brokerAccountId !== 'string'
     || !UUID_PATTERN.test(input.brokerAccountId)
+    || typeof input.connectionAccountId !== 'string'
+    || !UUID_PATTERN.test(input.connectionAccountId)
     || typeof input.syncActivationId !== 'string'
     || !UUID_PATTERN.test(input.syncActivationId)
     || !Number.isSafeInteger(input.activationGeneration)
@@ -450,6 +471,7 @@ function resolveCredentialMaterial(
       && (
         !sameAccountIdentity(binding.accountIdentity, accountIdentity)
         || binding.brokerAccountId !== input.brokerAccountId
+        || binding.connectionAccountId !== input.connectionAccountId
         || binding.syncActivationId !== input.syncActivationId
         || binding.activationGeneration !== input.activationGeneration
       )
@@ -592,6 +614,7 @@ function parseEnvelope(
     request,
     captureBinding,
     data: payload.data as MexcJsonValue,
+    rawBodyBase64: Buffer.from(body).toString('base64'),
     rawBodyDigest: digestEquoraRawResponseBody(body),
     rawBodyBytes: body.byteLength,
     requestDurationMs,
@@ -636,12 +659,15 @@ function sameCaptureBinding(left: MexcTransportCaptureBinding, right: MexcTransp
     && left.accountIdentity.digest === right.accountIdentity.digest
     && left.accountIdentity.verificationStatus === right.accountIdentity.verificationStatus
     && left.brokerAccountId === right.brokerAccountId
+    && left.connectionAccountId === right.connectionAccountId
     && left.syncActivationId === right.syncActivationId
     && left.activationGeneration === right.activationGeneration
     && left.scopeDigest.digestAlgorithm === right.scopeDigest.digestAlgorithm
     && left.scopeDigest.digestContractVersion === right.scopeDigest.digestContractVersion
     && left.scopeDigest.domain === right.scopeDigest.domain
     && left.scopeDigest.digest === right.scopeDigest.digest
+    && left.workUnitReference.referenceType === right.workUnitReference.referenceType
+    && left.workUnitReference.value === right.workUnitReference.value
     && left.runReference.referenceType === right.runReference.referenceType
     && left.runReference.value === right.runReference.value
     && left.requestResultReference.referenceType === right.requestResultReference.referenceType
@@ -661,6 +687,7 @@ export function inspectMexcWireResponse(response: MexcWireResponse): MexcWireRes
     'captureBinding',
     'data',
     'httpStatus',
+    'rawBodyBase64',
     'rawBodyBytes',
     'rawBodyDigest',
     'request',
@@ -678,6 +705,7 @@ export function inspectMexcWireResponse(response: MexcWireResponse): MexcWireRes
       !Object.isFrozen(response.captureBinding)
       || !Object.isFrozen(response.captureBinding.accountIdentity)
       || !Object.isFrozen(response.captureBinding.scopeDigest)
+      || !Object.isFrozen(response.captureBinding.workUnitReference)
       || !Object.isFrozen(response.captureBinding.runReference)
       || !Object.isFrozen(response.captureBinding.requestResultReference)
     ) {
@@ -689,7 +717,12 @@ export function inspectMexcWireResponse(response: MexcWireResponse): MexcWireRes
     }
   }
   if (
-    !isEquoraTcjDigest(response.rawBodyDigest, 'raw_response_body')
+    typeof response.rawBodyBase64 !== 'string'
+    || !/^[A-Za-z0-9+/]*={0,2}$/.test(response.rawBodyBase64)
+    || Buffer.from(response.rawBodyBase64, 'base64').toString('base64') !== response.rawBodyBase64
+    || Buffer.from(response.rawBodyBase64, 'base64').byteLength !== response.rawBodyBytes
+    || !isEquoraTcjDigest(response.rawBodyDigest, 'raw_response_body')
+    || digestEquoraRawResponseBody(Buffer.from(response.rawBodyBase64, 'base64')).digest !== response.rawBodyDigest.digest
     || !Number.isSafeInteger(response.rawBodyBytes)
     || response.rawBodyBytes < 1
     || response.rawBodyBytes > MEXC_MAX_RESPONSE_BYTES

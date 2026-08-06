@@ -1,22 +1,26 @@
 # Equora v57.61.0 – G1 Implementation Status
 
-Stand: 2026-08-05
+Stand: 2026-08-06
 Branch: `feature/mexc-import-v57.61.0`
-Baseline-Commit: `392addfaf32b6eba9ba1e34cef6fe65ce1ab944a`
+Baseline-Commit vor diesem uncommitteten Delta: `b8f65cbae1645afb149fa1109ec28c262c8a00db`
 Gate: `G1 IN PROGRESS – NO-GO`
 
 ## 1. Scope dieses Deltas
 
-Dieses Delta implementiert ausschließlich den ersten fail-closed G1-
-Sicherheitsblock für den MEXC-Read-only-Connector und einen nichtdestruktiven
-Statistikscope für Strategietests.
+Dieses Delta implementiert den fail-closed G1-Sicherheitsblock für den
+MEXC-Read-only-Connector, einen nichtdestruktiven Statistikscope für
+Strategietests und ein lokal broker-erweiterbares Persistenzdatenmodell mit
+derzeit MEXC-v1-spezifischem Commit-Adapter. Der Persistenzkern ist ein noch
+nicht freigegebener Migrations- und RPC-Entwurf;
+er wurde ausschließlich gegen eine isolierte lokale PostgreSQL-/Supabase-
+Testinstanz ausgeführt.
 
 Nicht autorisiert und nicht ausgeführt wurden:
 
 - MEXC-Live-Requests oder erneute Credentialverwendung;
 - automatischer Journalimport;
-- Broker- oder Journal-Datenbankänderungen;
-- Produktions-SQL oder Migrationen;
+- Änderungen an einem verbundenen Supabase-Projekt oder an Journaldaten;
+- Produktions-SQL oder produktive Migrationen;
 - Order-, Cancel-, Close-, Reverse-, Transfer- oder Withdrawal-Fähigkeiten;
 - Git-Staging, Commit, Push, Deployment oder Produktionsaktivierung.
 
@@ -130,11 +134,12 @@ belegt sind:
 Der neue reine Capture-Orchestrator verdrahtet eine modul-authentische,
 request- und capturezweckgebundene Transportantwort inzwischen in-memory mit
 Oracle, Pagination und Raw Ledger.
-Noch nicht umgesetzt sind die automatische Runtimeansteuerung unter einer
-gültigen Aktivierung, ownergebundene atomare Checkpointpersistenz,
-HMAC-Key-Referenz/-Rotation, reale Provider-Paginationsevidenz und
-Produktionskalibrierung des Budgetprofils. Der Kern bleibt lokale
-State-Machine-Evidenz, kein Runtime-GO.
+Die ownergebundene atomare Checkpointpersistenz und eine aktivierungsgebundene
+HMAC-Key-Referenz sind im lokalen Persistenzdelta umgesetzt. Noch nicht
+umgesetzt sind die automatische Runtimeansteuerung unter einer gültigen
+Aktivierung, produktive Key-Erzeugung/-Verteilung/-Rotation, reale Provider-
+Paginationsevidenz und Produktionskalibrierung des Budgetprofils. Der Kern
+bleibt lokale State-Machine-Evidenz, kein Runtime-GO.
 
 ### 2.2 Kanonische Digests und transienter Raw-Observation-Ledger
 
@@ -160,10 +165,11 @@ Domain-/Metadaten-Envelope für die sechs aktuell benötigten Domainbezeichner
   kopierte oder reflektierte Symbolmarken erteilen keine Provenienz;
 - gepinnte und unabhängig gegengeprüfte SHA-256-Golden-Vektoren.
 
-Nicht als vollständig implementiert gelten die beiden HMAC-Purpose-/Keyring-
-Pfade, Persistenz-/Postgres-Parität sowie die Golden-Vektoren der späteren
-Normalisierungs-, Candidate-, Approval- und Importdomains. Diese bleiben ihren
-Folgegates zugeordnet.
+Nicht als vollständig implementiert gelten die produktiven HMAC-Purpose-/
+Keyring-Lifecyclepfade sowie die Golden-Vektoren der späteren Normalisierungs-,
+Candidate-, Approval- und Importdomains. Für den aktuellen Capture-Subset sind
+Postgres-Parität und gemeinsame TypeScript-/SQL-Goldenvektoren lokal belegt.
+Die verbleibenden Domains bleiben ihren Folgegates zugeordnet.
 
 `lib/server/mexc-sync-scope.ts` implementiert das in der ERD normierte
 MEXC-v1-Inhaltsschema für `stability_bucket_identity` und `sync_scope`:
@@ -263,16 +269,91 @@ Datenbank- oder Journalzugriff:
 
 Damit ist die deklarierte Credentialkontext→Prepared-Request→Body-Digest→Parse→
 Oracle→Page→Raw-Event-Herkunftsrelation für den unmittelbaren In-Process-Pfad
-synthetisch und mit lokaler Single-use-Semantik belegt. Nicht implementiert sind
-persistente Tabellen/Constraints/RLS, vollständige Raw-Response-Aufbewahrung,
-Retention/Erasure, echte Account-HMAC-Erzeugung und Key-Lifecycle,
-ownergebundenes DB-CAS oder restartfähige Wire-Provenienz. Die deklarierte
-Credentialloaderbindung ersetzt weder eine opaque persistente
-Credentialreferenz noch die Current-Generation-Revalidation; Aktivierungs-ID,
-Accountidentität und Request-Result-Referenz sind noch nicht gegen eine
-persistente Autorität geprüft. Daraus entsteht weder Persistence- noch Runtime-GO.
+synthetisch und mit lokaler Single-use-Semantik belegt. Das nachfolgende
+Persistenzdelta ergänzt dafür eine ownergebundene atomare DB-Grenze. Weiterhin
+nicht implementiert sind Retention/Erasure, echte Account-HMAC-Erzeugung und
+Key-Lifecycle, der persistente Runtime-Loader sowie die produktive Aktivierungs-
+und Claimorchestrierung. Daraus entsteht weder Runtime- noch Import-GO.
 
-### 2.3 Optionale spätere WebSocketquelle
+### 2.3 Broker-erweiterbares Persistenzmodell mit MEXC-v1-Commit-Adapter
+
+`supabase/schema-patch-v57.61.0.sql` ist eine additive, noch nicht produktiv
+ausgeführte Migration. Sie erhält die bestehenden Broker-Tabellen und ergänzt
+broker-erweiterbare, tenantgebundene Tabellen für Brokerkonten, Identitäten,
+Connection-Account-Zuordnung, Aktivierungsserien und -generationen, Sync Scopes,
+Capture Runs, Work Units, Request Results, vollständige Raw Responses, Raw
+Events und Page-/Event-Observations. Die Tabellen sind für spätere Broker
+erweiterbar; die aktuelle RPC, Bodyform, Capabilityfelder, Queryrekonstruktion
+und TCJ-Ableitung sind bewusst MEXC-v1-spezifisch und dürfen nicht als
+generischer Brokeradapter wiederverwendet werden.
+
+Der zugehörige Commitpfad ist absichtlich eng begrenzt:
+
+- `equora_commit_broker_capture_page_v1` ist eine serverseitige
+  `security definer`-RPC mit festem `search_path`; nur `service_role` erhält
+  `EXECUTE`, `anon` und `authenticated` nicht;
+- die RPC akzeptiert keine aufruferseitige User-ID, sondern leitet Tenant,
+  Brokerkonto, Aktivierung, Scope, Lane und Run aus der gesperrten Work Unit ab;
+  erwartete WorkUnit-, Run-, Brokerkonto-, Connection-Account-, Aktivierungs-
+  und Scopewerte werden nochmals exakt gegengeprüft;
+- Lease Tokens liegen nur domain-separiert SHA-256-gehasht vor. Lease,
+  Work-Unit-Row-Version, erwartete Checkpoint-MAC, Account-Ledger-Generation,
+  Accountidentität und aktuelle Aktivierungsgeneration werden in derselben
+  Transaktion und in einer festen Lockreihenfolge revalidiert;
+- Connection-Account, zugrunde liegende Connection, exakt gepinnte
+  Credentialgeneration, Read-only-Permissions, private Capture-
+  Integritätsschlüsselgeneration und Providerstatus werden unmittelbar im
+  Commitpfad erneut gelesen und unter Rowlocks geprüft; fremde, pausierte,
+  widerrufene, abgelaufene oder nicht aktuelle Zustände brechen fail-closed ab;
+- ein privater, für `service_role` weder lesbarer noch direkt nutzbarer
+  32- bis 64-Byte-HMAC-Schlüssel authentifiziert den vollständigen
+  Request-/Transportzeit-/Raw-Body-/Page-/Event-/Checkpoint-Übergang. Die RPC
+  rekonstruiert denselben kanonischen TCJ-Envelope und beide Checkpoint-MACs
+  serverseitig; ein direkter `service_role`-Aufruf kann damit die vorgelagerte
+  Oracleprüfung nicht durch selbst konsistente Ersatzdaten umgehen;
+- ausschließlich der registrierte GET-only-Providerpfad ist zulässig; POST und
+  insbesondere Ordererstellung werden vor allen Schreibwirkungen blockiert;
+- der vollständige begrenzte Responsebody wird als `bytea` gespeichert und
+  gegen kanonisches Base64, Bytecount und den domain-separierten Raw-Body-
+  Digest geprüft; Query, Envelope, Bodyevents, Page-Metadaten, Raw-Event-,
+  Page- und Observation-Digests werden serverseitig aus persistiertem Scope
+  und denselben Raw Bytes rekonstruiert;
+- Request Result, Raw Response, Raw Events, Observations, Zähler, Folgecheckpoint
+  und CAS-Generationen werden atomar geschrieben;
+- die RPC besitzt funktionsgebunden `lock_timeout = 2s` und
+  `statement_timeout = 15s`, eine kontrollierte 12-Sekunden-Deadline sowie
+  fortschreitende `clock_timestamp()`-Prüfungen. Lease und Integritätsschlüssel
+  werden nach potenziellen Lock-Wartezeiten und nochmals vor den finalen
+  Zustandsupdates frisch validiert; Lock-, Statement- und Deadline-Timeouts
+  werden als geschlossene resumable Fehler ohne Teilwirkung abgebildet;
+- der freigegebene spätere Datenbankaufruf ist ausschließlich die Supabase Data
+  API/PostgREST-RPC. Der lokale PostgREST-v14.15-Test bestätigt sowohl die
+  Default-Hoisting-Konfiguration für `statement_timeout` als auch einen echten
+  SQLSTATE-`57014`-Abbruch nach 15,01 Sekunden. Ein direkter produktiver
+  `SELECT function(...)` ist nicht freigegeben, weil PostgreSQL ein erst in der
+  laufenden Funktion gesetztes Statement-Timeout nicht rückwirkend aktiviert;
+- zusammengesetzte Tenant-/Account-/Activation-/Lane-Fremdschlüssel,
+  Constraints, RLS und explizite Privilegien begrenzen Cross-Tenant- und
+  Browserzugriffe; auch `service_role` besitzt kein direktes Tabellen-DML,
+  sondern ausschließlich `EXECUTE` auf der geschlossenen RPC;
+- der TypeScript-Persistenzadapter akzeptiert nur modul-authentische
+  Orchestrator- und Wire-Resultate und prüft das DB-Ergebnis exakt gegen den
+  berechneten Übergang.
+- ein privater Migrationsmarker lehnt bereits teilweise vorhandene, nicht als
+  dieses Artefakt markierte Capturetabellen ab. Ein Postflight prüft kritische
+  FKs, RLS, Ownerindizes und die exakte 39-Parameter-RPC-Signatur; ein
+  autorisierter unmittelbarer Re-Run bleibt idempotent.
+
+Die Migration schreibt keine Journal-Trades und enthält weder Normalisierung,
+Reconciliation, Approval, Import, Scheduler noch automatische Aktivierung. Sie
+wurde nur in einem isolierten lokalen Container ausgeführt, einschließlich
+From-Scratch-Anwendung auf der v57.60.1-Baseline, idempotentem Re-Run,
+kontrolliertem Drift-Abbruch, transaktionaler SQL-Integrationsfixture,
+gezieltem Mid-Commit-Rollback, spätem Scope-Write-Ablauf-über-Lockwait-, Lock-Timeout-,
+Zwei-Sitzungs-Ledger-CAS- und Activation-Pause-Race-Test sowie echter lokaler
+PostgREST-Timeoutprobe. Das verbundene Supabase-Projekt wurde nicht berührt.
+
+### 2.4 Optionale spätere WebSocketquelle
 
 `docs/decisions/EQUORA_v57.61.0_WEBSOCKET_SOURCE_POLICY.md` hält private
 Broker-WebSockets providerneutral als optionale, spätere Observationsquelle
@@ -317,18 +398,23 @@ werden muss.
 
 | Prüfung | Ergebnis |
 |---|---|
-| Vollständige Vitest-Suite | `14 files / 228 tests passed` |
+| Vollständige Vitest-Suite | `14 files / 237 tests passed` |
 | TypeScript | `tsc --noEmit` PASS |
-| Next.js Production Build | PASS, Next.js `15.5.21` |
+| Next.js Production Build | PASS mit Next.js `15.5.21`; optimierter Produktionsbuild, Type-/Lintphase, Page-Datenerhebung und statische Generierung erfolgreich |
+| Lokale additive SQL-Migration | PASS gegen isoliertes `public.ecr.aws/supabase/postgres:17.6.1.084`; frische Datenbank aus `schema.sql` plus `schema-patch-v57.60.1.sql`, From-Scratch-Anwendung von v57.61.0, kritischer Struktur-/Timeout-Postflight und unmittelbarer markergebundener idempotenter Re-Run PASS; ein älterer lokaler Entwurf ohne Marker wurde kontrolliert mit `MIGRATION_PREEXISTING_PARTIAL_SCHEMA` und vollständigem Transaktionsrollback abgelehnt; der v57.60.1-UUID-Typ von `credential_reference` ist im Commitvertrag verifiziert; kein verbundenes Supabase-Projekt berührt |
+| Persistenz-SQL-Integration | PASS mit anschließendem `ROLLBACK`: gemeinsame TypeScript-/SQL-Goldenvektoren für Transition- und Checkpoint-HMAC sowie echte Node-Golden-Vektoren für Raw Body, Raw Event, Page und Observation; 372-Event-Metadaten oberhalb 64 KiB passieren das korrigierte Ressourcen-Gate; Erstcommit plus Wiederholungsobservation; direkte Transition-MAC-, Purpose-, Body-, Raw-Event- und Page-Digest-Manipulation blockiert; gezielt falscher Observation-Digest nach begonnenen Inserts vollständig zurückgerollt; pausierte Aktivierung/Connection, leere Credentialgeneration, widerrufener Integritätsschlüssel, suspendierter Provider, abgelaufenes Lease, Terminal-Replay, Cross-Tenant-FK und direkte `service_role`-Schlüssel-/Tabellenrechte blockiert |
+| Persistenz-Zwei-Sitzungs-Test | `tests/sql/run-broker-capture-concurrency.ps1` PASS: `pg_locks.waitstart` belegt den RPC-Start der späten `broker_sync_scopes`-Lock-Wartezeit bei noch gültigem Lease beziehungsweise Integritätsschlüssel nach bereits begonnenen Page-Writes; der Ablauf während dieser Wartezeit führt anschließend zur fail-closed Ablehnung. Der Test vergleicht ausdrücklich unveränderte Scope-Completeness/-Stability/-Closed-At- und Run-Status/-Started-At/-Counter-Werte und bestätigt damit den vollständigen Rollback aller Request-, Raw-, Event-, Observation-, Scope-, Run-, Ledger- und Work-Unit-Wirkungen; ein absichtlich länger als zwei Sekunden gehaltener Work-Unit-Lock endet mit `CAPTURE_LOCK_TIMEOUT` ohne Teilzeilen; echte Überlappung zweier Work Units führt zu exakt einem Ledger-CAS-Gewinner und einem `CAPTURE_LEDGER_CAS_MISMATCH`; ein paralleles Activation-Pause-Update wartet auf den in-flight Commit und wird erst nach dessen atomarem Abschluss wirksam |
+| Lokaler PostgREST-RPC-Timeout | `tests/sql/run-broker-capture-postgrest-timeout.ps1` PASS mit gepinntem offiziellem `postgrest/postgrest:v14.15`: Default `db-hoisted-tx-settings` enthält `statement_timeout`; eine echte Data-API-RPC mit 20 Sekunden Laufzeit und funktionsgebundenem 15-Sekunden-Limit endet nach 15,01 Sekunden mit SQLSTATE `57014`; Testcontainer, Netzwerk, Rolle und Funktion anschließend entfernt |
+| Lokale Baselinegrenze | Für `schema.sql` und v57.60.1 wurden im isolierten Einzelcontainer die erforderlichen `storage.buckets`-/`storage.objects`-Schnittstellen als minimale lokale Testtabellen bereitgestellt. Damit sind SQL-Abhängigkeiten und Migrationstypen geprüft, aber kein vollständiger Supabase-Storage-Dienst, kein Zielprojekt-Backup/Restore und kein Plattformdeployment behauptet |
 | Transport-Negativtests | unbekannte Capability/Query, Injection, Legacy-Positionsalias, ungültige Position-ID/-Type, Redirect 301/302/303/307/308, Redirectfehler, Same-Host-Fremdpfad, Subdomain, Fremdport, HTTP-Downgrade, Fremdhost, ungültige Providerzeit, komprimierter/übergroßer/falsch deklarierter Body, Exact-Limit, Chunked/Missing-Length, sämtliche dokumentierten Providerfehler, mixed Items, unbestätigte Pageform und fehlende Provider-ID blockiert |
 | Lossless-JSON-/Capabilityoracles | große unquoted Provider-ID und Decimal-/Exponentlexeme exakt erhalten; Provider-Lookalikes können interne Zahlentokens nicht fälschen; Duplicate Keys einschließlich escaped Kollision, ungültige Unicode-Surrogate, Nonstandardzahlen, 64/65-Tiefengrenze, Node-/Zahlbudgetüberschreitung, unbekannte Capability, capabilityfremder Scope, fehlende Pflichtfelder, unbekannte Enums, Scope-/Symbol-/Position-Type-/Orderingverletzungen und inkonsistente Fundingpage blockiert; kanonische leere Fundingpage bleibt valide aber ohne Authority; unbekannte Zusatzfelder nur raw erhalten |
-| Credential-/Requestzähler | invalid Query: null Fetch und null Credentialzugriff; invalid Providerzeit: null Credentialzugriff und null private Requests; private Work Unit lädt Credentials nach vollständiger Validierung genau einmal; Capture Binding ohne gebundenen Loaderkontext sowie isolierte Abweichungen bei Account-HMAC-Referenz, Brokerkonto, Aktivierungs-ID oder Aktivierungsgeneration werden vor dem privaten Request blockiert |
+| Credential-/Requestzähler | invalid Query: null Fetch und null Credentialzugriff; invalid Providerzeit: null Credentialzugriff und null private Requests; private Work Unit lädt Credentials nach vollständiger Validierung genau einmal; Capture Binding ohne gebundenen Loaderkontext sowie isolierte Abweichungen bei Account-HMAC-Referenz, Brokerkonto, Connection Account, Aktivierungs-ID oder Aktivierungsgeneration werden vor dem privaten Request blockiert; eine WorkUnit-Referenz mit falschem Referenzvertrag scheitert vor jedem Fetch |
 | Capability-Teilfehler | erfolgreicher Orders-Read plus rate-limited Execution-Read ergibt ein `wire_succeeded`- und ein `failed`-Outcome; der Previewadapter bricht sichtbar ab; kein `[]`-Ersatz und kein profilweiter Erfolgsclaim |
 | Pagination-/Checkpointkern | `20/20` Fixtures: HMAC-/Budget-/Scopebindung, unbekannte Felder und Manipulation, Work-Unit-/Scopegrenzen, drei Work Units plus JSON-Restart, atomarer Budgetüberlauf, Error-Body-Bytebudget, wiederholter Cursor bei geändertem Body, Providerzeitregression, bewusst als spätere Raw-Observation akzeptierter Cross-Page-ID-Overlap, Page-10000-Grenze, Fundingterminalität ohne Authority, Positionsblockade, Retry-not-before, Retryerschöpfung, Maintenance und nicht retrybare Fehler |
 | `equora-tcj-v1` | `14/14` Fixtures: normative Tags, volle U+0000–U+001F-Escapematrix, unescaped Slash/U+2028/U+2029, NFC, ASCII-/Non-ASCII-UTF-8-Key- und vollständige Set-Bytesortierung, Duplicate-/Surrogate-/Lookalike-/Brand-Copy-Rejection, 64/65-Containergrenze, exakte 100.000/100.001-Node- und 8-MiB/Plus-eins-Grenzen, Bytebudget nach Escaping, leere/missing-vs-null-Container, exakte Decimal-/Exponentkanonisierung, lossless Providerzahlen sowie gepinnte Raw-Content- und unabhängig berechnete domain-separierte Raw-Body-Golden-Vektoren; die fachlichen Domaininhalte werden separat in Ledger-, Sync-Scope- und Orchestrator-Fixtures geprüft |
 | Transienter Raw-Observation-Ledger | `14/14` Fixtures: unveränderlicher Erstcommit, Cross-Page-Wiederbeobachtung, semantische Keyorder-/Zahläquivalenz, Fallbackrevision, MEXC-Revisionsauthorityblockade, Generation-Precondition, Replayblockade in authentischer State-Kette, Spread-/Reflection-State-Forgery, vollständige Digestmetadaten, typisierte opake Referenzen, gepinnte Source-/Contract-/Adapter-Provenienz und Capability-Endpoint-Bindung, Funding-Page-/Terminalbindung, leere terminale Page ohne Completeness, `blocked_identity`, Accountisolation und Page-/State-Ressourcenlimits |
 | Normativer MEXC Sync Scope | `5/5` Fixtures: gepinnte Stability-/Scope-Golden-Digests, Cross-Activation-/Account-/Instrument-/Scopegenerationsisolierung, Ergebnisstatus ohne Digestwechsel, konservative 72-Stunden-Requestspanne, exakt ausgerichtete 7-/28-UTC-Tagesfenster, Profil-/Policy-Pins, capabilitykohärenter Position-Type sowie Blockade positiver Completeness-/Stabilityclaims; persistierte High-Watermark und Multi-Bucket-Raster bleiben offen |
-| In-Process-Capture-Orchestrator | `23/23` Fixtures: authentische Purpose-Binding→Prepared-Request→Body→Oracle→Pagination→Raw-Ledger-Transition, identische Raw-Body-/Scope-Digests, transportgebundene Observationzeit, unverändertes Raw-Payloadobjekt, Wire-Response-Forgery- und Unbound-Preview-Blockade, Scope-/Checkpointbindung, isolierte Capability-/Symbol-/Start-/End-/Page-/Page-Size-/Position-Type-Requestsubstitution sowie isolierte Scope-Digest-/Run-/Request-Result-/Sequenz-/Brokerkonto-/Aktivierungs-ID-/Aktivierungsgenerationsabweichung, Cross-Account-Blockade, Same-Process-Single-use und kanonische leere Fundingpage ohne Authority |
+| In-Process-Capture-Orchestrator und Persistenzadapter | `30/30` Fixtures: authentische Purpose-Binding→Prepared-Request→Body→Oracle→Pagination→Raw-Ledger-Transition, identische Raw-Body-/Scope-Digests, transportgebundene Observationzeit, unverändertes Raw-Payloadobjekt, Wire-Response-Forgery- und Unbound-Preview-Blockade, Scope-/Checkpointbindung, isolierte Capability-/Symbol-/Start-/End-/Page-/Page-Size-/Position-Type-Requestsubstitution sowie isolierte Scope-Digest-/Run-/Request-Result-/Sequenz-/Brokerkonto-/Aktivierungs-ID-/Aktivierungsgenerationsabweichung, Cross-Account-Blockade, Same-Process-Single-use und kanonische leere Fundingpage ohne Authority; Resultate sind zusätzlich an exakt das ursprüngliche authentische Wire-Response-Objekt gebunden; Raw-Byte-RPC-Serialisierung, fester Cross-Runtime-Transition-HMAC, Safe-Integer-Grenze, strikte DB-Ergebnisvalidierung, strukturierte SQLSTATE-/geschlossene Timeout-Fehlerabbildung und die sanitisiert geschlossene Abbildung von `CAPTURE_CHECKPOINT_MAC_INVALID` sind belegt |
 | Broker-Egress-Contract | rekursive Produktquellprüfung und transitiver AST-Importgraph; exakt der zentrale Transport-Fetch sowie der bekannte Shared-Shell-Fetch `/api/sidebar-overview` sind fixiert; die zugehörige Route wird als eigener Root transitiv mitgeprüft; jeder zusätzliche lokale Brokerproxy ist ein Befund; verschachtelter `node:https`-/`globalThis.fetch`- und lokaler Proxy-/bare-`https`-Mutant werden erkannt |
 | Browser Desktop | persistenter Scope, `n=1`-Hinweis, Empty State, direkter Reset und vollständiger Reset funktional |
 | Browser Mobile `390x844` | früherer Scope-/Empty-State-Snapshot: `innerWidth=390`, `scrollWidth=378`, kein horizontaler Overflow; finaler Code zusätzlich durch Build und A6-Review geprüft |
@@ -348,21 +434,33 @@ Dieses Delta ist kein G1-Abschluss. Folgende sechs Punkte bleiben offen:
    unter einer persistiert gültigen Aktivierung sowie reale MEXC-Pagination-/
    Retention-/Rate-Limit-Evidenz; die synthetische Body→Oracle→Pagination→
    Raw-Ledger-Herkunftsbindung ist umgesetzt;
-2. persistenter ownergebundener Raw-Event-/Revision-/Observation-Ledger mit
-   atomarem DB-CAS, vollständiger Raw-Response-Aufbewahrung, RLS, Retention,
-   Erasure sowie Erzeugung/Rotation der Account-Identity-HMACs; der transiente
-   `equora-tcj-v1`-Kern und seine Golden-Vektoren sind umgesetzt;
-3. Activation Series, Current Generation, atomare Supersession, Lease,
-   persistierte High-Watermarks, vollständige Schedulerlane-/Multi-Bucket-
-   Orchestrierung und `derive_capture_health_v1`;
-4. Opaque Credentialreferenz und Current-Generation-Revalidation unmittelbar
-   vor Credentialzugriff; die lokale deklarierte Credentialloaderbindung ist
-   kein Persistenz- oder Ownershipnachweis;
-5. persistente capabilitygenaue Evidence-/Partial-/Failed-Zustände ohne
-   Produktions-SQL in diesem Gate;
-6. verbleibende integrierte G1-Fixturematrix einschließlich persistenter
-   Raw-Ledger-Deduplizierung/Revision, HMAC-Key-Rotation, Prozessrestart, realer
-   Pagination-/Rate-Limit-Evidenz, Generation und atomaren Claimoracles;
+2. der ownergebundene Raw-Event-/Observation-Ledger, atomarer Page-CAS,
+   vollständige Raw-Response-Aufbewahrung, RLS und Privilegien sind lokal
+   implementiert und SQL-getestet; offen bleiben Retention/Erasure,
+   Account-Identity-HMAC- sowie Capture-Integritätsschlüssel-Erzeugung,
+   sichere Verteilung und Rotation, Prozessrestart und die kontrollierte
+    Migration eines echten Supabase-Projekts; der atomare Zwei-Sitzungs-
+    Ledger-CAS, zeitbasierte Authority-Rechecks und die PostgREST-
+    Timeoutprecondition sind lokal belegt;
+3. die Tabellen für Activation Series, Current Generation, Lease und Work Units
+   sind lokal vorhanden; offen bleiben die serverseitige Aktivierungs-/
+   Supersession-/Claimlogik, persistierte High-Watermarks, vollständige
+   Schedulerlane-/Multi-Bucket-Orchestrierung und `derive_capture_health_v1`;
+4. die Commit-RPC revalidiert inzwischen die opaque Credentialreferenz und
+   exakt gepinnte Credentialgeneration persistent. Offen bleiben der
+   produktive Runtime-Credentialloader, dessen Current-Generation-Prüfung
+   unmittelbar vor jedem Providerrequest und ein Integritätsschlüsselpfad,
+   der weder im allgemeinen `service_role`-Kontext noch in Logs offengelegt
+   wird;
+5. erfolgreiche capabilitygenaue Request-/Raw-/Observation-Zustände sind lokal
+   persistierbar; offen bleiben persistente Failure-/Retry-/Partial-Outcomes
+   und deren Recoveryvertrag;
+6. verbleibende integrierte G1-Fixturematrix einschließlich HMAC-Key-Rotation,
+   Prozessrestart, Claim-Races, Retention/Erasure, realer Pagination-/
+   Rate-Limit-Evidenz, Aktivierung/Supersession, Provider-/Credential-
+    Widerrufsraces und atomarer Claimoracles; Ledger-CAS, Lease-/Key-Ablauf
+    während Lock-Wartezeit, Lock-/Statement-Timeout und ein Activation-Pause-
+    Race sind lokal belegt;
 
 Die früheren begrenzten Teildeltas wurden unabhängig abgeschlossen geprüft:
 
@@ -406,6 +504,58 @@ Diese Voten gelten ausschließlich für das begrenzte lokale Teildelta. Sie
 schließen keinen der sechs offenen G1-P1-Blöcke und erzeugen weder Runtime-,
 Import-, Datenbank-, Push-, Deployment- noch Produktions-GO.
 
+Der vorangegangene hashfixierte Persistenzsnapshot erhielt von A3 `PASS` mit
+`P1=0`, `P2=0`, `P3=0`. A4 meldete zunächst `FAIL` mit `P1=1`, `P2=1`:
+fortlaufende Zeitprüfung nach Lock-Wartezeiten fehlte und die RPC besaß keine
+belastbar auf den aktuellen Supabase-Data-API-Aufruf angewendeten Lock-/
+Statement-Grenzen. Nach der ersten Remediation identifizierte A4 noch einen
+späten P1-Rowlock beim Scope-Update nach der bis dahin letzten Authorityprüfung.
+A6 bestätigte die technischen Produktgrenzen, meldete aber einen P2-Widerspruch
+durch veraltete „Implementierung nicht begonnen“-Formulierungen im
+Transaktionsdesign.
+
+Der aktuelle Stand remediated diese Befunde durch fortlaufende
+`clock_timestamp()`-Revalidierung einschließlich einer letzten Prüfung nach
+Scope-/Run-Updates und unmittelbar vor Return, 2-/15-Sekunden-
+Funktionsgrenzen, 12-Sekunden-Deadline, strukturierte Timeoutfehler, echte
+Late-Scope-Write-Rollback- und PostgREST-Proben sowie wahrheitsgemäße
+`G1 IN PROGRESS – NO-GO`-Statusmetadaten im Architekturartefakt. Im ersten
+Schlussreview dieses Stands identifizierte A3 noch eine P3-Abweichung zwischen
+dem SQL-Fehler `CAPTURE_CHECKPOINT_MAC_INVALID` und der geschlossenen
+TypeScript-Whitelist; A4 empfahl als optionale P3-Evidenzhärtung die direkte
+Scope-/Run-Rollback-Prüfung. Beide Punkte sind im finalen Snapshot korrigiert.
+
+Die hashgebundenen Abschlussrechecks des finalen lokalen Snapshots ergaben:
+
+- A3: `PASS`, `P0=0`, `P1=0`, `P2=0`, `P3=0`; 41 eindeutige
+  SQL-`CAPTURE_*`-Codes, TypeScript-Whitelist und TypeScript-Union sind
+  bidirektional vollständig;
+- A4: `PASS`, `P0=0`, `P1=0`, `P2=0`, `P3=0`; Late-Scope-Authority-Race,
+  `pg_locks.waitstart` und direkte Scope-/Run-Rollback-Evidenz bestätigt;
+- A6: `PASS`, `P0=0`, `P1=0`, `P2=0`, `P3=0`; Statuswahrheit,
+  Read-only-Produktgrenze, begrenzte Broker-Erweiterbarkeit und die sechs
+  verbleibenden G1-P1-Sperren bestätigt.
+
+Hashmanifest der unabhängig geprüften Implementierungs- und Evidenzartefakte:
+
+| Artefakt | SHA-256 |
+|---|---|
+| `lib/server/broker-capture-persistence.ts` | `67618EADCC91B1E7C06BC39237C585984348577F08DE00CDA685663828F31EB1` |
+| `lib/server/mexc-capture-orchestrator.ts` | `0D7F8EFEB1623CCC7821E1CAFC05FBB3C1D33EC96E2DBCBBD1D43B16615008F0` |
+| `lib/server/mexc-transport.ts` | `B2C3DF747AE388D7575029CE14D1665945411543FCDEF2208BD3B637EEDDB25B` |
+| `supabase/schema-patch-v57.61.0.sql` | `268B8ECD932871B2CAC2478D2AAB89DB98F1AEAD4C587628A0C66374F5D0296C` |
+| `tests/mexc-capture-orchestrator.test.ts` | `7FBFD888BC5670D7990A749831126F917D5FCE68E8BAC24A407680F0820DC157` |
+| `tests/mexc-readonly-transport.test.ts` | `1EF009BA341EDB4E9C150C34A18FF3408BB4A597E2151D27C29547EDB54F0CD9` |
+| `tests/sql/broker-capture-persistence.integration.sql` | `55ED09357799FACDC98A17F4E2BE97B11F7E8B93A7E301A88ACDC19312D47E10` |
+| `tests/sql/run-broker-capture-concurrency.ps1` | `9F76B0AE267FF328A4057AF9C20698F4C2E2527BC49CF2A3E9A941300F15B62C` |
+| `tests/sql/run-broker-capture-postgrest-timeout.ps1` | `D08A3C0F793EBE4BE23E83EA31C72E73A4CC5915AB102B223316D89CD794D2F3` |
+| `docs/architecture/EQUORA_v57.61.0_BROKER_IMPORT_TRANSACTION_OPERATIONS_MIGRATION_DESIGN.md` | `4DBFF9B83B246B3DA5C068C8169C9FF8E474BFCC802036E92223AF692A21ED68` |
+
+Diese Voten und Hashes machen den begrenzten lokalen Patchstand
+commit-fertig. Sie schließen keinen der sechs offenen G1-P1-Blöcke und sind
+ausdrücklich kein Runtime-, Import-, Supabase-, Push-, Deployment- oder
+Produktions-GO.
+
 ## 6. Gateentscheidung
 
 ```text
@@ -413,13 +563,16 @@ G1 IN PROGRESS – NO-GO
 runtime_gate = g1_transport_only
 automatic_import = blocked
 broker_requests = blocked
-database_changes = blocked
+local_ephemeral_database_tests = passed
+supabase_project_changes = blocked
 production_sql = blocked
 push = blocked
 deployment = blocked
 ```
 
-Der Transport-/Egress-/Parserblock ist implementiert, lokal validiert und für
-seinen begrenzten Scope unabhängig bestanden. G1 bleibt wegen der sechs
-verbleibenden P1-Blöcke `IN PROGRESS – NO-GO` und kann erst nach deren
-Implementierung und unabhängiger Prüfung auf GO gesetzt werden.
+Transport, Egress, Parser und das broker-erweiterbare Persistenzmodell mit
+MEXC-v1-Commit-Adapter sind lokal implementiert und validiert. Der
+Persistenzsnapshot ist findingfrei unabhängig geprüft und lokal commit-fertig.
+G1 bleibt wegen der sechs verbleibenden P1-Blöcke
+`IN PROGRESS – NO-GO` und kann erst nach deren Implementierung und unabhängiger
+Prüfung auf GO gesetzt werden.

@@ -5,6 +5,11 @@ vi.mock('server-only', () => ({}))
 
 import { createBrokerRawLedgerState } from '../lib/server/broker-raw-ledger'
 import {
+  BrokerCapturePersistenceError,
+  buildBrokerCapturePageRpcArguments,
+  commitBrokerCapturePageWithClient,
+} from '../lib/server/broker-capture-persistence'
+import {
   applyMexcCapturedPage,
   MexcCaptureOrchestratorError,
   type MexcCapturedPageInput,
@@ -47,6 +52,8 @@ const ACCOUNT = Object.freeze({
   verificationStatus: 'unverified_reference' as const,
 })
 const RUN_REFERENCE = Object.freeze({ referenceType: 'sync_run_id_v1' as const, value: uuid('run') })
+const WORK_UNIT_REFERENCE = Object.freeze({ referenceType: 'capture_work_unit_id_v1' as const, value: uuid('work-unit') })
+const CONNECTION_ACCOUNT_ID = uuid('connection-account')
 const REQUEST_RESULT_REFERENCE = Object.freeze({
   referenceType: 'provider_request_result_id_v1' as const,
   value: uuid('request-result'),
@@ -162,9 +169,11 @@ async function authenticWireResponse(
     bindingVersion: 'mexc-transport-capture-binding-v1',
     accountIdentity: scope.accountIdentity,
     brokerAccountId: scope.brokerAccountId,
+    connectionAccountId: CONNECTION_ACCOUNT_ID,
     syncActivationId: scope.syncActivationId,
     activationGeneration: scope.activationGeneration,
     scopeDigest: scope.scopeDigest,
+    workUnitReference: WORK_UNIT_REFERENCE,
     runReference: RUN_REFERENCE,
     requestResultReference: REQUEST_RESULT_REFERENCE,
     requestSequence: 1,
@@ -178,6 +187,7 @@ async function authenticWireResponse(
         credentials: CREDENTIALS,
         accountIdentity: captureBinding.accountIdentity,
         brokerAccountId: captureBinding.brokerAccountId,
+        connectionAccountId: captureBinding.connectionAccountId,
         syncActivationId: captureBinding.syncActivationId,
         activationGeneration: captureBinding.activationGeneration,
       }))
@@ -383,6 +393,21 @@ describe('closed MEXC capture orchestrator', () => {
     expect(() => applyMexcCapturedPage(input)).toThrowError(/bereits verbraucht/)
   })
 
+  it('binds the captured result to the exact originating authentic Wire Response object', async () => {
+    const firstWireResponse = await authenticWireResponse('historical_orders_v1', [order()])
+    const capturedPage = applyMexcCapturedPage(captureInput(firstWireResponse))
+    const secondWireResponse = await authenticWireResponse('historical_orders_v1', [order()])
+
+    expect(() => buildBrokerCapturePageRpcArguments({
+      leaseToken: uuid('lease-token'),
+      integrityKey: CHECKPOINT_KEY,
+      integrityKeyVersion: 'test_v1',
+      expectedWorkUnitRowVersion: 7,
+      wireResponse: secondWireResponse,
+      capturedPage,
+    })).toThrowError(/Ursprungsrelation/)
+  })
+
   it('carries a canonical empty Funding page through both terminal contracts without authority', async () => {
     const fundingScope = syncScope({
       capabilityId: 'funding_records_v1',
@@ -457,5 +482,205 @@ describe('closed MEXC capture orchestrator', () => {
       syncScope: fundingScope,
       checkpoint: fundingCheckpoint,
     }))).toThrowError(MexcCaptureOrchestratorError)
+  })
+
+  it('serializes an authentic committed page into the closed server-only RPC contract', async () => {
+    const wireResponse = await authenticWireResponse('historical_orders_v1', [order()])
+    const capturedPage = applyMexcCapturedPage(captureInput(wireResponse))
+    const args = buildBrokerCapturePageRpcArguments({
+      leaseToken: uuid('lease-token'),
+      integrityKey: CHECKPOINT_KEY,
+      integrityKeyVersion: 'test_v1',
+      expectedWorkUnitRowVersion: 7,
+      wireResponse,
+      capturedPage,
+    })
+    expect(args.p_transition_mac).toBe('649a5134e60d5543d8e46737ae627850170431acccb925d430904295f17d0dee')
+    expect(args).toMatchObject({
+      p_work_unit_id: uuid('work-unit'),
+      p_expected_run_id: RUN_REFERENCE.value,
+      p_expected_broker_account_id: syncScope().brokerAccountId,
+      p_expected_connection_account_id: CONNECTION_ACCOUNT_ID,
+      p_expected_sync_activation_id: syncScope().syncActivationId,
+      p_expected_activation_generation: 1,
+      p_transition_mac_version: 'equora-broker-capture-transition-hmac-sha256-v1',
+      p_transition_integrity_key_version: 'test_v1',
+      p_transition_mac: expect.stringMatching(/^[a-f0-9]{64}$/),
+      p_lease_token: uuid('lease-token'),
+      p_expected_work_unit_row_version: 7,
+      p_expected_checkpoint_mac: capturedPage.commitPrecondition.expectedCheckpointMac,
+      p_expected_ledger_generation: 0,
+      p_request_result_id: REQUEST_RESULT_REFERENCE.value,
+      p_request_sequence: 1,
+      p_method: 'GET',
+      p_request_origin: 'https://api.mexc.com',
+      p_request_path: '/api/v1/private/order/list/history_orders',
+      p_transport_contract_version: 'mexc-readonly-transport-v1',
+      p_http_status: 200,
+      p_provider_status_class: 'success',
+      p_scope_completeness: 'unverified',
+      p_raw_body_digest: wireResponse.rawBodyDigest.digest,
+      p_raw_body_bytes: wireResponse.rawBodyBytes,
+      p_page_observation_digest: capturedPage.rawLedgerTransition!.pageObservation.pageObservationDigest.digest,
+    })
+    expect(Buffer.from(args.p_raw_body_base64, 'base64').toString('utf8')).toBe(
+      JSON.stringify({ success: true, code: 0, data: [order()] }),
+    )
+    expect(args.p_next_checkpoint).toEqual(capturedPage.pageTransition.checkpoint)
+    expect(args.p_events).toHaveLength(1)
+    expect(args.p_events[0]).toMatchObject({
+      accountIdentityDigest: ACCOUNT.digest,
+      eventIndex: 0,
+      eventType: 'order',
+      externalEventId: '123',
+      identityStatus: 'stable_provider_id',
+      occurrence: 'first_observation',
+      providerCode: 'mexc',
+      providerRevision: null,
+      providerRevisionAuthority: 'unverified',
+      revisionDiscriminator: 'payload_hash_fallback',
+    })
+    expect(JSON.parse(args.p_events[0]!.rawPayloadJson as string)).toMatchObject({ orderId: '123', symbol: 'BTC_USDT' })
+
+    expect(() => buildBrokerCapturePageRpcArguments({
+      leaseToken: uuid('lease-token'),
+      integrityKey: CHECKPOINT_KEY,
+      integrityKeyVersion: 'test_v1',
+      expectedWorkUnitRowVersion: 7,
+      wireResponse,
+      capturedPage: { ...capturedPage } as never,
+    })).toThrowError(/Orchestratorprovenienz/)
+
+    expect(() => buildBrokerCapturePageRpcArguments({
+      leaseToken: uuid('lease-token'),
+      integrityKey: CHECKPOINT_KEY,
+      integrityKeyVersion: 'test_v1',
+      expectedWorkUnitRowVersion: Number.MAX_SAFE_INTEGER,
+      wireResponse,
+      capturedPage,
+    })).toThrowError(/expectedWorkUnitRowVersion/)
+  })
+
+  it('accepts only a database result that exactly matches the authentic capture transition', async () => {
+    const wireResponse = await authenticWireResponse('historical_orders_v1', [order()])
+    const capturedPage = applyMexcCapturedPage(captureInput(wireResponse))
+    const input = {
+      leaseToken: uuid('lease-token'),
+      integrityKey: CHECKPOINT_KEY,
+      integrityKeyVersion: 'test_v1',
+      expectedWorkUnitRowVersion: 7,
+      wireResponse,
+      capturedPage,
+    }
+    const rpc = vi.fn(async (_name: string, _args: unknown) => ({
+      data: {
+        status: 'page_committed',
+        requestResultId: REQUEST_RESULT_REFERENCE.value,
+        workUnitRowVersion: 8,
+        ledgerGeneration: 1,
+        insertedRawEvents: 1,
+        repeatedObservations: 0,
+        observations: 1,
+        scopeCompleteness: 'unverified',
+        authorityBlocked: true,
+      },
+      error: null,
+    }))
+
+    await expect(commitBrokerCapturePageWithClient({ rpc } as never, input)).resolves.toMatchObject({
+      status: 'page_committed',
+      workUnitRowVersion: 8,
+      ledgerGeneration: 1,
+      insertedRawEvents: 1,
+      observations: 1,
+      authorityBlocked: true,
+    })
+    expect(rpc).toHaveBeenCalledTimes(1)
+    expect(rpc.mock.calls[0]?.[0]).toBe('equora_commit_broker_capture_page_v1')
+
+    const forgedRpc = vi.fn(async (_name: string, _args: unknown) => ({
+      data: {
+        status: 'page_committed',
+        requestResultId: REQUEST_RESULT_REFERENCE.value,
+        workUnitRowVersion: 8,
+        ledgerGeneration: 1,
+        insertedRawEvents: 0,
+        repeatedObservations: 1,
+        observations: 1,
+        scopeCompleteness: 'unverified',
+        authorityBlocked: true,
+      },
+      error: null,
+    }))
+    await expect(commitBrokerCapturePageWithClient({ rpc: forgedRpc } as never, input))
+      .rejects.toMatchObject({ code: 'database_result_invalid' })
+  })
+
+  it('maps database capture rejections to closed codes without returning SQL details', async () => {
+    const wireResponse = await authenticWireResponse('historical_orders_v1', [order()])
+    const capturedPage = applyMexcCapturedPage(captureInput(wireResponse))
+    const rpc = vi.fn(async (_name: string, _args: unknown) => ({
+      data: null,
+      error: { message: 'P0001: CAPTURE_TRANSITION_MAC_MISMATCH internal tenant detail' },
+    }))
+
+    const rejection = commitBrokerCapturePageWithClient({ rpc } as never, {
+      leaseToken: uuid('lease-token'),
+      integrityKey: CHECKPOINT_KEY,
+      integrityKeyVersion: 'test_v1',
+      expectedWorkUnitRowVersion: 7,
+      wireResponse,
+      capturedPage,
+    })
+    await expect(rejection).rejects.toBeInstanceOf(BrokerCapturePersistenceError)
+    await expect(rejection).rejects.toMatchObject({
+      code: 'CAPTURE_TRANSITION_MAC_MISMATCH',
+      message: 'Der atomare Broker-Page-Commit wurde von der Datenbank abgelehnt.',
+    })
+  })
+
+  it('maps malformed checkpoint MAC input to its closed database code', async () => {
+    const wireResponse = await authenticWireResponse('historical_orders_v1', [order()])
+    const capturedPage = applyMexcCapturedPage(captureInput(wireResponse))
+    const rpc = vi.fn(async (_name: string, _args: unknown) => ({
+      data: null,
+      error: { message: 'P0001: CAPTURE_CHECKPOINT_MAC_INVALID internal checkpoint detail' },
+    }))
+
+    await expect(commitBrokerCapturePageWithClient({ rpc } as never, {
+      leaseToken: uuid('lease-token'),
+      integrityKey: CHECKPOINT_KEY,
+      integrityKeyVersion: 'test_v1',
+      expectedWorkUnitRowVersion: 7,
+      wireResponse,
+      capturedPage,
+    })).rejects.toMatchObject({
+      code: 'CAPTURE_CHECKPOINT_MAC_INVALID',
+      message: 'Der atomare Broker-Page-Commit wurde von der Datenbank abgelehnt.',
+    })
+  })
+
+  it.each([
+    { sqlState: '55P03', timeoutCode: 'CAPTURE_LOCK_TIMEOUT' },
+    { sqlState: '57014', timeoutCode: 'CAPTURE_STATEMENT_TIMEOUT' },
+  ] as const)('maps resumable database timeout $sqlState to $timeoutCode', async ({ sqlState, timeoutCode }) => {
+    const wireResponse = await authenticWireResponse('historical_orders_v1', [order()])
+    const capturedPage = applyMexcCapturedPage(captureInput(wireResponse))
+    const rpc = vi.fn(async (_name: string, _args: unknown) => ({
+      data: null,
+      error: { code: sqlState, message: 'localized database timeout without a stable message' },
+    }))
+
+    await expect(commitBrokerCapturePageWithClient({ rpc } as never, {
+      leaseToken: uuid('lease-token'),
+      integrityKey: CHECKPOINT_KEY,
+      integrityKeyVersion: 'test_v1',
+      expectedWorkUnitRowVersion: 7,
+      wireResponse,
+      capturedPage,
+    })).rejects.toMatchObject({
+      code: timeoutCode,
+      message: 'Der atomare Broker-Page-Commit wurde von der Datenbank abgelehnt.',
+    })
   })
 })

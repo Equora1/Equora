@@ -5,7 +5,7 @@
 | Feld | Wert |
 |---|---|
 | Designstatus | `DESIGN_ACCEPTED v11 – G0 GO, NO EXECUTABLE SQL` |
-| Implementierungsstatus | `NOT STARTED`; Code-/SQL-/Mocktests gehören G1–G6 |
+| Implementierungsstatus | `G1 IN PROGRESS – NO-GO`; begrenzte lokale Implementierung vorhanden und lokal validiert, aber nicht aktiviert, nicht deployed und nicht auf ein verbundenes Supabase-Projekt angewendet; maßgeblich ist `docs/gates/EQUORA_v57.61.0_G1_IMPLEMENTATION_STATUS.md` |
 | Providerevidenzstatus | über Providervertrag; globale Vollständigkeit unbelegt, prospektive Coverage wird scopegenau und fail-closed betrieben |
 | Gate G0 | `GO – DESIGN ONLY`; Code-/SQL-/DB-Evidenz folgt G1–G6 |
 | Stand | 2026-08-05, Europe/Berlin |
@@ -148,8 +148,24 @@ Lebensdauer unzuverlässig. Das dauerhafte Lease bleibt deshalb die fachliche
 Wahrheit.
 
 Jeder Lock-/RPC-Pfad erhält explizite lokale `lock_timeout`- und
-`statement_timeout`-Grenzen. Ein Timeout erzeugt einen sichtbaren resumable
-Fehler und wird nicht durch unbeschränkte Wiederholung verdeckt.
+`statement_timeout`-Grenzen. Für den Page-Commit sind die G1-Startwerte
+`lock_timeout = 2s` und `statement_timeout = 15s`; zusätzlich beendet eine
+fachliche `clock_timestamp()`-Deadline nach 12 Sekunden den Pfad kontrolliert.
+Ein Timeout erzeugt einen sichtbaren resumable Fehler und wird nicht durch
+unbeschränkte Wiederholung verdeckt.
+
+Der produktive Aufrufvertrag ist die Supabase Data API/PostgREST-RPC. PostgREST
+muss das Funktionsattribut `statement_timeout` über
+`db-hoisted-tx-settings` vor die Main Query heben. Ein direkter
+`SELECT function(...)` setzt den Timer innerhalb des bereits begonnenen
+Statements zu spät und ist deshalb kein freigegebener Runtimepfad. Das
+PostgREST-Hoisting ist vor Deployment als harte Runtime-Precondition durch
+Konfigurationsnachweis und einen echten RPC-Abbruchtest mit SQLSTATE `57014`
+zu belegen. `lock_timeout` gilt ab Funktionseintritt für nachfolgende
+Sperrversuche; SQLSTATE `55P03`, `57014` und die 12-Sekunden-Deadline werden als
+geschlossene resumable Fehler abgebildet. Die Werte sind vor Produktion gegen
+die maximal zulässigen Pagebudgets zu vermessen; eine Änderung benötigt ein
+neues Gate und darf nicht still erfolgen.
 
 ### 3.4 Ablauf und Übernahme
 
@@ -777,6 +793,8 @@ Legal-Hold-Sperre und Negativtests deaktiviert.
 | Workbook-Header/Typ/Sheet weicht vom gepinnten Profil ab | File Run `partial/failed`, Schema Finding | neues File-Profile-Gate; kein heuristisches Mapping | vollständig gesperrt |
 | DB-Fehler vor Commit | keine Page-Teilwirkung | gleiche Work Unit wiederholen | unverändert |
 | DB-Fehler nach Raw-Insert innerhalb Transaktion | vollständiger Rollback | wiederholen | unverändert |
+| Rowlock überschreitet 2 Sekunden | `CAPTURE_LOCK_TIMEOUT`, null Teilwirkung | nur begrenzt und nach neuer Authorityprüfung resumieren | unverändert |
+| Page-Commit überschreitet 12 Sekunden fachlich oder 15 Sekunden hart | `CAPTURE_RPC_DEADLINE_EXCEEDED` oder `CAPTURE_STATEMENT_TIMEOUT`, vollständiger Rollback | Work Unit, Lease, Aktivierung, Credential und Key neu laden; kein Blind-Retry | unverändert |
 | Lease läuft nach HTTP ab | Response nicht blind committen | Lease neu erwerben; Scope/Digest prüfen | unverändert |
 | Alter Lease-Token committen | RPC lehnt ab | neue Work Unit laden | unverändert |
 | Paralleler identischer Page-Commit | Unique/Checkpoint-Guard | deterministisches Ergebnis | unverändert |
@@ -1015,5 +1033,8 @@ bestandenen Code-, Mock-, SQL-, RLS-, Fault-Injection- und Recoverytests. Diese
 Evidenz ist kein G0-Designkriterium.
 
 **Designstatus dieses Artefakts: `v11 DESIGN_ACCEPTED / G0 ROUTING PASS /
-G0 GO – DESIGN ONLY`; Implementierung nicht
-begonnen.**
+G0 GO – DESIGN ONLY`. Implementierungsstatus: `G1 IN PROGRESS – NO-GO`;
+begrenzte lokale Implementierung vorhanden und lokal validiert, jedoch nicht
+aktiviert, nicht deployed und nicht auf ein verbundenes Supabase-Projekt
+angewendet. Maßgeblich ist
+`docs/gates/EQUORA_v57.61.0_G1_IMPLEMENTATION_STATUS.md`.**

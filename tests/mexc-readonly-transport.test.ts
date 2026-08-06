@@ -46,6 +46,7 @@ const CAPTURE_BINDING: MexcTransportCaptureBinding = Object.freeze({
   bindingVersion: 'mexc-transport-capture-binding-v1',
   accountIdentity: CAPTURE_ACCOUNT,
   brokerAccountId: '00000000-0000-4000-a000-000000000001',
+  connectionAccountId: '00000000-0000-4000-a000-000000000005',
   syncActivationId: '00000000-0000-4000-a000-000000000002',
   activationGeneration: 1,
   scopeDigest: Object.freeze({
@@ -53,6 +54,10 @@ const CAPTURE_BINDING: MexcTransportCaptureBinding = Object.freeze({
     digestContractVersion: 'equora-tcj-v1',
     domain: 'sync_scope',
     digest: 'b'.repeat(64),
+  }),
+  workUnitReference: Object.freeze({
+    referenceType: 'capture_work_unit_id_v1',
+    value: '00000000-0000-4000-a000-000000000006',
   }),
   runReference: Object.freeze({
     referenceType: 'sync_run_id_v1',
@@ -70,6 +75,7 @@ function boundCredentialContext(overrides: Partial<MexcBoundCredentialContext> =
     credentials: CREDENTIALS,
     accountIdentity: CAPTURE_ACCOUNT,
     brokerAccountId: CAPTURE_BINDING.brokerAccountId,
+    connectionAccountId: CAPTURE_BINDING.connectionAccountId,
     syncActivationId: CAPTURE_BINDING.syncActivationId,
     activationGeneration: CAPTURE_BINDING.activationGeneration,
     ...overrides,
@@ -383,6 +389,9 @@ describe('MEXC G1 GET-only transport contract', () => {
     ['broker account', boundCredentialContext({
       brokerAccountId: '00000000-0000-4000-a000-000000000011',
     })],
+    ['connection account', boundCredentialContext({
+      connectionAccountId: '00000000-0000-4000-a000-000000000013',
+    })],
     ['activation id', boundCredentialContext({
       syncActivationId: '00000000-0000-4000-a000-000000000012',
     })],
@@ -395,6 +404,23 @@ describe('MEXC G1 GET-only transport contract', () => {
       { capabilityId: 'historical_orders_v1', query: PRIVATE_QUERY, captureBinding: CAPTURE_BINDING },
     ], () => credentialContext)).rejects.toMatchObject({ code: 'transport_contract_violation' })
     expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('rejects a capture binding whose WorkUnit reference has the wrong reference contract', async () => {
+    const pingUrl = `${MEXC_API_ORIGIN}/api/v1/contract/ping`
+    const fetchMock = stubFetch(async () => success(pingUrl, NOW))
+    const captureBinding = Object.freeze({
+      ...CAPTURE_BINDING,
+      workUnitReference: Object.freeze({
+        referenceType: 'sync_run_id_v1',
+        value: CAPTURE_BINDING.workUnitReference.value,
+      }),
+    })
+
+    await expect(executeMexcPrivateReadWorkUnit([
+      { capabilityId: 'historical_orders_v1', query: PRIVATE_QUERY, captureBinding: captureBinding as never },
+    ], () => boundCredentialContext())).rejects.toMatchObject({ code: 'transport_contract_violation' })
+    expect(fetchMock).not.toHaveBeenCalled()
   })
 
   it('keeps capability failures explicit instead of substituting an empty response', async () => {
