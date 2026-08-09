@@ -27,9 +27,15 @@ import {
 } from '@/lib/server/mexc-pagination'
 import {
   createMexcSyncScope,
+  createMexcAuthoritySyncScope,
+  type MexcCaptureScope,
   type MexcSyncScope,
   type MexcSyncScopeInput,
 } from '@/lib/server/mexc-sync-scope'
+import {
+  inspectBrokerCaptureClaimResult,
+  type BrokerCaptureClaimResult,
+} from '@/lib/server/broker-capture-control'
 import {
   inspectMexcWireResponse,
   prepareMexcRequest,
@@ -50,6 +56,17 @@ export type MexcCapturedPageInput = Readonly<{
   requestSequence: number
 }>
 
+export type MexcClaimedPageInput = Readonly<{
+  claim: BrokerCaptureClaimResult
+  checkpoint: MexcPageCheckpoint
+  checkpointIntegrityKey: MexcCheckpointIntegrityKey
+  ledgerState: BrokerRawLedgerState
+  expectedLedgerGeneration: number
+  wireResponse: MexcWireResponse
+  requestResultReference: BrokerRequestResultReference
+  requestSequence: number
+}>
+
 export type MexcCapturedPageResult = Readonly<{
   orchestratorVersion: typeof MEXC_CAPTURE_ORCHESTRATOR_VERSION
   status: 'page_committed' | 'pagination_blocked_before_ledger'
@@ -64,7 +81,7 @@ export type MexcCapturedPageResult = Readonly<{
     expectedCheckpointMac: string
     expectedLedgerGeneration: number
   }>
-  syncScope: MexcSyncScope
+  syncScope: MexcCaptureScope
   oracleResult: MexcOracleResult
   pageObservation: MexcPageObservation
   pageTransition: MexcPageTransition
@@ -144,7 +161,7 @@ function pageScope(checkpoint: MexcPageCheckpoint): MexcHistoryOracleScope | Mex
     : Object.freeze(base)
 }
 
-function assertScopeCheckpointMatch(scope: MexcSyncScope, checkpoint: MexcPageCheckpoint) {
+function assertScopeCheckpointMatch(scope: MexcCaptureScope, checkpoint: MexcPageCheckpoint) {
   const positionType = 'positionType' in checkpoint.scope ? checkpoint.scope.positionType : null
   if (
     checkpoint.capabilityId !== scope.capabilityId
@@ -156,14 +173,14 @@ function assertScopeCheckpointMatch(scope: MexcSyncScope, checkpoint: MexcPageCh
   ) fail('scope_checkpoint_mismatch', 'Normativer Sync Scope und authentischer Paginationcheckpoint widersprechen sich.')
 }
 
-function sameDigest(left: MexcSyncScope['scopeDigest'], right: MexcSyncScope['scopeDigest']) {
+function sameDigest(left: MexcCaptureScope['scopeDigest'], right: MexcCaptureScope['scopeDigest']) {
   return left.digestAlgorithm === right.digestAlgorithm
     && left.digestContractVersion === right.digestContractVersion
     && left.domain === right.domain
     && left.digest === right.digest
 }
 
-function sameAccountIdentity(left: MexcSyncScope['accountIdentity'], right: MexcSyncScope['accountIdentity']) {
+function sameAccountIdentity(left: MexcCaptureScope['accountIdentity'], right: MexcCaptureScope['accountIdentity']) {
   return left.digestAlgorithm === right.digestAlgorithm
     && left.digestContractVersion === right.digestContractVersion
     && left.purpose === right.purpose
@@ -173,10 +190,10 @@ function sameAccountIdentity(left: MexcSyncScope['accountIdentity'], right: Mexc
 }
 
 function assertWireContextMatch(
-  scope: MexcSyncScope,
+  scope: MexcCaptureScope,
   checkpoint: MexcPageCheckpoint,
   response: MexcWireResponse,
-  input: MexcCapturedPageInput,
+  input: Pick<MexcCapturedPageInput, 'requestResultReference' | 'requestSequence' | 'runReference'>,
 ) {
   const expectedQuery = {
     symbol: scope.instrumentScope.symbol,
@@ -218,7 +235,7 @@ function assertWireContextMatch(
   CONSUMED_CAPTURE_RESPONSES.add(response)
 }
 
-function deriveEvents(scope: MexcSyncScope, oracle: MexcOracleResult) {
+function deriveEvents(scope: MexcCaptureScope, oracle: MexcOracleResult) {
   const mapping = EVENT_MAPPING[scope.capabilityId]
   const events: BrokerRawPageEventInput[] = []
   const orderedProviderIds: string[] = []
@@ -270,6 +287,13 @@ export function applyMexcCapturedPage(input: MexcCapturedPageInput): MexcCapture
     'wireResponse',
   ])
   const syncScope = createMexcSyncScope(input.syncScope)
+  return applyMexcCapturedPageForScope(input, syncScope)
+}
+
+function applyMexcCapturedPageForScope(
+  input: Omit<MexcCapturedPageInput, 'syncScope'>,
+  syncScope: MexcCaptureScope,
+): MexcCapturedPageResult {
   verifyMexcPageCheckpoint(input.checkpoint, input.checkpointIntegrityKey)
   assertScopeCheckpointMatch(syncScope, input.checkpoint)
   if (!Number.isSafeInteger(input.requestSequence) || input.requestSequence !== input.checkpoint.totalRequestAttempts + 1) {
@@ -382,6 +406,66 @@ export function applyMexcCapturedPage(input: MexcCapturedPageInput): MexcCapture
   MEXC_CAPTURE_RESULT_PROVENANCE.add(result)
   MEXC_CAPTURE_RESULT_WIRE_RESPONSE.set(result, response)
   return result
+}
+
+export function applyMexcClaimedPage(input: MexcClaimedPageInput): MexcCapturedPageResult {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) fail('invalid_input', 'MEXC Claim Capture Input fehlt.')
+  exactKeys(input, [
+    'checkpoint',
+    'checkpointIntegrityKey',
+    'claim',
+    'expectedLedgerGeneration',
+    'ledgerState',
+    'requestResultReference',
+    'requestSequence',
+    'wireResponse',
+  ])
+  const claim = inspectBrokerCaptureClaimResult(input.claim)
+  if (
+    input.checkpoint.capabilityId !== claim.capabilityId
+    || input.expectedLedgerGeneration < claim.expectedLedgerGeneration
+    || input.requestSequence !== input.checkpoint.totalRequestAttempts + 1
+  ) fail('scope_checkpoint_mismatch', 'Claim, Checkpoint und Ledgergeneration widersprechen sich.')
+  const positionType = claim.positionType === null ? null : claim.positionType as 1 | 2
+  const syncScope = createMexcAuthoritySyncScope({
+    providerCode: claim.providerCode,
+    accountIdentity: Object.freeze({
+      digestAlgorithm: 'hmac-sha256',
+      digestContractVersion: 'equora-tcj-v1',
+      purpose: 'broker_account_identity_v1',
+      keyVersion: claim.accountIdentityKeyVersion,
+      digest: claim.accountIdentityDigest,
+      verificationStatus: 'unverified_reference',
+    }),
+    brokerAccountId: claim.brokerAccountId,
+    syncActivationId: claim.syncActivationId,
+    activationGeneration: claim.activationGeneration,
+    capabilityId: claim.capabilityId,
+    instrumentScope: Object.freeze({
+      scopeType: 'mexc_futures_symbol_v1',
+      symbol: claim.instrumentSymbol,
+      positionType,
+    }),
+    providerContractVersion: claim.providerContractVersion as 'mexc_futures_contract_v1',
+    adapterVersion: claim.adapterVersion as 'v57_61_0',
+    profileId: claim.profileId as 'mexc_futures_rest',
+    profileVersion: claim.profileVersion as 'v1',
+    requestWindow: Object.freeze({
+      startTimeMs: claim.requestStartMs,
+      endTimeMs: claim.requestEndMs,
+    }),
+    scopeDigest: claim.scopeDigest,
+  })
+  return applyMexcCapturedPageForScope({
+    checkpoint: input.checkpoint,
+    checkpointIntegrityKey: input.checkpointIntegrityKey,
+    ledgerState: input.ledgerState,
+    expectedLedgerGeneration: input.expectedLedgerGeneration,
+    wireResponse: input.wireResponse,
+    runReference: Object.freeze({ referenceType: 'sync_run_id_v1', value: claim.runId }),
+    requestResultReference: input.requestResultReference,
+    requestSequence: input.requestSequence,
+  }, syncScope)
 }
 
 export function inspectMexcCapturedPageResult(result: MexcCapturedPageResult): MexcCapturedPageResult {

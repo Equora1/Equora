@@ -91,6 +91,11 @@ try {
   & docker exec $ContainerName psql -U postgres -d postgres -v ON_ERROR_STOP=1 -c "create database $TestDatabase template $TemplateDatabase;" | Out-Null
   if ($LASTEXITCODE -ne 0) { throw 'Failed to create the isolated concurrency test database.' }
 
+  # Test-only access to the fenced v1 implementation verifies its atomic core;
+  # production/runtime grants remain revoked and v2 fence tests run separately.
+  & docker exec $ContainerName psql -U postgres -d $TestDatabase -v ON_ERROR_STOP=1 -c "grant execute on function public.equora_commit_broker_capture_page_v1(uuid,uuid,uuid,uuid,uuid,integer,text,text,text,text,uuid,bigint,text,bigint,uuid,integer,text,text,text,jsonb,text,timestamptz,timestamptz,integer,integer,text,text,text,text,integer,text,jsonb,text,jsonb,text,text,text,integer,jsonb) to service_role;" | Out-Null
+  if ($LASTEXITCODE -ne 0) { throw 'Failed to grant the test-only v1 page RPC.' }
+
   $setupOutput = $setupSql | & docker exec -i $ContainerName psql -U postgres -d $TestDatabase -v ON_ERROR_STOP=1 2>&1
   if ($LASTEXITCODE -ne 0) { throw "Concurrency fixture setup failed: $($setupOutput -join [Environment]::NewLine)" }
 
@@ -352,7 +357,8 @@ select
     -ObservationDigest $repeatDigest `
     -Occurrence 'repeated_observation' `
     -ExpectedLedgerGeneration 1 `
-    -ResponseReceivedAt '2025-10-09T00:00:01.000000Z'
+    -ResponseReceivedAt '2025-10-09T00:00:01.000000Z' `
+    -PostCommitHoldSeconds '3'
   $activationPauseSql = @"
 \set ON_ERROR_STOP on
 begin;

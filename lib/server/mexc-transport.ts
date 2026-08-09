@@ -21,6 +21,7 @@ export const MEXC_MAX_CLOCK_SKEW_MS = 60_000
 const MEXC_WIRE_RESPONSE_PROVENANCE = new WeakSet<object>()
 
 const REQUEST_TIMEOUT_MS = 12_000
+const TRANSPORT_DEADLINE_MARGIN_MS = 500
 const MAX_HISTORY_WINDOW_MS = 31 * 24 * 60 * 60 * 1000
 
 export const MEXC_READ_CAPABILITIES = Object.freeze({
@@ -36,6 +37,7 @@ export type MexcReadCapabilityId = keyof typeof MEXC_READ_CAPABILITIES
 export type MexcPrivateCapabilityId = Exclude<MexcReadCapabilityId, 'server_time_v1' | 'contract_metadata_v1'>
 export type MexcPublicCapabilityId = Extract<MexcReadCapabilityId, 'server_time_v1' | 'contract_metadata_v1'>
 export type MexcCredentials = Readonly<{ apiKey: string; secretKey: string }>
+export type MexcCredentialReference = Readonly<{ id: string; keyVersion: string }>
 export type MexcBoundCredentialContext = Readonly<{
   credentials: MexcCredentials
   accountIdentity: MexcTransportCaptureBinding['accountIdentity']
@@ -44,10 +46,33 @@ export type MexcBoundCredentialContext = Readonly<{
   syncActivationId: string
   activationGeneration: number
 }>
-export type MexcCredentialLoader = () =>
+export type MexcCredentialLoader = (credentialReference?: MexcCredentialReference) =>
   | MexcCredentials
   | MexcBoundCredentialContext
   | Promise<MexcCredentials | MexcBoundCredentialContext>
+
+export type MexcPrivateRequestAuthorization = Readonly<{
+  status: 'request_authorized'
+  requestAuthorizationId: string
+  sendDeadlineAt: string
+  workUnitId: string
+  requestSequence: number
+  capabilityId: MexcPrivateCapabilityId
+  scopeDigest: string
+  credentialReference: MexcCredentialReference
+  authorityBlocked: true
+}>
+
+export type MexcPrivateRequestAuthorizationContext = Readonly<{
+  capabilityId: MexcPrivateCapabilityId
+  workUnitId: string
+  requestSequence: number
+  scopeDigest: string
+}>
+
+export type MexcPrivateRequestAuthorizer = (
+  context: MexcPrivateRequestAuthorizationContext,
+) => MexcPrivateRequestAuthorization | Promise<MexcPrivateRequestAuthorization>
 
 export type MexcTransportErrorCode =
   | 'transport_contract_violation'
@@ -480,6 +505,56 @@ function resolveCredentialMaterial(
   return validateCredentials(input.credentials as MexcCredentials)
 }
 
+function canonicalPrivateRequestAuthorization(
+  input: unknown,
+  context: MexcPrivateRequestAuthorizationContext,
+) {
+  if (
+    !isRecord(input)
+    || !hasExactKeys(input, [
+      'authorityBlocked',
+      'capabilityId',
+      'credentialReference',
+      'requestAuthorizationId',
+      'requestSequence',
+      'scopeDigest',
+      'sendDeadlineAt',
+      'status',
+      'workUnitId',
+    ])
+    || input.status !== 'request_authorized'
+    || input.authorityBlocked !== true
+    || input.requestAuthorizationId === undefined
+    || typeof input.requestAuthorizationId !== 'string'
+    || !UUID_PATTERN.test(input.requestAuthorizationId)
+    || input.workUnitId !== context.workUnitId
+    || input.requestSequence !== context.requestSequence
+    || input.capabilityId !== context.capabilityId
+    || input.scopeDigest !== context.scopeDigest
+    || typeof input.sendDeadlineAt !== 'string'
+    || Number.isNaN(Date.parse(input.sendDeadlineAt))
+    || Date.parse(input.sendDeadlineAt) <= Date.now()
+    || !isRecord(input.credentialReference)
+    || !hasExactKeys(input.credentialReference, ['id', 'keyVersion'])
+    || typeof input.credentialReference.id !== 'string'
+    || !UUID_PATTERN.test(input.credentialReference.id)
+    || typeof input.credentialReference.keyVersion !== 'string'
+    || !/^[a-z][a-z0-9_]{0,62}$/.test(input.credentialReference.keyVersion)
+  ) {
+    throw new MexcTransportError(
+      'transport_contract_violation',
+      'MEXC Capture Request besitzt keine gueltige Single-use-Autorisierung.',
+    )
+  }
+  return Object.freeze({
+    ...(input as unknown as MexcPrivateRequestAuthorization),
+    credentialReference: Object.freeze({
+      id: input.credentialReference.id,
+      keyVersion: input.credentialReference.keyVersion,
+    }),
+  })
+}
+
 export function createMexcSignature(apiKey: string, secretKey: string, requestTime: number, queryString: string) {
   if (!Number.isSafeInteger(requestTime) || requestTime < 1_000_000_000_000) {
     throw new MexcTransportError('invalid_provider_time', 'MEXC-Requestzeit ist ungültig.')
@@ -772,9 +847,19 @@ async function executePreparedRequest(
   request: MexcPreparedRequest,
   headers: HeadersInit,
   captureBinding: MexcTransportCaptureBinding | null = null,
+  absoluteDeadlineAtMs: number | null = null,
 ) {
+  const remainingMs = absoluteDeadlineAtMs === null
+    ? REQUEST_TIMEOUT_MS
+    : absoluteDeadlineAtMs - Date.now() - TRANSPORT_DEADLINE_MARGIN_MS
+  if (!Number.isFinite(remainingMs) || remainingMs <= 0) {
+    throw new MexcTransportError('timeout', 'Das End-to-End-Zeitbudget erlaubt keinen weiteren MEXC-Leseabruf.')
+  }
   const controller = new AbortController()
-  const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)
+  const timeout = setTimeout(
+    () => controller.abort(),
+    Math.min(REQUEST_TIMEOUT_MS, Math.max(1, Math.floor(remainingMs))),
+  )
   const requestStartedAtMs = Date.now()
   const startedAt = performance.now()
   try {
@@ -830,6 +915,7 @@ async function executeMexcPrivateRead(
   requestTime: number,
   credentials: MexcCredentials,
   captureBinding: MexcTransportCaptureBinding | null,
+  absoluteDeadlineAtMs: number | null,
 ) {
   if (request.auth !== 'private') throw new MexcTransportError('transport_contract_violation', 'Öffentliche MEXC-Capability wurde als privat aufgerufen.')
   const signature = createMexcSignature(credentials.apiKey, credentials.secretKey, requestTime, request.queryString)
@@ -839,13 +925,19 @@ async function executeMexcPrivateRead(
     'Request-Time': String(requestTime),
     Signature: signature,
     'Recv-Window': '10000',
-  }, captureBinding)
+  }, captureBinding, absoluteDeadlineAtMs)
 }
 
-async function readMexcServerTime() {
+async function readMexcServerTime(absoluteDeadlineAtMs: number | null = null) {
   let response: MexcWireResponse
   try {
-    response = await executeMexcPublicRead('server_time_v1', {})
+    const request = prepareMexcRequest('server_time_v1', {})
+    response = await executePreparedRequest(
+      request,
+      { Accept: 'application/json' },
+      null,
+      absoluteDeadlineAtMs,
+    )
   } catch (error) {
     if (error instanceof MexcTransportError && error.code === 'malformed_response') {
       throw new MexcTransportError('invalid_provider_time', 'MEXC-Serverzeit fehlt oder verletzt den Zeitvertrag.')
@@ -868,6 +960,8 @@ async function readMexcServerTime() {
 export async function executeMexcPrivateReadWorkUnit(
   workUnits: readonly MexcPrivateReadWorkUnit[],
   loadCredentials: MexcCredentialLoader,
+  authorizeRequest?: MexcPrivateRequestAuthorizer,
+  executionBudget?: Readonly<{ absoluteDeadlineAtMs: number }>,
 ): Promise<MexcPrivateReadWorkUnitResult> {
   if (!workUnits.length || workUnits.length > 6) {
     throw new MexcTransportError('transport_contract_violation', 'MEXC-Work-Unit enthält keine zulässige Anzahl an Lesecapabilities.')
@@ -887,14 +981,130 @@ export async function executeMexcPrivateReadWorkUnit(
     return Object.freeze({ request, captureBinding })
   })
 
-  const serverTime = await readMexcServerTime()
+  const captureRequests = preparedRequests.filter(
+    ({ captureBinding }) => captureBinding !== null,
+  )
+  if (captureRequests.length !== 0 && captureRequests.length !== preparedRequests.length) {
+    throw new MexcTransportError(
+      'transport_contract_violation',
+      'Gebundene und ungebundene MEXC Requests duerfen nicht gemischt werden.',
+    )
+  }
+  if (captureRequests.length > 0 && !authorizeRequest) {
+    throw new MexcTransportError(
+      'transport_contract_violation',
+      'MEXC Capture benoetigt vor Credentialzugriff einen Request-Permit.',
+    )
+  }
+  if (captureRequests.length > 0 && (
+    !executionBudget
+    || !Number.isSafeInteger(executionBudget.absoluteDeadlineAtMs)
+    || executionBudget.absoluteDeadlineAtMs <= Date.now() + TRANSPORT_DEADLINE_MARGIN_MS
+  )) {
+    throw new MexcTransportError(
+      'transport_contract_violation',
+      'MEXC Capture benoetigt ein gueltiges absolutes End-to-End-Zeitbudget.',
+    )
+  }
+  const authorizations = authorizeRequest
+    ? await Promise.all(preparedRequests.map(async ({ request, captureBinding }) => {
+      if (captureBinding === null) return null
+      const context = Object.freeze({
+        capabilityId: request.capabilityId as MexcPrivateCapabilityId,
+        workUnitId: captureBinding.workUnitReference.value,
+        requestSequence: captureBinding.requestSequence,
+        scopeDigest: captureBinding.scopeDigest.digest,
+      })
+      return canonicalPrivateRequestAuthorization(
+        await authorizeRequest(context),
+        context,
+      )
+    }))
+    : preparedRequests.map(() => null)
+  const credentialReferences = authorizations.filter(
+    (authorization): authorization is MexcPrivateRequestAuthorization => authorization !== null,
+  ).map((authorization) => authorization.credentialReference)
+  const credentialReference = credentialReferences[0]
+  if (credentialReferences.some((reference) => (
+    reference.id !== credentialReference?.id
+    || reference.keyVersion !== credentialReference?.keyVersion
+  ))) {
+    throw new MexcTransportError(
+      'transport_contract_violation',
+      'Ein Capture-Batch darf nur eine Credentialgeneration verwenden.',
+    )
+  }
+  if (authorizations.some((authorization) => (
+    authorization !== null
+    && Date.parse(authorization.sendDeadlineAt) <= Date.now()
+  ))) {
+    throw new MexcTransportError(
+      'transport_contract_violation',
+      'MEXC Capture Request-Permit ist vor dem ersten Broker-GET abgelaufen.',
+    )
+  }
+  // For capture-bound reads the single-use permit is the Egress linearization
+  // point for every broker request, including the public server-time GET.
+  const invocationDeadlineAtMs = executionBudget?.absoluteDeadlineAtMs ?? null
+  const permitDeadlineAtMs = authorizations.reduce<number | null>((minimum, authorization) => {
+    if (authorization === null) return minimum
+    const deadline = Date.parse(authorization.sendDeadlineAt)
+    return minimum === null ? deadline : Math.min(minimum, deadline)
+  }, null)
+  const egressDeadlineAtMs = invocationDeadlineAtMs === null
+    ? permitDeadlineAtMs
+    : permitDeadlineAtMs === null
+      ? invocationDeadlineAtMs
+      : Math.min(invocationDeadlineAtMs, permitDeadlineAtMs)
+  const serverTime = await readMexcServerTime(egressDeadlineAtMs)
+  if (invocationDeadlineAtMs !== null
+    && invocationDeadlineAtMs <= Date.now() + TRANSPORT_DEADLINE_MARGIN_MS) {
+    throw new MexcTransportError(
+      'timeout',
+      'Das End-to-End-Zeitbudget ist vor dem Credentialzugriff abgelaufen.',
+    )
+  }
+  if (authorizations.some((authorization) => (
+    authorization !== null
+    && Date.parse(authorization.sendDeadlineAt) <= Date.now()
+  ))) {
+    throw new MexcTransportError(
+      'transport_contract_violation',
+      'MEXC Capture Request-Permit ist vor dem Credentialzugriff abgelaufen.',
+    )
+  }
   const credentials = resolveCredentialMaterial(
-    await loadCredentials(),
+    await loadCredentials(credentialReference),
     preparedRequests.map(({ captureBinding }) => captureBinding),
   )
-  const outcomes = await Promise.all(preparedRequests.map(async ({ request, captureBinding }): Promise<MexcPrivateReadOutcome> => {
+  const outcomes = await Promise.all(preparedRequests.map(async ({ request, captureBinding }, index): Promise<MexcPrivateReadOutcome> => {
     try {
-      const response = await executeMexcPrivateRead(request, serverTime, credentials, captureBinding)
+      const authorization = authorizations[index]
+      if (invocationDeadlineAtMs !== null
+        && invocationDeadlineAtMs <= Date.now() + TRANSPORT_DEADLINE_MARGIN_MS) {
+        throw new MexcTransportError(
+          'timeout',
+          'Das End-to-End-Zeitbudget ist vor dem Senden abgelaufen.',
+        )
+      }
+      if (authorization !== null && Date.parse(authorization.sendDeadlineAt) <= Date.now()) {
+        throw new MexcTransportError(
+          'transport_contract_violation',
+          'MEXC Capture Request-Permit ist vor dem Senden abgelaufen.',
+        )
+      }
+      const authorizationDeadlineAtMs = authorization === null
+        ? invocationDeadlineAtMs
+        : invocationDeadlineAtMs === null
+          ? Date.parse(authorization.sendDeadlineAt)
+          : Math.min(invocationDeadlineAtMs, Date.parse(authorization.sendDeadlineAt))
+      const response = await executeMexcPrivateRead(
+        request,
+        serverTime,
+        credentials,
+        captureBinding,
+        authorizationDeadlineAtMs,
+      )
       return Object.freeze({ capabilityId: request.capabilityId as MexcPrivateCapabilityId, status: 'wire_succeeded', response })
     } catch (error) {
       if (error instanceof MexcTransportError) {

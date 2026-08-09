@@ -16,6 +16,7 @@ import {
   MexcTransportError,
   prepareMexcRequest,
   type MexcBoundCredentialContext,
+  type MexcPrivateRequestAuthorization,
   type MexcTransportCaptureBinding,
 } from '../lib/server/mexc-transport'
 
@@ -33,6 +34,7 @@ const PRIVATE_QUERY = {
   page_size: 20,
 }
 const CREDENTIALS = { apiKey: 'api-key-123', secretKey: 'secret-secret' }
+const captureBudget = () => Object.freeze({ absoluteDeadlineAtMs: Date.now() + 60_000 })
 const jsonNumber = (lexeme: string) => ({ kind: 'mexc_json_number', lexeme })
 const CAPTURE_ACCOUNT = Object.freeze({
   digestAlgorithm: 'hmac-sha256' as const,
@@ -78,6 +80,26 @@ function boundCredentialContext(overrides: Partial<MexcBoundCredentialContext> =
     connectionAccountId: CAPTURE_BINDING.connectionAccountId,
     syncActivationId: CAPTURE_BINDING.syncActivationId,
     activationGeneration: CAPTURE_BINDING.activationGeneration,
+    ...overrides,
+  })
+}
+
+function validRequestAuthorization(
+  overrides: Partial<MexcPrivateRequestAuthorization> = {},
+): MexcPrivateRequestAuthorization {
+  return Object.freeze({
+    status: 'request_authorized',
+    requestAuthorizationId: '00000000-0000-4000-a000-000000000007',
+    sendDeadlineAt: new Date(NOW + 5_000).toISOString(),
+    workUnitId: CAPTURE_BINDING.workUnitReference.value,
+    requestSequence: CAPTURE_BINDING.requestSequence,
+    capabilityId: 'historical_orders_v1',
+    scopeDigest: CAPTURE_BINDING.scopeDigest.digest,
+    credentialReference: Object.freeze({
+      id: '00000000-0000-4000-a000-000000000008',
+      keyVersion: 'test_v1',
+    }),
+    authorityBlocked: true,
     ...overrides,
   })
 }
@@ -372,13 +394,27 @@ describe('MEXC G1 GET-only transport contract', () => {
     expect(() => inspectMexcWireResponse(reflected as never)).toThrowError(/Transportprovenienz/)
   })
 
+  it('rejects a capture-bound request without a single-use permit before credential access', async () => {
+    const pingUrl = `${MEXC_API_ORIGIN}/api/v1/contract/ping`
+    const fetchMock = stubFetch(async () => success(pingUrl, NOW))
+    const credentialLoader = vi.fn(() => boundCredentialContext())
+
+    await expect(executeMexcPrivateReadWorkUnit([
+      { capabilityId: 'historical_orders_v1', query: PRIVATE_QUERY, captureBinding: CAPTURE_BINDING },
+    ], credentialLoader)).rejects.toMatchObject({ code: 'transport_contract_violation' })
+    expect(credentialLoader).not.toHaveBeenCalled()
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
   it('requires capture purpose binding to come from the same credential-loader context', async () => {
     const pingUrl = `${MEXC_API_ORIGIN}/api/v1/contract/ping`
     const fetchMock = stubFetch(async () => success(pingUrl, NOW))
 
     await expect(executeMexcPrivateReadWorkUnit([
       { capabilityId: 'historical_orders_v1', query: PRIVATE_QUERY, captureBinding: CAPTURE_BINDING },
-    ], () => CREDENTIALS)).rejects.toMatchObject({ code: 'transport_contract_violation' })
+    ], () => CREDENTIALS, async () => validRequestAuthorization(), captureBudget())).rejects.toMatchObject({
+      code: 'transport_contract_violation',
+    })
     expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 
@@ -402,8 +438,112 @@ describe('MEXC G1 GET-only transport contract', () => {
 
     await expect(executeMexcPrivateReadWorkUnit([
       { capabilityId: 'historical_orders_v1', query: PRIVATE_QUERY, captureBinding: CAPTURE_BINDING },
-    ], () => credentialContext)).rejects.toMatchObject({ code: 'transport_contract_violation' })
+    ], () => credentialContext, async () => validRequestAuthorization(), captureBudget())).rejects.toMatchObject({
+      code: 'transport_contract_violation',
+    })
     expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('binds authorization, exact credential generation and private GET in fail-closed order', async () => {
+    const events: string[] = []
+    const fetchMock = stubFetch(async (input) => {
+      const url = String(input)
+      if (url.endsWith('/api/v1/contract/ping')) {
+        events.push('server-time')
+        return success(url, NOW)
+      }
+      events.push('private-get')
+      return success(url, [])
+    })
+    const authorizeRequest = vi.fn(async () => {
+      events.push('request-authorized')
+      return validRequestAuthorization()
+    })
+    const credentialLoader = vi.fn((reference) => {
+      events.push('credential-loaded')
+      expect(reference).toEqual({
+        id: '00000000-0000-4000-a000-000000000008',
+        keyVersion: 'test_v1',
+      })
+      return boundCredentialContext()
+    })
+
+    await expect(executeMexcPrivateReadWorkUnit([
+      { capabilityId: 'historical_orders_v1', query: PRIVATE_QUERY, captureBinding: CAPTURE_BINDING },
+    ], credentialLoader, authorizeRequest, captureBudget())).resolves.toMatchObject({
+      outcomes: [{ capabilityId: 'historical_orders_v1', status: 'wire_succeeded' }],
+    })
+    expect(authorizeRequest).toHaveBeenCalledWith({
+      capabilityId: 'historical_orders_v1',
+      workUnitId: CAPTURE_BINDING.workUnitReference.value,
+      requestSequence: CAPTURE_BINDING.requestSequence,
+      scopeDigest: CAPTURE_BINDING.scopeDigest.digest,
+    })
+    expect(events).toEqual(['request-authorized', 'server-time', 'credential-loaded', 'private-get'])
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('blocks credential access when the permit expires during the authorized server-time GET', async () => {
+    let currentTime = NOW
+    vi.mocked(Date.now).mockImplementation(() => currentTime)
+    const pingUrl = `${MEXC_API_ORIGIN}/api/v1/contract/ping`
+    const fetchMock = stubFetch(async (input) => {
+      const url = String(input)
+      expect(url).toBe(pingUrl)
+      currentTime = NOW + 5_001
+      return success(url, currentTime)
+    })
+    const credentialLoader = vi.fn(() => boundCredentialContext())
+
+    await expect(executeMexcPrivateReadWorkUnit([
+      { capabilityId: 'historical_orders_v1', query: PRIVATE_QUERY, captureBinding: CAPTURE_BINDING },
+    ], credentialLoader, async () => validRequestAuthorization(), captureBudget())).rejects.toMatchObject({
+      code: 'transport_contract_violation',
+    })
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(credentialLoader).not.toHaveBeenCalled()
+  })
+
+  it('blocks credential access when the absolute invocation deadline expires during server-time GET', async () => {
+    let currentTime = NOW
+    vi.mocked(Date.now).mockImplementation(() => currentTime)
+    const pingUrl = `${MEXC_API_ORIGIN}/api/v1/contract/ping`
+    const fetchMock = stubFetch(async (input) => {
+      const url = String(input)
+      expect(url).toBe(pingUrl)
+      currentTime = NOW + 1_001
+      return success(url, currentTime)
+    })
+    const credentialLoader = vi.fn(() => boundCredentialContext())
+
+    await expect(executeMexcPrivateReadWorkUnit([
+      { capabilityId: 'historical_orders_v1', query: PRIVATE_QUERY, captureBinding: CAPTURE_BINDING },
+    ], credentialLoader, async () => validRequestAuthorization({
+      sendDeadlineAt: new Date(NOW + 5_000).toISOString(),
+    }), { absoluteDeadlineAtMs: NOW + 1_000 })).rejects.toMatchObject({ code: 'timeout' })
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(credentialLoader).not.toHaveBeenCalled()
+  })
+
+  it('rejects an expired or scope-mismatching permit before credential access or private GET', async () => {
+    const cases: MexcPrivateRequestAuthorization[] = [
+      validRequestAuthorization({ sendDeadlineAt: new Date(NOW).toISOString() }),
+      validRequestAuthorization({ scopeDigest: 'c'.repeat(64) }),
+    ]
+
+    for (const authorization of cases) {
+      const pingUrl = `${MEXC_API_ORIGIN}/api/v1/contract/ping`
+      const fetchMock = stubFetch(async () => success(pingUrl, NOW))
+      const credentialLoader = vi.fn(() => boundCredentialContext())
+
+      await expect(executeMexcPrivateReadWorkUnit([
+        { capabilityId: 'historical_orders_v1', query: PRIVATE_QUERY, captureBinding: CAPTURE_BINDING },
+      ], credentialLoader, async () => authorization, captureBudget())).rejects.toMatchObject({
+        code: 'transport_contract_violation',
+      })
+      expect(credentialLoader).not.toHaveBeenCalled()
+      expect(fetchMock).not.toHaveBeenCalled()
+    }
   })
 
   it('rejects a capture binding whose WorkUnit reference has the wrong reference contract', async () => {

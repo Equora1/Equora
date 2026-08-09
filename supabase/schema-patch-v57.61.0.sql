@@ -10,6 +10,9 @@
 
 begin;
 
+set local lock_timeout = '3s';
+set local statement_timeout = '120s';
+
 create schema if not exists extensions;
 create schema if not exists equora_private;
 revoke all on schema equora_private from public, anon, authenticated, service_role;
@@ -30,7 +33,7 @@ revoke all on table equora_private.schema_migrations
 do $$
 declare
   v_migration_id constant text := 'equora_v57.61.0_broker_capture_v1';
-  v_contract_fingerprint constant text := 'e5a5caa3543d8480d1889ae667c279d871bbaf615ae31966e79b56b2f6e472da';
+  v_contract_fingerprint constant text := 'ab08958bdeb88b9637351e2690c08f311d1653f3dba33d4cf11c61d4a81399b6';
   v_existing_fingerprint text;
 begin
   select contract_fingerprint into v_existing_fingerprint
@@ -67,6 +70,16 @@ begin
   end if;
 end;
 $$;
+
+-- Preserve only the user-attestation meaning of the legacy permission pair.
+-- Successful GETs remain capability evidence and never prove that a MEXC key
+-- has no additional provider-side permissions.
+update public.broker_connections
+set permissions = array['read_only_user_attested']::text[],
+    updated_at = clock_timestamp()
+where provider = 'mexc'
+  and permissions @> array['futures_read_verified', 'read_only_confirmed']::text[]
+  and permissions <@ array['futures_read_verified', 'read_only_confirmed']::text[];
 
 create extension if not exists pgcrypto with schema extensions;
 
@@ -825,6 +838,14 @@ create table if not exists public.broker_capture_work_units (
   lease_token_digest text,
   lease_token_format_version text,
   lease_expires_at timestamptz,
+  lease_epoch bigint not null default 0,
+  lease_acquired_at timestamptz,
+  lease_max_expires_at timestamptz,
+  lease_renew_count integer not null default 0,
+  lease_policy_version text,
+  recovery_state text not null default 'none',
+  predecessor_work_unit_id uuid,
+  continuation_generation integer not null default 0,
   row_version bigint not null default 0,
   checkpoint jsonb not null,
   checkpoint_mac text not null,
@@ -872,6 +893,16 @@ create table if not exists public.broker_capture_work_units (
   constraint broker_capture_work_units_id_run_scope_key
     unique (id, run_id, scope_id, user_id, broker_account_id)
 );
+
+alter table public.broker_capture_work_units
+  add column if not exists lease_epoch bigint not null default 0,
+  add column if not exists lease_acquired_at timestamptz,
+  add column if not exists lease_max_expires_at timestamptz,
+  add column if not exists lease_renew_count integer not null default 0,
+  add column if not exists lease_policy_version text,
+  add column if not exists recovery_state text not null default 'none',
+  add column if not exists predecessor_work_unit_id uuid,
+  add column if not exists continuation_generation integer not null default 0;
 
 create index if not exists idx_broker_sync_scopes_owner_account_status_created
   on public.broker_sync_scopes (user_id, broker_account_id, scope_completeness, created_at desc, id);
@@ -2007,6 +2038,7 @@ declare
   v_transition_payload jsonb;
   v_recomputed_transition_mac text;
   v_recomputed_checkpoint_mac text;
+  v_account_lease_row_count bigint := 0;
 begin
   if p_work_unit_id is null
     or p_expected_run_id is null
@@ -2184,8 +2216,8 @@ begin
   if not found
     or v_connection.status <> 'ready'
     or v_connection.credential_reference is distinct from v_activation.active_credential_id
-    or not v_connection.permissions @> array['futures_read_verified', 'read_only_confirmed']::text[]
-    or not v_connection.permissions <@ array['futures_read_verified', 'read_only_confirmed']::text[]
+    or not v_connection.permissions @> array['read_only_user_attested']::text[]
+    or not v_connection.permissions <@ array['read_only_user_attested']::text[]
   then
     raise exception 'CAPTURE_CONNECTION_INACTIVE';
   end if;
@@ -3037,12 +3069,111 @@ begin
       successful_page_count = successful_page_count + 1,
       observed_event_count = observed_event_count + v_event_count,
       response_bytes = response_bytes + p_raw_body_bytes,
+      lease_token_digest = case
+        when p_next_checkpoint_status in ('continue', 'ready') then lease_token_digest
+        else null end,
+      lease_token_format_version = case
+        when p_next_checkpoint_status in ('continue', 'ready') then lease_token_format_version
+        else null end,
+      lease_expires_at = case
+        when p_next_checkpoint_status in ('continue', 'ready') then lease_expires_at
+        else null end,
+      lease_acquired_at = case
+        when p_next_checkpoint_status in ('continue', 'ready') then lease_acquired_at
+        else null end,
+      lease_max_expires_at = case
+        when p_next_checkpoint_status in ('continue', 'ready') then lease_max_expires_at
+        else null end,
+      lease_renew_count = case
+        when p_next_checkpoint_status in ('continue', 'ready') then lease_renew_count
+        else 0 end,
+      lease_policy_version = case
+        when p_next_checkpoint_status in ('continue', 'ready') then lease_policy_version
+        else null end,
       updated_at = clock_timestamp()
   where id = v_work_unit.id
     and row_version = p_expected_work_unit_row_version
     and checkpoint_mac = p_expected_checkpoint_mac
   returning row_version into v_new_work_unit_row_version;
   if not found then raise exception 'CAPTURE_WORK_UNIT_CAS_MISMATCH'; end if;
+
+  if p_next_checkpoint_status in ('continue', 'ready')
+    and to_regclass('public.broker_capture_account_leases') is not null
+  then
+    execute $account_lease_advance$
+      update public.broker_capture_account_leases
+      set work_unit_row_version = $3,
+          row_version = row_version + 1,
+          updated_at = clock_timestamp()
+      where broker_account_id = $1
+        and sync_kind = 'provider_api_observation'
+        and state = 'leased'
+        and work_unit_id = $2
+        and run_id = $4
+        and scope_id = $5
+        and user_id = $6
+        and sync_activation_id = $7
+        and activation_generation = $8
+        and lane_state_id = $9
+        and policy_generation = $10
+        and work_unit_row_version = $11
+        and lease_epoch = $12
+        and lease_token_digest = $13
+        and lease_acquired_at = $14
+        and lease_expires_at = $15
+        and lease_max_expires_at = $16
+        and lease_renew_count = $17
+        and lease_policy_version = 'lease-control-v1'
+    $account_lease_advance$
+    using v_work_unit.broker_account_id, v_work_unit.id,
+      v_new_work_unit_row_version, v_work_unit.run_id, v_work_unit.scope_id,
+      v_work_unit.user_id, v_work_unit.sync_activation_id,
+      v_work_unit.activation_generation, v_work_unit.lane_state_id,
+      v_work_unit.policy_generation, p_expected_work_unit_row_version,
+      v_work_unit.lease_epoch, v_work_unit.lease_token_digest,
+      v_work_unit.lease_acquired_at, v_work_unit.lease_expires_at,
+      v_work_unit.lease_max_expires_at, v_work_unit.lease_renew_count;
+    get diagnostics v_account_lease_row_count = row_count;
+    if v_account_lease_row_count <> 1 then
+      raise exception 'CAPTURE_ACCOUNT_LEASE_CAS_MISMATCH';
+    end if;
+  elsif p_next_checkpoint_status not in ('continue', 'ready')
+    and to_regclass('public.broker_capture_account_leases') is not null
+  then
+    execute $account_lease_release$
+      update public.broker_capture_account_leases
+      set state = 'available', sync_activation_id = null,
+          activation_generation = null, work_unit_id = null, run_id = null,
+          scope_id = null, lane_state_id = null, policy_generation = null,
+          work_unit_row_version = null, lease_epoch = null,
+          lease_token_digest = null, lease_acquired_at = null,
+          lease_expires_at = null, lease_max_expires_at = null,
+          lease_renew_count = null, lease_policy_version = null,
+          row_version = row_version + 1, updated_at = clock_timestamp()
+      where broker_account_id = $1
+        and sync_kind = 'provider_api_observation'
+        and state = 'leased' and work_unit_id = $2
+        and run_id = $3 and scope_id = $4 and user_id = $5
+        and sync_activation_id = $6 and activation_generation = $7
+        and lane_state_id = $8 and policy_generation = $9
+        and work_unit_row_version = $10 and lease_epoch = $11
+        and lease_token_digest = $12 and lease_acquired_at = $13
+        and lease_expires_at = $14 and lease_max_expires_at = $15
+        and lease_renew_count = $16
+        and lease_policy_version = 'lease-control-v1'
+    $account_lease_release$
+    using v_work_unit.broker_account_id, v_work_unit.id, v_work_unit.run_id,
+      v_work_unit.scope_id, v_work_unit.user_id, v_work_unit.sync_activation_id,
+      v_work_unit.activation_generation, v_work_unit.lane_state_id,
+      v_work_unit.policy_generation, p_expected_work_unit_row_version,
+      v_work_unit.lease_epoch, v_work_unit.lease_token_digest,
+      v_work_unit.lease_acquired_at, v_work_unit.lease_expires_at,
+      v_work_unit.lease_max_expires_at, v_work_unit.lease_renew_count;
+    get diagnostics v_account_lease_row_count = row_count;
+    if v_account_lease_row_count <> 1 then
+      raise exception 'CAPTURE_ACCOUNT_LEASE_CAS_MISMATCH';
+    end if;
+  end if;
 
   update public.broker_sync_scopes
   set scope_completeness = case
@@ -3198,7 +3329,7 @@ insert into equora_private.schema_migrations (
   contract_fingerprint
 ) values (
   'equora_v57.61.0_broker_capture_v1',
-  'e5a5caa3543d8480d1889ae667c279d871bbaf615ae31966e79b56b2f6e472da'
+  'ab08958bdeb88b9637351e2690c08f311d1653f3dba33d4cf11c61d4a81399b6'
 ) on conflict (migration_id) do nothing;
 
 do $$
@@ -3273,7 +3404,7 @@ begin
   if not exists (
       select 1 from equora_private.schema_migrations
       where migration_id = 'equora_v57.61.0_broker_capture_v1'
-        and contract_fingerprint = 'e5a5caa3543d8480d1889ae667c279d871bbaf615ae31966e79b56b2f6e472da'
+        and contract_fingerprint = 'ab08958bdeb88b9637351e2690c08f311d1653f3dba33d4cf11c61d4a81399b6'
     )
     or not exists (
       select 1 from pg_class

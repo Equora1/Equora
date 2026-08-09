@@ -104,6 +104,7 @@ export type MexcPageCheckpointReason =
   | 'retry_scheduled'
   | 'retry_budget_reached'
   | 'failure_budget_reached'
+  | 'claim_attempt_budget_reached'
   | 'provider_retry_deferred'
   | 'non_retryable_failure'
   | 'provider_page_number_limit_reached'
@@ -200,6 +201,7 @@ const CHECKPOINT_STATUS_REASONS = Object.freeze({
     'non_retryable_failure',
     'retry_budget_reached',
     'failure_budget_reached',
+    'claim_attempt_budget_reached',
     'provider_retry_deferred',
     'response_exceeds_remaining_budget',
     'provider_page_number_limit_reached',
@@ -706,6 +708,7 @@ function assertCheckpoint(
   const boundedFailureReason = checkpoint.reason === 'retry_scheduled'
     || checkpoint.reason === 'retry_budget_reached'
     || checkpoint.reason === 'failure_budget_reached'
+    || checkpoint.reason === 'claim_attempt_budget_reached'
     || checkpoint.reason === 'resumed_same_work_unit'
   if (boundedFailureReason) {
     if (checkpoint.lastErrorCode === null || !BOUNDED_BACKOFF_ERRORS.has(checkpoint.lastErrorCode)) {

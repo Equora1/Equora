@@ -28,10 +28,11 @@ import {
 } from '@/lib/server/mexc-transport'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 
-export const BROKER_CAPTURE_PAGE_COMMIT_RPC = 'equora_commit_broker_capture_page_v1' as const
+export const BROKER_CAPTURE_PAGE_COMMIT_RPC = 'equora_commit_broker_capture_page_v2' as const
 export const BROKER_CAPTURE_TRANSITION_MAC_VERSION = 'equora-broker-capture-transition-hmac-sha256-v1' as const
 
 export type BrokerCapturePageCommitInput = Readonly<{
+  requestAuthorizationId: string
   leaseToken: string
   integrityKey: Uint8Array
   integrityKeyVersion: string
@@ -53,6 +54,7 @@ export type BrokerCapturePageCommitResult = Readonly<{
 }>
 
 export type BrokerCapturePageRpcArguments = Readonly<{
+  p_request_authorization_id: string
   p_work_unit_id: string
   p_expected_run_id: string
   p_expected_broker_account_id: string
@@ -94,6 +96,64 @@ export type BrokerCapturePageRpcArguments = Readonly<{
   p_events: readonly Readonly<Record<string, unknown>>[]
 }>
 
+export const BROKER_CAPTURE_PAGE_DATABASE_ERROR_CODES = [
+  'CAPTURE_INVALID_INPUT',
+  'CAPTURE_INVALID_DIGEST',
+  'CAPTURE_INVALID_SHAPE',
+  'CAPTURE_RESOURCE_BUDGET_EXCEEDED',
+  'CAPTURE_LOCK_TIMEOUT',
+  'CAPTURE_STATEMENT_TIMEOUT',
+  'CAPTURE_RPC_DEADLINE_EXCEEDED',
+  'CAPTURE_WORK_UNIT_NOT_FOUND',
+  'CAPTURE_PURPOSE_BINDING_MISMATCH',
+  'CAPTURE_LEASE_INVALID',
+  'CAPTURE_WORK_UNIT_CAS_MISMATCH',
+  'CAPTURE_SCOPE_MISMATCH',
+  'CAPTURE_RUN_INVALID',
+  'CAPTURE_ACTIVATION_INACTIVE',
+  'CAPTURE_ACTIVATION_NOT_CURRENT',
+  'CAPTURE_POLICY_NOT_CURRENT',
+  'CAPTURE_HEALTH_BLOCKED',
+  'CAPTURE_REQUEST_AUTHORIZATION_INVALID',
+  'CAPTURE_CONNECTION_INACTIVE',
+  'CAPTURE_CREDENTIAL_INACTIVE',
+  'CAPTURE_INTEGRITY_KEY_INVALID',
+  'CAPTURE_TRANSITION_MAC_MISMATCH',
+  'CAPTURE_CHECKPOINT_MAC_INVALID',
+  'CAPTURE_CHECKPOINT_MAC_MISMATCH',
+  'CAPTURE_ACCOUNT_IDENTITY_INACTIVE',
+  'CAPTURE_LEDGER_CAS_MISMATCH',
+  'CAPTURE_ACCOUNT_LEASE_CAS_MISMATCH',
+  'CAPTURE_PROVIDER_BLOCKED',
+  'CAPTURE_READONLY_CONTRACT_MISMATCH',
+  'CAPTURE_TRANSPORT_CONTRACT_MISMATCH',
+  'CAPTURE_REQUEST_RESULT_REPLAY',
+  'CAPTURE_REQUEST_QUERY_MISMATCH',
+  'CAPTURE_RAW_BODY_INVALID',
+  'CAPTURE_RAW_BODY_DIGEST_MISMATCH',
+  'CAPTURE_BODY_ENVELOPE_MISMATCH',
+  'CAPTURE_BODY_EVENT_MISMATCH',
+  'CAPTURE_NEXT_CHECKPOINT_MISMATCH',
+  'CAPTURE_PAGE_METADATA_MISMATCH',
+  'CAPTURE_PAGE_DIGEST_MISMATCH',
+  'CAPTURE_EVENT_SHAPE_INVALID',
+  'CAPTURE_EVENT_CONTRACT_MISMATCH',
+  'CAPTURE_LEDGER_OCCURRENCE_MISMATCH',
+  'CAPTURE_IDENTITY_COLLISION',
+  'CAPTURE_OBSERVATION_DIGEST_MISMATCH',
+  'CAPTURE_COUNT_MISMATCH',
+  'CAPTURE_PAGE_REPLAY_MISMATCH',
+  'CAPTURE_PARENT_AUTHORITY_MISSING',
+  'CAPTURE_PARENT_AUTHORITY_INVALID',
+  'CAPTURE_ACCOUNT_LEASE_INVALID',
+  'CAPTURE_PAGE_REPLAY_RACE',
+  'SCHEDULER_PARENT_LOCK_TIMEOUT',
+  'SCHEDULER_PARENT_STATEMENT_TIMEOUT',
+] as const
+
+type BrokerCapturePageDatabaseErrorCode =
+  typeof BROKER_CAPTURE_PAGE_DATABASE_ERROR_CODES[number]
+
 type BrokerCapturePersistenceErrorCode =
   | 'invalid_input'
   | 'capture_not_committable'
@@ -101,47 +161,7 @@ type BrokerCapturePersistenceErrorCode =
   | 'capture_transition_mismatch'
   | 'database_error'
   | 'database_result_invalid'
-  | 'CAPTURE_INVALID_INPUT'
-  | 'CAPTURE_INVALID_DIGEST'
-  | 'CAPTURE_INVALID_SHAPE'
-  | 'CAPTURE_RESOURCE_BUDGET_EXCEEDED'
-  | 'CAPTURE_LOCK_TIMEOUT'
-  | 'CAPTURE_STATEMENT_TIMEOUT'
-  | 'CAPTURE_RPC_DEADLINE_EXCEEDED'
-  | 'CAPTURE_WORK_UNIT_NOT_FOUND'
-  | 'CAPTURE_PURPOSE_BINDING_MISMATCH'
-  | 'CAPTURE_LEASE_INVALID'
-  | 'CAPTURE_WORK_UNIT_CAS_MISMATCH'
-  | 'CAPTURE_SCOPE_MISMATCH'
-  | 'CAPTURE_RUN_INVALID'
-  | 'CAPTURE_ACTIVATION_INACTIVE'
-  | 'CAPTURE_ACTIVATION_NOT_CURRENT'
-  | 'CAPTURE_CONNECTION_INACTIVE'
-  | 'CAPTURE_CREDENTIAL_INACTIVE'
-  | 'CAPTURE_INTEGRITY_KEY_INVALID'
-  | 'CAPTURE_TRANSITION_MAC_MISMATCH'
-  | 'CAPTURE_CHECKPOINT_MAC_INVALID'
-  | 'CAPTURE_CHECKPOINT_MAC_MISMATCH'
-  | 'CAPTURE_ACCOUNT_IDENTITY_INACTIVE'
-  | 'CAPTURE_LEDGER_CAS_MISMATCH'
-  | 'CAPTURE_PROVIDER_BLOCKED'
-  | 'CAPTURE_READONLY_CONTRACT_MISMATCH'
-  | 'CAPTURE_TRANSPORT_CONTRACT_MISMATCH'
-  | 'CAPTURE_REQUEST_RESULT_REPLAY'
-  | 'CAPTURE_REQUEST_QUERY_MISMATCH'
-  | 'CAPTURE_RAW_BODY_INVALID'
-  | 'CAPTURE_RAW_BODY_DIGEST_MISMATCH'
-  | 'CAPTURE_BODY_ENVELOPE_MISMATCH'
-  | 'CAPTURE_BODY_EVENT_MISMATCH'
-  | 'CAPTURE_NEXT_CHECKPOINT_MISMATCH'
-  | 'CAPTURE_PAGE_METADATA_MISMATCH'
-  | 'CAPTURE_PAGE_DIGEST_MISMATCH'
-  | 'CAPTURE_EVENT_SHAPE_INVALID'
-  | 'CAPTURE_EVENT_CONTRACT_MISMATCH'
-  | 'CAPTURE_LEDGER_OCCURRENCE_MISMATCH'
-  | 'CAPTURE_IDENTITY_COLLISION'
-  | 'CAPTURE_OBSERVATION_DIGEST_MISMATCH'
-  | 'CAPTURE_COUNT_MISMATCH'
+  | BrokerCapturePageDatabaseErrorCode
 
 export class BrokerCapturePersistenceError extends Error {
   constructor(
@@ -161,49 +181,9 @@ const MAX_SERIALIZED_NODES = 100_000
 const MAX_TRANSITION_DEPTH = 64
 const BROKER_CAPTURE_TRANSITION_DOMAIN = 'equora-broker-capture-transition-v1'
 
-const DATABASE_CODES = new Set<BrokerCapturePersistenceErrorCode>([
-  'CAPTURE_INVALID_INPUT',
-  'CAPTURE_INVALID_DIGEST',
-  'CAPTURE_INVALID_SHAPE',
-  'CAPTURE_RESOURCE_BUDGET_EXCEEDED',
-  'CAPTURE_LOCK_TIMEOUT',
-  'CAPTURE_STATEMENT_TIMEOUT',
-  'CAPTURE_RPC_DEADLINE_EXCEEDED',
-  'CAPTURE_WORK_UNIT_NOT_FOUND',
-  'CAPTURE_PURPOSE_BINDING_MISMATCH',
-  'CAPTURE_LEASE_INVALID',
-  'CAPTURE_WORK_UNIT_CAS_MISMATCH',
-  'CAPTURE_SCOPE_MISMATCH',
-  'CAPTURE_RUN_INVALID',
-  'CAPTURE_ACTIVATION_INACTIVE',
-  'CAPTURE_ACTIVATION_NOT_CURRENT',
-  'CAPTURE_CONNECTION_INACTIVE',
-  'CAPTURE_CREDENTIAL_INACTIVE',
-  'CAPTURE_INTEGRITY_KEY_INVALID',
-  'CAPTURE_TRANSITION_MAC_MISMATCH',
-  'CAPTURE_CHECKPOINT_MAC_INVALID',
-  'CAPTURE_CHECKPOINT_MAC_MISMATCH',
-  'CAPTURE_ACCOUNT_IDENTITY_INACTIVE',
-  'CAPTURE_LEDGER_CAS_MISMATCH',
-  'CAPTURE_PROVIDER_BLOCKED',
-  'CAPTURE_READONLY_CONTRACT_MISMATCH',
-  'CAPTURE_TRANSPORT_CONTRACT_MISMATCH',
-  'CAPTURE_REQUEST_RESULT_REPLAY',
-  'CAPTURE_REQUEST_QUERY_MISMATCH',
-  'CAPTURE_RAW_BODY_INVALID',
-  'CAPTURE_RAW_BODY_DIGEST_MISMATCH',
-  'CAPTURE_BODY_ENVELOPE_MISMATCH',
-  'CAPTURE_BODY_EVENT_MISMATCH',
-  'CAPTURE_NEXT_CHECKPOINT_MISMATCH',
-  'CAPTURE_PAGE_METADATA_MISMATCH',
-  'CAPTURE_PAGE_DIGEST_MISMATCH',
-  'CAPTURE_EVENT_SHAPE_INVALID',
-  'CAPTURE_EVENT_CONTRACT_MISMATCH',
-  'CAPTURE_LEDGER_OCCURRENCE_MISMATCH',
-  'CAPTURE_IDENTITY_COLLISION',
-  'CAPTURE_OBSERVATION_DIGEST_MISMATCH',
-  'CAPTURE_COUNT_MISMATCH',
-])
+const DATABASE_CODES = new Set<BrokerCapturePageDatabaseErrorCode>(
+  BROKER_CAPTURE_PAGE_DATABASE_ERROR_CODES,
+)
 
 function fail(code: BrokerCapturePersistenceErrorCode, message: string): never {
   throw new BrokerCapturePersistenceError(code, message)
@@ -390,8 +370,13 @@ export function buildBrokerCapturePageRpcArguments(input: BrokerCapturePageCommi
     'integrityKey',
     'integrityKeyVersion',
     'leaseToken',
+    'requestAuthorizationId',
     'wireResponse',
   ], 'Broker Capture Commit Input')
+  const requestAuthorizationId = uuid(
+    input.requestAuthorizationId,
+    'requestAuthorizationId',
+  )
   const leaseToken = uuid(input.leaseToken, 'leaseToken')
   const transitionIntegrityKey = integrityKey(input.integrityKey)
   const transitionIntegrityKeyVersion = integrityKeyVersion(input.integrityKeyVersion)
@@ -495,6 +480,7 @@ export function buildBrokerCapturePageRpcArguments(input: BrokerCapturePageCommi
     transitionIntegrityKey.fill(0)
   }
   return Object.freeze({
+    p_request_authorization_id: requestAuthorizationId,
     ...unsignedArguments,
     p_transition_mac: transitionMac,
   })
@@ -503,8 +489,8 @@ export function buildBrokerCapturePageRpcArguments(input: BrokerCapturePageCommi
 function databaseErrorCode(message: string | undefined, structuredCode: string | undefined) {
   if (structuredCode === '55P03') return 'CAPTURE_LOCK_TIMEOUT'
   if (structuredCode === '57014') return 'CAPTURE_STATEMENT_TIMEOUT'
-  const match = message?.match(/\bCAPTURE_[A-Z_]+\b/)
-  const code = match?.[0] as BrokerCapturePersistenceErrorCode | undefined
+  const match = message?.match(/\b(?:CAPTURE|SCHEDULER_PARENT)_[A-Z_]+\b/)
+  const code = match?.[0] as BrokerCapturePageDatabaseErrorCode | undefined
   return code && DATABASE_CODES.has(code) ? code : null
 }
 

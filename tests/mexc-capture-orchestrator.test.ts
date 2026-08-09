@@ -58,6 +58,7 @@ const REQUEST_RESULT_REFERENCE = Object.freeze({
   referenceType: 'provider_request_result_id_v1' as const,
   value: uuid('request-result'),
 })
+const REQUEST_AUTHORIZATION_ID = uuid('request-authorization')
 
 function responseAt(url: string, body: BodyInit | null, init: ResponseInit = {}) {
   const response = new Response(body, init)
@@ -190,7 +191,26 @@ async function authenticWireResponse(
         connectionAccountId: captureBinding.connectionAccountId,
         syncActivationId: captureBinding.syncActivationId,
         activationGeneration: captureBinding.activationGeneration,
-      }))
+      }), options.withoutBinding
+        ? undefined
+        : async (context) => Object.freeze({
+            status: 'request_authorized' as const,
+            requestAuthorizationId: REQUEST_AUTHORIZATION_ID,
+            sendDeadlineAt: new Date(SERVER_TIME + 5_000).toISOString(),
+            workUnitId: context.workUnitId,
+            requestSequence: context.requestSequence,
+            capabilityId: context.capabilityId,
+            scopeDigest: context.scopeDigest,
+            credentialReference: Object.freeze({
+              id: uuid('credential'),
+              keyVersion: 'test_v1',
+            }),
+            authorityBlocked: true as const,
+          }),
+      options.withoutBinding
+        ? undefined
+        : Object.freeze({ absoluteDeadlineAtMs: SERVER_TIME + 60_000 }),
+    )
   const outcome = result.outcomes[0]
   if (!outcome || outcome.status !== 'wire_succeeded') throw new Error('Expected authentic successful fixture response')
   return outcome.response
@@ -399,6 +419,7 @@ describe('closed MEXC capture orchestrator', () => {
     const secondWireResponse = await authenticWireResponse('historical_orders_v1', [order()])
 
     expect(() => buildBrokerCapturePageRpcArguments({
+      requestAuthorizationId: REQUEST_AUTHORIZATION_ID,
       leaseToken: uuid('lease-token'),
       integrityKey: CHECKPOINT_KEY,
       integrityKeyVersion: 'test_v1',
@@ -488,6 +509,7 @@ describe('closed MEXC capture orchestrator', () => {
     const wireResponse = await authenticWireResponse('historical_orders_v1', [order()])
     const capturedPage = applyMexcCapturedPage(captureInput(wireResponse))
     const args = buildBrokerCapturePageRpcArguments({
+      requestAuthorizationId: REQUEST_AUTHORIZATION_ID,
       leaseToken: uuid('lease-token'),
       integrityKey: CHECKPOINT_KEY,
       integrityKeyVersion: 'test_v1',
@@ -497,6 +519,7 @@ describe('closed MEXC capture orchestrator', () => {
     })
     expect(args.p_transition_mac).toBe('649a5134e60d5543d8e46737ae627850170431acccb925d430904295f17d0dee')
     expect(args).toMatchObject({
+      p_request_authorization_id: REQUEST_AUTHORIZATION_ID,
       p_work_unit_id: uuid('work-unit'),
       p_expected_run_id: RUN_REFERENCE.value,
       p_expected_broker_account_id: syncScope().brokerAccountId,
@@ -543,6 +566,7 @@ describe('closed MEXC capture orchestrator', () => {
     expect(JSON.parse(args.p_events[0]!.rawPayloadJson as string)).toMatchObject({ orderId: '123', symbol: 'BTC_USDT' })
 
     expect(() => buildBrokerCapturePageRpcArguments({
+      requestAuthorizationId: REQUEST_AUTHORIZATION_ID,
       leaseToken: uuid('lease-token'),
       integrityKey: CHECKPOINT_KEY,
       integrityKeyVersion: 'test_v1',
@@ -552,6 +576,7 @@ describe('closed MEXC capture orchestrator', () => {
     })).toThrowError(/Orchestratorprovenienz/)
 
     expect(() => buildBrokerCapturePageRpcArguments({
+      requestAuthorizationId: REQUEST_AUTHORIZATION_ID,
       leaseToken: uuid('lease-token'),
       integrityKey: CHECKPOINT_KEY,
       integrityKeyVersion: 'test_v1',
@@ -565,6 +590,7 @@ describe('closed MEXC capture orchestrator', () => {
     const wireResponse = await authenticWireResponse('historical_orders_v1', [order()])
     const capturedPage = applyMexcCapturedPage(captureInput(wireResponse))
     const input = {
+      requestAuthorizationId: REQUEST_AUTHORIZATION_ID,
       leaseToken: uuid('lease-token'),
       integrityKey: CHECKPOINT_KEY,
       integrityKeyVersion: 'test_v1',
@@ -596,7 +622,7 @@ describe('closed MEXC capture orchestrator', () => {
       authorityBlocked: true,
     })
     expect(rpc).toHaveBeenCalledTimes(1)
-    expect(rpc.mock.calls[0]?.[0]).toBe('equora_commit_broker_capture_page_v1')
+    expect(rpc.mock.calls[0]?.[0]).toBe('equora_commit_broker_capture_page_v2')
 
     const forgedRpc = vi.fn(async (_name: string, _args: unknown) => ({
       data: {
@@ -616,15 +642,29 @@ describe('closed MEXC capture orchestrator', () => {
       .rejects.toMatchObject({ code: 'database_result_invalid' })
   })
 
-  it('maps database capture rejections to closed codes without returning SQL details', async () => {
+  it.each([
+    'CAPTURE_TRANSITION_MAC_MISMATCH',
+    'CAPTURE_POLICY_NOT_CURRENT',
+    'CAPTURE_HEALTH_BLOCKED',
+    'CAPTURE_REQUEST_AUTHORIZATION_INVALID',
+    'CAPTURE_ACCOUNT_LEASE_CAS_MISMATCH',
+    'CAPTURE_PAGE_REPLAY_MISMATCH',
+    'CAPTURE_PARENT_AUTHORITY_MISSING',
+    'CAPTURE_PARENT_AUTHORITY_INVALID',
+    'CAPTURE_ACCOUNT_LEASE_INVALID',
+    'CAPTURE_PAGE_REPLAY_RACE',
+    'SCHEDULER_PARENT_LOCK_TIMEOUT',
+    'SCHEDULER_PARENT_STATEMENT_TIMEOUT',
+  ] as const)('maps database capture rejection %s to a closed code without SQL details', async (databaseCode) => {
     const wireResponse = await authenticWireResponse('historical_orders_v1', [order()])
     const capturedPage = applyMexcCapturedPage(captureInput(wireResponse))
     const rpc = vi.fn(async (_name: string, _args: unknown) => ({
       data: null,
-      error: { message: 'P0001: CAPTURE_TRANSITION_MAC_MISMATCH internal tenant detail' },
+      error: { message: `P0001: ${databaseCode} internal tenant detail` },
     }))
 
     const rejection = commitBrokerCapturePageWithClient({ rpc } as never, {
+      requestAuthorizationId: REQUEST_AUTHORIZATION_ID,
       leaseToken: uuid('lease-token'),
       integrityKey: CHECKPOINT_KEY,
       integrityKeyVersion: 'test_v1',
@@ -634,8 +674,30 @@ describe('closed MEXC capture orchestrator', () => {
     })
     await expect(rejection).rejects.toBeInstanceOf(BrokerCapturePersistenceError)
     await expect(rejection).rejects.toMatchObject({
-      code: 'CAPTURE_TRANSITION_MAC_MISMATCH',
+      code: databaseCode,
       message: 'Der atomare Broker-Page-Commit wurde von der Datenbank abgelehnt.',
+    })
+  })
+
+  it('keeps unknown Page database codes generic and sanitized', async () => {
+    const wireResponse = await authenticWireResponse('historical_orders_v1', [order()])
+    const capturedPage = applyMexcCapturedPage(captureInput(wireResponse))
+    const rpc = vi.fn(async (_name: string, _args: unknown) => ({
+      data: null,
+      error: { message: 'P0001: CAPTURE_FUTURE_CODE internal tenant detail' },
+    }))
+
+    await expect(commitBrokerCapturePageWithClient({ rpc } as never, {
+      requestAuthorizationId: REQUEST_AUTHORIZATION_ID,
+      leaseToken: uuid('lease-token'),
+      integrityKey: CHECKPOINT_KEY,
+      integrityKeyVersion: 'test_v1',
+      expectedWorkUnitRowVersion: 7,
+      wireResponse,
+      capturedPage,
+    })).rejects.toMatchObject({
+      code: 'database_error',
+      message: 'Der atomare Broker-Page-Commit ist fehlgeschlagen; es wurden keine Teilergebnisse akzeptiert.',
     })
   })
 
@@ -648,6 +710,7 @@ describe('closed MEXC capture orchestrator', () => {
     }))
 
     await expect(commitBrokerCapturePageWithClient({ rpc } as never, {
+      requestAuthorizationId: REQUEST_AUTHORIZATION_ID,
       leaseToken: uuid('lease-token'),
       integrityKey: CHECKPOINT_KEY,
       integrityKeyVersion: 'test_v1',
@@ -672,6 +735,7 @@ describe('closed MEXC capture orchestrator', () => {
     }))
 
     await expect(commitBrokerCapturePageWithClient({ rpc } as never, {
+      requestAuthorizationId: REQUEST_AUTHORIZATION_ID,
       leaseToken: uuid('lease-token'),
       integrityKey: CHECKPOINT_KEY,
       integrityKeyVersion: 'test_v1',

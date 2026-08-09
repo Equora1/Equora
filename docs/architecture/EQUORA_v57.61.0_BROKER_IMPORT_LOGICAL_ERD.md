@@ -4,11 +4,11 @@
 
 | Feld | Wert |
 |---|---|
-| Designstatus | `DESIGN_ACCEPTED v10 – G0 GO, NO DDL` |
-| Implementierungsstatus | `NOT STARTED`; Schema-/DB-Tests gehören G5/G6 |
+| Designstatus | `DESIGN_ACCEPTED v15 – G1 Egress/permit-expiry/cross-layer/v1-core hardening incorporated; G0 DESIGN ONLY` |
+| Implementierungsstatus | `G1 IN PROGRESS – NO-GO`; lokale Capture-Control-, Lane-/Gap-/Health-, Activation-/Request-Authority- und inaktive Scheduler-/Lease-Control-Teildeltas vorhanden, produktive Runtime und Gesamtimplementierung offen |
 | Providerevidenzstatus | über Providervertrag; globale Vollständigkeit bleibt unbelegt, prospektive Coverage wird scopegenau und fail-closed modelliert |
 | Gate G0 | `GO – DESIGN ONLY`; Schema-/DB-Evidenz folgt G5/G6 |
-| Stand | 2026-08-05, Europe/Berlin |
+| Stand | 2026-08-08, Europe/Berlin |
 | Scope | Providerneutraler Brokerimport-Kern; MEXC v57.61.0 prospektiver API-Adapter; Excel-Export als separat gegatete Dateiquelle |
 | Owner | A2 |
 | Pflichtreviews | A5, A4, A3 |
@@ -81,12 +81,14 @@ erDiagram
     BROKER_CONNECTION ||--o{ BROKER_CREDENTIAL : authenticates_with
     BROKER_CONNECTION_ACCOUNT ||--o{ SYNC_ACTIVATION_SERIES : groups
     SYNC_ACTIVATION_SERIES ||--o{ SYNC_ACTIVATION : generations
-    SYNC_ACTIVATION ||--o{ SYNC_LANE_STATE : monitors
+    SYNC_ACTIVATION ||--o{ SYNC_LANE_REQUIREMENT : requires
+    SYNC_LANE_REQUIREMENT ||--o{ SYNC_LANE_STATE : realizes
     BROKER_ACCOUNT ||--o{ SYNC_SCOPE : owns
     SYNC_ACTIVATION ||--o{ SYNC_SCOPE : bounds
     SYNC_LANE_STATE ||--o{ SYNC_SCOPE : schedules
     SYNC_SCOPE ||--o{ SYNC_RUN : executes
     SYNC_SCOPE ||--o{ SYNC_GAP : records
+    SYNC_LANE_STATE ||--o{ SYNC_GAP : detects
     SYNC_RUN ||--o{ SYNC_WORK_UNIT : contains
     SYNC_WORK_UNIT ||--o{ PROVIDER_REQUEST_RESULT : records
     BROKER_ACCOUNT ||--o{ SOURCE_ARTIFACT : owns
@@ -574,8 +576,13 @@ mit Generation `1` und setzt den Current-Pointer atomar. Eine Reaktivierung nach
 Adapter-, Profil-, Capability- oder Boundarygeneration sperrt dieselbe Series,
 erzeugt eine neue Aktivierungszeile mit neuer ID und `max(generation)+1`, setzt
 eine zuvor current/arbeitsfähige Vorgängerzeile im selben Commit auf `inactive`,
-invalidiert deren Jobs, Retries, Catch-ups und Leases und verschiebt den Current-
-Pointer auf die Nachfolgegeneration. Ein bereits `revoked`er Vorgänger bleibt
+  invalidiert deren Jobs, Retries, Catch-ups und Leases und verschiebt den Current-
+  Pointer auf die Nachfolgegeneration. Die sofortige Autoritätsinvalidierung
+  entsteht ausschließlich durch den atomaren Current-Pointer-/Lifecycle-Fence;
+  alte Work Units verlieren damit ohne inversen `Series -> Work Unit`-Lock jede
+  Claim-, Renew-, Commit- und Request-Autorität. Physische Status-/Tokenbereinigung
+  ist nachgelagert, idempotent und niemals Autoritätsvoraussetzung. Ein bereits
+  `revoked`er Vorgänger bleibt
 `revoked`. ID, Series, Generation und Pins historischer Aktivierungszeilen
 bleiben unveränderlich. Zwei parallele Generationswechsel werden durch Series-
 Row-Lock plus `series_row_version` serialisiert; der Verlierer muss neu lesen und
@@ -652,22 +659,61 @@ Pflichtattribute:
 Profils für diesen Scope technisch erfolgreich gelesen wurden. Es beweist
 weder Providerretention noch Abwesenheit einer stillen Provideromission.
 
-#### SYNC_LANE_STATE
+#### SYNC_LANE_REQUIREMENT
 
-**Grain:** Health genau einer disjunkten Pflichtlane innerhalb Aktivierung,
-Capability, typisiertem Instrument-/Accountscope und gepinnter Profil-/
-Policygeneration.
+**Grain:** eine eigenständige Sollanforderung für genau eine Capability und
+einen typisierten Instrument-/Accountscope innerhalb einer Aktivierungsgeneration
+und Policygeneration.
 
 Pflichtattribute:
 
-- Unique Key `(sync_activation_id, activation_generation, broker_account_id,
-  capability_id, instrument_scope_key, lane_id, profile_id, profile_version,
-  policy_generation)`;
+- exakte Aktivierungs-, Tenant- und Brokerkontobindung sowie Providercontract-,
+  Adapter-, Profil- und Capabilityversion;
+- `capability_id`, `instrument_scope_key`, `policy_generation` und
+  `requirement_source` `activation_plan`, `instrument_discovery` oder
+  `explicit_account_scope`;
+- Current-Unique-Key je Aktivierungsgeneration, Capability,
+  Instrument-/Accountscope und Profil; Supersession erhält die alte Zeile;
+- eindeutiger Authority-Key, an den jede `SYNC_LANE_STATE`-Zeile per
+  `lane_requirement_id` und allen fachlichen Identitätsfeldern gebunden ist.
+
+Diese Entität ist bewusst unabhängig von bereits existierenden Lane States.
+`derive_capture_health_v1` zählt die aktuellen Requirements als Soll-Grains und
+erwartet je Grain exakt die drei MEXC-API-Pflichtlanes. Besitzt eine im
+Aktivierungsprofil geforderte Capability noch keine aktuelle Requirement,
+repräsentiert die Ableitung sie zusätzlich als einen fehlenden Capability-
+Platzhalter mit drei fehlenden Lanes. Damit kann ein noch nie angelegtes zweites
+Instrument nicht als vollständig gesund erscheinen.
+
+#### SYNC_LANE_STATE
+
+**Grain:** Health genau einer disjunkten Pflichtlane einer
+`SYNC_LANE_REQUIREMENT` innerhalb Aktivierung, Capability, typisiertem
+Instrument-/Accountscope und gepinnter Profil-/Policygeneration.
+
+Pflichtattribute:
+
+- exakter FK über `lane_requirement_id`, Activation, Account, Capability,
+  Capabilityversion, Instrument-/Accountscope, Profil und Policygeneration;
+- Current-Unique-Key `(sync_activation_id, activation_generation,
+  broker_account_id, capability_id, instrument_scope_key, lane_id, profile_id,
+  profile_version)`; historische Policygenerationen bleiben superseded erhalten;
 - `lane_id` für den MEXC-API-Scope genau
   `incremental_fast_6h`, `rolling_audit_7d_daily` oder
   `rolling_audit_28d_weekly`; Onboarding- und manuelle File-Lanes besitzen
   eigene IDs und können keinen dieser Zustände überschreiben;
 - `last_complete_at`, `next_due_at`, letzter vollständiger Scope-Digest;
+- High-Watermark-Zeit, Tie-Breaker, Contractversion und kanonischer Digest über
+  den gesamten Authority-Grain und letzten Complete-Scope. `not_observed`
+  verbietet diese Felder; `healthy` verlangt sie vollständig. Monotone
+  Fortschreibung/CAS erfolgt erst über einen späteren geschlossenen Server-RPC;
+- Composite-FK von `last_complete_scope_id` plus
+  `last_complete_scope_digest` auf die echte Scope-ID/-Digest-Kombination. Die
+  read-only Health-Ableitung akzeptiert `healthy` nur bei exact-scoped,
+  geschlossenem, `complete_for_profile`, stability-/source-/coverage-kompatiblem
+  Scope und `last_complete_at >= closed_at`; sonst wird
+  `invalidCompleteScopeLaneCount` erhöht und das Aggregat fail-closed
+  `degraded`;
 - letzter Fehler und optionale offene Gap-Referenz;
 - autoritatives `health` `healthy`, `degraded`, `gap_requires_export` oder
   `paused`.
@@ -686,29 +732,42 @@ if activation_state = revoked:
   capture_health = revoked
 else if activation_state = paused:
   capture_health = paused
-else if activation_state in (inactive, blocked_permission_evidence, pending)
-     or any required lane key is absent/not_observed:
+else if activation_state in (inactive, blocked_permission_evidence, pending):
   capture_health = pending
-else if any current required lane health = gap_requires_export:
+else if activation_state = active
+     and (any effective requires-export/unsupported/invalid-reconciliation gap
+       in this activation generation or any current lane health = gap_requires_export):
   capture_health = gap_requires_export
-else if any current required lane health = degraded
-     or any required lane is overdue
-     or any required lane has an open non-export gap:
+else if activation_state = active
+     and any required lane key is absent/not_observed:
+  capture_health = pending
+else if activation_state = active
+     and (any current required lane health = degraded
+       or any required lane is overdue
+       or any required lane has an open non-export gap
+       or any persisted-healthy lane has invalid Complete-Scope evidence):
   capture_health = degraded
 else if activation_state = active
-     and every current required lane health = healthy:
+     and every current required lane health = healthy
+     and every current required lane has valid Complete-Scope evidence:
   capture_health = healthy
 else:
   capture_health = pending
 ```
 
-Die Lebenszykluspräzedenz `revoked > paused` steuert, ob überhaupt gearbeitet
+Bei aktiver Aktivierung maskiert ein gleichzeitig fehlender Lane Key keine
+bereits bekannte Export-Recoverylage als bloßes `pending`. Die
+Lebenszykluspräzedenz `revoked > paused` steuert, ob überhaupt gearbeitet
 werden darf; sie löscht keine strengere darunterliegende Lane-/Gap-Evidenz. Nach
-Resume wird die Funktion aus den unveränderten aktuellen Lane States neu
-berechnet, sodass ein offener Exportgap wieder `gap_requires_export` ergibt.
+Resume wird die Funktion aus aktuellen Requirements, den dazugehörigen aktuellen
+Lane States und sämtlichen Gaps derselben Aktivierungsgeneration neu berechnet,
+sodass ein Gap einer superseded Policy weiterhin `gap_requires_export` ergibt.
 Candidate, Auswahl, Approval, Import, Recovery und Lane-Healing lesen immer
-`activation_state` plus aktuelle `SYNC_LANE_STATE`-Zeilen und niemals einen
-Run-/Scope-Snapshot als Autorität.
+`activation_state` plus diese Requirement-/Lane-/Gap-Authority und niemals einen
+Run-/Scope-Snapshot als Autorität. Die JSON-Ableitung weist
+`requiresExportGapCount`, `invalidReconciliationCount` und
+`exportBlockedLaneCount` getrennt aus; sie darf Gap- und Lane-Befunde nicht als
+eine vermeintliche Anzahl zusammenzählen.
 
 #### SYNC_GAP
 
@@ -723,10 +782,25 @@ Pflichtattribute:
 - Ursache `scheduler_lapse`, `provider_error`, `permission`, `paging`,
   `unknown_boundary`, `schema_change` oder `manual_pause`;
 - Status `open`, `degraded`, `requires_export`, `reconciled`, `unsupported`;
+- `required_resolution_source` `complete_api_scope` oder
+  `provider_export_scope`; unbekannte Grenzen sowie `requires_export` und
+  `unsupported` verlangen `provider_export_scope`;
 - Reason Code, darunter `gap_unproven`, falls ein Candidate einen bekannten
   unbelegten oder unprüfbaren Zeitraum schneidet;
-- Entdeckungs-, letzte Prüf- und optionale Auflösungsreferenz;
-- keine erfundene „0 Events“-Auflösung.
+- Entdeckungs-, letzte Prüf- und optionale Auflösungsreferenz, gebundener
+  Resolution-Scope-Digest, Contractversion und kanonischer Evidence-Digest;
+- ein Gap bleibt über Policy-/Lane-Supersession hinweg innerhalb derselben
+  Aktivierungsgeneration wirksam;
+- `reconciled` ist nur effektiv, wenn der referenzierte Scope exakt dieselbe
+  Tenant-/Account-/Activation-/Capability-/Instrument-/Lane-/Profilidentität
+  besitzt, geschlossen und `complete_for_profile` ist, beide bekannten
+  Gapgrenzen abdeckt, die geforderte API-/Exportquelle erfüllt und sein echter
+  Scope-Digest im kanonischen Resolution-Digest gebunden ist. Andernfalls wird
+  der Befund fail-closed als `invalid_reconciliation` exportblockierend
+  abgeleitet;
+- keine erfundene „0 Events“-Auflösung und kein frei gewählter Digest. Der
+  autoritative Reconciliation-Übergang bleibt bis zu einem geschlossenen
+  serverseitigen Mutations-RPC offen.
 
 #### SYNC_RUN
 
@@ -1735,6 +1809,228 @@ Der G0-Designstatus des ERD kann `REVIEWED` werden, wenn:
 RLS-/Grant-, Zwei-Tenant-, Source-Summen-, Digest-Golden- und
 Transportnegativtests voraus. Diese Ausführung ist kein G0-Kriterium.
 
-**Designstatus dieses Artefakts: `v10 DESIGN_ACCEPTED / G0 ROUTING PASS /
-G0 GO – DESIGN ONLY`; Implementierung nicht
-begonnen.**
+**Designstatus dieses Artefakts: `v12 DESIGN_ACCEPTED / G1 required-grain,
+policy-durable gap, reconciliation and watermark remediation incorporated;
+G0 bleibt DESIGN ONLY`.**
+
+## Lokales G1-Authority-Schema-Delta
+
+Das additive Aktivierungsdelta ergänzt die logische Kette um drei geschlossene
+Kontrollentitäten:
+
+```text
+BROKER_SYNC_ACTIVATION_COMMAND
+  -> atomarer Current-Pointer / immutable Activation Generation
+  -> SYNC_LANE_REQUIREMENT -> 3 SYNC_LANE_STATE
+
+BROKER_SYNC_AUTHORITY_MUTATION_RECEIPT
+  -> genau ein kanonischer Mutationseingang und unveränderliches Ergebnis
+
+BROKER_CAPTURE_REQUEST_AUTHORIZATION
+  -> Work Unit + Run + Scope + Activation + Policy + Credential + Requestseq.
+  -> append-once Page-Inputdigest + gespeichertes Page-Ergebnis + Commitzeit
+```
+
+`BROKER_SYNC_SCOPE` und `BROKER_CAPTURE_WORK_UNIT` besitzen jetzt eine
+NOT-NULL-Bindung an Requirement, Lane-State, Policygeneration,
+Authority-Contract und Authority-Digest. `BROKER_CAPTURE_RUN` bindet den
+kanonischen Authority-Plan-Digest. Composite-FKs verhindern Cross-Tenant-,
+Cross-Account-, Cross-Activation-, Cross-Generation- und Cross-Policy-Reuse.
+
+Die Current-Menge einer neuen Activation besteht atomar aus vier
+Account-Scope-Requirements und zwölf `not_observed`-Lanes. Discovery erzeugt
+ein weiteres Requirement plus drei Lanes. Policy-Supersession überschreibt
+nichts: alte Requirements, Lanes, Watermarks, Receipts und Gaps bleiben
+historisch; ungelöste Gaps wirken für die gesamte Activation Generation weiter.
+
+Eine aktuelle Legacy-Zeile ohne vollständige Series-/Activation-/Authority-
+Bindung ist keine in-place mutierbare Activation. Pause, Resume und Revoke
+scheitern fail-closed; nur `activate` superseded auf eine neue vollständig
+gebundene ID/Generation und setzt den ungebundenen Vorgänger historisch
+`inactive`. Autorität wird dem Vorgänger nicht rückwirkend ergänzt.
+
+Die Request-Freigabe ist Single-use für Credentialzugriff und jeden Broker-GET,
+einschließlich des öffentlichen Serverzeit-GET. Fehlende, abgelaufene oder
+scopefalsche Freigaben erzeugen null Fetch und null Credentialzugriff. Ihre Health-
+und Zeitentscheidung wird mit einem erst nach der vollständigen Authority-
+Lockkette gelesenen `clock_timestamp()` getroffen; eine während der Wartezeit
+überfällige Lane blockiert den Permit. Ein bereits autorisierter öffentlicher
+Serverzeit-GET kann nach seinem Start nicht zurückgenommen werden; nach seiner
+Antwort wird die Permitfrist jedoch vor jedem Credentialzugriff erneut geprüft.
+Ablauf während dieses in-flight GET bedeutet daher null Credentialload und null
+privaten GET. Der erste erfolgreiche v2-Page-Commit
+schreibt im selben Commit sein append-once Input-/Result-Receipt. Exakter Replay
+liefert dieses Ergebnis auch nach späterem Lifecyclewechsel, abweichender Input
+scheitert ohne Raw-, Event-, Checkpoint-, Counter- oder Requestwirkung.
+Wenn ein paralleler Replay am Work-Unit-Lock des Erstschreibers gewartet hat,
+wird das danach sichtbare immutable Receipt vor Run-, Parent-, Scope-, Health-
+und Lease-Autorität erneut gelesen. Der Work-Unit-Lock bleibt dabei das
+Serialisierungsobjekt; die Request-Autorisierung wird im Replay-Fast-Path nicht
+zusätzlich gesperrt.
+
+Die drei neuen Kontrolltabellen besitzen RLS, aber keine direkten DML-Rechte
+für `anon`, `authenticated` oder `service_role`. Zugriff erfolgt nur über den
+ownergebundenen Activation-Intent und enge service-role-only RPCs. Die
+Migration pinnt kritische Constraint- und Indexdefinitionen semantisch per
+SHA-256. Der Funktionsowner erhält je Tabelle nur exakt erforderliche
+`SELECT`-/`INSERT`-/`UPDATE`-Rechte, nie `DELETE`; der Postflight prüft diese ACLs
+sowie Function-ACLs über alle mit `aclexplode` ermittelten Grantees gegen eine
+vollständige Allowlist; die intern delegierten v1-Claim-/Page-/Failure-Kern-RPCs
+gehören ausdrücklich dazu. Zusätzliche Grants aus früheren Läufen oder Default
+Privileges werden vor der Sollvergabe entfernt. Bestehender Ownerdrift der drei
+Authoritytabellen wird vor jeder Tabellen-DDL abgewiesen; gesunde Fresh-/
+Re-Run-Pfade pinnen `postgres` als Owner und prüfen ihn zusätzlich im
+Postflight.
+Die drei internen v1-Claim-/Page-/Failure-RPCs sind zusätzlich exakt auf
+`owner=postgres`, `SECURITY DEFINER`, `search_path=''` und ihre 10/15/10-
+Sekunden-Timeouts gepinnt. Ein späterer Capture-Control-Re-Run hält bei
+vorhandenem Activation-Marker v1 Claim/Failure für `service_role` geschlossen
+und erhält ausschließlich den internen `NOLOGIN`-Ownerpfad.
+Vollständig qualifizierte `regprocedure`-Signaturen, Function-Eigentümer,
+`SECURITY DEFINER`, `search_path=''` und beide Timeouts bleiben ebenfalls
+Postflight-Invarianten. Claim-Receipt und letzter Work-Unit-Fehler bilden
+jeweils eine all-null/all-filled Gruppe. Der Outcome-Terminalgrund ist für
+`retry_pending` null und für `partial_failed|terminal_failed` ein nichtleerer
+Allowlistwert. Alle drei Capture-Control-CHECKs sind boolean-total, werden auf
+jedem Re-Run ersetzt und über ihre kanonische PostgreSQL-Definition
+fingerprinted. Das Schema erzeugt
+selbst weder Work Units noch Brokerrequests,
+Journaltrades oder Importkandidaten.
+
+## Lokales G1-Scheduler-/Lease-Control-Plane-ERD
+
+Das Schedulerdelta trennt Abruf-, Bucket-, Fälligkeits- und Leasegrain
+explizit. Die Richtung der Kanten ist zugleich die Authority-Ableitung; keine
+Child-ID darf Tenant, Account, Activation oder Policy vorgeben.
+
+```text
+BROKER_SYNC_ACTIVATION_SERIES
+  -> CURRENT BROKER_SYNC_ACTIVATION
+    -> SYNC_LANE_REQUIREMENT
+      -> SYNC_LANE_STATE(next_due_at, row_version)
+        -> BROKER_CAPTURE_MATERIALIZATION_COMMAND
+          -> BROKER_CAPTURE_RUN
+            -> BROKER_CAPTURE_RUN_LANE_INPUT
+            -> BROKER_SYNC_SCOPE             [ein Request-/Coverage-Header]
+              -> BROKER_SYNC_SCOPE_BUCKET    [Fast Lane: 1..31; Audit: exakt 7/28 UTC-Tagesbuckets]
+              -> BROKER_CAPTURE_WORK_UNIT    [Pagination-/Successor-Kette]
+
+BROKER_ACCOUNT + sync_kind=provider_api_observation
+  -> BROKER_CAPTURE_ACCOUNT_LEASE            [höchstens ein aktives Lease]
+    -> BROKER_CAPTURE_WORK_UNIT
+      -> BROKER_CAPTURE_LEASE_EVENT           [append-only Renew/Release/Recovery]
+      -> BROKER_CAPTURE_REQUEST_AUTHORIZATION [Single-use Egress-Permit]
+        -> append-once Page-Receipt, Failure-Outcome oder UNCERTAIN_EGRESS
+```
+
+### Request-Scope und Bucket-Childgrain
+
+`BROKER_SYNC_SCOPE` bindet Requestfenster, erwartete Bucketanzahl,
+`bucket_set_contract_version`, geordneten `stability_bucket_set_digest`,
+Capability, Instrument,
+Requirement, Lane, Policy und vollständigen Activation-Authority-Grain. Für
+`incremental_fast_6h` enthält das geschlossene Raster mindestens einen
+Tagesbucket; `rolling_audit_7d_daily` enthält exakt sieben und
+`rolling_audit_28d_weekly` exakt 28 Tagesbuckets. Der laufende UTC-Tag ist kein
+geschlossener Auditbucket.
+
+Jeder `BROKER_SYNC_SCOPE_BUCKET` bindet Parent-ID und Parent-Scope-Digest sowie
+dieselben Tenant-/Account-/Activation-/Generation-/Requirement-/Lane-/Policy-
+Felder über Composite-FKs. `bucket_end_ms - bucket_start_ms = 86400000`, beide
+Grenzen liegen auf UTC-Mitternacht, die Buckets sind per Ordinal lückenlos,
+disjunkt und vollständig vom Requestfenster abgedeckt. Unique Keys verhindern
+doppelte Ordinals und doppelte Grenzen pro Parent. Der Bucket-Set-Digest wird
+aus der geordneten vollständigen Liste der Bucket-Identity-Digests gebildet.
+
+Der Parent darf `complete_for_profile` nur tragen, wenn Pagination terminal
+belegt und die vollständige erwartete Childmenge vorhanden ist. Stability-
+Generation, `not_observed|observed_once|observed_stable|invalidated`, Eventset-
+und Content-Digests sind Childattribute. Ein Parentstatus ist nur eine unter
+Locks erneut geprüfte Aggregation und niemals Ersatz für fehlende Childrows.
+
+### Materialisierungs- und Fälligkeitsgrain
+
+`BROKER_CAPTURE_MATERIALIZATION_COMMAND` ist ein immutable Request-ID-/
+Inputdigest-Receipt. `BROKER_CAPTURE_RUN_LANE_INPUT` bindet den erzeugten Run
+an genau den Fälligkeitsslot
+`(lane_state_id, policy_generation, due_generation)`; dieser Grain ist
+eindeutig. `scheduled_due_at` und `trigger_kind` bleiben auditierbar, aber der
+Trigger ist kein Identitätsteil: Scheduler und Startup-Catch-up dürfen denselben
+Slot nicht doppelt erzeugen. Dadurch bleibt `next_due_at` bis zum echten
+Lane-Erfolg unverändert, ohne denselben Slot erneut zu materialisieren. Erst
+ein erfolgreicher exact-scoped Lane-Abschluss erhöht `due_generation`.
+
+Initiale aktuelle API-Lanes besitzen `next_due_at = activation_cutover_at`.
+Nach erfolgreicher Evidenz gelten feste Intervalle von sechs Stunden, 24
+Stunden beziehungsweise sieben Tagen. Ein Candidate-Scan liest nur IDs. Die
+autoritative Transaktion sperrt `Series -> Activation -> Connection Account ->
+Connection -> Credential-Metadaten -> Integrity Key -> Broker Account ->
+Provider -> Requirement -> Lane`, liest danach neue Serverzeit und erzeugt nur
+neue Childrows. Sie sperrt nach Series nie bereits vorhandene Runs oder Work
+Units.
+
+### Durable-Lease- und Recoverygrain
+
+`BROKER_CAPTURE_ACCOUNT_LEASE` besitzt den eindeutigen Schlüssel
+`(broker_account_id, sync_kind)`. Für v1 ist nur
+`provider_api_observation` zulässig; damit serialisieren alle API-Lanes eines
+Brokerkontos konservativ. Die Authority bindet Current Activation,
+Work-Unit-ID, Lease-Epoch, Token-Digest, Acquire-/Expiry-/Max-Expiry-Zeit,
+Renew-Count und Row-Version. Lease-Gruppen sind boolean-total all-null oder
+vollständig belegt.
+
+`BROKER_CAPTURE_LEASE_EVENT` ist append-only und bindet Request-ID,
+Inputdigest, vorherige/nächste Version und Epoch sowie sanitisiertes Ergebnis.
+Es speichert niemals den Lease-Token. Abgelaufene Leases ohne Permit dürfen in
+den Work-Unit-Status `pending` requeued werden. Ein Permit ohne persistierten
+Page-Receipt beziehungsweise Failure-Outcome erzeugt dagegen
+`recovery_pending/uncertain_egress`; dieser Zustand ist nicht claimbar. Ein
+`yielded/work_unit_budget_reached`-Checkpoint kann idempotent genau eine
+Successor-Work-Unit mit `sequence + 1` erzeugen; `scope_budget_reached` nicht.
+Der v1-Request-Scope ist auf exakt 20 Work Units beziehungsweise 100 Pages
+begrenzt. Sequenz 19 darf Sequenz 20 erzeugen; Sequenz 20 erzeugt keinen
+Successor. Das append-only Continuation-Receipt speichert in diesem Grenzfall
+`scope_exhausted`, während der Vorgänger fail-closed `partial_failed` bleibt.
+Die Generation beginnt bei Sequenz 1 mit 0 und endet daher bei 19. Das
+Continuation-Ergebnis besitzt unabhängig vom Pfad immer den booleschen
+`crossRequestReplay`-Indikator; eine neue Request-ID, die auf den bereits
+existierenden Successor konvergiert, liefert `true`, jeder Erstpfad `false`.
+
+Alle neuen Tabellen besitzen RLS, aber keine direkte Browser- oder
+`service_role`-DML-Autorität. Enge `SECURITY DEFINER`-RPCs, exakte ACL-/Owner-/
+GUC-Postflights, boolean-totale Constraints und semantische Constraint-/Index-
+Fingerprints bleiben verbindlich. Das ERD beschreibt eine inaktive
+Control-Plane und enthält keine automatische Ansteuerung.
+
+### Deployment-Runtime-Erweiterung
+
+`BROKER_CONNECTION_SETUP_COMMAND` ist ein secret-freies, nutzergebundenes
+Intent mit Requestdigest, 1 bis 5 normalisierten Symbolen, Read-only-
+Attestation und append-once Apply-Resultat. Erst der service-only Apply-Pfad
+erhält das bereits applikationsseitig verschlüsselte Credential sowie getrennte
+Identity-/Integrity-Evidenz und erzeugt die gesamte Foundation in einem Commit.
+
+`BROKER_CAPTURE_SCOPE_FINALIZATION_RECEIPT` bindet genau eine
+Request-Authorization an Scope, Lane, Activation/Generation, Inputdigest und
+das deterministische Finalisierungsergebnis. Der Unique-Key auf
+`request_authorization_id` macht Recovery mit einer neuen Request-ID zu einem
+exakten Replay statt zu einer zweiten Lane-Wirkung.
+
+```text
+USER SETUP INTENT
+  -> CONNECTION + CREDENTIAL
+  -> CONNECTION_ACCOUNT + BROKER_ACCOUNT + ACCOUNT_IDENTITY
+  -> ACTIVATION_SERIES + ACTIVATION
+  -> 6 REQUIREMENTS je Symbol -> je 3 LANE_STATES
+
+TERMINAL REQUEST_AUTHORIZATION
+  -> exactly one SCOPE_FINALIZATION_RECEIPT
+  -> bucket evidence + lane success + watermark
+```
+
+Der versionierte AES-Keyring und der separate HMAC-Identity-Key liegen außerhalb
+des Datenmodells in serverseitiger Secretverwaltung. In der Datenbank stehen
+nur verschlüsseltes Envelope, Keyversion und pseudonymer Digest. Widerruf
+entmachtet die Activation, markiert die Authorityparents revoked und ersetzt
+das Envelope durch einen nicht entschlüsselbaren Tombstone. Historische
+Raw-Events, Observations, Scopes und Receipts bleiben unverändert.

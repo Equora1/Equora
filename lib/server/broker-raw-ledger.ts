@@ -194,6 +194,7 @@ const RAW_LEDGER_STATE_PROVENANCE = new WeakSet<object>()
 export type BrokerRawLedgerState = Readonly<{
   [RAW_LEDGER_STATE_BRAND]: true
   ledgerVersion: typeof BROKER_RAW_LEDGER_VERSION
+  ledgerBaseGeneration: number
   ledgerGeneration: number
   providerCode: BrokerRawProviderCode
   accountIdentity: BrokerAccountIdentityReference
@@ -887,9 +888,11 @@ function assertState(input: BrokerRawLedgerState) {
     || input[RAW_LEDGER_STATE_BRAND] !== true
     || input.ledgerVersion !== BROKER_RAW_LEDGER_VERSION
     || input.authorityBlocked !== true
+    || !Number.isSafeInteger(input.ledgerBaseGeneration)
+    || input.ledgerBaseGeneration < 0
     || !Number.isSafeInteger(input.ledgerGeneration)
-    || input.ledgerGeneration < 0
-    || input.pageObservations.length !== input.ledgerGeneration
+    || input.ledgerGeneration < input.ledgerBaseGeneration
+    || input.pageObservations.length !== input.ledgerGeneration - input.ledgerBaseGeneration
     || !Object.isFrozen(input.rawEvents)
     || !Object.isFrozen(input.pageObservations)
     || !Object.isFrozen(input.rawEventObservations)
@@ -901,6 +904,7 @@ function assertState(input: BrokerRawLedgerState) {
   const expectedKeys = [
     'accountIdentity',
     'authorityBlocked',
+    'ledgerBaseGeneration',
     'ledgerGeneration',
     'ledgerVersion',
     'pageObservations',
@@ -964,7 +968,35 @@ export function createBrokerRawLedgerState(
   const accountIdentity = validateAccountIdentity(accountIdentityInput)
   return freezeState({
     ledgerVersion: BROKER_RAW_LEDGER_VERSION,
+    ledgerBaseGeneration: 0,
     ledgerGeneration: 0,
+    providerCode,
+    accountIdentity,
+    rawEvents: [],
+    pageObservations: [],
+    rawEventObservations: [],
+    authorityBlocked: true,
+  })
+}
+
+// A serverless worker resumes from the durable account generation without
+// loading historic raw payloads back into memory. Database uniqueness and the
+// Page-Commit CAS remain the durable dedupe authority; this transient state
+// only tracks pages observed by the current invocation.
+export function resumeBrokerRawLedgerState(
+  providerCodeInput: string,
+  accountIdentityInput: BrokerAccountIdentityReference,
+  ledgerGenerationInput: number,
+): BrokerRawLedgerState {
+  const providerCode = validProviderCode(providerCodeInput)
+  const accountIdentity = validateAccountIdentity(accountIdentityInput)
+  if (!Number.isSafeInteger(ledgerGenerationInput) || ledgerGenerationInput < 0) {
+    fail('invalid_state', 'Durable Broker Raw Ledger Generation ist ungültig.')
+  }
+  return freezeState({
+    ledgerVersion: BROKER_RAW_LEDGER_VERSION,
+    ledgerBaseGeneration: ledgerGenerationInput,
+    ledgerGeneration: ledgerGenerationInput,
     providerCode,
     accountIdentity,
     rawEvents: [],
@@ -1120,6 +1152,7 @@ export function applyBrokerRawPage(
   })
   const nextState = freezeState({
     ledgerVersion: BROKER_RAW_LEDGER_VERSION,
+    ledgerBaseGeneration: state.ledgerBaseGeneration,
     ledgerGeneration: state.ledgerGeneration + 1,
     providerCode: state.providerCode,
     accountIdentity: state.accountIdentity,

@@ -2,14 +2,15 @@ import { hasSupabaseClientEnv, hasSupabaseServerEnv } from '@/lib/supabase/confi
 import { createSupabaseAuthServerClient } from '@/lib/supabase/server-auth'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { hasBrokerSecretKey } from '@/lib/server/broker-secret-store'
-import { mapRawEventToPreview } from '@/lib/server/broker-preview'
+import { hasBrokerIdentityKey } from '@/lib/server/broker-account-identity'
+import { mapCaptureRawEventToPreview } from '@/lib/server/broker-preview'
 import { isMexcRuntimeActivated, MEXC_RUNTIME_GATE } from '@/lib/server/mexc-runtime'
-import type { BrokerPreviewItem } from '@/lib/types/broker-sync'
-import type { BrokerConnectionRow, BrokerRawEventRow, BrokerSyncRunRow } from '@/lib/types/db'
+import type { BrokerCaptureRunSummary, BrokerPreviewItem } from '@/lib/types/broker-sync'
+import type { BrokerConnectionRow } from '@/lib/types/db'
 
 export type BrokerSyncSnapshot = {
   connections: BrokerConnectionRow[]
-  recentRuns: BrokerSyncRunRow[]
+  recentRuns: BrokerCaptureRunSummary[]
   preview: BrokerPreviewItem[]
   schemaReady: boolean
   secureStoreReady: boolean
@@ -18,6 +19,15 @@ export type BrokerSyncSnapshot = {
   source: 'demo' | 'supabase'
   notice: string | null
 }
+
+type CapturePreviewRow = Readonly<{
+  id: string
+  broker_account_id: string
+  event_type: string
+  external_event_id: string | null
+  provider_occurred_at_us: number | string | null
+  raw_payload: unknown
+}>
 
 const CONNECTION_SELECT = [
   'id',
@@ -37,26 +47,27 @@ const CONNECTION_SELECT = [
 const RUN_SELECT = [
   'id',
   'user_id',
-  'connection_id',
+  'broker_account_id',
   'status',
+  'trigger_kind',
+  'lane_id',
   'started_at',
-  'finished_at',
-  'fetched_count',
-  'imported_count',
-  'duplicate_count',
-  'skipped_count',
-  'error_count',
-  'summary',
+  'completed_at',
+  'observed_event_count',
+  'inserted_raw_event_count',
+  'repeated_observation_count',
+  'failed_request_count',
+  'scope_count',
   'created_at',
 ].join(',')
 
 const RAW_EVENT_SELECT = [
   'id',
-  'connection_id',
+  'broker_account_id',
   'event_type',
   'external_event_id',
-  'occurred_at',
-  'payload',
+  'provider_occurred_at_us',
+  'raw_payload',
   'created_at',
 ].join(',')
 
@@ -64,8 +75,8 @@ function isMissingSchema(message?: string, code?: string) {
   const normalized = message?.toLowerCase() ?? ''
   return code === '42P01'
     || normalized.includes('broker_connections')
-    || normalized.includes('broker_sync_runs')
-    || normalized.includes('broker_raw_events')
+    || normalized.includes('broker_capture_runs')
+    || normalized.includes('broker_capture_raw_events')
 }
 
 function emptySnapshot(overrides: Partial<BrokerSyncSnapshot> = {}): BrokerSyncSnapshot {
@@ -112,27 +123,48 @@ export async function getBrokerSyncSnapshotServer(userId?: string | null): Promi
       return emptySnapshot({ notice: 'Bitte anmelden, um einen Broker zu verbinden.' })
     }
 
-    const [connectionsResponse, runsResponse, previewResponse] = await Promise.all([
+    const secureStoreResponsePromise = serverAvailable
+      ? createSupabaseServerClient()
+          .from('broker_credentials')
+          .select('id')
+          .eq('user_id', resolvedUserId)
+          .limit(1)
+      : Promise.resolve({ data: null, error: null })
+    const [
+      connectionsResponse,
+      accountsResponse,
+      runsResponse,
+      previewResponse,
+      secureStoreResponse,
+    ] = await Promise.all([
       supabase
         .from('broker_connections')
         .select(CONNECTION_SELECT)
         .eq('user_id', resolvedUserId)
         .order('created_at', { ascending: false }),
       supabase
-        .from('broker_sync_runs')
+        .from('broker_connection_accounts')
+        .select('connection_id,broker_account_id')
+        .eq('user_id', resolvedUserId)
+        .eq('status', 'active'),
+      supabase
+        .from('broker_capture_runs')
         .select(RUN_SELECT)
         .eq('user_id', resolvedUserId)
         .order('created_at', { ascending: false })
         .limit(5),
       supabase
-        .from('broker_raw_events')
+        .from('broker_capture_raw_events')
         .select(RAW_EVENT_SELECT)
         .eq('user_id', resolvedUserId)
-        .order('occurred_at', { ascending: false, nullsFirst: false })
+        .in('event_type', ['order', 'execution'])
+        .order('provider_occurred_at_us', { ascending: false, nullsFirst: false })
         .limit(30),
+      secureStoreResponsePromise,
     ])
 
-    const firstError = connectionsResponse.error ?? runsResponse.error ?? previewResponse.error
+    const firstError = connectionsResponse.error ?? accountsResponse.error
+      ?? runsResponse.error ?? previewResponse.error
     if (firstError) {
       if (isMissingSchema(firstError.message, firstError.code)) {
         return emptySnapshot({
@@ -145,28 +177,30 @@ export async function getBrokerSyncSnapshotServer(userId?: string | null): Promi
       })
     }
 
-    let secureStoreReady = false
-    if (serverAvailable) {
-      const serviceClient = createSupabaseServerClient()
-      const { error } = await serviceClient
-        .from('broker_credentials')
-        .select('id')
-        .eq('user_id', resolvedUserId)
-        .limit(1)
-      secureStoreReady = !error
-    }
+    const secureStoreReady = serverAvailable && !secureStoreResponse.error
+
+    const connectionByAccount = new Map(
+      (accountsResponse.data ?? []).map((row) => [row.broker_account_id, row.connection_id]),
+    )
+    const previewRows = (previewResponse.data ?? []) as unknown as CapturePreviewRow[]
+    const preview = previewRows.flatMap((row) => {
+      const connectionId = connectionByAccount.get(row.broker_account_id)
+      return connectionId ? [mapCaptureRawEventToPreview(row, connectionId)] : []
+    })
 
     return {
       connections: (connectionsResponse.data ?? []) as unknown as BrokerConnectionRow[],
-      recentRuns: (runsResponse.data ?? []) as unknown as BrokerSyncRunRow[],
-      preview: ((previewResponse.data ?? []) as unknown as BrokerRawEventRow[]).map(mapRawEventToPreview),
+      recentRuns: (runsResponse.data ?? []) as unknown as BrokerCaptureRunSummary[],
+      preview,
       schemaReady: true,
       secureStoreReady,
-      connectorReady: serverAvailable && secureStoreReady && hasBrokerSecretKey() && isMexcRuntimeActivated(),
+      connectorReady: serverAvailable && secureStoreReady && hasBrokerSecretKey() && hasBrokerIdentityKey() && isMexcRuntimeActivated(),
       runtimeGate: MEXC_RUNTIME_GATE,
       source: 'supabase',
-      notice: serverAvailable && secureStoreReady && hasBrokerSecretKey()
-        ? 'Der MEXC-Connector bleibt bis zum bestandenen Gate G1 deaktiviert. Es werden keine Brokerrequests ausgeführt.'
+      notice: serverAvailable && secureStoreReady && hasBrokerSecretKey() && hasBrokerIdentityKey()
+        ? isMexcRuntimeActivated()
+          ? 'MEXC Read-only ist für einen ausdrücklich ausgelösten Verbindungscheck vorbereitet. Automatische Rohdatenerfassung ist nur im separaten Capture-Modus aktiv; Journalimport bleibt aus.'
+          : 'Der MEXC-Connector ist per MEXC_RUNTIME_MODE=off deaktiviert. Es werden keine Brokerrequests ausgeführt.'
         : null,
     }
   } catch {

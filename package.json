@@ -1,6 +1,6 @@
 {
-  "name": "equora-starter-v57.60.1",
-  "version": "0.57.60-1",
+  "name": "equora-starter-v57.61.0",
+  "version": "0.57.61-0",
   "private": true,
   "scripts": {
     "dev": "next dev",

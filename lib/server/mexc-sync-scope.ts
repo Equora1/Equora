@@ -77,6 +77,36 @@ export type MexcSyncScope = Readonly<MexcSyncScopeInput & {
   authorityBlocked: true
 }>
 
+export type MexcAuthoritySyncScopeInput = Readonly<{
+  providerCode: 'mexc'
+  accountIdentity: BrokerAccountIdentityReference
+  brokerAccountId: string
+  syncActivationId: string
+  activationGeneration: number
+  capabilityId: MexcPagedCapabilityId
+  instrumentScope: Readonly<{
+    scopeType: 'mexc_futures_symbol_v1'
+    symbol: string
+    positionType: 1 | 2 | null
+  }>
+  providerContractVersion: 'mexc_futures_contract_v1'
+  adapterVersion: 'v57_61_0'
+  profileId: 'mexc_futures_rest'
+  profileVersion: 'v1'
+  requestWindow: Readonly<{ startTimeMs: number; endTimeMs: number }>
+  scopeDigest: string
+}>
+
+export type MexcAuthoritySyncScope = Readonly<Omit<MexcAuthoritySyncScopeInput, 'scopeDigest'> & {
+  scopeVersion: 'broker-request-scope-v2'
+  sourceChannel: 'provider_api_observation'
+  endpointId: string
+  scopeDigest: EquoraTcjDigest<'sync_scope'>
+  authorityBlocked: true
+}>
+
+export type MexcCaptureScope = MexcSyncScope | MexcAuthoritySyncScope
+
 export class MexcSyncScopeError extends Error {
   constructor(
     public readonly code:
@@ -360,6 +390,69 @@ export function createMexcSyncScope(input: MexcSyncScopeInput): MexcSyncScope {
     endpointId: capability.endpointId,
     stabilityBucketDigest,
     scopeDigest,
+    authorityBlocked: true,
+  })
+}
+
+export function createMexcAuthoritySyncScope(
+  input: MexcAuthoritySyncScopeInput,
+): MexcAuthoritySyncScope {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) {
+    fail('invalid_structure', 'Autoritativer MEXC Request Scope fehlt.')
+  }
+  exactKeys(input, [
+    'accountIdentity',
+    'activationGeneration',
+    'adapterVersion',
+    'brokerAccountId',
+    'capabilityId',
+    'instrumentScope',
+    'profileId',
+    'profileVersion',
+    'providerCode',
+    'providerContractVersion',
+    'requestWindow',
+    'scopeDigest',
+    'syncActivationId',
+  ], 'Autoritativer MEXC Request Scope')
+  const accountIdentity = validateAccountIdentity(input.accountIdentity)
+  const brokerAccountId = uuid(input.brokerAccountId, 'brokerAccountId')
+  const syncActivationId = uuid(input.syncActivationId, 'syncActivationId')
+  const activationGeneration = safeInteger(
+    input.activationGeneration,
+    1,
+    2_147_483_647,
+    'activationGeneration',
+  )
+  if (
+    input.providerCode !== 'mexc'
+    || input.providerContractVersion !== PROFILE.providerContractVersion
+    || input.adapterVersion !== PROFILE.adapterVersion
+    || input.profileId !== PROFILE.sourceProfileId
+    || input.profileVersion !== PROFILE.sourceProfileVersion
+    || !Object.prototype.hasOwnProperty.call(PROFILE.capabilities, input.capabilityId)
+    || typeof input.scopeDigest !== 'string'
+    || !SHA256_PATTERN.test(input.scopeDigest)
+  ) fail('invalid_profile', 'Autoritativer MEXC Request Scope verletzt die gepinnten Profile.')
+  const instrumentScope = validateInstrument(input.capabilityId, input.instrumentScope)
+  const requestWindow = validateWindow(input.requestWindow)
+  return Object.freeze({
+    ...input,
+    accountIdentity,
+    brokerAccountId,
+    syncActivationId,
+    activationGeneration,
+    instrumentScope,
+    requestWindow,
+    scopeVersion: 'broker-request-scope-v2',
+    sourceChannel: 'provider_api_observation',
+    endpointId: PROFILE.capabilities[input.capabilityId].endpointId,
+    scopeDigest: Object.freeze({
+      digestAlgorithm: 'sha256',
+      digestContractVersion: 'equora-tcj-v1',
+      domain: 'sync_scope',
+      digest: input.scopeDigest,
+    }),
     authorityBlocked: true,
   })
 }

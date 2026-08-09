@@ -4,11 +4,11 @@
 
 | Feld | Wert |
 |---|---|
-| Designstatus | `DESIGN_ACCEPTED v11 – G0 GO, NO EXECUTABLE SQL` |
+| Designstatus | `DESIGN_ACCEPTED v16 – G1 Egress/permit-expiry/cross-layer/v1-core hardening incorporated; G0 DESIGN ONLY` |
 | Implementierungsstatus | `G1 IN PROGRESS – NO-GO`; begrenzte lokale Implementierung vorhanden und lokal validiert, aber nicht aktiviert, nicht deployed und nicht auf ein verbundenes Supabase-Projekt angewendet; maßgeblich ist `docs/gates/EQUORA_v57.61.0_G1_IMPLEMENTATION_STATUS.md` |
 | Providerevidenzstatus | über Providervertrag; globale Vollständigkeit unbelegt, prospektive Coverage wird scopegenau und fail-closed betrieben |
 | Gate G0 | `GO – DESIGN ONLY`; Code-/SQL-/DB-Evidenz folgt G1–G6 |
-| Stand | 2026-08-05, Europe/Berlin |
+| Stand | 2026-08-08, Europe/Berlin |
 | Scope | Providerneutraler Importkern; MEXC prospektiver API-Read-Sync; Excel-Export als separat gegatete Recovery-/Backfillquelle |
 | Owner | A2 |
 | Pflichtreviews | A3, A4, A5 |
@@ -68,7 +68,8 @@ sequenceDiagram
 ```
 
 Nach der expliziten Aktivierung darf ein Scheduler denselben Vertrag mit Trigger
-`scheduler` verwenden. Zielintervall sind sechs Stunden. Eine Fast Lane liest
+`scheduler` verwenden. Der Dispatcher prüft alle fünf Minuten auf fällige
+Arbeit; sechs Stunden sind das fachliche Fast-Lane-Zielintervall. Eine Fast Lane liest
 als `incremental_fast_6h` mit mindestens 72 Stunden Overlap;
 `rolling_audit_7d_daily` liest täglich sieben vollständige UTC-Tage und
 `rolling_audit_28d_weekly` mindestens alle sieben Tage das gesamte 28-Tage-
@@ -178,6 +179,39 @@ neues Gate und darf nicht still erfolgen.
 - Lease-Dauern und Heartbeatintervalle werden vor G1 als explizite
   Betriebskonstanten beschlossen; es gibt keinen stillen Default.
 
+### 3.5 Lokal implementierter G1-Claimvertrag
+
+Das additive lokale Artefakt
+`schema-patch-v57.61.0-g1-capture-control.sql` implementiert ausschließlich
+den atomaren Work-Unit-Claim, noch nicht den vollständigen Lease-Lifecycle:
+
+- feste Claimdauer `45 Sekunden`, maximal acht Attempts pro Work Unit;
+- eindeutige `claim_request_id`, Work-Unit-Row-Version als CAS und
+  timing-sicher verglichener SHA-256-Hash eines UUID-Lease-Tokens;
+- exaktes Replay derselben Claim-Request-ID mit demselben Token liefert
+  dasselbe Lease ohne Counter- oder Row-Version-Fortschreibung;
+- eine andere Claim-Request-ID gegen dieselbe erwartete Row-Version verliert
+  mit `CONTROL_WORK_UNIT_CAS_MISMATCH`; Tokenabweichung beim Replay endet mit
+  `CONTROL_CLAIM_REPLAY_MISMATCH`;
+- der immutable Sync-Scope-Digest und der kanonische MEXC-Page-Scope-Digest
+  bleiben als `scopeDigest` und `pageScopeDigest` getrennte Domains; SQL und
+  TypeScript binden den Page-Digest zusätzlich an Capability, Symbol,
+  Requestzeitfenster, Page, Page Size, Position Type und Budgetprofil;
+- feste globale Lockreihenfolge Work Unit → Run → Activation Series →
+  Activation → Connection Account → Connection → Credentialgeneration →
+  privater Integritätsschlüssel → Brokerkonto → Provider → Scope; nur in
+  einzelnen Pfaden vorkommende Account-Identity-Zeilen liegen unmittelbar vor
+  dem Brokerkonto;
+- `lock_timeout=2s`, `statement_timeout=10s` und erneutes
+  `clock_timestamp()` nach potenziellen Lock-Wartezeiten;
+- Claimresultate geben nur opaque Credential- und Integritätsschlüsselreferenzen
+  aus, kein Credential-, Key- oder Lease-Token-Material.
+
+Der Claim setzt eine bereits immutable angelegte, aktuelle Aktivierung voraus.
+Aktivierungserstellung, Supersession, Work-Unit-Erzeugung, Renew, Release,
+Heartbeat und Scheduler bleiben offen. Die Konstanten sind lokal race-getestete
+G1-Startwerte, aber noch keine Produktionsfreigabe oder Lastkalibrierung.
+
 ## 4. Bounded Work Units
 
 Eine Work Unit verarbeitet genau einen fixierten Bereich:
@@ -262,8 +296,13 @@ Die zwingende Requestreihenfolge für MEXC v57.61.0 lautet:
    Pointer. Nach `inactive`/`revoked` oder Änderung gepinnter Identitäten/
    Versionen unter demselben Lock eine neue Zeile mit neuer ID und
    `max(generation)+1` anlegen, eine zuvor current/arbeitsfähige Vorgängerzeile
-   auf `inactive` setzen und deren Jobs/Leases im selben Commit invalidieren;
-   ein `revoked`er Vorgänger bleibt `revoked`. Der Current-Pointer wechselt
+   auf `inactive` setzen und deren Jobs/Leases im selben Commit invalidieren.
+   Diese sofortige Invalidierung ist eine logische Autoritätswirkung des
+   atomaren Current-Pointer-/Lifecycle-Fence: alte Work Units verlieren ohne
+   inversen `Series -> Work Unit`-Lock jede Claim-, Renew-, Commit- und Request-
+   Autorität. Physische Status-/Tokenbereinigung ist nachgelagert, idempotent und
+   niemals Autoritätsvoraussetzung; ein `revoked`er Vorgänger bleibt `revoked`.
+   Der Current-Pointer wechselt
    atomar. Zwei parallele Wechsel serialisieren über `series_row_version`; der
    Verlierer liest neu und erzeugt keine Work Unit. Historische Series-/
    Generations-/Pinwerte bleiben unveränderlich. Nur Resume aus `paused` mit
@@ -410,6 +449,69 @@ Pflichtscopes erfolgreich waren, sonst `failed`. Kandidaten, deren beobachtete
 Coverage von dem fehlgeschlagenen Scope abhängt, sind technisch nicht
 approvable.
 
+Der lokale G1-Capture-Control-Plane konkretisiert dafür einen begrenzten
+Failurepfad. `equora_record_broker_capture_failure_v1` akzeptiert die
+geschlossene Transportfehler-Union, den vor dem Request authentifizierten
+Checkpoint-MAC, die erwartete Capability und den erwarteten
+`pageScopeDigest` sowie begrenzte Transportmetriken. Capability und Page-Digest
+sind ausschließlich CAS-/Replay-Preconditions; sie verleihen keine Daten-,
+Import- oder Finanzautorität. SQL bindet beide vor jeder Mutation an den
+gespeicherten Work-Unit-Checkpoint und an ein vorhandenes Outcome-Replay.
+Claim und Failure verwenden zusätzlich dieselbe geschlossene SQL-
+Checkpointinvariante: Versions- und Budgetpins, requestfähige Status-/
+Reasonkombination, capabilitybezogene `pageSize`, capabilitykohärentes
+`positionType`, Scopefelder, Cursor-/Digestform und sämtliche Work-Unit-/
+Scopebudgets müssen vor dem Commit kanonisch sein. Erst danach prüft SQL den
+Checkpoint-HMAC mit dem privaten Integritätsschlüssel, leitet Zähler, Retry oder
+Terminalzustand aus dem festen `mexc-history-page-budget-v1` ab, signiert den
+Folgecheckpoint neu und schreibt Checkpoint, Work Unit, Run, Scope und Outcome
+atomar fort.
+
+Automatisch retrybar sind nur `rate_limited`, `provider_busy`,
+`provider_unavailable` und `timeout`, mit den fest versionierten Backoffs eine
+und fünf Sekunden sowie höchstens zwei Retries je Work Unit. `maintenance`
+endet dagegen als `provider_retry_deferred`; es startet keinen automatischen
+Retry. Erreicht der aktuelle Claim das Work-Unit-Attemptlimit, wird der
+tatsächliche Fehler noch genau einmal persistiert und mit dem getrennten
+Terminalgrund `claim_attempt_budget_reached` abgeschlossen. Ein vorhandenes
+erfolgreiches Request Result und ein Failure Outcome für dieselbe
+Work-Unit-/Requestsequenz schließen sich aus.
+
+Ein terminaler Fehler setzt die Work Unit auf `partial_failed`. Der betroffene
+Scope wird nur dann `partial`, wenn genau für diesen Scope mindestens ein
+gültiges `broker_provider_request_result` existiert; ohne solche
+Scope-Evidenz wird er `failed`. Erfolgreiche Evidenz eines anderen Scopes darf
+diese Aussage nicht aufwerten. Ein Run mit verbleibenden zulässigen Work Units
+oder bereits gültiger Run-Evidenz wird resumable `partial`, behält
+`completed_at=null` und wechselt beim nächsten zulässigen Claim wieder auf
+`running`. Nur ein Run ohne offene Work Unit und ohne gültiges Request Result
+wird in diesem Failurepfad `failed` abgeschlossen.
+
+Scope- und Run-Wahrheit werden bewusst unabhängig abgeleitet. Besitzt ein
+weiterverwendeter Scope gültige Evidenz aus einem früheren Run, während der
+aktuelle Run weder eigenes Resultat noch offene Work Unit besitzt, ist deshalb
+`outcome_status=partial_failed` zusammen mit `run_status=failed` korrekt. Der
+Serveradapter muss diese bereits atomar persistierte Kombination akzeptieren;
+eine nachträgliche lokale Ablehnung wäre kein Rollback und daher unzulässig.
+
+`broker_capture_attempt_outcomes` speichert nur owner-/account-/activation-/
+run-/scope-/work-unit-gebundene IDs, CAS-Versionen, Attempt, Requestsequenz,
+Lease-Tokenhash, Fehlercode/-klasse, Outcome, optionalen HTTP-Status,
+Bytecount, begrenzte Requestdauer und optionalen Terminalgrund sowie den
+authentifizierten Checkpoint vor und nach der Transition.
+Providertext, Raw Body, Raw Payload, API Key, Secret, Ciphertext und
+Credential-/Integritätsschlüsselmaterial besitzen bewusst weder Outcome-
+Spalten noch RPC-Parameter. Direkte
+Tabellenrechte sind auch für `service_role` entzogen. Exaktes Outcome-Replay ist
+idempotent; eine abweichende Bindung endet fail-closed.
+
+Dieser in Abschnitt 6 beschriebene Zwischenstand wurde durch die späteren
+Activation- und Scheduler-/Lease-Control-Deltas ergänzt: Restart-Recovery,
+Renew/Release, serverseitige Recovery-Zuordnung, laneübergreifende Health-
+Ableitung und atomare Aktivierungssupersession sind lokal implementiert. Diese
+Control-Plane aktiviert weiterhin keine Runtime und autorisiert keinen
+Brokerrequest.
+
 ### 6.6 Stabilität, Sync Health und Gap Ledger
 
 - Die Supportaussage „neueste Records zuerst“ wird als versioniertes aktuelles
@@ -437,14 +539,31 @@ approvable.
 - `observed_stable` ist kein Providervollständigkeitsclaim. Die UI nennt immer
   Capability, Scope, Profilversion, Beobachtungsgrenze und
   `silent_omission_risk`.
-- `SYNC_LANE_STATE.health` ist die persistierte Health-Autorität. Der Unique
-  Grain bindet `sync_activation_id`, `activation_generation`, Brokerkonto,
-  Capability, Instrument-/Accountscope, disjunkte `lane_id`, `profile_id`,
-  `profile_version` und `policy_generation`. Für den MEXC-API-Scope sind
+- `SYNC_LANE_REQUIREMENT` ist die eigenständige Soll-Autorität je
+  Aktivierungsgeneration, Capability und typisiertem Instrument-/Accountscope.
+  Sie bindet Provider-/Adapter-/Profil-/Capabilityversion,
+  `policy_generation` und eine versionierte Requirement-Quelle. Die Health-
+  Ableitung zählt aktuelle Requirements, nicht vorhandene Lane States, als
+  Soll-Grains. Fehlt für eine Profil-Capability jede Requirement, bleiben drei
+  fehlende Pflichtlanes als Capability-Platzhalter sichtbar.
+- `SYNC_LANE_STATE.health` ist die persistierte Health-Autorität je Requirement.
+  Der Unique Grain bindet `lane_requirement_id`, `sync_activation_id`,
+  `activation_generation`, Brokerkonto, Capability, Instrument-/Accountscope,
+  disjunkte `lane_id`, `profile_id`, `profile_version` und
+  `policy_generation`. Für den MEXC-API-Scope sind
   `incremental_fast_6h`, `rolling_audit_7d_daily` und
   `rolling_audit_28d_weekly` getrennte Pflichtlanes. Jede führt
   `last_complete_at`, `next_due_at`, letzten vollständigen Scope-Digest, letzten
-  Fehler und optionale Gap-Referenz getrennt. Activation Health wird nur daraus
+  Fehler und eine kanonisch gebundene High-Watermark getrennt. `not_observed`
+  verbietet eine Watermark; `healthy` verlangt Zeit, Tie-Breaker,
+  Contractversion und einen reproduzierbaren Digest über den vollständigen
+  Authority-Grain. Monotone CAS-Fortschreibung bleibt bis zu einem geschlossenen
+  Server-RPC außerhalb dieses G1-Foundation-Patches. Der Last-Complete-Scope-
+  Digest ist per Composite-FK an den echten Scope-Digest gebunden. Die read-only
+  Ableitung akzeptiert `healthy` nur bei exact-scoped, geschlossenem,
+  `complete_for_profile`, stability-/source-/coverage-kompatiblem Scope und
+  `last_complete_at >= closed_at`; ungültige Complete-Scope-Evidenz wird separat
+  gezählt und ergibt fail-closed `degraded`. Activation Health wird nur daraus
   aggregiert; ein abgeschlossener Scope enthält höchstens einen unveränderlichen
   Health-Snapshot. Eine überfällige Pflichtlane setzt das Aggregat `degraded`;
   nur ein vollständiger Erfolg genau dieser Lane stellt ihren Zustand wieder
@@ -454,15 +573,25 @@ approvable.
   ```text
   revoked lifecycle -> revoked
   paused lifecycle -> paused
-  inactive/blocked_permission_evidence/pending or missing required lane -> pending
-  else any current required lane gap_requires_export -> gap_requires_export
-  else any current required lane degraded/overdue/open non-export gap -> degraded
-  else active and every current required lane healthy -> healthy
+  inactive/blocked_permission_evidence/pending lifecycle -> pending
+  else active and any effective requires-export/unsupported/invalid-reconciliation gap
+       in this activation generation or current lane gap_requires_export -> gap_requires_export
+  else active and any required lane missing/not_observed -> pending
+  else active and (any required lane degraded/overdue/open non-export gap
+       or any persisted-healthy lane has invalid Complete-Scope evidence) -> degraded
+  else active and every current required lane is persisted healthy
+       and has valid Complete-Scope evidence -> healthy
   else -> pending
   ```
 
-  Lifecycle-Stopp löscht keine Lane-/Gap-Evidenz. Nach Resume wird aus aktuellen
-  unveränderten Lane States neu abgeleitet. Run-/Scope-Snapshots sind immutable
+  Bei aktiver Aktivierung maskiert ein gleichzeitig fehlender Lane Key keine
+  bereits bekannte Export-Recoverylage als bloßes `pending`. Lifecycle-Stopp
+  löscht keine Lane-/Gap-Evidenz. Ein Gap bleibt innerhalb derselben
+  Aktivierungsgeneration auch nach Supersession seiner früheren Policy-
+  Requirement/Lane wirksam. Nach Resume wird aus aktuellen Requirements, den
+  dazugehörigen Lane States und allen Gaps derselben Aktivierungsgeneration neu
+  abgeleitet. `requiresExportGapCount`, `invalidReconciliationCount` und
+  `exportBlockedLaneCount` bleiben getrennte Zähler. Run-/Scope-Snapshots sind immutable
   Audit-/Anzeigeevidenz und niemals Authority für Candidate, Approval, Import,
   Recovery oder Lane-Healing.
 - Jede bekannte unbelegte oder unprüfbare Candidateüberlappung erzeugt sofort
@@ -470,7 +599,15 @@ approvable.
   Auswahl, Approval und Import. Sieben beziehungsweise 28 Tage sind lediglich
   Eskalations-/Recoveryfristen. Bei mehr als 28 Tagen, unbekannter Grenze oder
   nicht resumable Sourcefehler wird `requires_export`/`unsupported` gesetzt.
-  Ein erfolgreicher späterer Einzelrequest schließt den Gap nicht.
+  Ein erfolgreicher späterer Einzelrequest schließt den Gap nicht. Der Status
+  `reconciled` wird nur effektiv, wenn ein exakt tenant-/account-/activation-/
+  capability-/instrument-/lane-/profilgebundener Scope geschlossen,
+  `complete_for_profile`, grenzdeckend und source-kompatibel ist und ein
+  kanonischer Resolution-Digest den echten Scope-Digest sowie den vollständigen
+  Gap-Grain bindet. Unbekannte Grenzen und Export-Recoverylagen verlangen eine
+  Provider-Exportquelle. Widersprüchliche Reconciliation bleibt fail-closed
+  `invalid_reconciliation`; der autoritative Schreibübergang erfordert einen
+  späteren geschlossenen Server-RPC.
 - Eine bewusste Nutzerpause stoppt neue Schedulerläufe, löscht aber weder
   Checkpoints noch Gap-/Health-Evidenz. Beim Resume wird zuerst der mögliche
   Gap ermittelt, bevor neue Candidates approvable werden.
@@ -794,6 +931,10 @@ Legal-Hold-Sperre und Negativtests deaktiviert.
 | DB-Fehler vor Commit | keine Page-Teilwirkung | gleiche Work Unit wiederholen | unverändert |
 | DB-Fehler nach Raw-Insert innerhalb Transaktion | vollständiger Rollback | wiederholen | unverändert |
 | Rowlock überschreitet 2 Sekunden | `CAPTURE_LOCK_TIMEOUT`, null Teilwirkung | nur begrenzt und nach neuer Authorityprüfung resumieren | unverändert |
+| Claim-Rowlock überschreitet 2 Sekunden | `CONTROL_LOCK_TIMEOUT`, null Claim-/Run-Teilwirkung | neuer Claim nur nach frischer Authorityprüfung | unverändert |
+| Integritätsschlüssel läuft während spätem Claim-Lockwait ab | `CONTROL_INTEGRITY_KEY_INACTIVE`, null Claim-/Run-Teilwirkung | neue Aktivierung/Keygeneration erforderlich | unverändert |
+| Zwei Claims verwenden dieselbe Work-Unit-Row-Version | exakt ein Lease; Verlierer `CONTROL_WORK_UNIT_CAS_MISMATCH` | aktuellen Work-Unit-Zustand neu laden | unverändert |
+| Retry vor `retry_not_before` | `CONTROL_RETRY_NOT_DUE`, null Claimwirkung | erst nach fälligem Zeitpunkt und frischer Authorityprüfung | unverändert |
 | Page-Commit überschreitet 12 Sekunden fachlich oder 15 Sekunden hart | `CAPTURE_RPC_DEADLINE_EXCEEDED` oder `CAPTURE_STATEMENT_TIMEOUT`, vollständiger Rollback | Work Unit, Lease, Aktivierung, Credential und Key neu laden; kein Blind-Retry | unverändert |
 | Lease läuft nach HTTP ab | Response nicht blind committen | Lease neu erwerben; Scope/Digest prüfen | unverändert |
 | Alter Lease-Token committen | RPC lehnt ab | neue Work Unit laden | unverändert |
@@ -1032,9 +1173,271 @@ Der G0-Designstatus dieses Artefakts kann `REVIEWED` werden, wenn:
 bestandenen Code-, Mock-, SQL-, RLS-, Fault-Injection- und Recoverytests. Diese
 Evidenz ist kein G0-Designkriterium.
 
-**Designstatus dieses Artefakts: `v11 DESIGN_ACCEPTED / G0 ROUTING PASS /
-G0 GO – DESIGN ONLY`. Implementierungsstatus: `G1 IN PROGRESS – NO-GO`;
-begrenzte lokale Implementierung vorhanden und lokal validiert, jedoch nicht
-aktiviert, nicht deployed und nicht auf ein verbundenes Supabase-Projekt
-angewendet. Maßgeblich ist
+**Designstatus dieses Artefakts: `v13 DESIGN_ACCEPTED / G1 required-grain,
+policy-durable gap, reconciliation and watermark remediation incorporated;
+G0 bleibt DESIGN ONLY`. Implementierungsstatus:
+`G1 IN PROGRESS – NO-GO`; begrenzte lokale Implementierung vorhanden und lokal
+validiert, jedoch nicht aktiviert, nicht deployed und nicht auf ein verbundenes
+Supabase-Projekt angewendet. Maßgeblich ist
 `docs/gates/EQUORA_v57.61.0_G1_IMPLEMENTATION_STATUS.md`.**
+
+## Lokales G1-Operationsdelta: Activation, Mutation und Request-Fence
+
+Für die neue lokale Implementierung gilt verbindlich diese Lockreihenfolge:
+
+```text
+Workerpfad:
+Work Unit -> Run -> Series -> Activation -> Connection Account -> Connection
+-> Credential -> Integrity Key -> Broker Account -> Provider -> Scope
+-> Requirement -> Lane -> Gap
+
+Control-Plane-Mutation:
+Series -> Activation -> [Scope] -> Requirement -> Lane -> Gap
+```
+
+Activation-Create ohne vorhandene Series wird ausnahmsweise über den
+Connection-Account-Parent serialisiert und wechselt danach in dieselbe
+Series-Reihenfolge. Activation-Mutationen sperren niemals nachträglich Work
+Unit oder Run. Der atomare Pointer-/Lifecyclewechsel entmachtet alte Jobs
+logisch; physische Bereinigung ist keine Autoritätsvoraussetzung.
+
+Eine aktuelle Legacy-/ungebundene Activation darf nicht in-place pausiert,
+resumed oder revoked werden. Diese Kommandos scheitern fail-closed. Nur
+`activate` als explizite Supersession erzeugt eine neue vollständig gebundene
+ID/Generation und setzt die ungebundene Vorgängerzeile historisch `inactive`,
+ohne ihr rückwirkend Authority-Pins zuzuschreiben.
+
+Alle Mutations-RPCs verwenden `search_path=''`, kurze Lock-/Statement-
+Timeouts, serverseitig berechnete Digests, CAS und dauerhafte Receipts. Ein
+exaktes Replay gibt das gespeicherte Ergebnis ohne Version-, Zeit- oder
+Counteränderung zurück; dieselbe Request-ID mit anderem Input scheitert.
+Semantisch identische ungelöste Gaps werden auch mit neuer Request-ID
+idempotent wiederverwendet.
+
+Direkte Browser-DML-Rechte bleiben entzogen. Der dedizierte Funktionsowner
+erhält pro Tabelle nur die tatsächlich benötigten `SELECT`-/`INSERT`-/`UPDATE`-
+Rechte und kein `DELETE`. Die Migration entfernt vor der Sollvergabe jede
+zusätzliche Function- oder Authoritytabellenberechtigung, auch aus früheren
+Default Privileges. Der Postflight vergleicht mittels `aclexplode` alle
+tatsächlichen Grantees und Rechte symmetrisch mit der vollständigen Allowlist;
+das umfasst auch die intern delegierten v1-Claim-/Page-/Failure-Kern-RPCs.
+Bestehender Ownerdrift der drei Authoritytabellen scheitert vor jeder
+Tabellen-DDL; gesunde Fresh-/Re-Run-Pfade pinnen vor der ACL-Normalisierung
+`postgres` als Owner und prüfen ihn separat. Für Function-Eigentümer-,
+`SECURITY DEFINER`-, `search_path`-, Lock-/Statement-Timeout- und Execute-
+Prüfungen verwendet der Postflight ausschließlich vollständig qualifizierte
+`regprocedure`-Signaturen. Die drei v1-Kern-RPCs sind gesondert auf
+`owner=postgres`, `SECURITY DEFINER`, `search_path=''` und 10/15/10 Sekunden
+festgeschrieben. Ein isolierter Capture-Control-Re-Run nach Activation
+Authority ist downstream-aware: v1 Claim/Failure bleiben für `service_role`
+geschlossen und nur für den `NOLOGIN`-Funktionsowner intern aufrufbar. Die
+Claim-Receipt- und Fehlergruppen der Work Unit
+sind boolean-total all-null/all-filled. Zusätzlich erzwingt die boolean-totale
+Outcome-Constraint `terminal_reason IS NULL` für `retry_pending` und einen
+nichtleeren Allowlistwert für `partial_failed|terminal_failed`. Alle drei
+CHECKs werden auf jedem Capture-Control-Re-Run neu erzeugt, kanonisch
+fingerprinted und durch dynamische Negativorakel belegt.
+
+Der Request-Permit ist der Credential-/Egress-Linearisation Point. Erst nach
+seiner erfolgreichen Prüfung darf der öffentliche Serverzeit-GET starten;
+danach folgen Providerzeitvalidierung, erneute Permitfristprüfung,
+Credentialload und privater GET. Commit vor Permit-Verbrauch bedeutet null
+Credentialzugriff und null Broker-GET; Permit vor Transition bedeutet nur einen
+zulässigen in-flight GET. Läuft die Frist während des öffentlichen Serverzeit-
+GET ab, kann dieser bereits begonnene GET nicht zurückgenommen werden; danach
+bleiben Credentialload und privater GET jedoch gesperrt. Page und Failure
+prüfen Current Pointer, Lifecycle, Health, Policy, Permit und Versionen erneut
+und hinterlassen bei Fencefehlern keine Raw-, Event-, Outcome-, Checkpoint-
+oder Counterwirkung.
+
+Die Permit-Health- und Fälligkeitsprüfung verwendet erst nach Abschluss der
+gesamten Work-Unit-bis-Lane-Lockkette ein neu gelesenes `clock_timestamp()`.
+Wird `next_due_at` während einer Series-Lockwartezeit überschritten, entsteht
+keine Request-Freigabe. Der erste erfolgreiche v2-Page-Commit schreibt atomar
+mit allen v1-Page-Wirkungen ein append-once Receipt auf die Request-
+Autorisierung; sein Digest bindet sämtliche Page-Eingaben. Exakter Replay gibt
+selbst nach einem späteren Lifecyclewechsel nur das gespeicherte Ergebnis
+zurück, während Eingabedrift ohne Teilwirkung scheitert.
+
+Hat ein paralleler Erstschreiber das Receipt während der Wartezeit auf den
+Work-Unit-Lock committet, liest der Verlierer es unmittelbar nach Erwerb dieses
+Locks und noch vor Run-, Parent-, Scope-, Health- oder Lease-Prüfungen erneut.
+Dieser Read ist bewusst nicht sperrend: Der Work-Unit-Lock hat den Page-Schreiber
+bereits serialisiert, während die globale Reihenfolge `Work Unit -> Run ->
+Series -> Activation -> ...` unverändert bleibt. Nur der echte First-Writer-
+Pfad sperrt die Request-Autorisierung später für Vollvalidierung und
+append-once Receipt-Commit.
+
+Frischer konsolidierter Bootstrap, unmittelbarer Re-Run, serielle SQL-
+Integration und echte Zwei-Sitzungs-Races sind lokal bestanden. Das ist keine
+Ausführungsanweisung für ein verbundenes Supabase-Projekt; Backup/Restore,
+Produktionsmigration und Rollout bleiben separate gesperrte Gates.
+
+## Lokales G1-Operationsdelta: inaktive Scheduler-/Lease-Control-Plane
+
+### Materialisierung
+
+`equora_materialize_next_due_broker_capture_v1(request_id)` ist service-only,
+verarbeitet höchstens eine due Lane und akzeptiert keine Tenant-, Account-,
+Activation-, Lane-, Zeitfenster-, Digest-, Checkpoint- oder Credentialparameter.
+Ein bounded Keyset-Scan liefert nur einen Kandidaten. Autorität entsteht erst
+unter folgender Sperrfolge:
+
+```text
+Series -> Activation -> Connection Account -> Connection
+-> Credential-Metadaten -> Integrity Key -> Broker Account -> Provider
+-> Requirement -> Lane
+```
+
+Requirement und Lane werden stabil nach UUID sortiert. Nach `Series` sperrt
+der Materialisierer keine existierenden Runs oder Work Units. Nach dem letzten
+möglichen Lockwait wird `clock_timestamp()` neu gelesen und Current Pointer,
+Lifecycle, Generation, Policy, Pins, Source, Lane-Zustand, `due_generation` und
+`next_due_at <= now` werden vollständig revalidiert.
+
+Der RPC schreibt atomar:
+
+```text
+Materialization Command Receipt
++ Schedule Occurrence
++ Capture Run
++ Run Lane Input
++ Request Scope Header
++ Scope Bucket Children: Fast Lane 1 bis 31 geschlossene UTC-Tage;
+  Audits exakt 7 beziehungsweise 28 Tage
++ initiale pending Work Unit mit serverseitigem Checkpoint und MAC
+```
+
+Der Unique-Grain der Occurrence lautet
+`lane_state_id + policy_generation + due_generation + schedule_contract_version`.
+`trigger_kind` ist nur Auditinformation; Scheduler und Startup-Catch-up teilen
+denselben Slot. Gleiches Request-ID-/Inputdigest-Replay liefert unverändert die
+gespeicherten IDs. Inputdrift scheitert. Eine andere Request-ID für denselben
+Slot überspringt die bereits materialisierte Occurrence und bearbeitet, falls
+vorhanden, den nächsten gültigen Due-Kandidaten; andernfalls lautet das
+geschlossene Resultat `no_due`. Sie erzeugt nie ein zweites Trio. Jede Exception
+und jeder Lock-/Statement-Timeout rollt alle genannten Zeilen zurück.
+
+Initiale API-Lanes erhalten bei Activation-/Policyerzeugung
+`next_due_at=activation_cutover_at` und `due_generation=1`. Nur ein
+erfolgreicher, exact-scoped Lane-Finalizer setzt den nächsten Termin und erhöht
+die Due-Generation. Retry, Recovery, Crash und Yield tun dies nicht.
+
+### Scope-/Bucket-Raster
+
+`BROKER_SYNC_SCOPE` ist der Request-/Coverage-Parent. Der v2-Vertrag ergänzt
+`bucket_count`, `bucket_set_contract_version` und
+`stability_bucket_set_digest`; seine alten singulären Bucketfelder sind für
+v2 keine Bucketautorität, sondern nur die Rasterhülle. Autoritativ sind die
+1:N-Childrows `BROKER_SYNC_SCOPE_BUCKET`.
+
+Jeder Childbucket ist halb-offen, exakt 86.400.000 Millisekunden lang und an
+UTC-Mitternacht ausgerichtet. Ordinale beginnen bei null, sind lückenlos und
+decken das Parentfenster ohne Überlappung. Eine 7-/28-Tage-Planerzeugung
+schreibt genau sieben/28 Rows. Die Creator-RPC berechnet Childdigests,
+geordneten Set-Digest und Parent-Scope-Digest serverseitig und prüft die
+vollständige Matrix vor Commit. Positive Scope-Completeness oder Lane-
+Stability ist ohne exakt vollständige Childmenge verboten.
+
+### Durable Lease, Renew und Release
+
+Zwei Ebenen gelten gleichzeitig:
+
+1. Das Work-Unit-Lease ist exact-scoped an Work Unit, Run, Scope, Tenant,
+   Account, Activation/Generation, Requirement, Lane/Policy, Row-Version,
+   `lease_epoch` und Token-Digest.
+2. `BROKER_CAPTURE_ACCOUNT_LEASE` besitzt den eindeutigen Slot
+   `(broker_account_id, sync_kind)`. V1 erlaubt ausschließlich
+   `provider_api_observation` und serialisiert damit konservativ alle
+   API-Lanes eines Brokerkontos.
+
+`lease-control-v1` verwendet 45 Sekunden Initiallease, maximal drei Renewals
+und `lease_max_expires_at = lease_acquired_at + 180 seconds`. Renew-Eingaben
+sind Work-Unit-ID, erwartete Row-Version, Lease-Token und Request-ID. Der
+Server setzt die neue Frist auf höchstens `min(now + 45 seconds,
+lease_max_expires_at)`. Erfolg erhöht Row-Version, Lease-Epoch und Renew-Count,
+verändert aber keine Attempts, Requests, Checkpoints oder Capturecounter.
+
+Release besitzt eine geschlossene Reason-Allowlist
+`cooperative_shutdown|worker_budget_yield|authority_invalidated|recovery_handoff`.
+Es leert Work-Unit- und Account-Leasegruppe atomar, erhöht Version/Epoch und
+schreibt ein append-only Lease Event. Ein noch gültiger Permit ohne Outcome
+führt nicht in den claimbaren Pool, sondern in `recovery_pending` mit
+`uncertain_egress`. Terminale/yielded Work Units besitzen keine aktiven
+Leasefelder. Alle Lease-/Recoverygruppen sind boolean-total.
+
+### Yield und Restart-Recovery
+
+`work_unit_budget_reached` beendet die alte Work Unit als `yielded`, erhält
+Checkpoint/MAC und Scope, räumt das Lease atomar und erlaubt genau eine
+Successor-Work-Unit desselben Runs mit `sequence + 1` und
+`predecessor_work_unit_id`. Ein Unique Key auf dem Predecessor und ein Partial
+Unique Key auf den offenen Cursorpfad verhindern Doppel-Continuation.
+`scope_budget_reached` erzeugt keinen Successor und bleibt partial/blockierend.
+Der geschlossene v1-Vertrag erlaubt höchstens 20 Work Units und 100 Pages je
+Request-Scope. Sequenz 19 darf genau Sequenz 20 erzeugen; eine bei Sequenz 20
+erneut erforderliche Continuation markiert den Vorgänger `partial_failed` mit
+`scope_budget_exhausted`, persistiert genau ein replaybares Outcome und erzeugt
+keinen Nachfolger.
+
+`equora_recover_expired_broker_capture_leases_v1(request_id, batch_limit)` ist
+service-only, begrenzt, `SKIP LOCKED` und nach `(lease_expires_at,id)` sortiert.
+Nach vollständigem Worker-Lockpfad und neuer Serverzeit unterscheidet es:
+
+- abgelaufen ohne Permit der Epoch: sicher `pending`/requeuebar;
+- Permit plus persistierter Page-Receipt beziehungsweise Failure-Outcome:
+  Status aus der dauerhaften Evidenz ableiten;
+- Permit ohne Outcome: `recovery_pending/uncertain_egress`, nicht claimbar;
+- paralleles Renew/Page/Failure: exakt ein CAS-Gewinner, null Teilwirkung beim
+  Verlierer.
+
+Kein Permit, Lease-Token, Credential oder Request wird über Restart,
+Continuation oder Recovery vererbt. Ein späterer Versuch benötigt Claim und
+einen neuen Single-use-Permit.
+
+### Gemeinsamer Lane-Execution-Predicate
+
+Claim, Renew, Permit, Page und Failure verwenden dieselbe
+`lane_execution_allowed_v1`-Ableitung. Sie erlaubt ausschließlich die exakt
+gebundene due/`not_observed`/API-recoverable degradierte Ziel-Lane zum Sammeln
+von Read-Evidenz. Current-/Lifecycle-/Policy-/Permission-/Credential-/Provider-
+und Exportfences bleiben fail-closed. Ein dadurch zulässiger Capturelauf
+verleiht keine Eligibility für Candidate, Approval oder Import.
+
+### Ausdrücklich nicht enthalten
+
+Das Delta enthält keine Timer, Cronjobs, Trigger, Background Worker, Startup-
+Verdrahtung, automatische RPC-Aufrufe, Broker-`fetch`-Aufrufe,
+Credentialentschlüsselung, Candidate-/Approval-/Importlogik oder Journalwrites.
+Es exponiert keine Order-, Cancel-, Transfer- oder Withdrawaloperation. Ein
+Migrationserfolg erzeugt allein keine Runs oder Work Units. Verbundenes
+Supabase, Produktions-SQL, Push und Deployment bleiben gesperrt.
+
+### Deploymentpaket und Operatorreihenfolge
+
+Der neue psql-Treiber `supabase/deploy-v57.61.0.sql` bindet die sechs additiven
+Migrationen in der einzig unterstützten Reihenfolge: Persistence, Capture
+Control, Lane Authority, Activation Authority, Scheduler Control und Runtime
+Deployment Authority. `ON_ERROR_STOP` ist verpflichtend; der Treiber enthält
+weder Backup noch Runtimeaktivierung.
+
+`preflight-v57.61.0.sql` ist read-only und akzeptiert ausschließlich eine
+saubere v57.60.1-Baseline ohne v57.61-Marker oder einen bereits vollständigen,
+exakt sechsteiligen v57.61-Vertrag. Ein Teilstand mit ein bis fünf Markern ist
+kein Resumezustand, sondern erzwingt Restore der geprüften Baseline. Der
+Preflight verlangt außerdem geschlossene Connection-Credential-Referenzen.
+`postflight-v57.61.0.sql` verlangt sechs Marker,
+RLS-/Owner-Evidenz und die enge RPC-/Secret-ACL. Baseline-/Postflight-
+Tradecounts müssen identisch sein; keine Migration erzeugt Journalzeilen.
+
+Der Runtimepatch installiert nur Tabellen und `SECURITY DEFINER`-RPCs. Er
+installiert keinen Trigger, HTTP-Aufruf oder Cron. Die ausgelieferte
+`vercel.json` lässt Cron absichtlich weg und setzt nur die Funktionsdauer. Erst
+ein späterer Operator aktiviert bewusst den geprüften Fünf-Minuten-Dispatcher;
+die fällige Lane und ihr Sechs-Stunden-/Tages-/Wochenintervall bestimmt SQL.
+
+Der Rollback ist primär ein Runtime-Stopp (`off` plus Cron deaktivieren) und
+Roll-forward. Bei nachgewiesenem Daten-/Schemadrift erfolgt Restore des zuvor in
+einem getrennten Projekt getesteten Backups; ein destruktives Ad-hoc-Down-SQL
+ist nicht Teil des Releases. Storageobjekte benötigen ein separates Inventar,
+weil ein Datenbankbackup nur deren Metadaten enthält.
