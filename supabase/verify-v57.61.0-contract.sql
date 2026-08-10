@@ -11,18 +11,91 @@ declare
   v_triggers text;
   v_schemas text;
   v_authority_security text;
+  v_pgcrypto_schema text;
 begin
+  select namespace_row.nspname into v_pgcrypto_schema
+  from pg_extension extension_row
+  join pg_namespace namespace_row
+    on namespace_row.oid = extension_row.extnamespace
+  where extension_row.extname = 'pgcrypto';
+
+  if v_pgcrypto_schema is null then
+    raise exception 'POSTFLIGHT_PGCRYPTO_EXTENSION_MISSING';
+  end if;
+
+  if v_pgcrypto_schema not in ('public', 'extensions')
+    or not exists (
+      select 1
+      from pg_namespace namespace_row
+      join pg_roles owner_row on owner_row.oid = namespace_row.nspowner
+      where namespace_row.nspname = v_pgcrypto_schema
+        and owner_row.rolname in (
+          'postgres', 'supabase_admin', 'pg_database_owner'
+        )
+    )
+    or exists (
+      select 1
+      from pg_namespace namespace_row
+      cross join lateral aclexplode(coalesce(
+        namespace_row.nspacl, acldefault('n', namespace_row.nspowner)
+      )) exploded
+      left join pg_roles grantee_row on grantee_row.oid = exploded.grantee
+      where namespace_row.nspname = v_pgcrypto_schema
+        and exploded.grantee <> namespace_row.nspowner
+        and not (
+          exploded.is_grantable is false
+          and (
+            (
+              v_pgcrypto_schema = 'public'
+              and coalesce(grantee_row.rolname, 'PUBLIC') = 'PUBLIC'
+              and exploded.privilege_type = 'USAGE'
+            )
+            or (
+              coalesce(grantee_row.rolname, 'PUBLIC') in (
+                'anon', 'authenticated', 'service_role', 'authenticator',
+                'supabase_auth_admin'
+              )
+              and exploded.privilege_type = 'USAGE'
+            )
+            or (
+              coalesce(grantee_row.rolname, 'PUBLIC') in (
+                'postgres', 'supabase_admin', 'dashboard_user'
+              )
+              and exploded.privilege_type in ('USAGE', 'CREATE')
+            )
+            or (
+              v_pgcrypto_schema = 'public'
+              and coalesce(grantee_row.rolname, 'PUBLIC') =
+                'equora_broker_capture_owner'
+              and exploded.privilege_type = 'USAGE'
+            )
+          )
+        )
+    )
+    or has_schema_privilege('anon', v_pgcrypto_schema, 'create')
+    or has_schema_privilege('authenticated', v_pgcrypto_schema, 'create')
+    or has_schema_privilege('service_role', v_pgcrypto_schema, 'create')
+    or (
+      v_pgcrypto_schema = 'extensions'
+      and has_schema_privilege(
+        'equora_broker_capture_owner', v_pgcrypto_schema, 'usage'
+      )
+    )
+  then
+    raise exception 'POSTFLIGHT_PGCRYPTO_SCHEMA_SECURITY_DRIFT';
+  end if;
+
   select encode(public.equora_pgcrypto_digest_v1(convert_to(coalesce(
     string_agg(
       namespace_row.nspname || '|' || relation_row.relname || '|'
-      || attribute_row.attnum::text || '|' || attribute_row.attname || '|'
+      || attribute_row.attname || '|'
       || pg_catalog.format_type(attribute_row.atttypid, attribute_row.atttypmod)
       || '|' || attribute_row.attnotnull::text || '|'
       || attribute_row.attidentity::text || '|'
       || attribute_row.attgenerated::text || '|'
       || coalesce(pg_get_expr(default_row.adbin, default_row.adrelid), ''),
       E'\n' order by namespace_row.nspname, relation_row.relname,
-        attribute_row.attnum
+        attribute_row.attname
     ), ''), 'UTF8'), 'sha256'), 'hex') into v_columns
   from pg_class relation_row
   join pg_namespace namespace_row on namespace_row.oid = relation_row.relnamespace
@@ -101,13 +174,26 @@ begin
       || coalesce((
         select string_agg(config_entry, ',' order by config_entry)
         from unnest(coalesce(procedure_row.proconfig, array[]::text[])) config_entry
-      ), '') || '|' || pg_get_functiondef(procedure_row.oid)
+      ), '') || '|' || replace(replace(
+        regexp_replace(
+          pg_get_functiondef(procedure_row.oid), E'\r\n?', E'\n', 'g'
+        ),
+        format('select %I.digest', v_pgcrypto_schema),
+        'select <pgcrypto>.digest'
+      ),
+        format('select %I.hmac', v_pgcrypto_schema),
+        'select <pgcrypto>.hmac'
+      )
     from pg_proc procedure_row
     join pg_namespace namespace_row on namespace_row.oid = procedure_row.pronamespace
     join pg_roles owner_row on owner_row.oid = procedure_row.proowner
     join pg_language language_row on language_row.oid = procedure_row.prolang
-    where namespace_row.nspname = 'public'
-      and procedure_row.proname like 'equora\_%' escape '\'
+    where (
+        namespace_row.nspname = 'public'
+        and procedure_row.proname like 'equora\_%' escape '\'
+      ) or procedure_row.oid = to_regprocedure(
+        'equora_private.equora_request_context_uid_v1()'
+      )
     union all
     select namespace_row.nspname || '|' || procedure_row.oid::regprocedure::text
       || '|acl|' || coalesce(grantee_row.rolname, 'PUBLIC') || '|'
@@ -118,8 +204,12 @@ begin
       procedure_row.proacl, acldefault('f', procedure_row.proowner)
     )) exploded
     left join pg_roles grantee_row on grantee_row.oid = exploded.grantee
-    where namespace_row.nspname = 'public'
-      and procedure_row.proname like 'equora\_%' escape '\'
+    where (
+        namespace_row.nspname = 'public'
+        and procedure_row.proname like 'equora\_%' escape '\'
+      ) or procedure_row.oid = to_regprocedure(
+        'equora_private.equora_request_context_uid_v1()'
+      )
   )
   select encode(public.equora_pgcrypto_digest_v1(convert_to(coalesce(
     string_agg(value, E'\n' order by value), ''
@@ -216,7 +306,129 @@ begin
       )::text || '|usage=' || has_schema_privilege(
         'equora_broker_capture_owner', schema_name, 'usage'
       )::text
-    from (values ('public'), ('equora_private'), ('auth')) expected_schema(schema_name)
+    from (values ('public'), ('equora_private')) expected_schema(schema_name)
+    union all
+    select 'pgcrypto_namespace|supported|'
+      || (v_pgcrypto_schema in ('public', 'extensions'))::text
+    union all
+    select 'pgcrypto_namespace|trusted_owner|'
+      || (exists (
+        select 1
+        from pg_namespace namespace_row
+        join pg_roles owner_row on owner_row.oid = namespace_row.nspowner
+        where namespace_row.nspname = v_pgcrypto_schema
+          and owner_row.rolname in (
+            'postgres', 'supabase_admin', 'pg_database_owner'
+          )
+      ))::text
+    union all
+    select 'pgcrypto_namespace|invalid_nonowner_acl_count|' || count(*)::text
+    from pg_namespace namespace_row
+    cross join lateral aclexplode(coalesce(
+      namespace_row.nspacl, acldefault('n', namespace_row.nspowner)
+    )) exploded
+    left join pg_roles grantee_row on grantee_row.oid = exploded.grantee
+    where namespace_row.nspname = v_pgcrypto_schema
+      and exploded.grantee <> namespace_row.nspowner
+      and not (
+        exploded.is_grantable is false
+        and (
+          (
+            v_pgcrypto_schema = 'public'
+            and coalesce(grantee_row.rolname, 'PUBLIC') = 'PUBLIC'
+            and exploded.privilege_type = 'USAGE'
+          )
+          or (
+            coalesce(grantee_row.rolname, 'PUBLIC') in (
+              'anon', 'authenticated', 'service_role', 'authenticator',
+              'supabase_auth_admin'
+            )
+            and exploded.privilege_type = 'USAGE'
+          )
+          or (
+            coalesce(grantee_row.rolname, 'PUBLIC') in (
+              'postgres', 'supabase_admin', 'dashboard_user'
+            )
+            and exploded.privilege_type in ('USAGE', 'CREATE')
+          )
+          or (
+            v_pgcrypto_schema = 'public'
+            and coalesce(grantee_row.rolname, 'PUBLIC') =
+              'equora_broker_capture_owner'
+            and exploded.privilege_type = 'USAGE'
+          )
+        )
+      )
+    union all
+    select 'pgcrypto_namespace|api_create_count|'
+      || (
+        has_schema_privilege('anon', v_pgcrypto_schema, 'create')::integer
+        + has_schema_privilege(
+          'authenticated', v_pgcrypto_schema, 'create'
+        )::integer
+        + has_schema_privilege(
+          'service_role', v_pgcrypto_schema, 'create'
+        )::integer
+      )::text
+    union all
+    select 'pgcrypto_namespace|capture_owner_usage_valid|'
+      || (case when v_pgcrypto_schema = 'extensions' then
+        not has_schema_privilege(
+          'equora_broker_capture_owner', v_pgcrypto_schema, 'usage'
+        )
+      else has_schema_privilege(
+        'equora_broker_capture_owner', v_pgcrypto_schema, 'usage'
+      ) end)::text
+    union all
+    select 'auth_explicit_capture_owner_acl_count|' || count(*)::text
+    from (
+      select exploded.grantee
+      from pg_namespace namespace_row
+      cross join lateral aclexplode(coalesce(
+        namespace_row.nspacl, acldefault('n', namespace_row.nspowner)
+      )) exploded
+      join pg_roles grantee_row on grantee_row.oid = exploded.grantee
+      where namespace_row.nspname = 'auth'
+        and grantee_row.rolname = 'equora_broker_capture_owner'
+      union all
+      select exploded.grantee
+      from pg_proc procedure_row
+      cross join lateral aclexplode(coalesce(
+        procedure_row.proacl, acldefault('f', procedure_row.proowner)
+      )) exploded
+      join pg_roles grantee_row on grantee_row.oid = exploded.grantee
+      where procedure_row.oid = 'auth.uid()'::regprocedure
+        and grantee_row.rolname = 'equora_broker_capture_owner'
+    ) direct_auth_acl
+    union all
+    select 'request_context_uid_adapter|function|'
+      || owner_row.rolname || '|' || language_row.lanname || '|'
+      || procedure_row.provolatile::text || '|'
+      || procedure_row.prosecdef::text || '|'
+      || coalesce((
+        select string_agg(config_entry, ',' order by config_entry)
+        from unnest(coalesce(
+          procedure_row.proconfig, array[]::text[]
+        )) config_entry
+      ), '') || '|' || pg_get_functiondef(procedure_row.oid)
+    from pg_proc procedure_row
+    join pg_roles owner_row on owner_row.oid = procedure_row.proowner
+    join pg_language language_row on language_row.oid = procedure_row.prolang
+    where procedure_row.oid = to_regprocedure(
+      'equora_private.equora_request_context_uid_v1()'
+    )
+    union all
+    select 'request_context_uid_adapter|acl|'
+      || coalesce(grantee_row.rolname, 'PUBLIC') || '|'
+      || exploded.privilege_type || '|' || exploded.is_grantable::text
+    from pg_proc procedure_row
+    cross join lateral aclexplode(coalesce(
+      procedure_row.proacl, acldefault('f', procedure_row.proowner)
+    )) exploded
+    left join pg_roles grantee_row on grantee_row.oid = exploded.grantee
+    where procedure_row.oid = to_regprocedure(
+      'equora_private.equora_request_context_uid_v1()'
+    )
   )
   select encode(public.equora_pgcrypto_digest_v1(convert_to(coalesce(
     string_agg(value, E'\n' order by value), ''
@@ -231,7 +443,9 @@ begin
     from pg_namespace namespace_row
     join pg_roles owner_row on owner_row.oid = namespace_row.nspowner
     where namespace_row.nspname = 'auth'
-      and owner_row.rolname in ('postgres', 'supabase_auth_admin', current_user)
+      and owner_row.rolname in (
+        'postgres', 'supabase_admin', 'supabase_auth_admin'
+      )
   ) or exists (
     select 1
     from pg_namespace namespace_row
@@ -242,16 +456,25 @@ begin
     where namespace_row.nspname = 'auth'
       and exploded.grantee <> namespace_row.nspowner
       and not (
-        coalesce(grantee_row.rolname, 'PUBLIC') in (
-          'PUBLIC', 'anon', 'authenticated', 'service_role', 'authenticator',
-          'dashboard_user', 'equora_broker_capture_owner'
+        exploded.is_grantable = false
+        and (
+          (
+            coalesce(grantee_row.rolname, 'PUBLIC') in (
+              'anon', 'authenticated', 'service_role', 'authenticator'
+            )
+            and exploded.privilege_type = 'USAGE'
+          )
+          or (
+            coalesce(grantee_row.rolname, 'PUBLIC') = 'dashboard_user'
+            and exploded.privilege_type in ('USAGE', 'CREATE')
+          )
+          or (
+            coalesce(grantee_row.rolname, 'PUBLIC') in (
+              'postgres', 'supabase_admin', 'supabase_auth_admin'
+            )
+            and exploded.privilege_type in ('USAGE', 'CREATE')
+          )
         )
-        and exploded.privilege_type = 'USAGE'
-        and exploded.is_grantable = false
-        or coalesce(grantee_row.rolname, 'PUBLIC') in (
-          'postgres', 'supabase_auth_admin', current_user
-        )
-        and exploded.privilege_type in ('USAGE', 'CREATE')
       )
   ) or to_regprocedure('auth.uid()') is null
     or to_regclass('auth.users') is null
@@ -263,7 +486,9 @@ begin
       where procedure_row.oid = 'auth.uid()'::regprocedure
         and namespace_row.nspname = 'auth'
         and procedure_row.prorettype = 'uuid'::regtype
-        and owner_row.rolname in ('postgres', 'supabase_auth_admin', current_user)
+        and owner_row.rolname in (
+          'postgres', 'supabase_admin', 'supabase_auth_admin'
+        )
     )
     or exists (
       select 1
@@ -279,8 +504,8 @@ begin
           or exploded.is_grantable
           or coalesce(grantee_row.rolname, 'PUBLIC') not in (
             'PUBLIC', 'anon', 'authenticated', 'service_role', 'authenticator',
-            'dashboard_user', 'equora_broker_capture_owner', 'postgres',
-            'supabase_auth_admin', current_user
+            'dashboard_user', 'postgres', 'supabase_admin',
+            'supabase_auth_admin'
           )
         )
     )
@@ -305,14 +530,82 @@ begin
         and cardinality(constraint_row.conkey) = 1
         and attribute_row.attname = 'id'
     )
-    or not has_schema_privilege(
+    or has_schema_privilege(
       'equora_broker_capture_owner', 'auth', 'usage'
     )
     or has_schema_privilege(
       'equora_broker_capture_owner', 'auth', 'create'
     )
-    or not has_function_privilege(
-      'equora_broker_capture_owner', 'auth.uid()', 'execute'
+    or exists (
+      select 1
+      from pg_proc procedure_row
+      cross join lateral aclexplode(coalesce(
+        procedure_row.proacl, acldefault('f', procedure_row.proowner)
+      )) exploded
+      join pg_roles grantee_row on grantee_row.oid = exploded.grantee
+      where procedure_row.oid = 'auth.uid()'::regprocedure
+        and grantee_row.rolname = 'equora_broker_capture_owner'
+    )
+    or not exists (
+      select 1
+      from pg_proc procedure_row
+      join pg_namespace namespace_row
+        on namespace_row.oid = procedure_row.pronamespace
+      join pg_roles owner_row on owner_row.oid = procedure_row.proowner
+      join pg_language language_row on language_row.oid = procedure_row.prolang
+      where procedure_row.oid = to_regprocedure(
+        'equora_private.equora_request_context_uid_v1()'
+      )
+        and namespace_row.nspname = 'equora_private'
+        and owner_row.rolname = 'postgres'
+        and language_row.lanname = 'sql'
+        and procedure_row.prorettype = 'uuid'::regtype
+        and procedure_row.pronargs = 0
+        and procedure_row.provolatile = 's'
+        and procedure_row.prosecdef = true
+        and procedure_row.proconfig @> array['search_path=""']::text[]
+        and procedure_row.proconfig <@ array['search_path=""']::text[]
+        and regexp_replace(
+          procedure_row.prosrc, '[[:space:]]+', '', 'g'
+        ) = 'selectauth.uid()'
+    )
+    or exists (
+      select 1
+      from pg_proc procedure_row
+      cross join lateral aclexplode(coalesce(
+        procedure_row.proacl, acldefault('f', procedure_row.proowner)
+      )) exploded
+      left join pg_roles grantee_row on grantee_row.oid = exploded.grantee
+      where procedure_row.oid =
+        'equora_private.equora_request_context_uid_v1()'::regprocedure
+        and exploded.grantee <> procedure_row.proowner
+        and (
+          grantee_row.rolname is distinct from 'equora_broker_capture_owner'
+          or exploded.privilege_type is distinct from 'EXECUTE'
+          or exploded.is_grantable is distinct from false
+        )
+    )
+    or not exists (
+      select 1
+      from pg_proc procedure_row
+      cross join lateral aclexplode(coalesce(
+        procedure_row.proacl, acldefault('f', procedure_row.proowner)
+      )) exploded
+      join pg_roles grantee_row on grantee_row.oid = exploded.grantee
+      where procedure_row.oid =
+        'equora_private.equora_request_context_uid_v1()'::regprocedure
+        and grantee_row.rolname = 'equora_broker_capture_owner'
+        and exploded.privilege_type = 'EXECUTE'
+        and exploded.is_grantable = false
+    )
+    or exists (
+      select 1
+      from pg_proc procedure_row
+      join pg_roles owner_row on owner_row.oid = procedure_row.proowner
+      where owner_row.rolname = 'equora_broker_capture_owner'
+        and case when procedure_row.prokind in ('f', 'p') then
+          pg_get_functiondef(procedure_row.oid) ~ 'auth[.]uid[(][)]'
+        else false end
     )
   then
     raise exception 'POSTFLIGHT_PLATFORM_SECURITY_CONTRACT_DRIFT';
@@ -324,12 +617,12 @@ begin
     v_triggers, v_schemas, v_authority_security;
 
   if v_columns is distinct from
-      'efdca6c88c6057375983bafc76673ab8a654c470fd98b4627e3caba12a4d3702'
+      '91306cab2e10611b78ddc975b178317d2d44fd633c02b2da7aff30a7194c1e20'
   then
     raise exception 'POSTFLIGHT_COLUMN_CONTRACT_DRIFT';
   end if;
   if v_constraints is distinct from
-      '43034bacc0d1009534c0f823408467917683cd2b8b98db122c3e9c5d13dc3e4e'
+      '2f943b4bc2672842d23004a95e3f69188e6a0c5e6048170c97886c11a9a1a359'
   then
     raise exception 'POSTFLIGHT_CONSTRAINT_CONTRACT_DRIFT';
   end if;
@@ -339,27 +632,27 @@ begin
     raise exception 'POSTFLIGHT_INDEX_CONTRACT_DRIFT';
   end if;
   if v_relations is distinct from
-      'c50d852586bb6934b3465c1ad82707cd75158d4c760f2366a19263dc4af7624f'
+      'acd317c2a68f2028cb2573a94ba3ac917112af480a98aa7d68adef7e8e4a2ce8'
   then
     raise exception 'POSTFLIGHT_RELATION_SECURITY_CONTRACT_DRIFT';
   end if;
   if v_functions is distinct from
-      'ceb0d9f999b196c35fc43a8346edcf727a0505d15b5b1f88d175b93a00d2a2a5'
+      'c3ce058a00fb5f6c7e6f40ed32a70eb5e80e161a859098d11e64d18105c4eb60'
   then
     raise exception 'POSTFLIGHT_FUNCTION_CONTRACT_DRIFT';
   end if;
   if v_triggers is distinct from
-      '7687af2781ba2ada56ff9aea96735305526e5b19118febe474f2e77a24f2a4c7'
+      'eea9953ad30c53f83b3c94a8b9e315ef6b007222a759dafbe7922a3f50f6215a'
   then
     raise exception 'POSTFLIGHT_TRIGGER_CONTRACT_DRIFT';
   end if;
   if v_schemas is distinct from
-      '0938ba568b01de34de69568102a3194ffdb08c310f8080adf8dcd15092b7c222'
+      'dc03fc52f8302cde82531aede2b06fa1a05207162cc3fde12f2dedb30ae1c42e'
   then
     raise exception 'POSTFLIGHT_SCHEMA_ACL_CONTRACT_DRIFT';
   end if;
   if v_authority_security is distinct from
-      '68b020173090f658a95fb3133ee9656ce3e47fbe026d880cfd8a2e92b185dfd6'
+      'f14e56c198abf499e69213f6875225c3b8cd10e922f46644774c37c8d6952ca6'
   then
     raise exception 'POSTFLIGHT_AUTHORITY_SECURITY_CONTRACT_DRIFT';
   end if;

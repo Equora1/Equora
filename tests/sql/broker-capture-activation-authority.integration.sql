@@ -257,6 +257,60 @@ insert into public.broker_connection_accounts (
   'mexc', 'live', 'connection_scoped', '2025-01-01T00:00:00Z', 'active'
 );
 
+-- The private adapter must preserve auth.uid() semantics without exposing any
+-- cross-tenant authority through the outer authenticated RPC.
+set local role authenticated;
+select set_config('request.jwt.claim.sub', '', true);
+do $$
+begin
+  begin
+    perform public.equora_request_broker_sync_activation_v1(
+      'ab4b0000-0000-4000-8000-000000000001',
+      'activate', 0, null,
+      'a6000000-0000-4000-8000-000000000098'
+    );
+    raise exception 'TEST_AUTH_ADAPTER_NULL_CLAIM_WAS_ACCEPTED';
+  exception when others then
+    if sqlerrm not like '%ACTIVATION_COMMAND_INVALID_INPUT%' then raise; end if;
+  end;
+end;
+$$;
+
+select set_config(
+  'request.jwt.claim.sub',
+  '20000000-0000-4000-8000-000000000002',
+  true
+);
+do $$
+begin
+  begin
+    perform public.equora_request_broker_sync_activation_v1(
+      'ab4b0000-0000-4000-8000-000000000001',
+      'activate', 0, null,
+      'a6000000-0000-4000-8000-000000000099'
+    );
+    raise exception 'TEST_AUTH_ADAPTER_CROSS_TENANT_WAS_ACCEPTED';
+  exception when others then
+    if sqlerrm not like '%ACTIVATION_COMMAND_CONNECTION_NOT_FOUND%' then raise; end if;
+  end;
+end;
+$$;
+reset role;
+
+do $$
+begin
+  if exists (
+    select 1 from public.broker_sync_activation_commands
+    where id in (
+      'a6000000-0000-4000-8000-000000000098',
+      'a6000000-0000-4000-8000-000000000099'
+    )
+  ) then
+    raise exception 'TEST_AUTH_ADAPTER_REJECTION_LEFT_PARTIAL_EFFECT';
+  end if;
+end;
+$$;
+
 set local role authenticated;
 select set_config(
   'request.jwt.claim.sub',

@@ -101,6 +101,22 @@ const deploymentBaselineVerifierSql = readFileSync(
   join(process.cwd(), 'supabase', 'verify-v57.60.1-baseline.sql'),
   'utf8',
 )
+const restoredCredentialAclRepairSourceSql = readFileSync(
+  join(
+    process.cwd(),
+    'supabase',
+    'assert-v57.60.1-restored-credential-acl-repair-source.sql',
+  ),
+  'utf8',
+)
+const restoredCredentialAclRepairSql = readFileSync(
+  join(
+    process.cwd(),
+    'supabase',
+    'repair-v57.60.1-restored-credential-acl.sql',
+  ),
+  'utf8',
+)
 const deploymentContractVerifierSql = readFileSync(
   join(process.cwd(), 'supabase', 'verify-v57.61.0-contract.sql'),
   'utf8',
@@ -111,6 +127,26 @@ const deploymentDriftRunner = readFileSync(
 )
 const constraintTriggerDriftRunner = readFileSync(
   join(process.cwd(), 'tests', 'sql', 'run-v57.61.0-constraint-trigger-drift.ps1'),
+  'utf8',
+)
+const hostedSupabaseFixtureSql = readFileSync(
+  join(process.cwd(), 'tests', 'sql', 'equora-hosted-supabase-v17-stubs.sql'),
+  'utf8',
+)
+const hostedSupabaseCompatRunner = readFileSync(
+  join(process.cwd(), 'tests', 'sql', 'run-v57.61.0-hosted-supabase-compat.ps1'),
+  'utf8',
+)
+const restoredV57601FixtureSql = readFileSync(
+  join(process.cwd(), 'tests', 'sql', 'equora-restored-v57601-upgrade-fixture.sql'),
+  'utf8',
+)
+const restoredV57601UpgradeRunner = readFileSync(
+  join(process.cwd(), 'tests', 'sql', 'run-v57.61.0-restored-v57601-upgrade.ps1'),
+  'utf8',
+)
+const allLocalSqlRunner = readFileSync(
+  join(process.cwd(), 'tests', 'sql', 'run-v57.61.0-all-local.ps1'),
   'utf8',
 )
 const schedulerConcurrencyRunner = readFileSync(
@@ -405,7 +441,7 @@ describe('v57.61.0 local broker lane authority contracts', () => {
 
 describe('v57.61.0 local broker activation authority contracts', () => {
   it('pins the complete normalized migration artifact to its embedded contract fingerprint', () => {
-    const fingerprint = 'ef73a48fb05299c4e78908fd1771c61ca1b8241b629cf31bc7f89af594d66c2c'
+    const fingerprint = 'b074a756a015b34a7e3da804f3d3955100a40f9a6391855a75c1e415cbbb2abb'
     const normalizedArtifact = activationAuthoritySql
       .replaceAll(fingerprint, '0'.repeat(64))
       .replace(/\r\n/g, '\n')
@@ -529,6 +565,20 @@ describe('v57.61.0 local broker activation authority contracts', () => {
     expect(activationAuthoritySql).toContain('to_regprocedure(expected.function_signature)')
     expect(activationAuthoritySql).toContain("'statement_timeout=' || expected.statement_timeout")
     expect(activationAuthoritySql).toContain('ACTIVATION_AUTHORITY_INTERNAL_HELPER_CONFIG_DRIFT')
+    expect(activationAuthoritySql).toContain(
+      'equora_private.equora_request_context_uid_v1()',
+    )
+    expect(activationAuthoritySql).toContain('ACTIVATION_AUTHORITY_AUTH_ADAPTER_DRIFT')
+    expect(activationAuthoritySql).toContain('select auth.uid()')
+    expect(activationAuthoritySql).toContain(
+      'v_user_id uuid := equora_private.equora_request_context_uid_v1();',
+    )
+    expect(activationAuthoritySql).not.toContain(
+      'grant usage on schema public, equora_private, auth',
+    )
+    expect(activationAuthoritySql).not.toContain(
+      'grant execute on function auth.uid() to equora_broker_capture_owner',
+    )
     expect(activationAuthoritySql).toContain('ACTIVATION_AUTHORITY_CONSTRAINT_DEFINITION_DRIFT')
     expect(activationAuthoritySql).toContain('ACTIVATION_AUTHORITY_INDEX_DEFINITION_DRIFT')
     expect(activationAuthoritySql).toContain('422d191c9a776fb11c27043e400b6401e1500e851185f942b557865929cba379')
@@ -888,7 +938,7 @@ describe('v57.61.0 inactive scheduler and durable Lease contracts', () => {
   })
 
   it('keeps the productive runtime migration passive, read-only and crash-recoverable', () => {
-    const fingerprint = 'e78049f738ed26d4ab96188f4da1c52ae00a2b3583db5aeaf4be608cdcc95457'
+    const fingerprint = '892f1587e8e37937a538dad1239ec931d43bd1f65d2f224d56ab7b9356f89e96'
     const normalizedArtifact = runtimeDeploymentSql
       .replaceAll(fingerprint, '0'.repeat(64))
       .replace(/\r\n/g, '\n')
@@ -916,8 +966,11 @@ describe('v57.61.0 inactive scheduler and durable Lease contracts', () => {
       /grant select, update on table equora_private\.broker_capture_runtime_enrollment\s+to postgres;/,
     )
     expect(runtimeDeploymentSql).toContain('RUNTIME_DEPLOYMENT_OWNER_DRIFT')
+    expect(runtimeDeploymentSql.match(
+      /v_user_id uuid := equora_private\.equora_request_context_uid_v1\(\);/g,
+    )).toHaveLength(2)
     expect(runtimeDeploymentSql).toContain(
-      'e78049f738ed26d4ab96188f4da1c52ae00a2b3583db5aeaf4be608cdcc95457',
+      '892f1587e8e37937a538dad1239ec931d43bd1f65d2f224d56ab7b9356f89e96',
     )
     expect(runtimeDeploymentSql).toContain('receipt.request_authorization_id = request_auth.id')
     expect(runtimeDeploymentSql).toContain('where request_authorization_id = p_request_authorization_id')
@@ -941,6 +994,22 @@ describe('v57.61.0 inactive scheduler and durable Lease contracts', () => {
   })
 
   it('makes the psql deployment gates preflight-bound, restore-only and process-failing on drift', () => {
+    expect(capturePersistenceSql).toContain(
+      'MIGRATION_LEGACY_SETUP_COLUMN_RECONCILIATION_REQUIRED',
+    )
+    expect(capturePersistenceSql).toContain(
+      'MIGRATION_TRADE_OWNER_RECONCILIATION_REQUIRED',
+    )
+    expect(capturePersistenceSql).toContain('MIGRATION_TRADES_IMPORT_BATCH_FK_DRIFT')
+    expect(capturePersistenceSql).toContain('MIGRATION_PGCRYPTO_WRAPPER_CONTRACT_DRIFT')
+    expect(capturePersistenceSql).toContain('MIGRATION_PGCRYPTO_SCHEMA_SECURITY_DRIFT')
+    expect(capturePersistenceSql.match(/security definer/g)?.length).toBeGreaterThanOrEqual(3)
+    expect(capturePersistenceSql).toMatch(
+      /alter function public\.equora_pgcrypto_digest_v1\(bytea, text\)\s+owner to postgres;/,
+    )
+    expect(capturePersistenceSql).toMatch(
+      /revoke all on table public\.broker_credentials\s+from public, anon, authenticated, service_role;/,
+    )
     expect(deploymentDriverSql).not.toContain('\\quit')
     expect(deploymentPreflightSql).not.toContain('\\quit')
     expect(deploymentPostflightSql).not.toContain('\\quit')
@@ -959,16 +1028,34 @@ describe('v57.61.0 inactive scheduler and durable Lease contracts', () => {
     expect(deploymentPreflightSql).toContain("executor_role.rolname = 'postgres'")
     expect(deploymentPreflightSql).toContain('PREFLIGHT_DEFAULT_ACL_INVALID')
     expect(deploymentPreflightSql).toContain('from pg_default_acl default_acl')
+    expect(deploymentPreflightSql).toContain("'public', 'equora_private', 'extensions'")
     expect(deploymentPreflightSql).toContain("default_acl.defaclobjtype = 'f'")
     expect(deploymentPreflightSql).toContain("exploded.privilege_type = 'EXECUTE'")
+    expect(deploymentPreflightSql).toContain("default_acl.defaclobjtype = 'n'")
+    expect(deploymentPreflightSql).toContain("exploded.privilege_type = 'USAGE'")
+    expect(deploymentPreflightSql).toContain('PREFLIGHT_PGCRYPTO_SECURITY_INVALID')
     expect(deploymentPreflightSql).toContain('PREFLIGHT_PLATFORM_SECURITY_INVALID')
     expect(deploymentPreflightSql).toContain('PREFLIGHT_PRIVATE_SCHEMA_STATE_INVALID')
-    expect(deploymentPreflightSql).toContain("'usage with grant option'")
-    expect(deploymentPreflightSql).toContain("'execute with grant option'")
+    expect(deploymentPreflightSql).toContain(
+      "has_schema_privilege(current_user, 'auth', 'usage')",
+    )
+    expect(deploymentPreflightSql).toContain(
+      'current_user, platform_objects.uid_oid',
+    )
+    expect(deploymentPreflightSql).toContain(
+      'current_user, platform_objects.users_oid',
+    )
+    expect(deploymentPreflightSql).not.toContain("'usage with grant option'")
+    expect(deploymentPreflightSql).not.toContain("'execute with grant option'")
+    expect(deploymentPreflightSql).toContain("'supabase_admin'")
+    expect(deploymentPreflightSql).toContain("'dashboard_user'")
+    expect(deploymentPreflightSql).toContain('equora_auth_schema_acl_digest')
+    expect(deploymentPreflightSql).toContain('equora_auth_uid_acl_digest')
     expect(deploymentPreflightSql).toContain('\\ir verify-v57.60.1-baseline.sql')
     expect(deploymentPreflightSql).toContain('PREFLIGHT_CREDENTIAL_REFERENCE_INVALID')
     expect(deploymentPostflightSql).toContain('POSTFLIGHT_MIGRATION_MARKER_MISSING')
     expect(deploymentPostflightSql).toContain('POSTFLIGHT_RUNTIME_ACL_INVALID')
+    expect(deploymentPostflightSql).toContain('POSTFLIGHT_AUTH_PLATFORM_ACL_DRIFT')
     expect(deploymentPostflightSql).toContain('aclexplode')
     for (const code of [
       'PREFLIGHT_BASELINE_CONTRACT_DRIFT',
@@ -987,17 +1074,151 @@ describe('v57.61.0 inactive scheduler and durable Lease contracts', () => {
     expect(deploymentBaselineVerifierSql).toMatch(
       /trigger_row\.tgisinternal is false\s+or constraint_row\.oid is not null/,
     )
+    expect(deploymentBaselineVerifierSql).not.toContain('attribute_row.attnum ||')
+    expect(deploymentBaselineVerifierSql).toContain(
+      'ac2bfb251aeb645dd3450e3b02d3f6d2ae5cb0aeeaa751e5a5a54f87a410c656',
+    )
+    expect(deploymentBaselineVerifierSql).toContain(
+      '0fb6a0d531bb7cc66996c8b2d4f272f61dacefdb0e8969c536d1d49c89517218',
+    )
+    expect(restoredCredentialAclRepairSourceSql).toContain(
+      '47cbc3bd6d4be8ccccf8543a1f1be554610fe20b5746478e6ca94664525daffb',
+    )
+    expect(restoredCredentialAclRepairSourceSql).toContain(
+      'BASELINE_REPAIR_SOURCE_CONTRACT_DRIFT',
+    )
+    const baselineContractQuery = deploymentBaselineVerifierSql.match(
+      /with contract_rows\(value\) as \([\s\S]+?from contract_rows;/,
+    )?.[0]
+    const repairSourceContractQuery = restoredCredentialAclRepairSourceSql.match(
+      /with contract_rows\(value\) as \([\s\S]+?from contract_rows;/,
+    )?.[0]
+    expect(baselineContractQuery).toBeTruthy()
+    expect(repairSourceContractQuery).toBe(baselineContractQuery)
+    expect(deploymentBaselineVerifierSql).not.toContain(
+      '47cbc3bd6d4be8ccccf8543a1f1be554610fe20b5746478e6ca94664525daffb',
+    )
+    expect(deploymentBaselineVerifierSql).not.toContain(
+      'allow_exact_v57601_credential_acl_repair',
+    )
+    expect(restoredCredentialAclRepairSql).not.toContain(
+      'allow_exact_v57601_credential_acl_repair',
+    )
+    expect(restoredCredentialAclRepairSql).toContain(
+      '\\ir assert-v57.60.1-restored-credential-acl-repair-source.sql',
+    )
+    expect(restoredV57601UpgradeRunner).toContain(
+      "set equora.allow_exact_v57601_credential_acl_repair = 'on'",
+    )
+    expect(restoredV57601UpgradeRunner).toContain(
+      "-ExpectedCode 'BASELINE_REPAIR_SOURCE_CONTRACT_DRIFT'",
+    )
+    expect(restoredCredentialAclRepairSql).toContain(
+      'revoke all privileges on table public.broker_credentials',
+    )
+    expect(restoredCredentialAclRepairSql).toContain(
+      'BASELINE_REPAIR_POSTCONDITION_INVALID',
+    )
     expect(deploymentContractVerifierSql).toMatch(
       /trigger_row\.tgisinternal is false\s+or constraint_row\.oid is not null/,
     )
     expect(deploymentContractVerifierSql).toContain(
       "raise exception 'POSTFLIGHT_PLATFORM_SECURITY_CONTRACT_DRIFT'",
     )
+    expect(deploymentContractVerifierSql).toContain(
+      'equora_private.equora_request_context_uid_v1()',
+    )
+    expect(deploymentContractVerifierSql).toContain(
+      'auth_explicit_capture_owner_acl_count',
+    )
+    expect(deploymentContractVerifierSql).toContain(
+      'POSTFLIGHT_PGCRYPTO_SCHEMA_SECURITY_DRIFT',
+    )
+    expect(deploymentContractVerifierSql).toContain(
+      'pgcrypto_namespace|invalid_nonowner_acl_count',
+    )
+    expect(deploymentContractVerifierSql).toContain(
+      'pgcrypto_namespace|capture_owner_usage_valid',
+    )
+    expect(hostedSupabaseFixtureSql).toContain('alter function auth.uid() owner to supabase_auth_admin')
+    expect(hostedSupabaseCompatRunner).toContain('alter role postgres nosuperuser createrole bypassrls')
+    expect(hostedSupabaseCompatRunner).toContain(
+      'f|t|t|t|f|t|f|t',
+    )
+    expect(hostedSupabaseCompatRunner).toContain(
+      'Hosted Supabase v17 non-superuser compatibility and drift oracles passed.',
+    )
+    expect(restoredV57601FixtureSql).toContain('trades_import_batch_id_fkey')
+    expect(restoredV57601FixtureSql).toContain('trade_import_batches_delete_own')
+    expect(restoredV57601UpgradeRunner).toContain(
+      'MIGRATION_LEGACY_SETUP_COLUMN_RECONCILIATION_REQUIRED:name',
+    )
+    expect(restoredV57601UpgradeRunner).toContain(
+      'MIGRATION_TRADE_OWNER_RECONCILIATION_REQUIRED',
+    )
+    expect(restoredV57601UpgradeRunner).toContain(
+      'PREFLIGHT_BASELINE_CONTRACT_DRIFT',
+    )
+    expect(restoredV57601UpgradeRunner).toContain(
+      'Exact restored credential ACL drift fixture',
+    )
+    expect(restoredV57601UpgradeRunner).toContain(
+      'Non-exact credential ACL repair drift mutation',
+    )
+    expect(restoredV57601UpgradeRunner).toContain(
+      'Restored exact re-run changed immutable migration receipts.',
+    )
+    expect(restoredV57601UpgradeRunner).toContain(
+      'alter extension pgcrypto set schema public;',
+    )
+    expect(restoredV57601UpgradeRunner).toContain(
+      'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad',
+    )
+    expect(restoredV57601UpgradeRunner).toContain(
+      'f7bc83f430538424b13298e6aa6fb143ef4d59a14946175997479dbc2d1a3cd8',
+    )
+    expect(restoredV57601UpgradeRunner).toContain(
+      'permission denied for schema extensions',
+    )
+    expect(restoredV57601UpgradeRunner).toContain(
+      'negative oracles skipped here and covered by the mandatory extensions run',
+    )
+    expect(allLocalSqlRunner).toContain(
+      "-PgcryptoSchema public -SkipNegativeOracles",
+    )
+    for (const hash of [
+      '91306cab2e10611b78ddc975b178317d2d44fd633c02b2da7aff30a7194c1e20',
+      '2f943b4bc2672842d23004a95e3f69188e6a0c5e6048170c97886c11a9a1a359',
+      '1b9f219d66bf586ca5ec98d736ecde49a1e46e5dc8a0751c6fef2655c62b9586',
+      'acd317c2a68f2028cb2573a94ba3ac917112af480a98aa7d68adef7e8e4a2ce8',
+      'c3ce058a00fb5f6c7e6f40ed32a70eb5e80e161a859098d11e64d18105c4eb60',
+      'eea9953ad30c53f83b3c94a8b9e315ef6b007222a759dafbe7922a3f50f6215a',
+      'dc03fc52f8302cde82531aede2b06fa1a05207162cc3fde12f2dedb30ae1c42e',
+      'f14e56c198abf499e69213f6875225c3b8cd10e922f46644774c37c8d6952ca6',
+    ]) expect(deploymentContractVerifierSql).toContain(hash)
     expect(deploymentDriftRunner).toContain("Name = 'schema_auth_foreign_create'")
     expect(deploymentDriftRunner).toContain(
       'alter default privileges for role postgres in schema public grant select on tables to public;',
     )
     expect(deploymentDriftRunner).toContain('PUBLIC_DEFAULT_ACL_REACHED_DDL')
+    expect(deploymentDriftRunner).toContain(
+      'grant create on schemas to authenticated;',
+    )
+    expect(deploymentDriftRunner).toContain(
+      'grant create on schema extensions to authenticated;',
+    )
+    expect(deploymentDriftRunner).toContain(
+      'grant execute on functions to authenticated with grant option;',
+    )
+    expect(deploymentDriftRunner).toContain('EXTENSIONS_DEFAULT_ACL_REACHED_DDL')
+    expect(deploymentDriftRunner).toContain(
+      'grant usage on schema extensions to public;',
+    )
+    expect(deploymentDriftRunner).toContain('PGCRYPTO_PUBLIC_USAGE_REACHED_DDL')
+    expect(deploymentDriftRunner).toContain('PGCRYPTO_SCHEMA_DRIFT_REACHED_DDL')
+    expect(deploymentDriftRunner).toContain(
+      'POSTFLIGHT_PGCRYPTO_SCHEMA_SECURITY_DRIFT',
+    )
     expect(deploymentDriftRunner).toContain('Full v57.61.0 marker-skip drift matrix passed.')
     expect(constraintTriggerDriftRunner).toContain('trigger_row.tgisinternal')
     expect(constraintTriggerDriftRunner).toContain('trigger_row.tgenabled = \'O\'')
@@ -1007,12 +1228,12 @@ describe('v57.61.0 inactive scheduler and durable Lease contracts', () => {
       'Baseline and full-marker internal FK-trigger drift oracles passed.',
     )
     for (const fingerprint of [
-      'ab08958bdeb88b9637351e2690c08f311d1653f3dba33d4cf11c61d4a81399b6',
-      '6560d159d0756f83049a0e89834b2897ce58dae3fe2c112ae0f2aa159b9caf27',
-      '955a175d3b05c34f680b94d54a494261d0a51dca2ecaba8ddf2311c20b9bcae5',
-      'ef73a48fb05299c4e78908fd1771c61ca1b8241b629cf31bc7f89af594d66c2c',
+      '492ebad5496806ad60425abd58e9801c58a58b421e38392d54e6082d7fa2b083',
+      'c133d5e0c987e7f927963db4465ef5ab2f6f4c174cfdc96a3ed1cffb5cd62be5',
+      '6be313155e81e0f14c48d0c71301e28a75b792a90e49542bc49ffe638f56c68d',
+      'b074a756a015b34a7e3da804f3d3955100a40f9a6391855a75c1e415cbbb2abb',
       '87158546782b900817d3f36501a2e43b5619906a2f07636d0cb1167b042e5ab7',
-      'e78049f738ed26d4ab96188f4da1c52ae00a2b3583db5aeaf4be608cdcc95457',
+      '892f1587e8e37937a538dad1239ec931d43bd1f65d2f224d56ab7b9356f89e96',
     ]) {
       expect(deploymentDriverSql).toContain(fingerprint)
       expect(deploymentPostflightSql).toContain(fingerprint)

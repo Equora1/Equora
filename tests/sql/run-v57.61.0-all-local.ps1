@@ -95,6 +95,18 @@ try {
     & $fullDeploymentRunner -ContainerName $ContainerName `
       -TestDatabase $TemplateDatabase -KeepDatabase
   }
+  Invoke-Runner -Name 'restored-v57.60.1-upgrade-and-rerun' -Action {
+    & (Join-Path $PSScriptRoot `
+      'run-v57.61.0-restored-v57601-upgrade.ps1') `
+      -ContainerName $ContainerName
+  }
+  Invoke-Runner -Name 'restored-v57.60.1-public-pgcrypto-upgrade-and-rerun' -Action {
+    & (Join-Path $PSScriptRoot `
+      'run-v57.61.0-restored-v57601-upgrade.ps1') `
+      -ContainerName $ContainerName `
+      -TestDatabase 'equora_restored_v57601_public_pgcrypto' `
+      -PgcryptoSchema public -SkipNegativeOracles
+  }
   Invoke-Runner -Name 'activation-layer-template' -Action {
     & (Join-Path $PSScriptRoot 'run-v57.61.0-activation-template.ps1') `
       -ContainerName $ContainerName -TemplateDatabase $ActivationTemplateDatabase
@@ -155,8 +167,11 @@ try {
   Invoke-Runner -Name 'internal-constraint-trigger-drift' -Action {
     & (Join-Path $PSScriptRoot 'run-v57.61.0-constraint-trigger-drift.ps1')
   }
+  Invoke-Runner -Name 'hosted-supabase-v17-compatibility' -Action {
+    & (Join-Path $PSScriptRoot 'run-v57.61.0-hosted-supabase-compat.ps1')
+  }
 
-  Write-Output 'All local v57.61.0 SQL, concurrency, drift, and PostgREST runners passed.'
+  Write-Output 'All local v57.61.0 SQL, Hosted compatibility, concurrency, drift, and PostgREST runners passed.'
 }
 finally {
   try {

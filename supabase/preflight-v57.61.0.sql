@@ -43,9 +43,10 @@ select (
 
 -- Supabase's standard non-grantable defaults for anon/authenticated/
 -- service_role are expected and each layer revokes/reapplies its closed
--- runtime ACL. PUBLIC is safe only for PostgreSQL's function EXECUTE default;
--- a PUBLIC table/sequence/type/schema privilege would materialize authority as
--- soon as an early layer commits, before the global postflight can run.
+-- runtime ACL. Bind object kind and privilege together: merely recognizing a
+-- platform role is insufficient because a schema CREATE default would become
+-- DDL authority as soon as an early layer creates a schema. PUBLIC is safe
+-- only for PostgreSQL's function EXECUTE default.
 select not exists (
   select 1
   from pg_default_acl default_acl
@@ -57,21 +58,48 @@ select not exists (
   where default_owner.rolname = current_user
     and (
       default_acl.defaclnamespace = 0
-      or default_namespace.nspname in ('public', 'equora_private')
+      or default_namespace.nspname in (
+        'public', 'equora_private', 'extensions'
+      )
     )
     and exploded.grantee <> default_acl.defaclrole
     and not (
       exploded.is_grantable is false
       and (
-        coalesce(
-          case when exploded.grantee = 0 then 'PUBLIC'
-            else grantee_role.rolname end,
-          '<missing-role>'
-        ) in ('anon', 'authenticated', 'service_role')
-        or (
+        (
           exploded.grantee = 0
           and default_acl.defaclobjtype = 'f'
           and exploded.privilege_type = 'EXECUTE'
+        )
+        or (
+          coalesce(grantee_role.rolname, '<missing-role>') in (
+            'anon', 'authenticated', 'service_role'
+          )
+          and (
+            (
+              default_acl.defaclobjtype = 'r'
+              and exploded.privilege_type in (
+                'SELECT', 'INSERT', 'UPDATE', 'DELETE', 'TRUNCATE',
+                'REFERENCES', 'TRIGGER', 'MAINTAIN'
+              )
+            )
+            or (
+              default_acl.defaclobjtype = 'S'
+              and exploded.privilege_type in ('USAGE', 'SELECT', 'UPDATE')
+            )
+            or (
+              default_acl.defaclobjtype = 'f'
+              and exploded.privilege_type = 'EXECUTE'
+            )
+            or (
+              default_acl.defaclobjtype = 'T'
+              and exploded.privilege_type = 'USAGE'
+            )
+            or (
+              default_acl.defaclobjtype = 'n'
+              and exploded.privilege_type = 'USAGE'
+            )
+          )
         )
       )
     )
@@ -83,20 +111,160 @@ select not exists (
   do $fail$ begin raise exception 'PREFLIGHT_DEFAULT_ACL_INVALID'; end $fail$;
 \endif
 
+-- pgcrypto may already live in public on a restored Supabase project or may
+-- be installed into extensions by Layer 1. Validate the actual/prospective
+-- namespace before any v57.61.0 DDL: only known platform owners/grantees are
+-- accepted, API roles can never CREATE there, and no non-owner grant option is
+-- allowed. The migration deliberately does not rewrite platform-managed ACLs.
+with pgcrypto_target as (
+  select coalesce((
+      select namespace_row.nspname
+      from pg_extension extension_row
+      join pg_namespace namespace_row
+        on namespace_row.oid = extension_row.extnamespace
+      where extension_row.extname = 'pgcrypto'
+    ), 'extensions') as schema_name,
+    exists (
+      select 1 from pg_extension where extname = 'pgcrypto'
+    ) as extension_installed
+), target_namespace as (
+  select target.schema_name, target.extension_installed,
+    namespace_row.oid as namespace_oid,
+    owner_row.rolname as owner_name
+  from pgcrypto_target target
+  left join pg_namespace namespace_row
+    on namespace_row.nspname = target.schema_name
+  left join pg_roles owner_row on owner_row.oid = namespace_row.nspowner
+)
+select (
+  target.schema_name in ('public', 'extensions')
+  and (not target.extension_installed or target.namespace_oid is not null)
+  and case when target.namespace_oid is null then true else
+    target.owner_name in ('postgres', 'supabase_admin', 'pg_database_owner')
+    and not exists (
+      select 1
+      from pg_namespace namespace_row
+      cross join lateral aclexplode(coalesce(
+        namespace_row.nspacl, acldefault('n', namespace_row.nspowner)
+      )) exploded
+      left join pg_roles grantee_row on grantee_row.oid = exploded.grantee
+      where namespace_row.oid = target.namespace_oid
+        and exploded.grantee <> namespace_row.nspowner
+        and not (
+          exploded.is_grantable is false
+          and (
+            (
+              target.schema_name = 'public'
+              and coalesce(grantee_row.rolname, 'PUBLIC') = 'PUBLIC'
+              and exploded.privilege_type = 'USAGE'
+            )
+            or (
+              coalesce(grantee_row.rolname, 'PUBLIC') in (
+                'anon', 'authenticated', 'service_role', 'authenticator',
+                'supabase_auth_admin'
+              )
+              and exploded.privilege_type = 'USAGE'
+            )
+            or (
+              coalesce(grantee_row.rolname, 'PUBLIC') in (
+                'postgres', 'supabase_admin', 'dashboard_user'
+              )
+              and exploded.privilege_type in ('USAGE', 'CREATE')
+            )
+            or (
+              target.schema_name = 'public'
+              and coalesce(grantee_row.rolname, 'PUBLIC') =
+                'equora_broker_capture_owner'
+              and exploded.privilege_type = 'USAGE'
+            )
+          )
+        )
+    )
+    and not has_schema_privilege('anon', target.schema_name, 'create')
+    and not has_schema_privilege(
+      'authenticated', target.schema_name, 'create'
+    )
+    and not has_schema_privilege('service_role', target.schema_name, 'create')
+    and (
+      target.schema_name = 'public'
+      or not exists (
+        select 1
+        from pg_roles capture_owner
+        where capture_owner.rolname = 'equora_broker_capture_owner'
+          and has_schema_privilege(
+            capture_owner.oid, target.namespace_oid, 'usage'
+          )
+      )
+    )
+  end
+) as pgcrypto_namespace_secure
+from target_namespace target
+\gset
+\if :pgcrypto_namespace_secure
+\else
+  \echo 'NO-GO: pgcrypto-Namespace-Owner/ACL ist nicht geschlossen.'
+  do $fail$ begin raise exception 'PREFLIGHT_PGCRYPTO_SECURITY_INVALID'; end $fail$;
+\endif
+
 -- Supabase's auth schema is platform-managed and may legitimately have a
 -- different owner than the local stub. Validate a closed allowlist and the
 -- precise grant/reference capabilities needed later before any v57.61.0 DDL
 -- can commit. Unknown schema grantees or CREATE authority fail closed.
+with platform_objects as (
+  select (
+      select procedure_row.oid
+      from pg_proc procedure_row
+      join pg_namespace namespace_row
+        on namespace_row.oid = procedure_row.pronamespace
+      where namespace_row.nspname = 'auth'
+        and procedure_row.proname = 'uid'
+        and procedure_row.pronargs = 0
+      order by procedure_row.oid
+      limit 1
+    ) as uid_oid,
+    (
+      select relation_row.oid
+      from pg_class relation_row
+      join pg_namespace namespace_row
+        on namespace_row.oid = relation_row.relnamespace
+      where namespace_row.nspname = 'auth'
+        and relation_row.relname = 'users'
+        and relation_row.relkind in ('r', 'p')
+      order by relation_row.oid
+      limit 1
+    ) as users_oid
+)
 select (
-  to_regnamespace('auth') is not null
-  and to_regclass('auth.users') is not null
-  and to_regprocedure('auth.uid()') is not null
+  exists (select 1 from pg_namespace where nspname = 'auth')
+  and platform_objects.users_oid is not null
+  and platform_objects.uid_oid is not null
   and exists (
     select 1
     from pg_namespace namespace_row
     join pg_roles owner_row on owner_row.oid = namespace_row.nspowner
     where namespace_row.nspname = 'auth'
-      and owner_row.rolname in ('postgres', 'supabase_auth_admin', current_user)
+      and owner_row.rolname in (
+        'postgres', 'supabase_admin', 'supabase_auth_admin'
+      )
+  )
+  and not exists (
+    select 1
+    from pg_proc procedure_row
+    cross join lateral aclexplode(coalesce(
+      procedure_row.proacl, acldefault('f', procedure_row.proowner)
+    )) exploded
+    left join pg_roles grantee_row on grantee_row.oid = exploded.grantee
+    where procedure_row.oid = platform_objects.uid_oid
+      and exploded.grantee <> procedure_row.proowner
+      and (
+        exploded.privilege_type <> 'EXECUTE'
+        or exploded.is_grantable
+        or coalesce(grantee_row.rolname, 'PUBLIC') not in (
+          'PUBLIC', 'anon', 'authenticated', 'service_role', 'authenticator',
+          'dashboard_user', 'postgres', 'supabase_admin',
+          'supabase_auth_admin'
+        )
+      )
   )
   and not exists (
     select 1
@@ -108,16 +276,25 @@ select (
     where namespace_row.nspname = 'auth'
       and exploded.grantee <> namespace_row.nspowner
       and not (
-        coalesce(grantee_row.rolname, 'PUBLIC') in (
-          'PUBLIC', 'anon', 'authenticated', 'service_role', 'authenticator',
-          'dashboard_user', 'equora_broker_capture_owner'
+        exploded.is_grantable = false
+        and (
+          (
+            coalesce(grantee_row.rolname, 'PUBLIC') in (
+              'anon', 'authenticated', 'service_role', 'authenticator'
+            )
+            and exploded.privilege_type = 'USAGE'
+          )
+          or (
+            coalesce(grantee_row.rolname, 'PUBLIC') = 'dashboard_user'
+            and exploded.privilege_type in ('USAGE', 'CREATE')
+          )
+          or (
+            coalesce(grantee_row.rolname, 'PUBLIC') in (
+              'postgres', 'supabase_admin', 'supabase_auth_admin'
+            )
+            and exploded.privilege_type in ('USAGE', 'CREATE')
+          )
         )
-        and exploded.privilege_type = 'USAGE'
-        and exploded.is_grantable = false
-        or coalesce(grantee_row.rolname, 'PUBLIC') in (
-          'postgres', 'supabase_auth_admin', current_user
-        )
-        and exploded.privilege_type in ('USAGE', 'CREATE')
       )
   )
   and exists (
@@ -125,15 +302,17 @@ select (
     from pg_proc procedure_row
     join pg_namespace namespace_row on namespace_row.oid = procedure_row.pronamespace
     join pg_roles owner_row on owner_row.oid = procedure_row.proowner
-    where procedure_row.oid = 'auth.uid()'::regprocedure
+    where procedure_row.oid = platform_objects.uid_oid
       and namespace_row.nspname = 'auth'
       and procedure_row.prorettype = 'uuid'::regtype
-      and owner_row.rolname in ('postgres', 'supabase_auth_admin', current_user)
+      and owner_row.rolname in (
+        'postgres', 'supabase_admin', 'supabase_auth_admin'
+      )
   )
   and exists (
     select 1
     from pg_attribute attribute_row
-    where attribute_row.attrelid = 'auth.users'::regclass
+    where attribute_row.attrelid = platform_objects.users_oid
       and attribute_row.attname = 'id'
       and attribute_row.atttypid = 'uuid'::regtype
       and attribute_row.attnotnull
@@ -145,31 +324,65 @@ select (
     join pg_attribute attribute_row
       on attribute_row.attrelid = constraint_row.conrelid
       and attribute_row.attnum = any(constraint_row.conkey)
-    where constraint_row.conrelid = 'auth.users'::regclass
+      where constraint_row.conrelid = platform_objects.users_oid
       and constraint_row.contype in ('p', 'u')
       and constraint_row.convalidated
       and cardinality(constraint_row.conkey) = 1
       and attribute_row.attname = 'id'
   )
-  and (
-    coalesce((select rolsuper from pg_roles where rolname = current_user), false)
-    or (
-      has_schema_privilege(current_user, 'auth', 'usage with grant option')
-      and has_function_privilege(
-        current_user, 'auth.uid()', 'execute with grant option'
-      )
-      and has_column_privilege(
-        current_user, 'auth.users', 'id', 'references'
-      )
-    )
+  and has_schema_privilege(current_user, 'auth', 'usage')
+  and has_function_privilege(
+    current_user, platform_objects.uid_oid, 'execute'
+  )
+  and has_column_privilege(
+    current_user, platform_objects.users_oid, 'id', 'references'
   )
 ) as platform_prerequisites_valid
+from platform_objects
 \gset
 \if :platform_prerequisites_valid
 \else
   \echo 'NO-GO: Supabase-auth-Owner/ACL oder Grant-/FK-Voraussetzungen sind nicht unterstuetzt.'
   do $fail$ begin raise exception 'PREFLIGHT_PLATFORM_SECURITY_INVALID'; end $fail$;
 \endif
+
+-- Bind the platform-owned auth ACLs to this psql session. The migration must
+-- neither grant nor revoke anything on Supabase's auth schema or auth.uid().
+select md5(
+    owner_row.rolname || E'\n' || coalesce(string_agg(
+      coalesce(grantee_row.rolname, 'PUBLIC') || '|'
+        || exploded.privilege_type || '|' || exploded.is_grantable::text,
+      E'\n' order by coalesce(grantee_row.rolname, 'PUBLIC'),
+        exploded.privilege_type, exploded.is_grantable
+    ), '')
+  ) as equora_auth_schema_acl_digest
+from pg_namespace namespace_row
+join pg_roles owner_row on owner_row.oid = namespace_row.nspowner
+cross join lateral aclexplode(coalesce(
+  namespace_row.nspacl, acldefault('n', namespace_row.nspowner)
+)) exploded
+left join pg_roles grantee_row on grantee_row.oid = exploded.grantee
+where namespace_row.nspname = 'auth'
+group by owner_row.rolname
+\gset
+
+select md5(
+    owner_row.rolname || E'\n' || coalesce(string_agg(
+      coalesce(grantee_row.rolname, 'PUBLIC') || '|'
+        || exploded.privilege_type || '|' || exploded.is_grantable::text,
+      E'\n' order by coalesce(grantee_row.rolname, 'PUBLIC'),
+        exploded.privilege_type, exploded.is_grantable
+    ), '')
+  ) as equora_auth_uid_acl_digest
+from pg_proc procedure_row
+join pg_roles owner_row on owner_row.oid = procedure_row.proowner
+cross join lateral aclexplode(coalesce(
+  procedure_row.proacl, acldefault('f', procedure_row.proowner)
+)) exploded
+left join pg_roles grantee_row on grantee_row.oid = exploded.grantee
+where procedure_row.oid = to_regprocedure('auth.uid()')
+group by owner_row.rolname
+\gset
 
 select (
   to_regclass('public.trades') is not null
@@ -179,7 +392,7 @@ select (
   and to_regprocedure('public.equora_import_trades_v1(uuid,jsonb,jsonb)') is not null
   and exists (
     select 1 from pg_constraint
-    where conrelid = 'public.trades'::regclass
+    where conrelid = to_regclass('public.trades')
       and conname = 'trades_monetary_values_require_currency_v57601'
       -- v57.60.1 deliberately leaves this legacy-data constraint NOT VALID:
       -- it protects every new/changed row without inventing a currency for
@@ -218,17 +431,17 @@ select to_regclass('equora_private.schema_migrations') is not null
 \if :v5761_marker_present
   with expected(ordinal, migration_id, contract_fingerprint) as (values
     (1, 'equora_v57.61.0_broker_capture_v1',
-      'ab08958bdeb88b9637351e2690c08f311d1653f3dba33d4cf11c61d4a81399b6'),
+      '492ebad5496806ad60425abd58e9801c58a58b421e38392d54e6082d7fa2b083'),
     (2, 'equora_v57.61.0_g1_capture_control_v1',
-      '6560d159d0756f83049a0e89834b2897ce58dae3fe2c112ae0f2aa159b9caf27'),
+      'c133d5e0c987e7f927963db4465ef5ab2f6f4c174cfdc96a3ed1cffb5cd62be5'),
     (3, 'equora_v57.61.0_g1_lane_authority_v1',
-      '955a175d3b05c34f680b94d54a494261d0a51dca2ecaba8ddf2311c20b9bcae5'),
+      '6be313155e81e0f14c48d0c71301e28a75b792a90e49542bc49ffe638f56c68d'),
     (4, 'equora_v57.61.0_g1_activation_authority_v1',
-      'ef73a48fb05299c4e78908fd1771c61ca1b8241b629cf31bc7f89af594d66c2c'),
+      'b074a756a015b34a7e3da804f3d3955100a40f9a6391855a75c1e415cbbb2abb'),
     (5, 'equora_v57.61.0_g1_scheduler_control_v2',
       '87158546782b900817d3f36501a2e43b5619906a2f07636d0cb1167b042e5ab7'),
     (6, 'equora_v57.61.0_g1_runtime_deployment_v1',
-      'e78049f738ed26d4ab96188f4da1c52ae00a2b3583db5aeaf4be608cdcc95457')
+      '892f1587e8e37937a538dad1239ec931d43bd1f65d2f224d56ab7b9356f89e96')
   ), present as (
     select expected.ordinal, expected.migration_id,
       actual.contract_fingerprint = expected.contract_fingerprint as exact
@@ -298,7 +511,16 @@ select not exists (
   where relation_row.oid = 'public.broker_credentials'::regclass
     and exploded.grantee <> relation_row.relowner
     and exploded.privilege_type = 'SELECT'
-    and grantee_row.rolname is distinct from 'equora_broker_capture_owner'
+    and (
+      exploded.is_grantable
+      or not (
+        grantee_row.rolname = 'equora_broker_capture_owner'
+        or (
+          :'v5761_marker_present'::boolean is false
+          and grantee_row.rolname = 'service_role'
+        )
+      )
+    )
 ) as credential_acl_closed
 \gset
 \if :credential_acl_closed

@@ -1,6 +1,6 @@
--- Exact read-only fingerprint for a clean v57.60.1 public schema. This gate is
--- executed only before the first v57.61.0 marker exists, so an incompatible or
--- drifted baseline fails before any v57.61.0 DDL can commit.
+-- Exact read-only source fingerprint for the single supported restored
+-- credential-ACL repair. This assertion performs no mutation and is included
+-- only by repair-v57.60.1-restored-credential-acl.sql.
 do $$
 declare
   v_baseline_contract text;
@@ -141,13 +141,13 @@ begin
   ), 'UTF8')), 'hex') into v_baseline_contract
   from contract_rows;
 
-  raise notice 'EQUORA_V57601_BASELINE_CONTRACT_HASH=%', v_baseline_contract;
-  if v_baseline_contract not in (
-      -- Canonical schema.sql + v57.60.1 under Hosted-compatible defaults.
-      'ac2bfb251aeb645dd3450e3b02d3f6d2ae5cb0aeeaa751e5a5a54f87a410c656',
-      -- Verified Pre-v57.60.1 restore shape + the same v57.60.1 patch.
-      '0fb6a0d531bb7cc66996c8b2d4f272f61dacefdb0e8969c536d1d49c89517218'
-    )
-  then raise exception 'PREFLIGHT_BASELINE_CONTRACT_DRIFT'; end if;
+  raise notice 'EQUORA_V57601_BASELINE_REPAIR_SOURCE_HASH=%',
+    v_baseline_contract;
+  if v_baseline_contract <>
+      '47cbc3bd6d4be8ccccf8543a1f1be554610fe20b5746478e6ca94664525daffb'
+  then
+    raise exception 'BASELINE_REPAIR_SOURCE_CONTRACT_DRIFT';
+  end if;
+  raise notice 'EQUORA_V57601_EXACT_CREDENTIAL_ACL_REPAIR_SOURCE_ACCEPTED';
 end;
 $$;

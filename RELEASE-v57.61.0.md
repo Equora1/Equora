@@ -40,6 +40,12 @@ implementiert.
   ACLs fail-closed geprüft. `PUBLIC` bleibt nur als nicht-grantable
   Funktions-`EXECUTE`-Default zulässig; Tabellenrechte für `PUBLIC` werden vor
   der ersten DDL blockiert.
+- Hosted-Supabase-kompatibler Request-Identity-Vertrag ohne Plattform-Grant-
+  Options: Ein privater, `postgres`-eigener und vollständig gefingerprintter
+  `SECURITY DEFINER`-Adapter kapselt ausschließlich `auth.uid()`. Die
+  Equora-NOLOGIN-Authority erhält weder `auth`-Schema-USAGE noch einen direkten
+  `auth.uid()`-Grant; Preflight und Postflight beweisen unveränderte
+  Plattform-ACLs.
 
 ## Nicht enthalten
 
@@ -55,11 +61,16 @@ implementiert.
 
 ## Freigabegates
 
-1. vollständiger lokaler Typecheck, Unit-/Vertrags-/SQL-/Race-Test und Build;
-2. neuer SHA-256-Freeze des exakten Deltas;
-3. unabhängiger QA-, Security- und Integritätsreview dieses neuen Freeze;
-4. Backup- und Restore-Nachweis in separatem Supabase-Stagingprojekt;
-5. kontrollierte Stagingmigration plus RLS-/RPC-/Secret-Canary-Prüfung;
+1. vollständiger lokaler Typecheck, Unit-/Vertrags-/SQL-/Race-Test und Build
+   (PASS für den aktuellen lokalen Delta);
+2. neuer SHA-256-Freeze des exakten Deltas und externes Paket-Sidecar; nach
+   jeder Änderung zwingend neu zu bilden;
+3. findingfreier unabhängiger QA-, Security- und Integritätsreview genau dieses
+   Freeze; der aktuelle Atteststatus steht ausschließlich im G1-Statusdokument;
+4. Backup- und Restore-Nachweis in separatem Supabase-Stagingprojekt
+   (PASS für den verifizierten v57.60.1-Restore);
+5. kontrollierte Stagingmigration (PASS: 6/6 Marker und globaler Postflight);
+   die davon getrennten Vercel-/App-RLS-/RPC-/Secret-Canaries stehen noch aus;
 6. ausdrücklich freigegebener echter MEXC-Read-only-Probe;
 7. separates Go für Capture-Cron und erst später ein eigenes Importgate.
 
@@ -76,6 +87,10 @@ implementiert.
   Runtime, Baseline-/Marker-/ACL-/GUC-/Constraint-/Indexdrift, internes
   FK-Triggerdriftorakel sowie echter PostgREST-v14.15-Timeout nach 15,01
   Sekunden;
+- isolierte Hosted-PG17-Matrix PASS: non-super `postgres`, getrennte
+  `supabase_admin`-/`supabase_auth_admin`-Owner, normale nicht-grantable
+  Plattformrechte, privater UID-Adapter, exakter Re-Run und sieben
+  fail-closed Plattformdrift-Mutanten;
 - produktive Runtime-Cycle-Zweige für Lease-Renew, Multi-Page-Continue,
   `yielded`-Continuation, kooperative Drei-Seiten-Freigabe und unerwartete
   Fehler inklusive Lease-Cleanup sind dynamisch belegt; das echte
@@ -88,7 +103,8 @@ implementiert.
   `capture_domain_failed` und sanitisiertem `failureCode`; Transportausnahmen
   bleiben HTTP 500;
 - Preflight-Negativorakel blockieren unzulässige Executorrollen, fremde
-  Default-ACLs und `PUBLIC SELECT ON TABLES` vor der ersten v57.61.0-DDL;
+  Default-ACLs, `PUBLIC SELECT ON TABLES` und Schema-`CREATE` für bekannte
+  API-Rollen vor der ersten v57.61.0-DDL;
   Identity-/Credential-Keypuffer
   werden auch auf frühen Fehlerpfaden nicht unnötig decodiert und sicher
   geleert;
@@ -96,9 +112,151 @@ implementiert.
   inhaltsverglichen und erneut geprüft. Der obsolete Force-Push-Handoff ist
   ausdrücklich ausgeschlossen.
 
+Der frühere Schlussfreeze mit ZIP-SHA-256
+`379f81d82230e800ad089c3143544216447d2503811b914cbbee6e02929dbe13`
+ist durch den Hosted-Supabase-Kompatibilitätspatch technisch überholt und kein
+aktuelles Freigabeartefakt. Das neu erzeugte lokale Paket enthält zusätzlich
+die Hosted-PG17-Fixture und ihren Runner. Sein autoritativer Hash steht nur im
+externen `.sha256.txt`-Sidecar und im Deploymentmanifest, damit der ZIP-Inhalt
+keinen selbstreferenziellen Hash behauptet. Das Paket bleibt bis zum neuen
+Deploymentmanifest und findingfreien A3-/A4-/A5-Review NO-GO für jede
+Veröffentlichung oder verbundene Aktion.
+
 Diese lokale Evidenz ist erst nach einem neuen hashgebundenen A3-/A4-/A5-
 Review des vollständigen Deployment-Manifests reviewgültig. Sie autorisiert
 keine externe Aktion.
 
 Ohne diese Nachweise lautet der Status: lokal vorbereitet, Deployment/Runtime
 noch NO-GO. Ein grüner technischer Freeze ersetzt die externen Gates nicht.
+
+## Restore-Kompatibilitätsdelta nach Hosted-Preflight
+
+Der vorangehende Hosted-Kompatibilitätsfreeze ist durch einen weiteren
+lokalen, noch neu einzufrierenden Kandidaten ersetzt. Der verifizierte
+Staging-Restore offenbarte einen zweiten exakten v57.60.1-Ausgangsvertrag. Der
+Patch akzeptiert deshalb nicht beliebigen Baseline-Drift, sondern ausschließlich
+die beiden gepinnten Profile und führt die bekannte Restoreform
+datenerhaltend auf denselben v57.61.0-Endvertrag.
+
+Zusätzliche Evidenz:
+
+- restaurierter Apply und exakter Re-Run PASS;
+- Altspaltendaten, ownerloser Trade und unbekannter Baseline-Drift jeweils
+  fail-closed ohne v57.61.0-Teileffekt;
+- pgcrypto-Schemaunterschied `public`/`extensions` durch zwei exakt gepinnte,
+  `postgres`-eigene `SECURITY DEFINER`-Adapter gekapselt; in beiden Spuren kein
+  Schema-`CREATE` und kein expliziter direkter Digest-/HMAC-Grant für die
+  Capture-Ownerrolle, bei `extensions` zusätzlich kein Schema-`USAGE`;
+- Namespaceowner/-ACL sowie die objektart- und privileggenaue Default-ACL-
+  Matrix einschließlich des prospektiven `extensions`-Namespaces sind in
+  Preflight und globalem Postflight fail-closed gebunden; `PUBLIC USAGE` auf
+  `extensions` scheitert vor DDL und auch bei Drift zwischen Preflight und
+  Postflight;
+- komplette lokale SQL-/Concurrency-/Drift-/Hosted-/PostgREST-Matrix PASS in
+  315,1 Sekunden auf dem final propagierten Fingerprintstand;
+- Vitest `22/22` Dateien, `367/367` Tests, Typecheck, Release-Check und
+  Next.js-15.5.21-Produktionsbuild PASS.
+
+Dieser Abschnitt beschreibt den damaligen Restore-Zwischenstand. Danach wurden
+die exakte Credential-ACL-Reparatur und der v57.61.0-Staging-Apply jeweils
+separat ausdrücklich freigegeben und erfolgreich ausgeführt. Daraus entsteht
+keine Freigabe für MEXC, Vercel, Produktion, Push, Merge oder Deployment.
+
+Das allowlistbasierte Paket enthält 364 kanonische Dateien. Sein
+`.sha256.txt`-Sidecar und die 364-zeilige Dateiliste liegen außerhalb des ZIP;
+nur diese externen Artefakte und das Deploymentmanifest dürfen den finalen
+ZIP-Hash festhalten. Der Hash ist erst nach findingfreiem A3-/A4-/A5-Review
+reviewgültig.
+
+## Exakte Credential-ACL-Reparatur nach Staging-Preflight
+
+Der erste freigegebene, eigenständige und read-only ausgeführte Preflight des
+restaurierten Stagingprojekts hat korrekt vor jeder v57.61.0-DDL gestoppt. Die
+Markertabelle blieb abwesend. Ursache waren ausschließlich 16 explizite
+Restore-ACLs auf `public.broker_credentials`: je acht für `anon` und
+`authenticated`. Gleichzeitig zeigte der Vergleich mit der lokalen Fixture
+einen Windows-Pipelinefehler: Ohne explizites UTF-8 wurde ein Nicht-ASCII-
+Zeichen in einem kanonischen v57.60.1-Funktionskörper lokal verfälscht.
+
+Die Remediation erweitert den Baselinevertrag nicht um beliebigen Drift:
+
+- sämtliche SQL-PowerShell-Runner setzen UTF-8 ohne BOM;
+- die beiden sauberen kanonischen Baselinehashes lauten nun
+  `ac2bfb251aeb645dd3450e3b02d3f6d2ae5cb0aeeaa751e5a5a54f87a410c656`
+  (Fresh) und
+  `0fb6a0d531bb7cc66996c8b2d4f272f61dacefdb0e8969c536d1d49c89517218`
+  (Restore);
+- der separate Reparaturpfad akzeptiert ausschließlich den exakt belegten
+  Drift-Hash
+  `47cbc3bd6d4be8ccccf8543a1f1be554610fe20b5746478e6ca94664525daffb`,
+  widerruft nur die zwei Credential-Tabellen-ACLs und verlangt unveränderte
+  fachliche Counts sowie anschließend den vollständigen sauberen Restorehash;
+- ein Teilrecht, ein zusätzlicher Drift oder eine abweichende Nachbedingung
+  scheitert fail-closed ohne Marker und ohne v57.61.0-Apply.
+- der allgemeine Baselineverifier enthält den Dirty-Hash nicht; nur die
+  separate read-only Reparaturquellen-Assertion kennt ihn. Ein frei setzbarer
+  GUC-, Session- oder Umgebungswert kann den normalen Gatevertrag nicht
+  aufweiten.
+
+Lokale Evidenz des technisch geprüften Kandidaten:
+
+- vollständige SQL-/Concurrency-/Drift-/Hosted-/PostgREST-Matrix PASS in
+  295,7 Sekunden;
+- beide pgcrypto-Namespacepfade, exakte ACL-Reparatur, Fresh Apply, exakte
+  Re-Runs und No-partial-effect-Negativorakel PASS;
+- Vitest `22/22` Dateien und `367/367` Tests PASS;
+- TypeScript-Typecheck PASS;
+- Release-Check und optimierter Next.js-15.5.21-Produktionsbuild PASS.
+
+Das allowlistbasierte Paket wurde nach dieser Dokumentationsänderung neu
+erzeugt, intern extrahiert und bytegenau geprüft. Es enthält 366 kanonische
+Dateien. Sein autoritativer SHA-256 steht ausschließlich im externen Sidecar
+und im externen Deploymentmanifest, nicht selbstreferenziell im ZIP-Inhalt.
+Nur das G1-Statusdokument darf den aktuellen Hash- und Reviewstatus behaupten.
+Nach dem findingfreien lokalen Review wurden zuerst ausschließlich die exakte
+Baseline-Reparatur und danach in einer weiteren ausdrücklichen Freigabe der
+normale Staging-Apply ausgeführt. Beide Schritte sind abgeschlossen und
+datenerhaltend attestiert; sie autorisieren keine weitere verbundene Aktion.
+
+## Ausgeführte Stagingmigration und verbleibende Releasegrenze
+
+Der aktuelle Stagingnachweis ersetzt die früheren zeitgebundenen Aussagen in
+diesem Dokument, nach denen `Equora Staging` noch markerfrei oder der Apply
+ausstehend war. Tatsächlich bestätigt sind:
+
+- Ziel ausschließlich das vor der Ausführung eindeutig identifizierte separate
+  Projekt `Equora Staging`; der konkrete Project Ref bleibt im externen
+  G1-Auditstatus und ist kein Bestandteil des generischen Releasepakets;
+- Credential-ACL-Reparatur vom exakt gebundenen Dirty-Hash `47cbc3bd...` auf
+  den sauberen Restorehash `0fb6a0d5...` PASS;
+- 16 unerlaubte Credential-ACL-Zeilen auf 0 reduziert;
+- normaler read-only Preflight danach PASS;
+- alle sechs Migrationslayer erstmals und ohne Skip angewendet;
+- alle sechs Marker mit ihren exakten Contract-Fingerprints vorhanden;
+- globaler Postflight PASS;
+- Journal-Trades 1280 vor und nach dem Apply;
+- Broker Connections, Broker Credentials, Sync Runs und Raw Events jeweils 0;
+- Auth-Nutzer 7, Trade-Medien 3, Setup-Medien 1 und Storage-Objekte 6
+  unverändert;
+- RLS aktiv, keine ownerlosen Trades und keine direkten
+  Credential-`SELECT`-ACL-Zeilen für `anon`, `authenticated` oder
+  `service_role`;
+- kein Retry, kein Restore, kein Brokerrequest und kein Journalimport.
+
+Der technische Code- und SQL-Kandidat bleibt gegenüber dieser reinen
+Betriebsdokumentationskorrektur unverändert. Weil `INSTALL-v57.61.0.md`,
+`OPERATIONS-SOP-v57.61.0.md` und dieses Release-Dokument Bestandteil des
+Release-ZIP sind, muss das Paket dennoch neu erzeugt, bytegenau geprüft, neu
+gehasht und als neuer Deployment-Kandidat unabhängig attestiert werden.
+
+Nach diesem lokalen Paketabschluss bleiben ausdrücklich offen und gesperrt:
+
+1. Feature-Branch-Commit und Git-Push;
+2. Vercel-Preview gegen `Equora Staging` mit Runtime `off`, ohne Cron und ohne
+   MEXC-Egress;
+3. App-seitige RLS-/RPC-/Secret-Canaries;
+4. ein separat freizugebender echter MEXC-Read-only-Probe;
+5. ein separat freizugebender manueller Capture-Canary;
+6. Merge nach `main`, Produktionsbackup/-preflight, Produktions-SQL,
+   Produktionsdeployment und Capture-Cron;
+7. der spätere automatische Journalimport als eigenes G2-G6-Produktgate.

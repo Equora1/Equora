@@ -27,6 +27,9 @@ begin
     or to_regprocedure('public.equora_upsert_broker_sync_lane_requirement_v1(uuid,bigint,bigint,text,text,text,uuid)') is null
     or to_regprocedure('public.equora_record_broker_sync_lane_success_v1(uuid,uuid,bigint,bigint,bigint,bigint,text,uuid)') is null
     or to_regprocedure('public.equora_scheduler_digest_v1(text,jsonb)') is null
+    or to_regprocedure(
+      'equora_private.equora_request_context_uid_v1()'
+    ) is null
   then
     raise exception 'RUNTIME_DEPLOYMENT_PREREQUISITE_MISSING';
   end if;
@@ -35,7 +38,7 @@ begin
   where migration_id = 'equora_v57.61.0_g1_runtime_deployment_v1';
   if v_existing_fingerprint is not null
     and v_existing_fingerprint is distinct from
-      'e78049f738ed26d4ab96188f4da1c52ae00a2b3583db5aeaf4be608cdcc95457'
+      '892f1587e8e37937a538dad1239ec931d43bd1f65d2f224d56ab7b9356f89e96'
   then raise exception 'RUNTIME_DEPLOYMENT_MIGRATION_DRIFT'; end if;
   if v_existing_fingerprint is null and (
     to_regclass('public.broker_connection_setup_commands') is not null
@@ -346,7 +349,7 @@ set lock_timeout = '2s'
 set statement_timeout = '5s'
 as $$
 declare
-  v_user_id uuid := auth.uid();
+  v_user_id uuid := equora_private.equora_request_context_uid_v1();
   v_label text := btrim(coalesce(p_account_label, ''));
   v_symbols text[];
   v_digest text;
@@ -754,7 +757,7 @@ set lock_timeout = '2s'
 set statement_timeout = '5s'
 as $$
 declare
-  v_user_id uuid := auth.uid();
+  v_user_id uuid := equora_private.equora_request_context_uid_v1();
   v_connection_account public.broker_connection_accounts%rowtype;
   v_series public.broker_sync_activation_series%rowtype;
   v_activation public.broker_sync_activations%rowtype;
@@ -1612,7 +1615,7 @@ $$;
 insert into equora_private.schema_migrations (migration_id, contract_fingerprint)
 values (
   'equora_v57.61.0_g1_runtime_deployment_v1',
-  'e78049f738ed26d4ab96188f4da1c52ae00a2b3583db5aeaf4be608cdcc95457'
+  '892f1587e8e37937a538dad1239ec931d43bd1f65d2f224d56ab7b9356f89e96'
 ) on conflict (migration_id) do nothing;
 
 do $$
@@ -1629,7 +1632,7 @@ begin
     select 1 from equora_private.schema_migrations
     where migration_id = 'equora_v57.61.0_g1_runtime_deployment_v1'
       and contract_fingerprint =
-        'e78049f738ed26d4ab96188f4da1c52ae00a2b3583db5aeaf4be608cdcc95457'
+        '892f1587e8e37937a538dad1239ec931d43bd1f65d2f224d56ab7b9356f89e96'
   ) then raise exception 'RUNTIME_DEPLOYMENT_MIGRATION_DRIFT'; end if;
 
   -- PostgreSQL 16+ retains an admin-only creator grant for a role created by

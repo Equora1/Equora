@@ -276,9 +276,11 @@ Equora Starter v57.61.0/RELEASE-v57.60.md
 Equora Starter v57.61.0/RELEASE-v57.61.0.md
 Equora Starter v57.61.0/scripts/build-release-artifact.ps1
 Equora Starter v57.61.0/scripts/release-check.mjs
+Equora Starter v57.61.0/supabase/assert-v57.60.1-restored-credential-acl-repair-source.sql
 Equora Starter v57.61.0/supabase/deploy-v57.61.0.sql
 Equora Starter v57.61.0/supabase/postflight-v57.61.0.sql
 Equora Starter v57.61.0/supabase/preflight-v57.61.0.sql
+Equora Starter v57.61.0/supabase/repair-v57.60.1-restored-credential-acl.sql
 Equora Starter v57.61.0/supabase/schema.sql
 Equora Starter v57.61.0/supabase/schema-patch-v54.sql
 Equora Starter v57.61.0/supabase/schema-patch-v56.13.sql
@@ -330,7 +332,9 @@ Equora Starter v57.61.0/tests/sql/broker-capture-persistence.integration.sql
 Equora Starter v57.61.0/tests/sql/broker-capture-runtime-deployment.integration.sql
 Equora Starter v57.61.0/tests/sql/broker-capture-runtime-deployment-postflight.integration.sql
 Equora Starter v57.61.0/tests/sql/broker-capture-scheduler-control.integration.sql
+Equora Starter v57.61.0/tests/sql/equora-hosted-supabase-v17-stubs.sql
 Equora Starter v57.61.0/tests/sql/equora-local-supabase-stubs.sql
+Equora Starter v57.61.0/tests/sql/equora-restored-v57601-upgrade-fixture.sql
 Equora Starter v57.61.0/tests/sql/run-broker-capture-activation-authority.ps1
 Equora Starter v57.61.0/tests/sql/run-broker-capture-activation-authority-concurrency.ps1
 Equora Starter v57.61.0/tests/sql/run-broker-capture-activation-authority-drift.ps1
@@ -350,6 +354,8 @@ Equora Starter v57.61.0/tests/sql/run-v57.61.0-all-local.ps1
 Equora Starter v57.61.0/tests/sql/run-v57.61.0-constraint-trigger-drift.ps1
 Equora Starter v57.61.0/tests/sql/run-v57.61.0-deployment.ps1
 Equora Starter v57.61.0/tests/sql/run-v57.61.0-deployment-drift.ps1
+Equora Starter v57.61.0/tests/sql/run-v57.61.0-hosted-supabase-compat.ps1
+Equora Starter v57.61.0/tests/sql/run-v57.61.0-restored-v57601-upgrade.ps1
 Equora Starter v57.61.0/tests/sql-contracts.test.ts
 Equora Starter v57.61.0/tests/trading-integrity.test.ts
 Equora Starter v57.61.0/TRADINGVIEW-IMPORT.md

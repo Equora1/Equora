@@ -13,7 +13,6 @@ begin;
 set local lock_timeout = '3s';
 set local statement_timeout = '120s';
 
-create schema if not exists extensions;
 create schema if not exists equora_private;
 revoke all on schema equora_private from public, anon, authenticated, service_role;
 
@@ -33,7 +32,7 @@ revoke all on table equora_private.schema_migrations
 do $$
 declare
   v_migration_id constant text := 'equora_v57.61.0_broker_capture_v1';
-  v_contract_fingerprint constant text := 'ab08958bdeb88b9637351e2690c08f311d1653f3dba33d4cf11c61d4a81399b6';
+  v_contract_fingerprint constant text := '492ebad5496806ad60425abd58e9801c58a58b421e38392d54e6082d7fa2b083';
   v_existing_fingerprint text;
 begin
   select contract_fingerprint into v_existing_fingerprint
@@ -71,6 +70,184 @@ begin
 end;
 $$;
 
+-- ---------------------------------------------------------------------------
+-- Supported v57.60.1 upgrade-path normalization.
+--
+-- The verified Hosted restore path predates several schema.sql-only additions
+-- and carries three obsolete, nullable setup columns. Normalize only the
+-- semantically relevant differences. No legacy value is discarded: non-null
+-- setup data or ownerless trades stop the migration for explicit reconciliation.
+-- ---------------------------------------------------------------------------
+
+do $$
+declare
+  v_legacy_column text;
+  v_non_null_count bigint;
+begin
+  if exists (select 1 from public.trades where user_id is null) then
+    raise exception 'MIGRATION_TRADE_OWNER_RECONCILIATION_REQUIRED';
+  end if;
+
+  alter table public.trades alter column user_id set not null;
+  alter table public.setups alter column title drop default;
+
+  foreach v_legacy_column in array array[
+    'name', 'grade', 'screenshot_url'
+  ] loop
+    if exists (
+      select 1
+      from pg_attribute attribute_row
+      where attribute_row.attrelid = 'public.setups'::regclass
+        and attribute_row.attname = v_legacy_column
+        and attribute_row.attnum > 0
+        and not attribute_row.attisdropped
+    ) then
+      execute format(
+        'select count(*) from public.setups where %I is not null',
+        v_legacy_column
+      ) into v_non_null_count;
+      if v_non_null_count <> 0 then
+        raise exception
+          'MIGRATION_LEGACY_SETUP_COLUMN_RECONCILIATION_REQUIRED:%',
+          v_legacy_column;
+      end if;
+      execute format(
+        'alter table public.setups drop column %I', v_legacy_column
+      );
+    end if;
+  end loop;
+end;
+$$;
+
+alter table public.shared_trade_submissions
+  add column if not exists learning_category text,
+  add column if not exists review_labels text[] not null default '{}'::text[],
+  add column if not exists coach_strengths text[] not null default '{}'::text[],
+  add column if not exists coach_mistakes text[] not null default '{}'::text[],
+  add column if not exists coach_action text,
+  add column if not exists vault_blurb text,
+  add column if not exists featured_at timestamptz;
+
+create index if not exists idx_setup_trade_links_user_created_at
+  on public.setup_trade_links (user_id, created_at asc);
+create index if not exists idx_setups_user_sort_title
+  on public.setups (user_id, sort_order, title);
+create index if not exists idx_shared_trade_submissions_featured_at
+  on public.shared_trade_submissions (featured_at desc);
+create index if not exists idx_trade_tags_trade_id_created_at
+  on public.trade_tags (trade_id, created_at);
+
+drop policy if exists trade_import_batches_delete_own
+  on public.trade_import_batches;
+drop policy if exists trade_import_batches_insert_own
+  on public.trade_import_batches;
+drop policy if exists trade_import_batches_select_own
+  on public.trade_import_batches;
+drop policy if exists trade_import_batches_update_own
+  on public.trade_import_batches;
+drop policy if exists "authenticated users can read featured vault submissions"
+  on public.shared_trade_submissions;
+create policy "authenticated users can read featured vault submissions"
+  on public.shared_trade_submissions for select
+  using (
+    auth.uid() is not null
+    and status = 'featured'
+    and vault_opt_in = true
+  );
+
+do $$
+declare
+  v_constraint pg_constraint%rowtype;
+begin
+  select * into v_constraint
+  from pg_constraint
+  where conrelid = 'public.trades'::regclass
+    and conname = 'trades_import_batch_id_fkey';
+
+  if v_constraint.oid is null then
+    alter table public.trades
+      add constraint trades_import_batch_id_fkey
+      foreign key (import_batch_id)
+      references public.trade_import_batches (id)
+      on delete set null
+      not valid;
+    alter table public.trades
+      validate constraint trades_import_batch_id_fkey;
+  elsif v_constraint.contype is distinct from 'f'
+    or v_constraint.confrelid is distinct from
+      'public.trade_import_batches'::regclass
+    or v_constraint.confdeltype is distinct from 'n'
+    or v_constraint.convalidated is distinct from true
+    or (
+      select array_agg(attribute_row.attname order by key_row.ordinality)
+      from unnest(v_constraint.conkey) with ordinality key_row(attnum, ordinality)
+      join pg_attribute attribute_row
+        on attribute_row.attrelid = v_constraint.conrelid
+        and attribute_row.attnum = key_row.attnum
+    ) is distinct from array['import_batch_id']::name[]
+    or (
+      select array_agg(attribute_row.attname order by key_row.ordinality)
+      from unnest(v_constraint.confkey) with ordinality key_row(attnum, ordinality)
+      join pg_attribute attribute_row
+        on attribute_row.attrelid = v_constraint.confrelid
+        and attribute_row.attnum = key_row.attnum
+    ) is distinct from array['id']::name[]
+  then
+    raise exception 'MIGRATION_TRADES_IMPORT_BATCH_FK_DRIFT';
+  end if;
+end;
+$$;
+
+-- Hosted default privileges historically left service_role EXECUTE on every
+-- v57.60.1 user RPC. Normalize the equora_* surface to the already documented
+-- least-privilege allowlist before creating any v57.61.0 authority function.
+do $$
+declare
+  v_function text;
+begin
+  for v_function in
+    select procedure_row.oid::regprocedure::text
+    from pg_proc procedure_row
+    join pg_namespace namespace_row
+      on namespace_row.oid = procedure_row.pronamespace
+    where namespace_row.nspname = 'public'
+      and procedure_row.proname like 'equora\_%' escape '\'
+    order by procedure_row.oid::regprocedure::text
+  loop
+    execute format(
+      'revoke all on function %s from public, anon, authenticated, service_role',
+      v_function
+    );
+  end loop;
+end;
+$$;
+
+grant execute on function public.equora_register_media_upload_intents_v1(text, uuid, text[]) to authenticated;
+grant execute on function public.equora_has_pending_upload_intent_v1(text, uuid) to authenticated;
+grant execute on function public.equora_owned_media_path_v1(text, uuid, text, uuid) to authenticated;
+grant execute on function public.equora_create_trade_v1(uuid, jsonb, text[], uuid) to authenticated;
+grant execute on function public.equora_update_trade_v1(uuid, jsonb, text[], uuid) to authenticated;
+grant execute on function public.equora_upsert_trade_media_v1(uuid, jsonb) to authenticated;
+grant execute on function public.equora_remove_trade_media_v1(uuid, uuid) to authenticated;
+grant execute on function public.equora_delete_trade_v1(uuid) to authenticated;
+grant execute on function public.equora_save_setup_v1(uuid, jsonb, jsonb, uuid[], boolean) to authenticated;
+grant execute on function public.equora_delete_setup_v1(uuid) to authenticated;
+grant execute on function public.equora_import_trades_v1(uuid, jsonb, jsonb) to authenticated;
+grant execute on function public.equora_revert_import_v1(uuid) to authenticated;
+grant execute on function public.equora_add_trade_tags_v1(uuid, text[]) to authenticated;
+grant execute on function public.equora_replace_trade_tags_v1(uuid, text[]) to authenticated;
+grant execute on function public.equora_bulk_add_trade_tag_v1(uuid[], text) to authenticated;
+grant execute on function public.equora_accept_setup_suggestion_v1(uuid, text) to authenticated;
+grant execute on function public.equora_save_review_session_v1(uuid, uuid[], jsonb) to authenticated;
+grant execute on function public.equora_create_broker_connection_service_v1(uuid, uuid, uuid, text, text, text, text, timestamptz) to service_role;
+grant execute on function public.equora_delete_broker_connection_service_v1(uuid, uuid) to service_role;
+
+-- v57.60.1 used service_role for direct credential persistence. From this
+-- layer onward credentials are reachable only through the later, closed
+-- authority RPCs; remove every legacy runtime-table grant before continuing.
+revoke all on table public.broker_credentials
+  from public, anon, authenticated, service_role;
+
 -- Preserve only the user-attestation meaning of the legacy permission pair.
 -- Successful GETs remain capability evidence and never prove that a MEXC key
 -- has no additional provider-side permissions.
@@ -81,7 +258,93 @@ where provider = 'mexc'
   and permissions @> array['futures_read_verified', 'read_only_confirmed']::text[]
   and permissions <@ array['futures_read_verified', 'read_only_confirmed']::text[];
 
-create extension if not exists pgcrypto with schema extensions;
+-- Do not create an unused extensions schema when a restored project already
+-- carries pgcrypto in public. Only an actually missing extension receives the
+-- canonical local/Supabase extensions namespace.
+do $$
+begin
+  if not exists (select 1 from pg_extension where extname = 'pgcrypto') then
+    create schema if not exists extensions;
+    create extension pgcrypto with schema extensions;
+  end if;
+end;
+$$;
+
+-- Bind the actual extension namespace before any postgres-owned wrapper uses
+-- it. This is a validation contract, not a platform-ACL rewrite: public and
+-- extensions are supported, owners/grantees are closed, grant options are
+-- rejected and browser/API roles can never CREATE in the namespace.
+do $$
+declare
+  v_pgcrypto_schema text;
+  v_pgcrypto_namespace_oid oid;
+  v_pgcrypto_owner text;
+begin
+  select namespace_row.nspname, namespace_row.oid, owner_row.rolname
+    into v_pgcrypto_schema, v_pgcrypto_namespace_oid, v_pgcrypto_owner
+  from pg_extension extension_row
+  join pg_namespace namespace_row
+    on namespace_row.oid = extension_row.extnamespace
+  join pg_roles owner_row on owner_row.oid = namespace_row.nspowner
+  where extension_row.extname = 'pgcrypto';
+
+  if v_pgcrypto_schema not in ('public', 'extensions')
+    or v_pgcrypto_namespace_oid is null
+    or v_pgcrypto_owner not in (
+      'postgres', 'supabase_admin', 'pg_database_owner'
+    )
+    or exists (
+      select 1
+      from pg_namespace namespace_row
+      cross join lateral aclexplode(coalesce(
+        namespace_row.nspacl, acldefault('n', namespace_row.nspowner)
+      )) exploded
+      left join pg_roles grantee_row on grantee_row.oid = exploded.grantee
+      where namespace_row.oid = v_pgcrypto_namespace_oid
+        and exploded.grantee <> namespace_row.nspowner
+        and not (
+          exploded.is_grantable is false
+          and (
+            (
+              v_pgcrypto_schema = 'public'
+              and coalesce(grantee_row.rolname, 'PUBLIC') = 'PUBLIC'
+              and exploded.privilege_type = 'USAGE'
+            )
+            or (
+              coalesce(grantee_row.rolname, 'PUBLIC') in (
+                'anon', 'authenticated', 'service_role', 'authenticator',
+                'supabase_auth_admin'
+              )
+              and exploded.privilege_type = 'USAGE'
+            )
+            or (
+              coalesce(grantee_row.rolname, 'PUBLIC') in (
+                'postgres', 'supabase_admin', 'dashboard_user'
+              )
+              and exploded.privilege_type in ('USAGE', 'CREATE')
+            )
+          )
+        )
+    )
+    or has_schema_privilege('anon', v_pgcrypto_schema, 'create')
+    or has_schema_privilege('authenticated', v_pgcrypto_schema, 'create')
+    or has_schema_privilege('service_role', v_pgcrypto_schema, 'create')
+    or (
+      v_pgcrypto_schema = 'extensions'
+      and exists (
+        select 1
+        from pg_roles capture_owner
+        where capture_owner.rolname = 'equora_broker_capture_owner'
+          and has_schema_privilege(
+            capture_owner.oid, v_pgcrypto_namespace_oid, 'usage'
+          )
+      )
+    )
+  then
+    raise exception 'MIGRATION_PGCRYPTO_SCHEMA_SECURITY_DRIFT';
+  end if;
+end;
+$$;
 
 -- pgcrypto is relocatable and Supabase projects do not all install it in the
 -- same schema. Create a fixed, security-definer-safe wrapper against the
@@ -107,6 +370,7 @@ begin
     language sql
     immutable
     strict
+    security definer
     set search_path = ''
     as $body$
       select %I.digest(p_value, p_algorithm)
@@ -122,6 +386,7 @@ begin
     language sql
     immutable
     strict
+    security definer
     set search_path = ''
     as $body$
       select %I.hmac(p_value, p_key, p_algorithm)
@@ -129,6 +394,11 @@ begin
   $function$, v_pgcrypto_schema);
 end;
 $$;
+
+alter function public.equora_pgcrypto_digest_v1(bytea, text)
+  owner to postgres;
+alter function public.equora_pgcrypto_hmac_v1(bytea, bytea, text)
+  owner to postgres;
 
 revoke all on function public.equora_pgcrypto_digest_v1(bytea, text)
   from public, anon, authenticated, service_role;
@@ -3329,7 +3599,7 @@ insert into equora_private.schema_migrations (
   contract_fingerprint
 ) values (
   'equora_v57.61.0_broker_capture_v1',
-  'ab08958bdeb88b9637351e2690c08f311d1653f3dba33d4cf11c61d4a81399b6'
+  '492ebad5496806ad60425abd58e9801c58a58b421e38392d54e6082d7fa2b083'
 ) on conflict (migration_id) do nothing;
 
 do $$
@@ -3402,9 +3672,77 @@ begin
   end if;
 
   if not exists (
+      select 1
+      from pg_proc procedure_row
+      join pg_namespace namespace_row
+        on namespace_row.oid = procedure_row.pronamespace
+      join pg_roles owner_row on owner_row.oid = procedure_row.proowner
+      join pg_language language_row on language_row.oid = procedure_row.prolang
+      join pg_extension extension_row on extension_row.extname = 'pgcrypto'
+      join pg_namespace extension_namespace
+        on extension_namespace.oid = extension_row.extnamespace
+      where procedure_row.oid =
+          'public.equora_pgcrypto_digest_v1(bytea,text)'::regprocedure
+        and namespace_row.nspname = 'public'
+        and owner_row.rolname = 'postgres'
+        and language_row.lanname = 'sql'
+        and procedure_row.provolatile = 'i'
+        and procedure_row.proisstrict
+        and procedure_row.prosecdef
+        and procedure_row.proconfig = array['search_path=""']::text[]
+        and regexp_replace(
+          procedure_row.prosrc, '[[:space:]]+', '', 'g'
+        ) = format(
+          'select%s.digest(p_value,p_algorithm)',
+          quote_ident(extension_namespace.nspname)
+        )
+    )
+    or not exists (
+      select 1
+      from pg_proc procedure_row
+      join pg_namespace namespace_row
+        on namespace_row.oid = procedure_row.pronamespace
+      join pg_roles owner_row on owner_row.oid = procedure_row.proowner
+      join pg_language language_row on language_row.oid = procedure_row.prolang
+      join pg_extension extension_row on extension_row.extname = 'pgcrypto'
+      join pg_namespace extension_namespace
+        on extension_namespace.oid = extension_row.extnamespace
+      where procedure_row.oid =
+          'public.equora_pgcrypto_hmac_v1(bytea,bytea,text)'::regprocedure
+        and namespace_row.nspname = 'public'
+        and owner_row.rolname = 'postgres'
+        and language_row.lanname = 'sql'
+        and procedure_row.provolatile = 'i'
+        and procedure_row.proisstrict
+        and procedure_row.prosecdef
+        and procedure_row.proconfig = array['search_path=""']::text[]
+        and regexp_replace(
+          procedure_row.prosrc, '[[:space:]]+', '', 'g'
+        ) = format(
+          'select%s.hmac(p_value,p_key,p_algorithm)',
+          quote_ident(extension_namespace.nspname)
+        )
+    )
+    or exists (
+      select 1
+      from pg_proc procedure_row
+      cross join lateral aclexplode(coalesce(
+        procedure_row.proacl, acldefault('f', procedure_row.proowner)
+      )) exploded
+      where procedure_row.oid in (
+        'public.equora_pgcrypto_digest_v1(bytea,text)'::regprocedure,
+        'public.equora_pgcrypto_hmac_v1(bytea,bytea,text)'::regprocedure
+      )
+        and exploded.grantee <> procedure_row.proowner
+    )
+  then
+    raise exception 'MIGRATION_PGCRYPTO_WRAPPER_CONTRACT_DRIFT';
+  end if;
+
+  if not exists (
       select 1 from equora_private.schema_migrations
       where migration_id = 'equora_v57.61.0_broker_capture_v1'
-        and contract_fingerprint = 'ab08958bdeb88b9637351e2690c08f311d1653f3dba33d4cf11c61d4a81399b6'
+        and contract_fingerprint = '492ebad5496806ad60425abd58e9801c58a58b421e38392d54e6082d7fa2b083'
     )
     or not exists (
       select 1 from pg_class

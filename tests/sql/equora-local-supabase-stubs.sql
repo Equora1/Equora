@@ -2,8 +2,40 @@
 
 -- Disposable local test fixture only. Supabase owns these schemas and objects
 -- in connected projects; this file must never be applied there.
+do $$
+begin
+  if not exists (select 1 from pg_roles where rolname = 'anon') then
+    create role anon nologin;
+  end if;
+  if not exists (select 1 from pg_roles where rolname = 'authenticated') then
+    create role authenticated nologin;
+  end if;
+  if not exists (select 1 from pg_roles where rolname = 'service_role') then
+    create role service_role nologin;
+  end if;
+  if not exists (
+    select 1 from pg_roles where rolname = 'supabase_auth_admin'
+  ) then
+    create role supabase_auth_admin nologin noinherit;
+  end if;
+end;
+$$;
+
 create schema if not exists auth;
 create schema if not exists storage;
+create schema if not exists extensions;
+create extension if not exists pgcrypto with schema extensions;
+
+-- Hosted Supabase grants these non-grantable defaults to its API roles. Keep
+-- the disposable fixture faithful so the deployment contract is not derived
+-- from an unrealistically privilege-empty local database.
+grant usage on schema public to postgres, anon, authenticated, service_role;
+alter default privileges for role postgres in schema public
+  grant all on tables to anon, authenticated, service_role;
+alter default privileges for role postgres in schema public
+  grant all on sequences to anon, authenticated, service_role;
+alter default privileges for role postgres in schema public
+  grant all on functions to anon, authenticated, service_role;
 
 create or replace function auth.uid()
 returns uuid

@@ -1441,3 +1441,96 @@ Roll-forward. Bei nachgewiesenem Daten-/Schemadrift erfolgt Restore des zuvor in
 einem getrennten Projekt getesteten Backups; ein destruktives Ad-hoc-Down-SQL
 ist nicht Teil des Releases. Storageobjekte benötigen ein separates Inventar,
 weil ein Datenbankbackup nur deren Metadaten enthält.
+
+### Hosted-Supabase-Request-Identity
+
+Die fachliche Nutzeridentität bleibt `auth.uid()`; Equora implementiert keine
+eigene Interpretation von `request.jwt.claim.*`. Weil Hosted Supabase dem
+non-super Migrationsexecutor keine Grant Options auf dem plattformverwalteten
+`auth`-Schema geben muss, erhalten die komplexen
+`equora_broker_capture_owner`-RPCs keinen direkten `auth`-Zugriff.
+
+Die einzige Brücke ist
+`equora_private.equora_request_context_uid_v1() returns uuid`: SQL, `STABLE`,
+`SECURITY DEFINER`, Owner exakt `postgres`, `search_path=""`, Body exakt
+`select auth.uid()`. Ihre explizite EXECUTE-ACL enthält ausschließlich die
+NOLOGIN-Authority und ist nicht grantable. Anonyme, authentifizierte und
+Service-Runtime-Rollen können den privaten Adapter nicht direkt aufrufen.
+Activation-, MEXC-Setup- und Revocation-Request-RPCs beziehen ihre
+Nutzeridentität nur über diese Brücke; RLS-Policies behalten die offizielle
+direkte `(select auth.uid())`-Semantik.
+
+Der Preflight validiert vor DDL die geschlossene Hosted-Owner-/ACL-Topologie,
+gewöhnliche Executor-Rechte auf `auth`, `auth.uid()` und `auth.users(id)` sowie
+die Abwesenheit fremder oder grantable Einträge. Er speichert kanonische
+Digests der Auth-Schema- und Auth-UID-ACL in der aktuellen `psql`-Sitzung. Der
+Postflight verlangt identische Digests, einen exakten Adaptervertrag, null
+direkte Auth-ACL für die Equora-Authority und null direkte `auth.uid()`-
+Referenzen in deren `SECURITY DEFINER`-Funktionen.
+
+### Restaurierter v57.60.1-Ausgangsvertrag
+
+Der markerfreie Baselinevertrag ist eine geschlossene Zwei-Profil-Union, kein
+Toleranzfenster. Profil A ist die kanonische Neuinstallation; Profil B ist die
+exakt verifizierte Restoreform. Beide werden vor jeder v57.61.0-DDL über
+Spalten, Constraints, Indizes, Relationen/RLS/ACL, Funktionen, Trigger und
+Policies gehasht. Physische `attnum`-Reihenfolgen sowie CRLF/LF in
+Funktionsdefinitionen sind keine Fachsemantik und werden kanonisch
+normalisiert.
+
+Nur Profil B durchläuft im ersten Layer eine geschlossene Upgrade-
+Normalisierung. Datenverlust ist nicht erlaubt: ownerlose Trades und
+nichtleere obsolete Setupspalten stoppen die Transaktion. Die bekannten
+fehlenden Submission-Spalten und Indizes werden ergänzt, alte Policyvarianten
+auf die kanonische Menge reduziert und der Trade-Import-FK exakt revalidiert.
+Danach müssen Profil A und Profil B dieselben acht globalen Vertragshashes
+erreichen.
+
+Da `pgcrypto` je Zielprojekt in `public` oder `extensions` installiert sein
+kann, wird sein Katalognamespace beim Apply ermittelt. Die öffentlichen
+Equora-Digest-/HMAC-Adapter sind einfache `postgres`-eigene,
+`SECURITY DEFINER`-Funktionen mit leerem `search_path`, festem Body und
+geschlossener ACL. Komplexe Capture-RPCs erhalten nur EXECUTE auf diese
+Adapter. Der Namespace selbst ist ein eigener Authority-Grain: nur `public`
+oder `extensions`, enger Plattformowner/-grantee-Vertrag, keine Grant Options
+und kein effektives Schema-`CREATE` für `PUBLIC`, `anon`, `authenticated` oder
+`service_role`. Bei `extensions` ist `PUBLIC USAGE` unzulässig und die
+Capture-Ownerrolle besitzt auch über vererbte Rechte kein effektives Schema-
+`USAGE`; bei `public` bleibt das bereits für die Equora-RPC-Oberfläche benötigte
+`USAGE` zulässig, ohne expliziten direkten Grant auf `digest` oder `hmac`.
+
+Der Default-ACL-Preflight bewertet nicht nur den Grantee, sondern die exakte
+Kombination aus Objektart, Privileg und Grantoption. Der Scope umfasst globale
+Defaults, `public`, `equora_private` und den prospektiven `extensions`-
+Namespace, auch wenn `pgcrypto` dort noch fehlt. Insbesondere kann eine bekannte
+API-Rolle niemals durch `CREATE ON SCHEMAS` als unkritisch gelten.
+
+### Exakter Restore-ACL-Reparaturgrain
+
+Ein Restore mit dem Baselinehash
+`47cbc3bd6d4be8ccccf8543a1f1be554610fe20b5746478e6ca94664525daffb`
+ist kein drittes akzeptiertes Migrationsprofil. Er beschreibt genau einen
+belegten Vorzustand: den vollständigen kanonischen Restorevertrag plus 16
+explizite, nicht-grantable Rechte von `anon` und `authenticated` auf
+`public.broker_credentials`. Die normale Preflight-Union bleibt deshalb auf
+die zwei sauberen Hashes begrenzt.
+
+Die Reparatur ist eine eigene, kurze Transaktion vor dem normalen Preflight.
+Sie sperrt ausschließlich `broker_credentials`, revalidiert den vollständigen
+Dirty-Hash über eine separate, rein read-only Reparaturquellen-Assertion,
+widerruft ausschließlich die beiden belegten ACLs und bindet danach wieder den
+gesamten sauberen Restorevertrag. Trade- und Credentialcounts müssen identisch
+bleiben. Ein partieller ACL-Zustand, ein weiterer Drift oder eine abweichende
+Nachbedingung führt zum vollständigen Rollback.
+
+Der allgemeine Baselineverifier enthält ausschließlich die zwei sauberen
+Hashes. Weder er noch der normale Preflight lesen einen Reparatur-GUC oder
+anderen ambienten Sessionzustand. Der v57.61.0-Treiber darf erst nach
+erfolgreicher Reparatur und erneutem read-only Preflight in einer separaten
+Freigabestufe folgen. Damit bleiben Baselinebereinigung, Migration,
+Runtimeaktivierung und Brokerzugriff vier getrennte Autoritätsgrenzen.
+
+Die Baseline-Funktionsdefinitionen werden vor dem Hashen semantisch
+kanonisiert; der Transport von SQL an `psql` muss zusätzlich UTF-8 explizit
+festlegen. Diese Trennung verhindert, dass eine Windows-Codepage-Verfälschung
+des Zeichens `ü` als realer Datenbank- oder Funktionsdrift behandelt wird.

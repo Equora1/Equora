@@ -21,7 +21,7 @@ begin
   where migration_id = 'equora_v57.61.0_g1_capture_control_v1';
 
   if v_control_fingerprint is distinct from
-      '6560d159d0756f83049a0e89834b2897ce58dae3fe2c112ae0f2aa159b9caf27'
+      'c133d5e0c987e7f927963db4465ef5ab2f6f4c174cfdc96a3ed1cffb5cd62be5'
   then
     raise exception 'LANE_AUTHORITY_CONTROL_MIGRATION_NOT_APPLIED';
   end if;
@@ -31,7 +31,7 @@ $$;
 do $$
 declare
   v_migration_id constant text := 'equora_v57.61.0_g1_lane_authority_v1';
-  v_contract_fingerprint constant text := '955a175d3b05c34f680b94d54a494261d0a51dca2ecaba8ddf2311c20b9bcae5';
+  v_contract_fingerprint constant text := '6be313155e81e0f14c48d0c71301e28a75b792a90e49542bc49ffe638f56c68d';
   v_existing_fingerprint text;
 begin
   select contract_fingerprint into v_existing_fingerprint
@@ -1262,7 +1262,7 @@ insert into equora_private.schema_migrations (
   contract_fingerprint
 ) values (
   'equora_v57.61.0_g1_lane_authority_v1',
-  '955a175d3b05c34f680b94d54a494261d0a51dca2ecaba8ddf2311c20b9bcae5'
+  '6be313155e81e0f14c48d0c71301e28a75b792a90e49542bc49ffe638f56c68d'
 ) on conflict (migration_id) do nothing;
 
 do $$
@@ -1274,7 +1274,7 @@ begin
       select 1
       from equora_private.schema_migrations
       where migration_id = 'equora_v57.61.0_g1_lane_authority_v1'
-        and contract_fingerprint = '955a175d3b05c34f680b94d54a494261d0a51dca2ecaba8ddf2311c20b9bcae5'
+        and contract_fingerprint = '6be313155e81e0f14c48d0c71301e28a75b792a90e49542bc49ffe638f56c68d'
     )
     or to_regclass('public.broker_sync_lane_requirements') is null
     or to_regclass('public.broker_sync_lane_states') is null

@@ -9,6 +9,61 @@ begin transaction read only;
   do $fail$ begin raise exception 'POSTFLIGHT_BASELINE_EVIDENCE_MISSING'; end $fail$;
 \endif
 
+\if :{?equora_auth_schema_acl_digest}
+\else
+  \echo 'NO-GO: Auth-Schema-ACL-Evidenz aus dem Preflight fehlt.'
+  do $fail$ begin raise exception 'POSTFLIGHT_AUTH_SCHEMA_EVIDENCE_MISSING'; end $fail$;
+\endif
+\if :{?equora_auth_uid_acl_digest}
+\else
+  \echo 'NO-GO: auth.uid()-ACL-Evidenz aus dem Preflight fehlt.'
+  do $fail$ begin raise exception 'POSTFLIGHT_AUTH_UID_EVIDENCE_MISSING'; end $fail$;
+\endif
+
+select (
+    select md5(
+      owner_row.rolname || E'\n' || coalesce(string_agg(
+        coalesce(grantee_row.rolname, 'PUBLIC') || '|'
+          || exploded.privilege_type || '|' || exploded.is_grantable::text,
+        E'\n' order by coalesce(grantee_row.rolname, 'PUBLIC'),
+          exploded.privilege_type, exploded.is_grantable
+      ), '')
+    )
+    from pg_namespace namespace_row
+    join pg_roles owner_row on owner_row.oid = namespace_row.nspowner
+    cross join lateral aclexplode(coalesce(
+      namespace_row.nspacl, acldefault('n', namespace_row.nspowner)
+    )) exploded
+    left join pg_roles grantee_row on grantee_row.oid = exploded.grantee
+    where namespace_row.nspname = 'auth'
+    group by owner_row.rolname
+  ) = :'equora_auth_schema_acl_digest'
+  and (
+    select md5(
+      owner_row.rolname || E'\n' || coalesce(string_agg(
+        coalesce(grantee_row.rolname, 'PUBLIC') || '|'
+          || exploded.privilege_type || '|' || exploded.is_grantable::text,
+        E'\n' order by coalesce(grantee_row.rolname, 'PUBLIC'),
+          exploded.privilege_type, exploded.is_grantable
+      ), '')
+    )
+    from pg_proc procedure_row
+    join pg_roles owner_row on owner_row.oid = procedure_row.proowner
+    cross join lateral aclexplode(coalesce(
+      procedure_row.proacl, acldefault('f', procedure_row.proowner)
+    )) exploded
+    left join pg_roles grantee_row on grantee_row.oid = exploded.grantee
+    where procedure_row.oid = 'auth.uid()'::regprocedure
+    group by owner_row.rolname
+  ) = :'equora_auth_uid_acl_digest'
+  as auth_platform_acl_unchanged
+\gset
+\if :auth_platform_acl_unchanged
+\else
+  \echo 'NO-GO: Migration hat die Supabase-auth-Plattform-ACL veraendert.'
+  do $fail$ begin raise exception 'POSTFLIGHT_AUTH_PLATFORM_ACL_DRIFT'; end $fail$;
+\endif
+
 select migration_id, contract_fingerprint, applied_at
 from equora_private.schema_migrations
 where migration_id in (
@@ -23,17 +78,17 @@ order by migration_id;
 
 with expected(migration_id, contract_fingerprint) as (values
   ('equora_v57.61.0_broker_capture_v1',
-    'ab08958bdeb88b9637351e2690c08f311d1653f3dba33d4cf11c61d4a81399b6'),
+    '492ebad5496806ad60425abd58e9801c58a58b421e38392d54e6082d7fa2b083'),
   ('equora_v57.61.0_g1_capture_control_v1',
-    '6560d159d0756f83049a0e89834b2897ce58dae3fe2c112ae0f2aa159b9caf27'),
+    'c133d5e0c987e7f927963db4465ef5ab2f6f4c174cfdc96a3ed1cffb5cd62be5'),
   ('equora_v57.61.0_g1_lane_authority_v1',
-    '955a175d3b05c34f680b94d54a494261d0a51dca2ecaba8ddf2311c20b9bcae5'),
+    '6be313155e81e0f14c48d0c71301e28a75b792a90e49542bc49ffe638f56c68d'),
   ('equora_v57.61.0_g1_activation_authority_v1',
-    'ef73a48fb05299c4e78908fd1771c61ca1b8241b629cf31bc7f89af594d66c2c'),
+    'b074a756a015b34a7e3da804f3d3955100a40f9a6391855a75c1e415cbbb2abb'),
   ('equora_v57.61.0_g1_scheduler_control_v2',
     '87158546782b900817d3f36501a2e43b5619906a2f07636d0cb1167b042e5ab7'),
   ('equora_v57.61.0_g1_runtime_deployment_v1',
-    'e78049f738ed26d4ab96188f4da1c52ae00a2b3583db5aeaf4be608cdcc95457')
+    '892f1587e8e37937a538dad1239ec931d43bd1f65d2f224d56ab7b9356f89e96')
 )
 select count(actual.migration_id) = 6 as all_v57610_markers_present
 from expected
@@ -161,12 +216,11 @@ from public.trades
   do $fail$ begin raise exception 'POSTFLIGHT_TRADE_COUNT_DRIFT'; end $fail$;
 \endif
 
-select
-  (select count(*) from public.trades) as postflight_trade_count,
-  (select count(*) from public.broker_connection_setup_commands) as setup_command_count,
-  (select count(*) from public.broker_capture_work_units) as work_unit_count,
-  (select count(*) from public.broker_capture_scope_finalization_receipts)
-    as finalization_receipt_count;
+-- The Hosted migration executor is deliberately not a member of the NOLOGIN
+-- authority owner and therefore cannot read its private runtime tables. The
+-- exact catalog contract above proves those tables without weakening ACLs.
+select count(*) as postflight_trade_count
+from public.trades;
 
 \echo 'POSTFLIGHT PASS: sechs Marker, globaler Semantikvertrag, Runtime-ACL und Journal-Tradezahl sind unverÃ¤ndert geschlossen.'
 

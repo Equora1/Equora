@@ -21,7 +21,7 @@ begin
   where migration_id = 'equora_v57.61.0_g1_lane_authority_v1';
 
   if v_lane_fingerprint is distinct from
-      '955a175d3b05c34f680b94d54a494261d0a51dca2ecaba8ddf2311c20b9bcae5'
+      '6be313155e81e0f14c48d0c71301e28a75b792a90e49542bc49ffe638f56c68d'
   then
     raise exception 'ACTIVATION_AUTHORITY_LANE_MIGRATION_NOT_APPLIED';
   end if;
@@ -32,7 +32,7 @@ do $$
 declare
   v_migration_id constant text := 'equora_v57.61.0_g1_activation_authority_v1';
   v_contract_fingerprint constant text :=
-    'ef73a48fb05299c4e78908fd1771c61ca1b8241b629cf31bc7f89af594d66c2c';
+    'b074a756a015b34a7e3da804f3d3955100a40f9a6391855a75c1e415cbbb2abb';
   v_existing_fingerprint text;
 begin
   select contract_fingerprint into v_existing_fingerprint
@@ -48,6 +48,9 @@ begin
     ) is not null
     or to_regprocedure(
       'public.equora_apply_broker_sync_activation_command_v1(uuid)'
+    ) is not null
+    or to_regprocedure(
+      'equora_private.equora_request_context_uid_v1()'
     ) is not null
   ) then
     raise exception 'ACTIVATION_AUTHORITY_PREEXISTING_PARTIAL_SCHEMA';
@@ -121,6 +124,76 @@ begin
 end;
 $$;
 
+-- Supabase owns the auth schema. Hosted projects deliberately do not grant the
+-- migration executor grant options on auth or auth.uid(), so the isolated
+-- Equora execution owner must not receive direct platform ACLs. This narrow
+-- postgres-owned adapter preserves Supabase's official auth.uid() semantics
+-- while exposing only the current request UUID to the NOLOGIN authority role.
+do $$
+declare
+  v_adapter_oid oid := to_regprocedure(
+    'equora_private.equora_request_context_uid_v1()'
+  );
+begin
+  if v_adapter_oid is not null
+    and not exists (
+      select 1
+      from pg_proc procedure_row
+      join pg_roles owner_row on owner_row.oid = procedure_row.proowner
+      where procedure_row.oid = v_adapter_oid
+        and owner_row.rolname = 'postgres'
+    )
+  then
+    raise exception 'ACTIVATION_AUTHORITY_AUTH_ADAPTER_OWNER_DRIFT';
+  end if;
+end;
+$$;
+
+create or replace function equora_private.equora_request_context_uid_v1()
+returns uuid
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select auth.uid()
+$$;
+
+alter function equora_private.equora_request_context_uid_v1()
+  owner to postgres;
+
+do $$
+declare
+  v_acl record;
+begin
+  for v_acl in
+    select distinct exploded.grantee, role_row.rolname
+    from pg_proc procedure_row
+    cross join lateral aclexplode(coalesce(
+      procedure_row.proacl, acldefault('f', procedure_row.proowner)
+    )) exploded
+    left join pg_roles role_row on role_row.oid = exploded.grantee
+    where procedure_row.oid =
+      'equora_private.equora_request_context_uid_v1()'::regprocedure
+      and exploded.privilege_type = 'EXECUTE'
+      and exploded.grantee <> procedure_row.proowner
+  loop
+    if v_acl.grantee = 0 then
+      revoke execute on function
+        equora_private.equora_request_context_uid_v1() from public;
+    elsif v_acl.rolname is not null then
+      execute format(
+        'revoke execute on function '
+          || 'equora_private.equora_request_context_uid_v1() from %I',
+        v_acl.rolname
+      );
+    else
+      raise exception 'ACTIVATION_AUTHORITY_AUTH_ADAPTER_ACL_GRANTEE_INVALID';
+    end if;
+  end loop;
+end;
+$$;
+
 -- Dedicated, non-login execution owner for the new SECURITY DEFINER surface.
 -- BYPASSRLS is confined to this role because it has no login and no usable
 -- application membership. PostgreSQL 16+ records the creating `postgres`
@@ -160,6 +233,9 @@ begin
   );
 end;
 $$;
+
+grant execute on function equora_private.equora_request_context_uid_v1()
+  to equora_broker_capture_owner;
 
 -- ---------------------------------------------------------------------------
 -- Activation lifecycle CAS and revocation epoch. Existing activations remain
@@ -339,7 +415,8 @@ create index if not exists idx_broker_capture_work_units_scope_authority_fkey
 
 -- ---------------------------------------------------------------------------
 -- Owner-bound lifecycle commands. The authenticated RPC derives the tenant
--- exclusively from auth.uid(); the service-role applier accepts only a command
+-- exclusively from the postgres-owned auth.uid() adapter; the service-role
+-- applier accepts only a command
 -- ID and derives every account, provider and credential binding from locked
 -- parent rows.
 -- ---------------------------------------------------------------------------
@@ -450,7 +527,7 @@ set lock_timeout = '2s'
 set statement_timeout = '5s'
 as $$
 declare
-  v_user_id uuid := auth.uid();
+  v_user_id uuid := equora_private.equora_request_context_uid_v1();
   v_connection_account public.broker_connection_accounts%rowtype;
   v_existing public.broker_sync_activation_commands%rowtype;
   v_digest text;
@@ -4116,9 +4193,8 @@ grant execute on function public.equora_record_broker_capture_failure_v2(
   integer,integer,text
 ) to service_role;
 
-grant usage on schema public, equora_private, auth
+grant usage on schema public, equora_private
   to equora_broker_capture_owner;
-grant execute on function auth.uid() to equora_broker_capture_owner;
 -- Required by PostgreSQL only while function ownership is transferred. It is
 -- revoked below before the migration commits and is covered by postflight.
 grant create on schema public to equora_broker_capture_owner;
@@ -4457,7 +4533,7 @@ insert into equora_private.schema_migrations (
   migration_id, contract_fingerprint
 ) values (
   'equora_v57.61.0_g1_activation_authority_v1',
-    'ef73a48fb05299c4e78908fd1771c61ca1b8241b629cf31bc7f89af594d66c2c'
+  'b074a756a015b34a7e3da804f3d3955100a40f9a6391855a75c1e415cbbb2abb'
 ) on conflict (migration_id) do nothing;
 
 do $$
@@ -4487,7 +4563,7 @@ begin
     select 1 from equora_private.schema_migrations
     where migration_id = 'equora_v57.61.0_g1_activation_authority_v1'
         and contract_fingerprint =
-          'ef73a48fb05299c4e78908fd1771c61ca1b8241b629cf31bc7f89af594d66c2c'
+          'b074a756a015b34a7e3da804f3d3955100a40f9a6391855a75c1e415cbbb2abb'
   )
     or to_regclass('public.broker_sync_activation_commands') is null
     or to_regclass('public.broker_sync_authority_mutation_receipts') is null
@@ -4715,6 +4791,91 @@ begin
     or v_owner_membership_drift
   then
     raise exception 'ACTIVATION_AUTHORITY_OWNER_ROLE_DRIFT';
+  end if;
+
+  if not exists (
+      select 1
+      from pg_proc procedure_row
+      join pg_namespace namespace_row
+        on namespace_row.oid = procedure_row.pronamespace
+      join pg_roles owner_row on owner_row.oid = procedure_row.proowner
+      join pg_language language_row on language_row.oid = procedure_row.prolang
+      where procedure_row.oid =
+        'equora_private.equora_request_context_uid_v1()'::regprocedure
+        and namespace_row.nspname = 'equora_private'
+        and owner_row.rolname = 'postgres'
+        and language_row.lanname = 'sql'
+        and procedure_row.prorettype = 'uuid'::regtype
+        and procedure_row.pronargs = 0
+        and procedure_row.provolatile = 's'
+        and procedure_row.prosecdef = true
+        and procedure_row.proconfig @> array['search_path=""']::text[]
+        and procedure_row.proconfig <@ array['search_path=""']::text[]
+        and regexp_replace(
+          procedure_row.prosrc, '[[:space:]]+', '', 'g'
+        ) = 'selectauth.uid()'
+    )
+    or exists (
+      select 1
+      from pg_proc procedure_row
+      cross join lateral aclexplode(coalesce(
+        procedure_row.proacl, acldefault('f', procedure_row.proowner)
+      )) exploded
+      left join pg_roles grantee_row on grantee_row.oid = exploded.grantee
+      where procedure_row.oid =
+        'equora_private.equora_request_context_uid_v1()'::regprocedure
+        and exploded.grantee <> procedure_row.proowner
+        and (
+          grantee_row.rolname is distinct from 'equora_broker_capture_owner'
+          or exploded.privilege_type is distinct from 'EXECUTE'
+          or exploded.is_grantable is distinct from false
+        )
+    )
+    or not exists (
+      select 1
+      from pg_proc procedure_row
+      cross join lateral aclexplode(coalesce(
+        procedure_row.proacl, acldefault('f', procedure_row.proowner)
+      )) exploded
+      join pg_roles grantee_row on grantee_row.oid = exploded.grantee
+      where procedure_row.oid =
+        'equora_private.equora_request_context_uid_v1()'::regprocedure
+        and grantee_row.rolname = 'equora_broker_capture_owner'
+        and exploded.privilege_type = 'EXECUTE'
+        and exploded.is_grantable = false
+    )
+    or exists (
+      select 1
+      from pg_namespace namespace_row
+      cross join lateral aclexplode(coalesce(
+        namespace_row.nspacl, acldefault('n', namespace_row.nspowner)
+      )) exploded
+      join pg_roles grantee_row on grantee_row.oid = exploded.grantee
+      where namespace_row.nspname = 'auth'
+        and grantee_row.rolname = 'equora_broker_capture_owner'
+    )
+    or exists (
+      select 1
+      from pg_proc procedure_row
+      cross join lateral aclexplode(coalesce(
+        procedure_row.proacl, acldefault('f', procedure_row.proowner)
+      )) exploded
+      join pg_roles grantee_row on grantee_row.oid = exploded.grantee
+      where procedure_row.oid = 'auth.uid()'::regprocedure
+        and grantee_row.rolname = 'equora_broker_capture_owner'
+    )
+    or exists (
+      select 1
+      from pg_proc procedure_row
+      join pg_roles owner_row on owner_row.oid = procedure_row.proowner
+      where owner_row.rolname = 'equora_broker_capture_owner'
+        and procedure_row.prosecdef
+        and case when procedure_row.prokind in ('f', 'p') then
+          pg_get_functiondef(procedure_row.oid) ~ 'auth[.]uid[(][)]'
+        else false end
+    )
+  then
+    raise exception 'ACTIVATION_AUTHORITY_AUTH_ADAPTER_DRIFT';
   end if;
 
   if exists (

@@ -21,7 +21,7 @@ begin
   where migration_id = 'equora_v57.61.0_broker_capture_v1';
 
   if v_base_fingerprint is distinct from
-    'ab08958bdeb88b9637351e2690c08f311d1653f3dba33d4cf11c61d4a81399b6'
+    '492ebad5496806ad60425abd58e9801c58a58b421e38392d54e6082d7fa2b083'
   then
     raise exception 'CONTROL_MIGRATION_BASE_NOT_APPLIED';
   end if;
@@ -31,7 +31,7 @@ $$;
 do $$
 declare
   v_migration_id constant text := 'equora_v57.61.0_g1_capture_control_v1';
-  v_contract_fingerprint constant text := '6560d159d0756f83049a0e89834b2897ce58dae3fe2c112ae0f2aa159b9caf27';
+  v_contract_fingerprint constant text := 'c133d5e0c987e7f927963db4465ef5ab2f6f4c174cfdc96a3ed1cffb5cd62be5';
   v_existing_fingerprint text;
 begin
   select contract_fingerprint into v_existing_fingerprint
@@ -2030,7 +2030,7 @@ insert into equora_private.schema_migrations (
   contract_fingerprint
 ) values (
   'equora_v57.61.0_g1_capture_control_v1',
-  '6560d159d0756f83049a0e89834b2897ce58dae3fe2c112ae0f2aa159b9caf27'
+  'c133d5e0c987e7f927963db4465ef5ab2f6f4c174cfdc96a3ed1cffb5cd62be5'
 ) on conflict (migration_id) do nothing;
 
 do $$
@@ -2046,7 +2046,7 @@ begin
       select 1
       from equora_private.schema_migrations
       where migration_id = 'equora_v57.61.0_g1_capture_control_v1'
-        and contract_fingerprint = '6560d159d0756f83049a0e89834b2897ce58dae3fe2c112ae0f2aa159b9caf27'
+        and contract_fingerprint = 'c133d5e0c987e7f927963db4465ef5ab2f6f4c174cfdc96a3ed1cffb5cd62be5'
     )
     or to_regclass('public.broker_capture_attempt_outcomes') is null
     or not exists (

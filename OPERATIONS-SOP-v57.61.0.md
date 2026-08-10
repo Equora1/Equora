@@ -91,6 +91,15 @@ Baselinefingerprint vor jeder v57.61.0-DDL geprüft. Ein Marker beweist nur eine
 frühere Anwendung; deshalb darf der globale Contract-Postflight bei keinem
 Wiederanlauf ausgelassen werden.
 
+Hosted Supabase verwaltet `auth` selbst. Der Operator darf deshalb weder
+Grant Options anfordern noch manuell `USAGE ON SCHEMA auth` oder `EXECUTE ON
+auth.uid()` an Equoras Authority-Rolle vergeben. Der unterstützte Pfad ist der
+private Adapter `equora_private.equora_request_context_uid_v1()`. Schlägt der
+Preflight wegen Plattformowner, ACL, `auth.uid()` oder `auth.users(id)` fehl,
+ist das ein hartes NO-GO vor DDL; keine Plattform-ACL wird als Workaround
+verändert. Nach einem erfolgreichen Lauf müssen die im Preflight gebundenen
+Auth-ACL-Digests im Postflight identisch sein.
+
 ## Credential- und Key-Lebenszyklus
 
 ### Broker-AES-Keyring
@@ -147,3 +156,95 @@ und Auswertungs-Reset sind eigene, später freizugebende Funktionen.
 - offene Gaps, Retentiongrenze und benötigte Account-Exports bewerten;
 - Vercel-Plan, Cronfrequenz, Functiondauer und Logs-Aufbewahrung prüfen;
 - erst nach fachlicher Reconciliation einen späteren Journalimport freigeben.
+
+## Restaurierter v57.60.1-Upgradepfad
+
+Ein Restore gilt nur dann als migrationsfähig, wenn der markerfreie Preflight
+exakt einen der beiden gepinnten v57.60.1-Baselinehashes meldet. Beim
+Restoreprofil gelten zusätzliche harte Stopbedingungen:
+
+- `trades.user_id is null` muss exakt null Zeilen liefern;
+- `setups.name`, `setups.grade` und `setups.screenshot_url` dürfen, falls die
+  Spalten existieren, keinen nichtleeren Wert enthalten;
+- jeder weitere unbekannte Spalten-, Constraint-, Index-, Policy-, Trigger-,
+  Funktions- oder ACL-Drift ist `NO-GO`;
+- eine Default-ACL außerhalb der geschlossenen Objektart-/Privilegmatrix oder
+  Schema-`CREATE` für `anon`, `authenticated` bzw. `service_role` ist `NO-GO`;
+  geprüft werden globale Defaults sowie `public`, `equora_private` und
+  `extensions`;
+- der tatsächliche `pgcrypto`-Namespace muss `public` oder `extensions` sein;
+  API-Rollen dürfen dort kein effektives `CREATE` besitzen; bei `extensions`
+  sind zusätzlich `PUBLIC USAGE` und jedes effektive Schema-`USAGE` der
+  Capture-Ownerrolle `NO-GO`;
+- ein Abbruch in Layer 1 darf weder Marker noch Broker-Capture-Objekte
+  hinterlassen.
+
+Die Normalisierung ist transaktional und erzeugt keine Journal-Trades. Ein
+fehlgeschlagener Lauf wird nicht manuell durch Einzel-DDL repariert. Der
+Operator stoppt, sichert die Fehlerevidenz und entscheidet zwischen
+Datenreconciliation, neuem Backup-Restore oder einem separat geprüften
+Forward-Fix.
+
+Historischer Zwischenstand vor den getrennt freigegebenen Stagingaktionen:
+`Equora Staging` enthielt zunächst ausschließlich den verifizierten
+v57.60.1-Restore ohne v57.61.0-Marker. Dieser Zwischenstand ist durch die unten
+dokumentierte Credential-ACL-Reparatur und den anschließend separat
+freigegebenen Sechs-Layer-Apply überholt.
+
+### Exakt begrenzte Restore-ACL-Reparatur
+
+Der erste eigenständige Staging-Preflight nach dem Restore endete vor jeder DDL
+mit `PREFLIGHT_BASELINE_CONTRACT_DRIFT`. Die read-only Klassifizierung belegte
+genau 16 nicht-grantable Tabellenrechte: je acht Rechte für `anon` und
+`authenticated` auf `public.broker_credentials`. Die Tabelle ist RLS-aktiv und
+besitzt in diesem Restore keine Policy; das begrenzt die unmittelbare Wirkung,
+macht die ACLs aber nicht zulässig. Die Markertabelle blieb abwesend.
+
+Vor der inzwischen ausgeführten Reparatur galt und für jedes neue Ziel gilt
+weiterhin: Nur wenn der vollständige Baselinehash exakt
+`47cbc3bd6d4be8ccccf8543a1f1be554610fe20b5746478e6ca94664525daffb`
+lautet, darf nach einer eigenen externen Freigabe
+`supabase/repair-v57.60.1-restored-credential-acl.sql` ausgeführt werden. Die
+Transaktion widerruft ausschließlich diese Rechte, prüft unveränderte Trade-
+und Credentialcounts und verlangt danach den sauberen Restorehash
+`0fb6a0d531bb7cc66996c8b2d4f272f61dacefdb0e8969c536d1d49c89517218`.
+Jeder andere Ausgangszustand oder jede abweichende Nachbedingung rollt zurück.
+
+Der Dirty-Hash ist technisch nicht Teil des allgemeinen Baselineverifiers. Eine
+separate read-only Assertion prüft ihn im gesperrten Reparaturpfad. Auch ein
+vorab gesetzter gleichnamiger Custom-GUC wird von Verifier und Preflight
+ignoriert; die lokale Negativmatrix verlangt in beiden Fällen weiterhin
+`PREFLIGHT_BASELINE_CONTRACT_DRIFT` und null v57.61.0-Teileffekt.
+
+Auf `Equora Staging` wurde diese Reparatur nach ausdrücklicher Freigabe
+erfolgreich ausgeführt. Der danach eigenständig wiederholte read-only Preflight
+bestätigte den sauberen Restorehash. Erst in einer weiteren, getrennt erteilten
+Freigabe wurden normaler Preflight, alle sechs Migrationslayer und globaler
+Postflight in derselben `psql`-Sitzung ausgeführt.
+
+### Aktueller Staging-Betriebszustand
+
+Der aktuelle, unabhängig attestierte Stagingzustand lautet:
+
+- Credential-ACL-Reparatur PASS, 16 unerlaubte ACL-Zeilen auf 0;
+- sauberer Restorehash
+  `0fb6a0d531bb7cc66996c8b2d4f272f61dacefdb0e8969c536d1d49c89517218`;
+- normaler Preflight PASS;
+- v57.61.0-Apply mit sechs von sechs exakten Markern PASS;
+- globaler Postflight PASS;
+- Journal-Trades 1280 vor und nach dem Apply;
+- Broker Connections, Broker Credentials, Sync Runs und Raw Events jeweils 0;
+- Auth-Nutzer 7, Trade-Medien 3, Setup-Medien 1 und Storage-Objekte 6
+  unverändert;
+- keine ownerlosen Trades und keine direkten Credential-`SELECT`-ACL-Zeilen
+  für `anon`, `authenticated` oder `service_role`;
+- RLS aktiv;
+- kein Retry und kein Restore nach dem Apply.
+
+Die installierte Datenbankstruktur ist keine Runtimefreigabe. Der verbindliche
+Betriebszustand bleibt `off`: kein Enrollment, kein MEXC-Probe, kein
+Brokerrequest, kein Cron und kein Journalimport. Als nächstes externes Gate ist
+ausschließlich ein separat freizugebendes Vercel-Preview gegen `Equora Staging`
+mit Runtime `off` und ohne Cron vorgesehen. Produktion, MEXC-Requests,
+automatische Runtime, Vercel, Git-Push, Merge und Deployment bleiben bis zu
+ihren jeweiligen ausdrücklichen Freigaben gesperrt.

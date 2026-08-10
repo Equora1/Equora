@@ -4,6 +4,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+$OutputEncoding = [System.Text.UTF8Encoding]::new($false)
 
 if ($ContainerName -notmatch '^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$') {
   throw 'ContainerName contains unsupported characters.'
@@ -125,6 +126,25 @@ function Invoke-ExpectedFailure {
   }
 }
 
+function Invoke-ExpectedPostflightFailureAfterMutation {
+  param(
+    [Parameter(Mandatory = $true)][string]$Database,
+    [Parameter(Mandatory = $true)][string]$MutationSql,
+    [Parameter(Mandatory = $true)][string]$ExpectedCode
+  )
+  $session = (Expand-Preflight) + "`n" + $MutationSql + "`n" +
+    (Expand-Postflight)
+  $ErrorActionPreference = 'Continue'
+  $output = $session | & docker exec -i $ContainerName psql -U postgres `
+    -d $Database -v ON_ERROR_STOP=1 2>&1
+  $exitCode = $LASTEXITCODE
+  $ErrorActionPreference = 'Stop'
+  $text = $output -join "`n"
+  if ($exitCode -eq 0 -or $text -notmatch [regex]::Escape($ExpectedCode)) {
+    throw "Postflight mutant did not fail with ${ExpectedCode}: $text"
+  }
+}
+
 function Invoke-ExpectedPreflightFailureAsRole {
   param(
     [Parameter(Mandatory = $true)][string]$Database,
@@ -189,7 +209,27 @@ $mutants = @(
   },
   @{
     Name = 'schema_auth_usage';
-    Sql = 'revoke usage on schema auth from equora_broker_capture_owner;';
+    Sql = 'grant usage on schema auth to equora_broker_capture_owner;';
+    Expected = 'PREFLIGHT_PLATFORM_SECURITY_INVALID'
+  },
+  @{
+    Name = 'auth_uid_direct_grant';
+    Sql = 'grant execute on function auth.uid() to equora_broker_capture_owner;';
+    Expected = 'PREFLIGHT_PLATFORM_SECURITY_INVALID'
+  },
+  @{
+    Name = 'auth_adapter_config';
+    Sql = "alter function equora_private.equora_request_context_uid_v1() volatile;";
+    Expected = 'POSTFLIGHT_PLATFORM_SECURITY_CONTRACT_DRIFT'
+  },
+  @{
+    Name = 'auth_adapter_acl';
+    Sql = 'grant execute on function equora_private.equora_request_context_uid_v1() to equora_v5761_drift_probe;';
+    Expected = 'POSTFLIGHT_PLATFORM_SECURITY_CONTRACT_DRIFT'
+  },
+  @{
+    Name = 'auth_adapter_owner';
+    Sql = 'grant create on schema equora_private to equora_v5761_drift_probe; grant equora_v5761_drift_probe to postgres with set true; alter function equora_private.equora_request_context_uid_v1() owner to equora_v5761_drift_probe; revoke equora_v5761_drift_probe from postgres;';
     Expected = 'POSTFLIGHT_PLATFORM_SECURITY_CONTRACT_DRIFT'
   },
   @{
@@ -357,6 +397,98 @@ alter table public.trades add column marker_free_drift text;
   Invoke-AdminSql -Database 'postgres' `
     -Sql "drop database if exists $baselineDatabase with (force);"
 
+  # A known Supabase API role is not a sufficient allowlist by itself. Schema
+  # CREATE is outside its permitted default-privilege matrix and must stop the
+  # session before Layer 1 can create equora_private or extensions.
+  Invoke-AdminSql -Database 'postgres' `
+    -Sql "create database $baselineDatabase template template0;"
+  foreach ($path in @(
+    (Join-Path $PSScriptRoot 'equora-local-supabase-stubs.sql'),
+    (Join-Path $supabaseRoot 'schema.sql'),
+    (Join-Path $supabaseRoot 'schema-patch-v57.60.1.sql')
+  )) {
+    Invoke-SqlText -Database $baselineDatabase -Sql (Read-Utf8File $path) `
+      -Phase "Baseline $path"
+  }
+  Invoke-AdminSql -Database $baselineDatabase `
+    -Sql 'alter default privileges for role postgres grant create on schemas to authenticated;'
+  Invoke-ExpectedFailure -Database $baselineDatabase `
+    -ExpectedCode 'PREFLIGHT_DEFAULT_ACL_INVALID'
+  Invoke-AdminSql -Database $baselineDatabase `
+    -Sql "do `$`$ begin if to_regclass('equora_private.schema_migrations') is not null then raise exception 'SCHEMA_CREATE_DEFAULT_REACHED_DDL'; end if; end `$`$;"
+  Invoke-AdminSql -Database 'postgres' `
+    -Sql "drop database if exists $baselineDatabase with (force);"
+
+  # A pre-existing prospective extensions namespace is relevant even when
+  # pgcrypto itself is still absent. Grantable defaults there would be applied
+  # to extension functions created by Layer 1 and must fail before any v57.61
+  # object is committed.
+  Invoke-AdminSql -Database 'postgres' `
+    -Sql "create database $baselineDatabase template template0;"
+  foreach ($path in @(
+    (Join-Path $PSScriptRoot 'equora-local-supabase-stubs.sql'),
+    (Join-Path $supabaseRoot 'schema.sql'),
+    (Join-Path $supabaseRoot 'schema-patch-v57.60.1.sql')
+  )) {
+    Invoke-SqlText -Database $baselineDatabase -Sql (Read-Utf8File $path) `
+      -Phase "Baseline $path"
+  }
+  Invoke-AdminSql -Database $baselineDatabase -Sql @'
+drop extension pgcrypto cascade;
+alter default privileges for role postgres in schema extensions
+  grant execute on functions to authenticated with grant option;
+'@
+  Invoke-ExpectedFailure -Database $baselineDatabase `
+    -ExpectedCode 'PREFLIGHT_DEFAULT_ACL_INVALID'
+  Invoke-AdminSql -Database $baselineDatabase `
+    -Sql "do `$`$ begin if to_regclass('equora_private.schema_migrations') is not null then raise exception 'EXTENSIONS_DEFAULT_ACL_REACHED_DDL'; end if; end `$`$;"
+  Invoke-AdminSql -Database 'postgres' `
+    -Sql "drop database if exists $baselineDatabase with (force);"
+
+  # The actual pgcrypto namespace is part of the security boundary. Direct
+  # CREATE authority for an API role must be rejected independently of the
+  # marker/baseline hashes and before any v57.61 DDL can commit.
+  Invoke-AdminSql -Database 'postgres' `
+    -Sql "create database $baselineDatabase template template0;"
+  foreach ($path in @(
+    (Join-Path $PSScriptRoot 'equora-local-supabase-stubs.sql'),
+    (Join-Path $supabaseRoot 'schema.sql'),
+    (Join-Path $supabaseRoot 'schema-patch-v57.60.1.sql')
+  )) {
+    Invoke-SqlText -Database $baselineDatabase -Sql (Read-Utf8File $path) `
+      -Phase "Baseline $path"
+  }
+  Invoke-AdminSql -Database $baselineDatabase `
+    -Sql 'grant create on schema extensions to authenticated;'
+  Invoke-ExpectedFailure -Database $baselineDatabase `
+    -ExpectedCode 'PREFLIGHT_PGCRYPTO_SECURITY_INVALID'
+  Invoke-AdminSql -Database $baselineDatabase `
+    -Sql "do `$`$ begin if to_regclass('equora_private.schema_migrations') is not null then raise exception 'PGCRYPTO_SCHEMA_DRIFT_REACHED_DDL'; end if; end `$`$;"
+  Invoke-AdminSql -Database 'postgres' `
+    -Sql "drop database if exists $baselineDatabase with (force);"
+
+  # PUBLIC USAGE is inherited by every role. It would let the NOLOGIN capture
+  # authority resolve raw extension functions and therefore violates the
+  # extensions-only wrapper boundary even without a direct role grant.
+  Invoke-AdminSql -Database 'postgres' `
+    -Sql "create database $baselineDatabase template template0;"
+  foreach ($path in @(
+    (Join-Path $PSScriptRoot 'equora-local-supabase-stubs.sql'),
+    (Join-Path $supabaseRoot 'schema.sql'),
+    (Join-Path $supabaseRoot 'schema-patch-v57.60.1.sql')
+  )) {
+    Invoke-SqlText -Database $baselineDatabase -Sql (Read-Utf8File $path) `
+      -Phase "Baseline $path"
+  }
+  Invoke-AdminSql -Database $baselineDatabase `
+    -Sql 'grant usage on schema extensions to public;'
+  Invoke-ExpectedFailure -Database $baselineDatabase `
+    -ExpectedCode 'PREFLIGHT_PGCRYPTO_SECURITY_INVALID'
+  Invoke-AdminSql -Database $baselineDatabase `
+    -Sql "do `$`$ begin if to_regclass('equora_private.schema_migrations') is not null then raise exception 'PGCRYPTO_PUBLIC_USAGE_REACHED_DDL'; end if; end `$`$;"
+  Invoke-AdminSql -Database 'postgres' `
+    -Sql "drop database if exists $baselineDatabase with (force);"
+
   # A marker-free baseline also binds the public schema owner and complete ACL,
   # not only the objects contained in the schema.
   Invoke-AdminSql -Database 'postgres' `
@@ -409,6 +541,36 @@ end $$;
   & $fullDeploymentRunner -ContainerName $ContainerName `
     -TestDatabase $TemplateDatabase -KeepDatabase
   if ($LASTEXITCODE -ne 0) { throw 'Failed to create the full-stack drift template.' }
+
+  $pgcryptoPostflightDatabase =
+    'equora_full_deployment_drift_pgcrypto_schema_postflight'
+  Invoke-AdminSql -Database 'postgres' `
+    -Sql "drop database if exists $pgcryptoPostflightDatabase with (force);"
+  Invoke-AdminSql -Database 'postgres' `
+    -Sql "create database $pgcryptoPostflightDatabase template $TemplateDatabase;"
+  try {
+    Invoke-ExpectedPostflightFailureAfterMutation `
+      -Database $pgcryptoPostflightDatabase `
+      -MutationSql 'grant create on schema extensions to authenticated;' `
+      -ExpectedCode 'POSTFLIGHT_PGCRYPTO_SCHEMA_SECURITY_DRIFT'
+  }
+  finally {
+    Invoke-AdminSql -Database 'postgres' `
+      -Sql "drop database if exists $pgcryptoPostflightDatabase with (force);"
+  }
+
+  Invoke-AdminSql -Database 'postgres' `
+    -Sql "create database $pgcryptoPostflightDatabase template $TemplateDatabase;"
+  try {
+    Invoke-ExpectedPostflightFailureAfterMutation `
+      -Database $pgcryptoPostflightDatabase `
+      -MutationSql 'grant usage on schema extensions to public;' `
+      -ExpectedCode 'POSTFLIGHT_PGCRYPTO_SCHEMA_SECURITY_DRIFT'
+  }
+  finally {
+    Invoke-AdminSql -Database 'postgres' `
+      -Sql "drop database if exists $pgcryptoPostflightDatabase with (force);"
+  }
 
   foreach ($mutant in $mutants) {
     $database = "equora_full_deployment_drift_$($mutant.Name)"

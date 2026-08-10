@@ -27,7 +27,7 @@ select to_regclass('equora_private.schema_migrations') is not null
       or (
         count(*) = 1
         and bool_and(contract_fingerprint =
-          'ab08958bdeb88b9637351e2690c08f311d1653f3dba33d4cf11c61d4a81399b6')
+          '492ebad5496806ad60425abd58e9801c58a58b421e38392d54e6082d7fa2b083')
       )
     ) as capture_marker_valid
   from equora_private.schema_migrations
@@ -55,7 +55,7 @@ select count(*) = 1 as control_marker_present,
     or (
       count(*) = 1
       and bool_and(contract_fingerprint =
-        '6560d159d0756f83049a0e89834b2897ce58dae3fe2c112ae0f2aa159b9caf27')
+        'c133d5e0c987e7f927963db4465ef5ab2f6f4c174cfdc96a3ed1cffb5cd62be5')
     )
   ) as control_marker_valid
 from equora_private.schema_migrations
@@ -79,7 +79,7 @@ select count(*) = 1 as lane_marker_present,
     or (
       count(*) = 1
       and bool_and(contract_fingerprint =
-        '955a175d3b05c34f680b94d54a494261d0a51dca2ecaba8ddf2311c20b9bcae5')
+        '6be313155e81e0f14c48d0c71301e28a75b792a90e49542bc49ffe638f56c68d')
     )
   ) as lane_marker_valid
 from equora_private.schema_migrations
@@ -103,7 +103,7 @@ select count(*) = 1 as activation_marker_present,
     or (
       count(*) = 1
       and bool_and(contract_fingerprint =
-        'ef73a48fb05299c4e78908fd1771c61ca1b8241b629cf31bc7f89af594d66c2c')
+        'b074a756a015b34a7e3da804f3d3955100a40f9a6391855a75c1e415cbbb2abb')
     )
   ) as activation_marker_valid
 from equora_private.schema_migrations
@@ -151,7 +151,7 @@ select count(*) = 1 as runtime_marker_present,
     or (
       count(*) = 1
       and bool_and(contract_fingerprint =
-        'e78049f738ed26d4ab96188f4da1c52ae00a2b3583db5aeaf4be608cdcc95457')
+        '892f1587e8e37937a538dad1239ec931d43bd1f65d2f224d56ab7b9356f89e96')
     )
   ) as runtime_marker_valid
 from equora_private.schema_migrations

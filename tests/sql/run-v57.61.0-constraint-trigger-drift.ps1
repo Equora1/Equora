@@ -4,6 +4,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+$OutputEncoding = [System.Text.UTF8Encoding]::new($false)
 
 if ($ContainerName -notmatch '^equora-v5761-[a-z0-9_.-]+$') {
   throw 'ContainerName must use the equora-v5761-* prefix.'
