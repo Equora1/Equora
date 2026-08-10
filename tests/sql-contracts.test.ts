@@ -11,7 +11,7 @@ const capturePersistenceSql = readFileSync(
 const captureControlSql = readFileSync(
   join(process.cwd(), 'supabase', 'schema-patch-v57.61.0-g1-capture-control.sql'),
   'utf8',
-)
+).replace(/\r\n/g, '\n')
 const captureIntegrationSql = readFileSync(
   join(process.cwd(), 'tests', 'sql', 'broker-capture-persistence.integration.sql'),
   'utf8',
@@ -35,7 +35,7 @@ const laneHealthRunner = readFileSync(
 const activationAuthoritySql = readFileSync(
   join(process.cwd(), 'supabase', 'schema-patch-v57.61.0-g1-activation-authority.sql'),
   'utf8',
-)
+).replace(/\r\n/g, '\n')
 const activationAuthorityIntegrationSql = readFileSync(
   join(process.cwd(), 'tests', 'sql', 'broker-capture-activation-authority.integration.sql'),
   'utf8',
@@ -55,7 +55,7 @@ const activationAuthorityDriftRunner = readFileSync(
 const schedulerControlSql = readFileSync(
   join(process.cwd(), 'supabase', 'schema-patch-v57.61.0-g1-scheduler-control.sql'),
   'utf8',
-)
+).replace(/\r\n/g, '\n')
 const brokerCaptureSchedulerTs = readFileSync(
   join(process.cwd(), 'lib', 'server', 'broker-capture-scheduler.ts'),
   'utf8',

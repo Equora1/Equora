@@ -2791,3 +2791,160 @@ findingfreien Review. Es ändert weder Code noch Tests, Paket, Preview,
 Variablen, Runtime oder externe Systeme. Es erteilt keine neue Commit-, Push-,
 Preview-, Cron-, Broker-, MEXC-, Supabase-, Merge-, Produktions- oder
 Deploymentfreigabe. Das Gesamtgate bleibt `G1 IN PROGRESS – NO-GO`.
+
+## 23. Dependency-Security-Remediation und Testportabilität
+
+Die zeitgebundenen Aussagen in Abschnitt 22 zum damaligen findingfreien
+Canary-Evidenzfreeze bleiben als historische Previewevidenz gültig. Für die
+aktuelle lokale Main-/Produktionsvorbereitung ist jedoch dieser Abschnitt
+maßgeblich: Ein danach erneut ausgeführter Dependency-Audit hat einen neuen
+Releaseblocker sichtbar gemacht und vor jedem Merge oder Produktionsschritt
+zu einem kontrollierten lokalen Patch geführt.
+
+### 23.1 Security-Befund und enger technischer Scope
+
+Der vollständige `npm audit` sowie `npm audit --omit=dev` meldeten
+`nanoid@3.3.16` als `high` gemäß `GHSA-2v37-7h3g-55p8` /
+`CVE-2026-67213`. Die Produktions-Abhängigkeitskette war:
+
+```text
+next@15.5.21
+└── postcss@8.5.23
+    └── nanoid@3.3.16
+```
+
+Die Nutzerfreigabe umfasste ausschließlich die lokale Remediation,
+vollständige Regression, Re-Packaging und erneuten unabhängigen Review. Der
+technische Patch ist auf zwei Dateien begrenzt:
+
+- `package-lock.json`: `nanoid` von `3.3.16` auf `3.3.18`, exakt Version,
+  Registry-URL und Integrität; `package.json` unverändert;
+- `tests/sql-contracts.test.ts`: CRLF-zu-LF-Normalisierung nur für die drei
+  mehrzeilig geprüften Capture-Control-, Activation-Authority- und
+  Scheduler-Control-SQL-Quellen.
+
+Produktiver TypeScript-Code, SQL, Datenmodell, Runtimekonfiguration und externe
+Systeme wurden nicht geändert.
+
+### 23.2 Isolierte Regression und Portabilitätsnachweis
+
+Die erste isolierte Kopie direkt aus `git archive HEAD` enthielt die drei
+betroffenen SQL-Dateien mit CRLF und ließ fünf bestehende mehrzeilige
+Stringorakel scheitern. Eine bytegenaue Kopie des eingefrorenen
+Workspace-/Releasebestands mit LF bestand dagegen `379/379` Tests. Der Befund
+war kein SQL- oder Produktfehler, aber eine echte Test-Reproduzierbarkeitslücke
+und wurde vor Packaging geschlossen.
+
+Nach der test-only Normalisierung bestehen beide Kopieformen:
+
+- bytegenaue Workspace-/Releasekopie: `23/23` Testdateien, `379/379` Tests;
+- CRLF-/Git-Archivkopie: `23/23` Testdateien, `379/379` Tests;
+- TypeScript-Typecheck in beiden Kopieformen PASS;
+- isoliertes `npm ci` PASS und tatsächlich installiertes `nanoid@3.3.18`;
+- vollständiger `npm audit`: `0 vulnerabilities`;
+- Production-only `npm audit --omit=dev`: `0 vulnerabilities`;
+- Release-Check PASS;
+- optimierter Next.js-15.5.21-Produktionsbuild PASS.
+
+Die isolierten Installationen lagen ausschließlich im lokalen
+Temp-Verzeichnis. Das gemeinsam verwendete `node_modules` der
+v57.60.1-Produktionsbasis wurde nicht verändert.
+
+### 23.3 Aktueller Gate-Stand vor dem unabhängigen Review
+
+Der technische Patch ist lokal regressionsgrün. Release-ZIP, Sidecar,
+Dateiliste und Deploymentmanifest werden nach diesem Dokumentationsstand neu
+gebildet und bytegenau geprüft. Erst ein findingfreier, hashgebundener
+A3-/A4-/A5-Review darf den lokalen Kandidaten wieder als commit-fertig
+einstufen.
+
+```text
+nanoid_security_remediation = local_regression_pass
+nanoid_version = 3.3.18
+npm_audit_full = pass_zero_vulnerabilities
+npm_audit_production = pass_zero_vulnerabilities
+sql_contract_line_ending_portability = pass_lf_and_crlf
+release_artifact = rebuilt_367_files_byte_exact
+deployment_manifest = frozen_93_of_93
+independent_review = independent_review_pass_recorded
+future_commit = blocked
+future_push = blocked
+merge = blocked
+additional_preview_deployment = blocked
+runtime = off_blocked
+cron = not_configured_blocked
+broker_requests = blocked
+real_mexc_probe = blocked
+supabase_changes = blocked
+production_sql = blocked
+production_deployment = blocked
+automatic_journal_import = not_implemented_not_authorized
+```
+
+Das Gesamtgate bleibt `G1 IN PROGRESS – NO-GO`.
+
+### 23.4 Paket- und Freeze-Bindung vor Review
+
+Das allowlistbasierte Paket wurde nach dem technischen und dokumentarischen
+Delta neu erzeugt. Die unabhängige lokale Paritätsprüfung bestätigte:
+
+- ZIP-SHA-256
+  `f4ba383f174c872231b42d11bc39b6565cf93b4de4b484d37ad290070cd92270`;
+- Sidecar-SHA-256
+  `52f0c1a0326898088b099441d23cd5cd1392452e6cd9398065395c6f0446b3ae`;
+- Filelist-SHA-256
+  `faa0c270a56ad89864184e859404b42a07016d03815af97f3e58ddd7d5095b3e`;
+- Allowlist, Dateiliste, ZIP und Workspace jeweils `367` Dateien;
+- Namensabweichungen, Case-Duplikate, unsichere oder verbotene Pfade,
+  fehlende Workspacepfade und Byteabweichungen jeweils `0`;
+- Sidecar-Inhalt stimmt exakt mit dem ZIP-Hash überein.
+
+Das Deploymentmanifest bindet `93/93` Artefakte. Der eingefrorene lokale
+Git-Scope umfasst ausschließlich Lockfile, SQL-Contract-Test, Releasehinweis,
+G1-Status, Deploymentmanifest, ZIP und Sidecar. Die Dateiliste blieb
+byteidentisch, weil weder Paketpfade hinzugekommen noch entfernt worden sind.
+
+Zum Zeitpunkt dieses Vor-Review-Freezes war dies noch kein Review-PASS. A3,
+A4 und A5 mussten exakt diese Hashgrenze unabhängig prüfen. Bis zu den drei
+findingfreien Voten blieben alle in Abschnitt 23.3 genannten externen Aktionen
+und Git-Schritte gesperrt. Der inzwischen abgeschlossene Review ist in
+Abschnitt 23.5 verbindlich protokolliert.
+
+### 23.5 Unabhängiger Abschlussreview des Security-Freezes
+
+Der vollständig geprüfte technische Freeze war gebunden an:
+
+- Status-SHA-256
+  `1565fec0b5330b610e7c377ce8981f11066bc5d780acb228d6d8ad08375d17e7`;
+- Deploymentmanifest-SHA-256
+  `04289db93b43e20eeaa98f51a4e3989125c2bae0064cc3f56be1a73c9f7c9f51`;
+- Manifest `93/93`, exakt sieben ungestagte Pfade und staged `0`;
+- Branch `feature/mexc-import-v57.61.0` mit identischem HEAD und Upstream
+  `d5763f2b95ca89616a22ca6a039281bea2b89351`;
+- ZIP-/Sidecar-/Filelist-Stand
+  `f4ba383f174c872231b42d11bc39b6565cf93b4de4b484d37ad290070cd92270`,
+  `52f0c1a0326898088b099441d23cd5cd1392452e6cd9398065395c6f0446b3ae`
+  und
+  `faa0c270a56ad89864184e859404b42a07016d03815af97f3e58ddd7d5095b3e`
+  bei `367` Paketdateien.
+
+Die unabhängigen Schlussvoten für exakt diesen Freeze lauten:
+
+- A3 QA/Release: `PASS`, `P0=P1=P2=P3=0`;
+- A4 Security/Governance: `PASS`, `P0=P1=P2=P3=0`;
+- A5 Integrität/Provenienz: `PASS`, `P0=P1=P2=P3=0`.
+
+Die Reviews bestätigten insbesondere den auf drei Lockfilefelder begrenzten
+`nanoid`-Patch, den test-only CRLF/LF-Fix, die duale 379/379-Regression, die
+Auditfreiheit, den unveränderten Produkt-/SQL-/Runtime-Scope, 93/93
+Manifestbindungen, 367/367 bytegleiche Paketdateien, Secretfreiheit und alle
+fortbestehenden externen Sperren.
+
+Dieses Schlussprotokoll ist ein reines Status-/Manifestdelta nach dem
+findingfreien Review. Es ändert weder Lockfile, Tests, Produktcode, SQL,
+Releasepaket noch externe Systeme. Der lokale Kandidat ist reviewseitig
+commit-fertig, aber ein Commit, Push, Merge oder Deployment benötigt weiterhin
+eine neue ausdrückliche Freigabe. Runtime, Cron, Broker-/MEXC-Zugriffe,
+Supabase, Produktions-SQL, Produktionsdeployment und automatischer
+Journalimport bleiben gesperrt. Das Gesamtgate bleibt
+`G1 IN PROGRESS – NO-GO`.

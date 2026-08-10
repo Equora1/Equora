@@ -260,3 +260,46 @@ Nach diesem lokalen Paketabschluss bleiben ausdrücklich offen und gesperrt:
 6. Merge nach `main`, Produktionsbackup/-preflight, Produktions-SQL,
    Produktionsdeployment und Capture-Cron;
 7. der spätere automatische Journalimport als eigenes G2-G6-Produktgate.
+
+## Lokale Dependency-Security-Remediation vor der Main-Vorbereitung
+
+Ein unmittelbar vor der Main-/Produktionsvorbereitung erneut ausgeführter
+`npm audit` hat die transitive Produktionsabhängigkeit `nanoid@3.3.16` als
+`high` gemäß `GHSA-2v37-7h3g-55p8` / `CVE-2026-67213` abgelehnt. Die
+Abhängigkeitskette war `next@15.5.21 -> postcss@8.5.23 -> nanoid@3.3.16`.
+Deshalb wurde weder nach `main` gemergt noch ein Produktionsdeployment
+ausgelöst.
+
+Die lokale Remediation ist bewusst auf zwei technische Dateien begrenzt:
+
+- `package-lock.json` bindet innerhalb der bereits erlaubten
+  `nanoid`-Patchreihe nun `3.3.18`; `package.json` blieb unverändert;
+- `tests/sql-contracts.test.ts` normalisiert die drei mehrzeilig geprüften
+  Capture-Control-, Activation-Authority- und Scheduler-Control-SQL-Quellen
+  vor den Stringorakeln von CRLF auf LF.
+
+Die Testnormalisierung ändert weder produktiven TypeScript-Code noch SQL. Sie
+schließt eine bei der isolierten Regression sichtbar gewordene
+Reproduzierbarkeitslücke: Eine Git-Archivkopie mit CRLF ließ fünf statische
+SQL-Stringorakel scheitern, obwohl dieselben Artefakte in der bytegenauen
+Workspace-/Releaseform mit LF bestanden. Nach der Remediation bestehen beide
+Kopieformen denselben vollständigen Testbestand.
+
+Lokale Regressionsevidenz des technischen Zwei-Dateien-Deltas:
+
+- isoliertes `npm ci` PASS; tatsächlich installiert `nanoid@3.3.18`;
+- vollständiger `npm audit` PASS mit `0 vulnerabilities`;
+- `npm audit --omit=dev` PASS mit `0 vulnerabilities`;
+- TypeScript-Typecheck PASS in LF- und CRLF-Kopie;
+- Vitest in der bytegenauen Workspace-/Releasekopie: `23/23` Dateien und
+  `379/379` Tests PASS;
+- Vitest in der CRLF-/Git-Archivkopie: `23/23` Dateien und `379/379` Tests
+  PASS;
+- Release-Check PASS;
+- optimierter Next.js-15.5.21-Produktionsbuild PASS.
+
+Das Releasepaket und das Deploymentmanifest werden für dieses Delta neu
+gebildet und unabhängig geprüft. Bis zu einem findingfreien A3-/A4-/A5-Votum
+bleiben Commit, Push, Merge, weiteres Preview, Vercel Production, Supabase,
+Produktions-SQL, Runtime, Cron, Broker-/MEXC-Zugriff und Journalimport
+gesperrt. Die lokale Security-Remediation ist keine externe Freigabe.
