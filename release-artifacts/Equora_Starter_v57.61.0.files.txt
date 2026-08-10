@@ -326,6 +326,7 @@ Equora Starter v57.61.0/tests/mexc-pagination.test.ts
 Equora Starter v57.61.0/tests/mexc-readonly-probe.test.ts
 Equora Starter v57.61.0/tests/mexc-readonly-transport.test.ts
 Equora Starter v57.61.0/tests/mexc-sync-scope.test.ts
+Equora Starter v57.61.0/tests/middleware.test.ts
 Equora Starter v57.61.0/tests/sql/broker-capture-activation-authority.integration.sql
 Equora Starter v57.61.0/tests/sql/broker-capture-lane-health.integration.sql
 Equora Starter v57.61.0/tests/sql/broker-capture-persistence.integration.sql

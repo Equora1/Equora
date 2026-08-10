@@ -2452,3 +2452,161 @@ Dieses Reviewprotokoll schließt ausschließlich den lokalen
 Betriebsdokumentations-/Paketfreeze. Es erteilt keine Commit-, Push-, Vercel-,
 MEXC-, Produktions-, Merge-, Cron-, Runtime- oder Deploymentfreigabe. Das
 Gesamtgate bleibt `G1 IN PROGRESS – NO-GO`.
+
+## 21. Exakter Middleware-Servicepfad und neuer lokaler Deployment-Kandidat
+
+Nach dem branchgebundenen Vercel-Preview von Commit
+`aecc1b4c8f89346331e28b471f29a288b4aabc2b` wurde festgestellt, dass die
+globale Supabase-Middleware den intern mit `CRON_SECRET` abgesicherten Pfad
+`/api/internal/broker-capture` vor Erreichen seiner eigenen Bearer-Prüfung auf
+`/login` umleitete. Der daraufhin freigegebene Patch bleibt lokal und ist in
+keinem Vercel-Deployment enthalten.
+
+### 21.1 Enger technischer Delta
+
+Der Delta besteht ausschließlich aus:
+
+- `middleware.ts`: ausschließlich `GET /api/internal/broker-capture` wird vor
+  der Supabase-Sitzungsprüfung an seine unveränderte Route weitergereicht;
+- `tests/middleware.test.ts`: positive Orakel für den exakten Pfad mit und ohne
+  Querystring sowie negative Orakel für `HEAD`, `OPTIONS`, `POST`, `PUT`,
+  `PATCH`, `DELETE`, ähnlich benannte, untergeordnete und sonstige geschützte
+  Pfade.
+
+Es gibt keinen Präfix-, Nicht-GET- oder `/api/internal/*`-Bypass. Die Zielroute selbst
+verlangt weiterhin den bestehenden Bearer-Secret-Vertrag, antwortet bei
+fehlender oder falscher Autorisierung mit `401` und bleibt bei
+`EQUORA_MEXC_RUNTIME_MODE=off` fachlich deaktiviert. Der Patch ändert weder die
+Route noch Brokertransport, Datenbank, Migrations-SQL, Cron-Konfiguration oder
+Journalimport.
+
+Die Delta-Hashes lauten:
+
+| Artefakt | SHA-256 |
+|---|---|
+| `middleware.ts` | `a2e7717da5a0ba9310b791b1ff503f6b3ed75a59101acc092fba94241dfacd8e` |
+| `tests/middleware.test.ts` | `55c9fd470063d4e42b6a46b55e55937eb0c27c483b8d19baa568c9cae9ef8d7d` |
+
+### 21.2 Lokale Regressionsevidenz
+
+Der Zwei-Dateien-Patch wurde lokal geprüft:
+
+- gezielte Middleware- und Route-Suite: `2` Testdateien, `20/20` Tests PASS;
+- vollständige Vitest-Suite: `23` Testdateien, `379/379` Tests PASS;
+- TypeScript `--noEmit`: PASS;
+- `scripts/release-check.mjs`: PASS;
+- Next.js-Produktionsbuild: PASS;
+- `git diff --check`: PASS;
+- Secret-/Project-Ref-Scan der beiden Deltadateien: kein Treffer.
+
+Der vorhandene Befehl `npm run lint` ist weiterhin kein belastbares
+automatisiertes Einzelgate: `next lint` fordert wegen fehlender
+ESLint-Konfiguration interaktiv eine Ersteinrichtung an und ist von Next.js als
+deprecated markiert. Für diesen engen Patch wurden deshalb keine neue
+Lint-Abhängigkeit und keine zusätzliche Konfigurationsdatei eingeführt. Diese
+bereits bestehende Tooling-Grenze ist im unabhängigen QA-Review ausdrücklich zu
+bewerten; sie wird nicht als bestandener Lint-Nachweis dargestellt.
+
+Es wurde kein SQL-Runner, Datenbankzugriff, MEXC-Request, Cron, Journalimport,
+Git-Push, Merge oder Produktionszugriff ausgeführt.
+
+### 21.3 Neu erzeugtes Releasepaket
+
+Der allowlistbasierte Paketbuilder hat `middleware.ts` und den neuen
+Middlewaretest in das Releasepaket aufgenommen, den Release-Check vor der
+Kompression und nach vollständiger Extraktion erfolgreich ausgeführt und ein
+neues Paket mit `367` Dateien erzeugt:
+
+| Artefakt | SHA-256 |
+|---|---|
+| `release-artifacts/Equora_Starter_v57.61.0.zip` | `bea8875961b9a1cc27fc0ccfd6298c2a47a0405699553cc3c97cfe02d329e1d7` |
+| `release-artifacts/Equora_Starter_v57.61.0.sha256.txt` | `8d0d200a70fa8b28cb99621b6d288dd2249a32b2089ac3dc181757aade4341e5` |
+| `release-artifacts/Equora_Starter_v57.61.0.files.txt` | `faa0c270a56ad89864184e859404b42a07016d03815af97f3e58ddd7d5095b3e` |
+
+Der vorherige Paketfreeze `af9a7d47...` ist damit für diesen technischen Delta
+superseded. Das neue Paket aktiviert weiterhin keine Runtime; die aktive
+`vercel.json` enthält keinen Cron, während das ausdrücklich inaktive
+`vercel.capture.pro.example.json` unverändert enthalten bleibt.
+
+### 21.4 Verworfener erster Freeze und Methodenremediation
+
+Der erste Freeze dieses Middlewaredeltas war gebunden an Status
+`e452328d...`, Deploymentmanifest `214361c7...` und ZIP `a64f53bf...`.
+A3 bewertete ihn findingfrei. A4 und A5 lehnten ihn jeweils mit demselben P2
+ab: Die Ausnahme war zwar pfadgenau, aber nicht an `request.method === 'GET'`
+gebunden; Nicht-GET-Methoden am exakten Pfad waren außerdem nicht negativ
+getestet. Dieser Freeze ist verworfen und kein Freigabeartefakt.
+
+Die Remediation änderte ausschließlich die beiden Deltadateien:
+
+- der Middleware-Bypass verlangt jetzt gleichzeitig den exakten Pfad und
+  `GET`;
+- die Negativmatrix umfasst zusätzlich `HEAD`, `OPTIONS`, `POST`, `PUT`,
+  `PATCH` und `DELETE` am exakten Pfad.
+
+Danach wurden gezielte und vollständige Tests, Typecheck, Release-Check,
+Produktionsbuild und Paketbuilder erneut erfolgreich ausgeführt. Das neue
+Paket ersetzt den verworfenen ersten Freeze vollständig.
+
+### 21.5 Gate vor unabhängiger Prüfung
+
+Das nach diesem Statusupdate neu zu bildende Deploymentmanifest muss den
+vollständigen bisherigen Kandidatenscope sowie zusätzlich `middleware.ts` und
+`tests/middleware.test.ts` binden. Anschließend ist der gesamte Freeze
+unabhängig und strikt read-only durch A3, A4 und A5 zu prüfen.
+
+Bis zum findingfreien Abschluss dieses Reviews gilt:
+
+```text
+deployment_candidate_delta = exact_get_middleware_service_path_package_manifest_review_pass_recorded
+middleware_patch_deployed = false
+current_preview_commit = aecc1b4_without_local_middleware_patch
+automatic_runtime = off
+broker_requests = blocked
+real_mexc_probe = blocked
+automatic_journal_import = not_implemented_not_authorized
+supabase_production_changes = blocked
+production_sql = blocked
+commit = blocked
+push = blocked
+merge = blocked
+deployment = blocked
+```
+
+Das Gesamtgate bleibt `G1 IN PROGRESS – NO-GO`.
+
+### 21.6 Unabhängiger A3-/A4-/A5-Abschlussreview
+
+Der remediierte technische Freeze war gebunden an:
+
+- Status-SHA-256
+  `9ad9949bb3e417855634746176cdd3168d1cd61895a1887a9910edaf1f1096f5`;
+- Deploymentmanifest-SHA-256
+  `1a7fd393ede49c9b80f9061fd206156e8e01acde2ec118ab06692b9ef560ed03`;
+- Manifest `93/93`, exakt sieben Git-Deltapfade und staged `0`;
+- ZIP-SHA-256
+  `bea8875961b9a1cc27fc0ccfd6298c2a47a0405699553cc3c97cfe02d329e1d7`;
+- Sidecar-SHA-256
+  `8d0d200a70fa8b28cb99621b6d288dd2249a32b2089ac3dc181757aade4341e5`;
+- Filelist-SHA-256
+  `faa0c270a56ad89864184e859404b42a07016d03815af97f3e58ddd7d5095b3e`;
+- Paket, Filelist, Builder-Allowlist und Workspace jeweils `367/367` ohne
+  Pfad- oder Byteabweichung.
+
+Die unabhängigen Schlussvoten für exakt diesen Freeze lauten:
+
+- A3 QA/Release: `PASS`, `P0=P1=P2=P3=0`;
+- A4 Security/Governance: `PASS`, `P0=P1=P2=P3=0`;
+- A5 Integrität/Package: `PASS`, `P0=P1=P2=P3=0`.
+
+Alle drei Rollen bestätigten die kombinierte Bindung an `GET` und den exakten
+Pfad, die sechs Nicht-GET-Negativorakel, den unveränderten Bearer-/Runtime-
+Vertrag, die vollständige Manifest- und Paketparität sowie die fortbestehenden
+Sperren. Die Reviews führten keine Tests, Runner, Datei-, Datenbank-, Netzwerk-,
+Runtime-, Git- oder Deploymentmutation aus.
+
+Dieses Protokoll erteilt keine Commit-, Push-, Merge-, Vercel-, Supabase-,
+Produktions-, Cron-, Runtime-, Broker-, MEXC- oder Deploymentfreigabe. Der
+Middlewarepatch ist weiterhin ausschließlich lokal und im aktuellen Preview
+von Commit `aecc1b4...` nicht enthalten. Das Gesamtgate bleibt
+`G1 IN PROGRESS – NO-GO`.

@@ -3,6 +3,7 @@ import { hasSupabaseClientEnv } from '@/lib/supabase/config'
 import { updateSupabaseSession } from '@/lib/supabase/middleware'
 
 const publicPaths = new Set(['/login'])
+const serviceAuthenticatedPaths = new Set(['/api/internal/broker-capture'])
 
 function redirectWithCookies(baseResponse: NextResponse, url: URL) {
   const redirectResponse = NextResponse.redirect(url)
@@ -26,6 +27,11 @@ export async function middleware(request: NextRequest) {
   }
 
   const pathname = request.nextUrl.pathname
+
+  if (request.method === 'GET' && serviceAuthenticatedPaths.has(pathname)) {
+    return NextResponse.next()
+  }
+
   const isPublicPath = publicPaths.has(pathname)
   const bypassLoginRedirect = pathname === '/login' && request.nextUrl.searchParams.get('logged_out') === '1'
   const { response, user } = await updateSupabaseSession(request)
