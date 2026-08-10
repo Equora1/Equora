@@ -2948,3 +2948,195 @@ eine neue ausdrückliche Freigabe. Runtime, Cron, Broker-/MEXC-Zugriffe,
 Supabase, Produktions-SQL, Produktionsdeployment und automatischer
 Journalimport bleiben gesperrt. Das Gesamtgate bleibt
 `G1 IN PROGRESS – NO-GO`.
+
+## 24. Main-Readiness und aktualisiertes branchgebundenes Preview
+
+Dieser Abschnitt dokumentiert den nach Abschnitt 23 ausgeführten Git- und
+Preview-Stand. Er ersetzt ausschließlich frühere zeitgebundene Aussagen, nach
+denen der Security-Freeze noch nicht committed oder gepusht beziehungsweise
+der aktuelle Commit noch nicht als Preview bereitgestellt war. Die historischen
+Hashes und Voten der früheren Freeze-Stufen bleiben unverändert gültig.
+
+### 24.1 Git- und Fast-Forward-Evidenz
+
+Nach ausdrücklicher Nutzerfreigabe wurden exakt die sieben manifestgebundenen
+Pfade des findingfrei geprüften Security-Freezes gestaged, geprüft und als
+folgender Commit erstellt:
+
+- Branch: `feature/mexc-import-v57.61.0`;
+- Commit:
+  `7ebe4f64a21061aedfea2e371ea7ddf5784c4e64`;
+- Commitnachricht:
+  `fix: remediate nanoid advisory and SQL test portability`;
+- lokaler HEAD und
+  `origin/feature/mexc-import-v57.61.0` sind byteidentisch;
+- Arbeitsbaum nach dem Push: sauber.
+
+Der anschließend ausschließlich read-only aktualisierte Stand von
+`origin/main` lautet weiterhin
+`15551c0a5fba367fd2e0e6283071bddaf7a329f2`. Dieser Commit ist zugleich die
+Merge-Basis und ein vollständiger Vorfahr des Feature-HEAD. Die Divergenz ist
+`0` Main-only-Commits zu `8` Feature-only-Commits. Für diesen unmittelbar
+zuvor gefetchten Snapshot wäre aktuell ein konfliktfreier Fast-Forward auf
+den hashgebunden geprüften Featurebaum möglich. Vor jeder späteren
+Merge-Freigabe müssen Fetch, `merge-base --is-ancestor`, Divergenz und der
+Einsatz von `--ff-only` erneut geprüft werden. Diese Snapshot-Eigenschaft ist
+keine Produktions- oder Deploymentfreigabe.
+
+Zusätzliche lokale Kontrollen nach dem Fetch:
+
+- `git diff --check origin/main...HEAD`: PASS;
+- Release-Check: PASS;
+- installierte Abhängigkeitsauflösung:
+  `next@15.5.21 -> postcss@8.5.23 -> nanoid@3.3.18`;
+- Manifest weiterhin `93/93`, Hashabweichungen `0`;
+- im geprüften Repository ist keine GitHub-Actions-Workflowdatei vorhanden;
+  ein repository-intern definiertes GitHub-Actions-CI wurde daher nicht
+  identifiziert. Externe Statuschecks, Branch-Protection-Regeln und
+  GitHub-Rulesets wurden in diesem lokalen Review nicht verifiziert.
+
+### 24.2 Explizite Runtime-off-Bindung und Preview-Redeploy
+
+Vercel hatte nach dem Feature-Push bereits automatisch ein erstes
+branchgebundenes Preview für Commit `7ebe4f64...` erzeugt. Weil die als
+`Sensitive` gespeicherte Runtime-Variable read-only nicht als Klarwert
+verifizierbar war, wurde sie nach ausdrücklicher Nutzerfreigabe ausschließlich
+im Preview-Scope des Branches deterministisch neu auf `off` gesetzt. Andere
+Variablen wurden weder geöffnet noch verändert.
+
+Der allgemeine Vercel-Redeploy-Dialog stand zunächst standardmäßig auf
+`Production/main`. Diese Auswahl wurde nicht bestätigt, sondern ohne Wirkung
+abgebrochen. Der tatsächliche Redeploy wurde direkt vom bereits bestätigten
+Feature-Preview aus mit folgender geschlossener Bindung ausgelöst:
+
+- Vercel-Projekt: `equora`;
+- Deployment-ID: `9iw7Asm1rd18zV88MrXmyQJiCXBQ`;
+- Environment: `Preview`;
+- Branch: `feature/mexc-import-v57.61.0`;
+- Source-Commit:
+  `7ebe4f64a21061aedfea2e371ea7ddf5784c4e64`;
+- `EQUORA_MEXC_RUNTIME_MODE=off` ausschließlich für Preview und diesen Branch;
+- Status: `Ready`;
+- Builddauer: `1m 2s`;
+- eindeutige Deployment-URL:
+  `https://equora-kob9wu3i7-equora1s-projects.vercel.app`;
+- Branch-Domain:
+  `https://equora-git-feature-mexc-import-v57610-equora1s-projects.vercel.app`.
+
+Die voreingestellte Production-Auswahl wurde weder bestätigt noch ausgeführt;
+Production wurde nicht verändert. Es wurde kein Cron konfiguriert und kein
+Capture-, Broker- oder MEXC-Endpunkt aufgerufen.
+
+### 24.3 Enger UI-Smoketest
+
+Der freigegebene UI-Smoketest verwendete ausschließlich die eindeutige
+Deployment-URL. Die Root-Navigation leitete erwartungsgemäß auf
+`/login?next=%2F` um. Nach Abschluss des Ladezustands wurden erfolgreich
+gerendert:
+
+- Dokumenttitel `Equora`;
+- Überschriften `Equora Login` und `Einloggen`;
+- E-Mail- und Passwortfelder;
+- Schaltflächen `Login starten` und `Konto erstellen`;
+- Startnavigation für Trade-Erfassung, CSV-Import, Review, Setups und
+  Statistik.
+
+Es gab keine sichtbare Fehlerseite, Endlosschleife oder fehlgeschlagene
+Navigation. Es wurden keine Zugangsdaten eingegeben, kein Login und keine
+Registrierung ausgelöst. Ein optionaler Browser-Screenshot lief in ein
+Capture-Timeout; DOM-, Accessibility- und Navigationsprüfung waren davon nicht
+betroffen und vollständig erfolgreich.
+
+Der UI-Smoketest war ausdrücklich kein Runtime-Canary. Es erfolgten kein
+Aufruf der internen Capture-Route, keine Supabase-Schreiboperation, kein
+Brokerrequest, kein MEXC-Request und kein Journalimport.
+
+### 24.4 Aktueller Gate-Stand vor dem unabhängigen Evidenzreview
+
+Dieses Delta darf ausschließlich den vorliegenden G1-Status und dessen
+Hashzeile im Deploymentmanifest ändern. Produktcode, SQL, Lockfile, Tests,
+Release-Dokumente, Release-ZIP, Sidecar und Filelist müssen byteidentisch zum
+Commit `7ebe4f64...` bleiben. A3, A4 und A5 müssen diesen Zwei-Dateien-Freeze
+vor jeder weiteren Git- oder Merge-Aktion unabhängig prüfen.
+
+```text
+main_readiness = fast_forward_candidate_verified
+origin_main = 15551c0a5fba367fd2e0e6283071bddaf7a329f2
+feature_head = 7ebe4f64a21061aedfea2e371ea7ddf5784c4e64
+preview_deployment = ready
+preview_deployment_id = 9iw7Asm1rd18zV88MrXmyQJiCXBQ
+preview_environment = preview_branch_scoped
+mexc_runtime_mode = off
+ui_smoke = pass_login_surface_only
+runtime_canary = not_executed_not_authorized
+cron = not_configured_blocked
+broker_requests = blocked
+real_mexc_probe = blocked
+supabase_changes = blocked
+production_sql = blocked
+production_deployment = blocked
+automatic_journal_import = not_implemented_not_authorized
+evidence_delta = independent_review_pass_recorded
+future_commit = blocked
+future_push = blocked
+pull_request = blocked
+merge = blocked
+```
+
+Das Gesamtgate bleibt `G1 IN PROGRESS – NO-GO`. Der findingfreie technische
+Security-Freeze, das erfolgreiche Preview und der UI-Smoketest belegen noch
+keine Production-Readiness. Ein Pull Request, Fast-Forward-Merge oder jede
+Production-Aktion benötigt nach dem unabhängigen Review eine neue ausdrückliche
+Nutzerfreigabe.
+
+### 24.5 Unabhängiger Abschlussreview des Preview-Evidenzdeltas
+
+Der erste unabhängige Review des Statusstands
+`138261b3b04621c09c35f744a0e0259fdbf45a51e11c43461b720616a219f9b9`
+mit Deploymentmanifest
+`c3afd98b09b2bd6c9da6ba1a337c65f55170b345600038561ba854b9c4e66cc5`
+war nicht findingfrei und wurde verworfen:
+
+- A3: `FAIL`, `P0=0`, `P1=0`, `P2=1`, `P3=0`; die Abwesenheit einer
+  repository-internen GitHub-Actions-Workflowdatei war zu stark als
+  Abwesenheit jedes serverseitigen GitHub-Gates interpretiert;
+- A4: `FAIL`, `P0=0`, `P1=0`, `P2=0`, `P3=2`; Fast-Forward war nicht eng
+  genug an den gefetchten Snapshot gebunden und die voreingestellte
+  Production-Auswahl war widersprüchlich als nicht ausgewählt beschrieben;
+- A5: `PASS`, `P0=0`, `P1=0`, `P2=0`, `P3=0`; Hash-, Manifest-, Paket- und
+  Provenienzgrenze waren findingfrei.
+
+Alle drei Textbefunde wurden ohne technischen oder paketbezogenen Seiteneffekt
+geschlossen. Der remediierte Statusstand
+`64de0182332726beab2a4ae8bdf0856649dfb75da9f0471074f9a527d7f0aeaa`
+mit Deploymentmanifest
+`bffb8265b7fc4723ebc6b56f5a1cdb1a27db756f96462edfe2761fae8c77a96b`
+wurde anschließend vollständig und hashgebunden erneut geprüft:
+
+- A3: `PASS`, `P0=0`, `P1=0`, `P2=0`, `P3=0`;
+- A4: `PASS`, `P0=0`, `P1=0`, `P2=0`, `P3=0`;
+- A5: `PASS`, `P0=0`, `P1=0`, `P2=0`, `P3=0`.
+
+Die findingfreien Voten attestieren ausschließlich das lokale
+Preview-Evidenzdelta. Produktcode, SQL, Lockfile, Tests, Release-Dokumente und
+die Pakettrias blieben unverändert. Insbesondere gelten weiterhin:
+
+```text
+preview_evidence_review = independent_review_pass_recorded
+future_commit = blocked
+future_push = blocked
+pull_request = blocked
+merge = blocked
+runtime_canary = not_executed_not_authorized
+cron = not_configured_blocked
+broker_requests = blocked
+real_mexc_probe = blocked
+supabase_changes = blocked
+production_sql = blocked
+production_deployment = blocked
+automatic_journal_import = not_implemented_not_authorized
+overall_gate = G1_IN_PROGRESS_NO_GO
+```
+
+Ein Commit oder Push dieses Evidenzdeltas sowie jede Pull-Request-, Merge- oder
+Produktionsvorbereitung benötigt eine neue ausdrückliche Nutzerfreigabe.
