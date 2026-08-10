@@ -2610,3 +2610,184 @@ Produktions-, Cron-, Runtime-, Broker-, MEXC- oder Deploymentfreigabe. Der
 Middlewarepatch ist weiterhin ausschließlich lokal und im aktuellen Preview
 von Commit `aecc1b4...` nicht enthalten. Das Gesamtgate bleibt
 `G1 IN PROGRESS – NO-GO`.
+
+## 22. Branchgebundenes Preview und Runtime-disabled-Canary
+
+Die zeitgebundenen Aussagen in Abschnitt 21 zum ausschließlich lokalen
+Middlewarepatch und zum damaligen Preview von Commit `aecc1b4...` sind seit den
+nachfolgend protokollierten, ausdrücklich freigegebenen Schritten historische
+Zwischenstände. Dieser Abschnitt ist für den aktuellen Preview- und
+Canary-Stand maßgeblich. Er supersediert keine technische Reviewevidenz und
+keine der fortbestehenden Runtime-, Broker-, Import-, Merge- oder
+Produktionssperren.
+
+### 22.1 Commit-, Push- und Preview-Bindung
+
+Nach dem findingfreien A3-/A4-/A5-Review des Middlewarefreezes wurden die sieben
+manifestgebundenen Pfade geprüft, gestaged und auf
+`feature/mexc-import-v57.61.0` committed. Ausschließlich dieser Feature-Branch
+wurde nach `origin` gepusht. Der dabei entstandene und weiterhin unveränderte
+Commit lautet:
+
+`b713f33fc1ccad2460f4cb13a1a57475f831d788`
+
+Anschließend wurde ausschließlich dieser Commit als branchgebundenes Preview
+im Vercel-Projekt `equora` bereitgestellt. Die finale kontrollierte
+Preview-Instanz war:
+
+- Deployment-ID `4cnVrLHcyCTBbMZsqYZvkeghuVaw`;
+- Status `Ready`;
+- Environment `Preview`;
+- Commit `b713f33fc1ccad2460f4cb13a1a57475f831d788`;
+- Deployment-URL
+  `https://equora-licj5tt7w-equora1s-projects.vercel.app`;
+- branchgebundener Alias
+  `https://equora-git-feature-mexc-import-v57610-equora1s-projects.vercel.app`.
+
+Die hierfür verwendeten Variablen waren ausschließlich an `Preview` und den
+Feature-Branch gebunden. `EQUORA_MEXC_RUNTIME_MODE` blieb `off`; es wurde kein
+Cron eingerichtet. `CRON_SECRET` wurde vor dem finalen Redeploy auf einen
+staging-exklusiven Wert rotiert. Im Repository, Statusdokument und Paket wird
+kein Secretwert festgehalten. Der kurze SHA-256-Nachweis des final verwendeten
+Werts lautet `5960b95c1346d362` und ist ausdrücklich kein Ersatz für den
+Secretwert.
+
+### 22.2 Exakt einmaliger Runtime-disabled-Canary
+
+Für den ausdrücklich genehmigten Canary wurde ein temporärer
+Vercel-Protection-Bypass for Automation angelegt. Sein kurzer
+SHA-256-Nachweis lautet `3612844e30bf3fee`. Der Bypass wurde nur für diesen
+Canary verwendet und anschließend entfernt:
+
+- angelegt: `2026-08-10T15:17:01.881Z`;
+- Canary gestartet: `2026-08-10T15:18:06.8193768Z`;
+- Canary beendet: `2026-08-10T15:18:07.5170309Z`;
+- widerrufen: `2026-08-10T15:18:27.719Z`;
+- Nachkontrolle: Bypass-Eintrag abwesend, verbleibende passende Einträge `0`.
+
+Der kontrollierte Client führte exakt einen Request ohne Redirect und ohne
+Retry aus. Akzeptiert wurden ausschließlich `503`, `runtime_disabled` und
+`Cache-Control: no-store`. Das tatsächliche Ergebnis war:
+
+```text
+HTTP status = 503
+content-type = application/json
+cache-control = no-store
+redirect = none
+body = {"ok":false,"code":"runtime_disabled"}
+accepted = true
+request_count = 1
+retry_count = 0
+```
+
+Der tatsächlich eingesetzte Client war PowerShell/.NET `HttpClient`, nicht das
+in der letzten Ablaufbeschreibung genannte `curl.exe`. Redirects
+waren über `HttpClientHandler.AllowAutoRedirect=false` explizit deaktiviert.
+Die Sendelogik enthielt genau einen `SendAsync`-Aufruf und keine Schleife,
+Retry-Policy oder Retry-Bibliothek. `request_count=1` und `retry_count=0` sind
+clientseitige Ablaufnachweise; eine zusätzliche serverseitige Bestätigung lag
+mangels Vercel-Runtime-Logs nicht vor. Die prozessuale Abweichung wird nicht
+verschwiegen und ist im unabhängigen Review gesondert zu bewerten. Wegen der
+vereinbarten No-Retry-Grenze wurde kein zweiter Canary ausgeführt.
+
+Damit ist für genau diesen Preview-Commit belegt, dass ein korrekt
+authentifizierter interner Aufruf die Middleware passiert, die Route erreicht
+und bei deaktivierter Runtime kontrolliert vor Brokertransport und Import
+endet. Es wurden keine MEXC-Zugangsdaten bereitgestellt und durch diese Sequenz
+kein MEXC-Request, keine Brokerabfrage und kein Journalimport ausgelöst.
+
+Die Vercel-Runtime-Logansicht war für dieses Projekt nicht aktiviert und lieferte
+daher keinen unabhängigen Lognachweis. Der Broker-freie Canary-Nachweis stützt
+sich auf die unveränderte, zuvor getestete Default-off-Codegrenze und die exakt
+beobachtete `runtime_disabled`-Antwort; eine stärkere Logbehauptung wird nicht
+aufgestellt.
+
+### 22.3 Secret- und Nachkontrollgrenze
+
+Die nur für die lokale Übergabe verwendete DPAPI-Datei
+`vercel-preview-canary.dpapi.json` wurde nach dem Canary gelöscht; die
+Nachkontrolle ergab `False` für ihre Existenz. Die temporär im Prozess
+gehaltenen Secretpuffer wurden anschließend verworfen. Weder Secretwerte noch
+MEXC-Zugangsdaten wurden in Git, Releasepaket, Dokumentation oder
+Canary-Ausgabe geschrieben.
+
+Branch, HEAD und Upstream waren nach Abschluss identisch auf
+`b713f33fc1ccad2460f4cb13a1a57475f831d788`; der Arbeitsbaum war sauber. Es
+erfolgten kein Merge, keine Supabase-Aktion, keine Produktionsaktion und kein
+weiterer technischer Patch.
+
+### 22.4 Aktueller Gate-Stand
+
+Der erfolgreiche Canary ist ausschließlich eine enge Preview-Abnahme der
+Default-off-Grenze. Er autorisiert weder die automatische Runtime noch einen
+Brokerrequest, einen MEXC-Probeabruf, den Journalimport, Cron, Merge oder eine
+Produktionsbereitstellung. Jede weitere Änderung oder externe Aktion benötigt
+eine neue, konkret abgegrenzte Freigabe.
+
+```text
+preview_canary_evidence_manifest = independent_review_pass_recorded
+preview_commit = b713f33fc1ccad2460f4cb13a1a57475f831d788
+preview_environment = Preview_feature_branch_only
+preview_deployment = ready
+runtime_disabled_canary = pass_exactly_once
+temporary_automation_bypass = revoked_and_absent
+automatic_runtime = off
+cron = not_configured_blocked
+broker_requests = blocked
+real_mexc_probe = blocked
+automatic_journal_import = not_implemented_not_authorized
+supabase_production_changes = blocked
+production_sql = blocked
+future_commit = blocked
+future_push = blocked
+merge = blocked
+additional_preview_deployment = blocked
+production_deployment = blocked
+```
+
+Das Gesamtgate bleibt `G1 IN PROGRESS – NO-GO`.
+
+### 22.5 Unabhängiger Abschlussreview des Canary-Evidenzfreezes
+
+Der abschließend geprüfte Evidenzfreeze war gebunden an:
+
+- Status-SHA-256
+  `7eb3e0fee7c0e166fabe4f3d78c86dfe6750ea392197a74d6cf636eeac59446c`;
+- Deploymentmanifest-SHA-256
+  `bcbb6b786369f371018d4116f88d84758fc9106382c1727b29cbef522fe833bf`;
+- Manifest `93/93`, exakt zwei ungestagte Evidenzpfade und staged `0`;
+- unveränderten Commit und Upstream
+  `b713f33fc1ccad2460f4cb13a1a57475f831d788`;
+- unveränderten ZIP-/Sidecar-/Filelist-Stand
+  `bea8875961b9a1cc27fc0ccfd6298c2a47a0405699553cc3c97cfe02d329e1d7`,
+  `8d0d200a70fa8b28cb99621b6d288dd2249a32b2089ac3dc181757aade4341e5`
+  und
+  `faa0c270a56ad89864184e859404b42a07016d03815af97f3e58ddd7d5095b3e`
+  bei `367` Paketdateien.
+
+Die unabhängigen Schlussvoten für exakt diesen Freeze lauten:
+
+- A3 QA/Release: `PASS`, `P0=P1=P2=P3=0`;
+- A4 Security/Governance: `PASS`, `P0=P1=P2=P3=0`;
+- A5 Integrität/Provenienz: `PASS`, `P0=P1=P2=P3=0`.
+
+Die Reviews bestätigten insbesondere die transparente Abweichung `HttpClient`
+statt `curl.exe`, den explizit deaktivierten Redirect, genau einen
+clientseitigen `SendAsync`-Aufruf ohne Retrylogik, die rein clientseitige
+Zählerevidenz, die fehlende serverseitige Logkorroboration, den widerrufenen
+Automation-Bypass, die Default-off-Codegrenze, die Secretfreiheit des Deltas,
+die mehrstufige kryptografische Provenienz und sämtliche fortbestehenden
+Sperren.
+
+Zwei vorangegangene Dokumentationsfreezes wurden verworfen und sind keine
+Freigabeartefakte: `8e19ae69...`/`6879657b...` wegen einer zu starken
+Retryformulierung sowie `6762d0dd...`/`e510397e...` wegen des verbliebenen
+Wortrests `und`. Beide Befunde waren P3 und wurden vor dem findingfreien
+Abschluss vollständig geschlossen. Ein neuer Canary war dafür weder
+erforderlich noch zulässig und wurde nicht ausgeführt.
+
+Dieses Schlussprotokoll ist ein reines Status-/Manifestdelta nach dem
+findingfreien Review. Es ändert weder Code noch Tests, Paket, Preview,
+Variablen, Runtime oder externe Systeme. Es erteilt keine neue Commit-, Push-,
+Preview-, Cron-, Broker-, MEXC-, Supabase-, Merge-, Produktions- oder
+Deploymentfreigabe. Das Gesamtgate bleibt `G1 IN PROGRESS – NO-GO`.
