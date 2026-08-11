@@ -3416,3 +3416,191 @@ Die drei findingfreien Voten autorisieren ausschließlich die lokale
 Reviewkonsolidierung. Jede weitere Git-, Vercel-, Supabase-, Production-,
 Runtime-, Cron-, Broker-, MEXC- oder Restore-Aktion benötigt weiterhin ihre
 eigene ausdrückliche Freigabe.
+
+## 26. Bereinigung historischer Vercel-Preview-Deployments
+
+### 26.1 Freigabe und eng begrenzter Löschumfang
+
+`FAKT – am 2026-08-11 Europe/Berlin extern ausgeführt und unmittelbar
+read-only nachkontrolliert`
+
+Der Nutzer genehmigte ausdrücklich die dauerhafte Löschung ausschließlich der
+folgenden drei historischen Preview-Deployments des Vercel-Projekts `equora`:
+
+| Deployment-ID | Gebundener Feature-Commit | Zustand vor Löschung |
+|---|---|---|
+| `dpl_DbAttwSufT8q47ZQ6dL5tHYoK96Y` | `f4e6cf923399fa95126883537e86bb7fd2d86778` | `READY`, Preview, vor staging-spezifischer Isolation |
+| `dpl_6yqceg44WtEqkpxvdTmchwXiyzgd` | `aecc1b4c8f89346331e28b471f29a288b4aabc2b` | `READY`, Preview, vor staging-spezifischer Isolation |
+| `dpl_CW3fnkKghPKjoT48ZGMuzuJSVSu7` | `aecc1b4c8f89346331e28b471f29a288b4aabc2b` | `READY`, Preview, vor staging-spezifischer Isolation |
+
+Alle drei Datensätze gehörten zum Branch
+`feature/mexc-import-v57.61.0`, zum Projekt
+`prj_fFJreVtKrX9CVGEzlYrwvnzBYPEV` und lagen mit ihren Vercel-
+`createdAt`-Werten `1786273283414`, `1786363792152` und `1786366156144`
+unterhalb des staging-spezifischen Isolationszeitpunkts `1786366884966`.
+
+Ausdrücklich ausgeschlossen und unverändert zu erhalten waren:
+
+- Production `dpl_D75aed11TNHyHiU4HiXZbMH7F28N`;
+- das aktuelle Preview `dpl_7HjbeZw5wYZCGZKWYeJWLgycpWfp`;
+- Environment-Variablen, Cron, Supabase, Git/GitHub, MEXC und Produktion.
+
+### 26.2 Vorabkontrolle und Ausführung
+
+Der unmittelbar vor der Löschung ausgeführte read-only Preflight endete mit
+`PASS` und bestätigte:
+
+- alle drei Ziele exakt als historische Previews des Feature-Branches;
+- Production `READY` auf `main` und Commit
+  `15551c0a5fba367fd2e0e6283071bddaf7a329f2`;
+- das aktuelle Preview `READY` auf Commit
+  `690b3d4af5360ff64de974d4d44afc9d9b5a69ad`;
+- deaktivierte Cron-Ausführung mit `disabledAt=1786452815407` und
+  `definitions=0`;
+- `26` Environment-Einträge mit dem ausschließlich aus Namen, Target,
+  Git-Branch und Typ gebildeten Metadaten-SHA-256
+  `3cb60865dc05f712d39c2c4f491a9e5873917ea93c9a80f56d2b80982b60ac87`.
+
+Beim ersten DELETE schrieb die Vercel-CLI eine Meldung auf den lokalen
+PowerShell-Fehlerkanal. Vor jeder weiteren Mutation wurde deshalb ausschließlich
+read-only festgestellt, dass
+`dpl_DbAttwSufT8q47ZQ6dL5tHYoK96Y` serverseitig bereits entfernt war. Dieser
+DELETE wurde nicht wiederholt. Die beiden noch vorhandenen, ebenfalls exakt
+freigegebenen IDs wurden danach jeweils mit genau einem DELETE-Aufruf entfernt.
+Es gab keinen automatischen Retry und keine Auswahl über Muster, Branch oder
+Alter.
+
+### 26.3 Read-only Postflight
+
+Der vollständige Postflight endete mit `PASS`:
+
+- alle drei gelöschten IDs liefern den erwarteten Nicht-vorhanden-/`404`-Zustand;
+- Production blieb `READY` auf
+  `dpl_D75aed11TNHyHiU4HiXZbMH7F28N` und Commit
+  `15551c0a5fba367fd2e0e6283071bddaf7a329f2`;
+- das aktuelle Preview blieb `READY` auf
+  `dpl_7HjbeZw5wYZCGZKWYeJWLgycpWfp` und Commit
+  `690b3d4af5360ff64de974d4d44afc9d9b5a69ad`;
+- Cron blieb deaktiviert mit unverändertem `disabledAt` und `definitions=0`;
+- die Environment-Matrix blieb bei `26` Einträgen und exakt demselben
+  Metadatenhash;
+- der lokale Branch blieb `feature/mexc-import-v57.61.0`, `HEAD` und Upstream
+  blieben identisch auf `690b3d4...`, der Worktree war sauber und
+  `git diff --check` bestand.
+
+Die drei historischen Preview-URLs und Deployment-Artefakte sind aus dem
+aktiven Projektzustand entfernt. Es wurde weder eine Wiederherstellung geprüft
+noch ausgelöst; Wiederherstellbarkeit wird nicht vorausgesetzt.
+
+### 26.4 Lokaler Evidenzfreeze
+
+Dieses Delta ändert ausschließlich:
+
+1. den vorliegenden G1-Status durch den Append dieses Abschnitts;
+2. dessen eine Hashzeile im Deployment-Kandidatenmanifest.
+
+Der vorherige lokale Basisstand war gebunden an:
+
+- Status-SHA-256:
+  `aadcd31fc31a8a942b9cd8fc9581d701e87a9bf2d2c90cb5bc74ee19423a510c`;
+- Deploymentmanifest-SHA-256:
+  `00e5ad1f0ff095e761facbd38db421ca4a8e2c5431e17fc0ac3b48cdeab54992`;
+- Manifest `94/94`, Branch/HEAD/Upstream wie in Abschnitt 26.3 und sauberer
+  Worktree.
+
+Produktcode, SQL, Tests, Workflow, `package.json`, Lockfile, Release-Dokumente,
+Release-ZIP, Sidecar und Filelist bleiben byteidentisch. Die unveränderte
+Pakettrias lautet:
+
+- ZIP-SHA-256:
+  `f4ba383f174c872231b42d11bc39b6565cf93b4de4b484d37ad290070cd92270`;
+- Sidecar-SHA-256:
+  `52f0c1a0326898088b099441d23cd5cd1392452e6cd9398065395c6f0446b3ae`;
+- Filelist-SHA-256:
+  `faa0c270a56ad89864184e859404b42a07016d03815af97f3e58ddd7d5095b3e`;
+- Paketdateien: `367`.
+
+Bis zu einem neuen, hashgebundenen unabhängigen Review gilt:
+
+```text
+historical_preview_cleanup = completed_postflight_verified
+historical_preview_deployments_deleted = 3_of_3
+production_deployment = unchanged_ready
+current_preview_deployment = unchanged_ready
+environment_scope = unchanged_26_metadata_hash_verified
+cron = disabled_zero_definitions
+supabase_changes = none
+mexc_requests = none
+git_external_changes = none
+cleanup_evidence_delta = independent_review_pass_recorded
+future_commit = blocked
+future_push = blocked
+main_push = blocked
+merge = blocked
+production_deployment_change = blocked
+runtime_activation = blocked
+automatic_journal_import = not_implemented_not_authorized
+overall_gate = G1_IN_PROGRESS_NO_GO
+```
+
+Dieser Status-/Manifestfreeze autorisiert keine weitere Git-, Vercel-,
+Supabase-, MEXC-, Runtime-, Cron- oder Produktionsaktion.
+
+### 26.5 Unabhängiger Abschlussreview des Preview-Cleanup-Freezes
+
+Der vollständig unabhängig geprüfte Preview-Cleanup-Evidenzfreeze war gebunden
+an:
+
+- Status-SHA-256:
+  `200f7abad944086efa9c6f4790759c3e039d87b417d5d4e117a4f069812808ce`;
+- Deploymentmanifest-SHA-256:
+  `2ec594e2eea31f4926e72b5039755daa5b02cbc2e45ef3b6cdd6e049457a7a33`;
+- Branch `feature/mexc-import-v57.61.0`;
+- `HEAD` und Upstream
+  `690b3d4af5360ff64de974d4d44afc9d9b5a69ad`;
+- Manifest `94/94`, exakt zwei ungestagte und null gestagte Pfade;
+- unveränderte Pakettrias und `367` Paketdateien.
+
+Die tatsächlichen, für exakt diese Hashgrenze eingegangenen Schlussvoten
+lauteten:
+
+- A3 QA & Release Assurance: `PASS`, `P0=P1=P2=P3=0`;
+- A4 Security, Privacy & Governance: `PASS`, `P0=P1=P2=P3=0`;
+- A5 Daten-/Artefaktintegrität und Provenienz: `PASS`,
+  `P0=P1=P2=P3=0`.
+
+Alle drei Prüfer lasen die bindenden Arbeitsregeln und den vollständigen Handoff,
+arbeiteten strikt read-only und führten Initial- und Schlussrehash durch. Sie
+bestätigten unabhängig insbesondere:
+
+- den exakten Zweidateienscope und `git diff --check`;
+- Manifest `94/94` ohne Format-, Duplikat-, Missing-, Pfad- oder Hashfehler;
+- den ausschließlich angehängten Abschnitt 26 und genau eine geänderte
+  Manifest-Statushashzeile;
+- die bytegenaue Rückrekonstruktion des vorherigen Status
+  `aadcd31fc31a8a942b9cd8fc9581d701e87a9bf2d2c90cb5bc74ee19423a510c`
+  und des vorherigen Manifests
+  `00e5ad1f0ff095e761facbd38db421ca4a8e2c5431e17fc0ac3b48cdeab54992`;
+- die exakte Ziel-, Commit- und Zeitgrenzenbindung der drei gelöschten
+  historischen Previews;
+- die konsistente Abgrenzung von Production, aktuellem Preview, Environment,
+  Cron, Git, Supabase, MEXC und Runtime;
+- die ehrliche No-Retry-, Fehlerkanal- und Recoverability-Dokumentation;
+- Secret-Hygiene ohne Credential-, Token-, URL-, JWT-, Datenbank-URI- oder
+  Private-Key-Leak;
+- die unveränderte Pakettrias mit `367` eindeutigen ZIP-/Filelist-Einträgen;
+- die fortbestehenden Commit-, Push-, Main-, Merge-, Deployment-, Runtime- und
+  Import-Sperren sowie `overall_gate = G1_IN_PROGRESS_NO_GO`.
+
+Die Prüfer attestierten die lokale Integrität und Claimkohärenz der bereits
+dokumentierten operativen Evidenz. Sie führten keine neue Live-Abfrage der
+Vercel-Control-Plane und keine Datei-, Git-, Netzwerk-, Datenbank-, Supabase-,
+MEXC-, Runtime-, Cron- oder Produktionsaktion aus.
+
+Dieser Abschnitt und die Umstellung von `cleanup_evidence_delta` auf
+`independent_review_pass_recorded` sind ein reines Review-PASS-Statusattest. Sie
+verändern den geprüften technischen Freeze, Produktcode, SQL, Tests, Workflow,
+Lockfile, Release-Dokumente und Pakettrias nicht. Das daraus entstehende reine
+Status-/Manifestdelta benötigt nur die enge kryptografische Rückrekonstruktion
+auf den findingfreien Freeze `200f7aba...` / `2ec594e2...`; es erteilt selbst
+keine Freigabe für Staging, Commit, Push, Merge oder externe Aktionen.
