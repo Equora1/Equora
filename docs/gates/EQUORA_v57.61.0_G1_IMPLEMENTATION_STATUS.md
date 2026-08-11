@@ -3140,3 +3140,279 @@ overall_gate = G1_IN_PROGRESS_NO_GO
 
 Ein Commit oder Push dieses Evidenzdeltas sowie jede Pull-Request-, Merge- oder
 Produktionsvorbereitung benötigt eine neue ausdrückliche Nutzerfreigabe.
+
+## 25. GitHub-Release-Gate und Production-Backup-Evidenz
+
+Dieser Abschnitt ersetzt ausschließlich die zeitgebundenen GitHub-, CI-,
+Pull-Request- und Production-Backup-Aussagen aus den vorangehenden Abschnitten,
+soweit sie dem hier dokumentierten neueren Stand widersprechen. Insbesondere ist
+die Aussage aus Abschnitt 24.1, im geprüften Repository sei keine
+GitHub-Actions-Workflowdatei vorhanden, historisch überholt. Technischer
+Produktcode, SQL, Lockfile, Tests und Releasepaket bleiben unverändert.
+
+### 25.1 Aktueller Git- und Pull-Request-Stand
+
+Nach dem findingfrei attestierten Preview-Evidenzcommit wurde genau ein weiterer
+Feature-Commit erstellt und ausschließlich auf den bestehenden Feature-Branch
+gepusht:
+
+- Branch: `feature/mexc-import-v57.61.0`;
+- HEAD und `origin/feature/mexc-import-v57.61.0`:
+  `bb72b892d64e5c07fd643a51eb6801f1158fd49b`;
+- Commitnachricht: `ci: add protected release gates`;
+- gegenüber dem zuvor attestierten Commit
+  `a4e2a7cefe69d340a9392833719f160ad785ba87` wurde ausschließlich
+  `.github/workflows/ci.yml` hinzugefügt;
+- Workflow-SHA-256:
+  `384e5289e687ed782a1b74552fed1dd98610b93699cf9d12faf2315f1db35ec4`;
+- `origin/main`:
+  `15551c0a5fba367fd2e0e6283071bddaf7a329f2`;
+- Divergenz des unmittelbar zuvor gefetchten Snapshots:
+  `0` Main-only-Commits und `10` Feature-only-Commits;
+- `origin/main` ist in diesem Snapshot ein Vorfahr des Feature-HEAD;
+- `git diff --check origin/main...HEAD`: PASS;
+- Arbeitsbaum vor diesem reinen Status-/Manifestdelta: sauber.
+
+Der folgende zeitabhängige Pull-Request-Zustand wurde am 11. August 2026 durch
+A1 read-only über die öffentliche GitHub-Seite beobachtet, ist aber kein
+eigenständiges, lokal manifestgebundenes Metadatenartefakt: Pull Request `#1`
+war als Draft geöffnet, band `main` an den genannten Feature-Branch mit zehn
+Commits und wies keine Reviewfreigabe aus. Der PR bleibt ausdrücklich ein
+Prüfartefakt; weder sein Bestehen noch ein grüner Status autorisiert Merge,
+Main-Push oder Production-Deployment.
+
+### 25.2 GitHub-Actions-Release-Gate
+
+Die neue Workflowdatei läuft für Pull Requests gegen `main`, Pushes auf `main`
+und manuelle Dispatches. Sie verwendet ausschließlich `contents: read`, pinnt
+die verwendeten GitHub-Actions auf vollständige Commit-SHAs und führt in einem
+30-Minuten-Zeitlimit folgende geschlossene Gatefolge aus:
+
+1. Checkout ohne persistierte Git-Credentials;
+2. Node.js `24.18.0`;
+3. `npm ci`;
+4. `npm audit`;
+5. `npm audit --omit=dev`;
+6. TypeScript-Typecheck;
+7. vollständiger Vitest-Bestand;
+8. Release-Contract-Check;
+9. optimierter Next.js-Produktionsbuild.
+
+Die folgenden zeitabhängigen Laufmetadaten wurden am 11. August 2026 durch A1
+read-only über die öffentlichen GitHub- und Vercel-Seiten beobachtet; sie sind
+innerhalb dieses lokalen Freezes nicht unabhängig reproduziert oder als
+separates Evidenzartefakt persistiert: Der erste PR-Lauf für Commit
+`bb72b892...` wurde am 10. August 2026 über `pull_request/synchronize`
+ausgeführt und endete mit `Success`. Gesamtdauer: `55s`; Job `Release gates`:
+`51s`; GitHub-Actions-Run-ID: `31431408681`. Der beobachtete Vercel-Status für
+denselben Commit wies ein erfolgreiches Preview aus. Für sich belegen diese
+externen Metadaten weder ein erforderliches Branch-Protection-Gate noch eine
+Production-Freigabe. Ob der Statuscheck serverseitig als zwingende Main-Regel
+konfiguriert ist, wird in diesem lokalen Delta nicht behauptet.
+
+### 25.3 Verifiziertes Production-Backup und bewusst zurückgestellter Restoretest
+
+Vor jeder Production-Migration wurde unter
+`E:\Equora BackupsProduction2026-08-10\equora-production-20260811T071226Z`
+ein vollständiger Production-Sicherungssatz erzeugt und anschließend
+read-only geprüft. Belegt sind:
+
+- Backupstatus: `COMPLETE_VERIFIED`;
+- Backupmanifest-SHA-256:
+  `f07fbd76a8d8d822e590f1f6b5e95ca93bf057d3887f4e6c0a114298d5e5b538`;
+- `SHA256SUMS`-SHA-256:
+  `a828f676e2e2cd8bc8e7eb7e054fb821bc510f6bc156176d0c9ab2cbca13a163`;
+- sechs verschlüsselte Nutzlastartefakte und `10/10` gültige gebundene
+  Dateihashes;
+- kein Klartextdump, kein unverschlüsseltes SQL und kein partieller oder
+  fehlgeschlagener Abschlussmarker;
+- `pg_restore --list` für das Custom-Format-Archiv PASS mit `768`
+  TOC-Einträgen;
+- Storageinventar: ein Bucket, sechs Objekte und `914313` Byte;
+- getrennt verschlüsselte Verifikations- und Zählstandevidenz;
+- Git-Arbeitsbaum während der Backupprüfung unverändert.
+
+Die folgenden Reviewer-Voten wurden in den unmittelbar vorausgehenden
+read-only Reviewturns direkt an A1 übermittelt. Sie sind Audit-Metadaten dieser
+Arbeitssequenz, aber kein zusätzliches, eigenständiges Repositoryartefakt:
+
+- A3 QA/Restore-Evidenz: `PASS`, `P0=P1=P2=P3=0`;
+- A4 Security/Backup-Evidenz: `PASS` mit einem akzeptierten `P2`-Restrisiko.
+
+Das P2-Restrisiko betrifft nicht die Vollständigkeit oder Hashbindung des
+aktuellen Sicherungssatzes. Die Nutzlasten verwenden AES-256-CBC mit
+PBKDF2-HMAC-SHA256 und `600000` Iterationen, besitzen aber keinen separaten
+authentifizierten MAC beziehungsweise keine digitale Signatur. Für den
+aktuellen Satz begrenzen die extern protokollierten Hashes und die unabhängige
+read-only Prüfung dieses Risiko. Künftige Production-Sicherungen sollen AEAD
+oder einen getrennten HMAC-/Signaturschlüssel verwenden.
+
+Ein praktischer Restore dieses konkreten Sicherungssatzes in ein isoliertes
+Projekt wurde nicht ausgeführt und bleibt `NOT_AUTHORIZED`. Für den internen,
+vollständig deaktivierten Releasepfad wird dieses fehlende Restore-Rehearsal
+bewusst als P2-Risiko akzeptiert. Vor Pilotbetrieb, Kundenbetrieb, Runtime-
+Aktivierung oder Brokerzugriff bleibt ein dokumentierter Restoretest ein
+Pflicht-Gate. Eine Wiederherstellung darf weder automatisch noch ohne neue
+ausdrückliche Nutzerfreigabe erfolgen.
+
+### 25.4 Neuer lokaler Hashfreeze vor unabhängigem Review
+
+Dieses Delta darf ausschließlich ändern:
+
+1. den vorliegenden G1-Status;
+2. dessen Hashzeile im Deploymentmanifest;
+3. den Manifestumfang durch Aufnahme der bereits committeden, aber bislang
+   nicht manifestgebundenen Datei `.github/workflows/ci.yml`.
+
+Das Deploymentmanifest muss dadurch von `93` auf `94` eindeutige, gültige
+Artefaktbindungen wachsen. Produktcode, SQL, Lockfile, Tests, `package.json`,
+Release-Dokumente, Release-ZIP, Sidecar und Filelist bleiben byteidentisch.
+Der unveränderte Paketstand lautet:
+
+- ZIP-SHA-256:
+  `f4ba383f174c872231b42d11bc39b6565cf93b4de4b484d37ad290070cd92270`;
+- Sidecar-SHA-256:
+  `52f0c1a0326898088b099441d23cd5cd1392452e6cd9398065395c6f0446b3ae`;
+- Filelist-SHA-256:
+  `faa0c270a56ad89864184e859404b42a07016d03815af97f3e58ddd7d5095b3e`;
+- Paketdateien: `367`.
+
+Bis zum findingfreien A3-/A4-/A5-Review dieses neuen 94er Freezes gilt:
+
+```text
+pull_request = draft_open_review_only
+github_ci = success_not_yet_required_gate
+github_workflow_manifest_binding = frozen_review_pending
+production_backup = complete_verified
+production_backup_integrity = externally_hash_bound
+production_restore_rehearsal = deferred_p2_accepted
+production_environment_variables = not_verified_for_production
+mexc_runtime_mode = off_required_not_production_verified
+runtime_activation = blocked
+cron = not_configured_blocked
+broker_requests = blocked
+real_mexc_probe = blocked
+supabase_changes = blocked
+production_preflight = blocked
+production_sql = blocked
+main_push = blocked
+merge = blocked
+production_deployment = blocked
+automatic_journal_import = not_implemented_not_authorized
+evidence_delta = independent_review_pending
+overall_gate = G1_IN_PROGRESS_NO_GO
+```
+
+Dieser lokale Freeze autorisiert keine externe Aktion. Erst nach drei
+findingfreien, hashgebundenen Voten darf eine neue, getrennte Freigabe für den
+nächsten Production-Readiness-Schritt angefragt werden.
+
+### 25.5 Erste Reviewrunde und enge Remediation
+
+Der erste Freeze dieses Abschnitts war gebunden an:
+
+- Status-SHA-256:
+  `0b79a26910cc0f2138e33204b89fdb78da52526fa623681f9eee593c7d137a38`;
+- Deploymentmanifest-SHA-256:
+  `fbb51c93faf69ff49aff20810ea691cbaa893ab06a4e4f3ffe12f34ea5a21c1b`;
+- Manifest `94/94`, Git-Scope zwei ungestagte Dokumentationspfade und staged
+  `0`;
+- unveränderte Pakettrias aus Abschnitt 25.4.
+
+Die erste unabhängige Reviewrunde endete nicht findingfrei:
+
+- A4 Security/Governance: `PASS`, `P0=P1=P2=P3=0`;
+- A5 Integrität/Provenienz: `FAIL`, `P0=0`, `P1=0`, `P2=2`, `P3=0`;
+- A3 wurde nach Vorliegen der A5-Blocker ohne finales Votum beendet; der erste
+  Freeze erhält deshalb kein vollständiges A3-/A4-/A5-Attest.
+
+A5 beanstandete ausschließlich:
+
+1. die Reihenfolge der beiden führenden Manifestpfade
+   `.github/workflows/ci.yml` und `.env.example`; A5 verlangte zur Fortführung
+   der bestehenden Manifestkonvention `.env.example` vor der neuen
+   Workflowzeile;
+2. die fehlende ausdrückliche lokale Provenienzbegrenzung für zeitabhängige
+   PR-/CI-/Vercel-Metadaten und die vorherigen Reviewer-Voten.
+
+Die Remediation verschiebt nur die Workflowzeile hinter `.env.example` und
+kennzeichnet die extern beobachteten beziehungsweise direkt übermittelten
+Metadaten ausdrücklich als nicht eigenständig lokal manifestgebunden. Es wurde
+keine weitere Evidenzdatei angelegt. Produkt-, SQL-, Test-, Lockfile-, Paket-
+und externe Systembytes bleiben unverändert. Für den remediierten Status- und
+Manifeststand ist ein vollständiger neuer A3-/A4-/A5-Review erforderlich;
+bis dahin bleibt `evidence_delta = independent_review_pending` verbindlich.
+
+### 25.6 Unabhängiger Abschlussreview des remediierten Freezes
+
+Der vollständig geprüfte remedierte Freeze war gebunden an:
+
+- Status-SHA-256:
+  `a3de3f0958d5803d173cfcd061e7fc4b25edeab16fcbf6dda241fa24c2b608a8`;
+- Deploymentmanifest-SHA-256:
+  `dc0c726154c8950ca316a2eb2e3f82cfa5409e3d8de742ed9aca010045ba28bf`;
+- Workflow-SHA-256:
+  `384e5289e687ed782a1b74552fed1dd98610b93699cf9d12faf2315f1db35ec4`;
+- Manifest `94/94`, exakt zwei ungestagte Dokumentationspfade und staged `0`;
+- Branch, HEAD und Upstream wie in Abschnitt 25.1;
+- unveränderte Pakettrias und `367` Paketdateien.
+
+Die unabhängigen Schlussvoten für exakt diese Hashgrenze lauten:
+
+- A3 QA/Release: `PASS`, `P0=P1=P2=P3=0`;
+- A4 Security/Governance: `PASS`, `P0=P1=P2=P3=0`;
+- A5 Integrität/Provenienz: `PASS`, `P0=P1=P2=P3=0`.
+
+Bestätigt wurden insbesondere:
+
+- vollständige und eindeutige `94/94`-Manifestbindung ohne fehlende Datei oder
+  Hashabweichung;
+- `.env.example` unmittelbar vor der neuen Workflowzeile entsprechend der
+  bestehenden Manifestkonvention;
+- exakter Ein-Datei-Workflowdiff zwischen `a4e2a7c...` und `bb72b892...`;
+- read-only Workflowberechtigungen, vollständige Action-SHA-Pins, keine
+  Secret-Injektion, kein Deploymentkommando und keine angeschlossene
+  Systemmutation;
+- ehrliche lokale Provenienzbegrenzung der zeitabhängigen PR-/CI-/Vercel- und
+  Reviewer-Metadaten;
+- korrekte Historisierung des verworfenen ersten Freezes und vollständige
+  Schließung beider A5-P2;
+- bytegenaue Rückrekonstruktion des vorherigen Status- und Manifeststands
+  `e8817e48...` beziehungsweise `8edbf01c...`;
+- unveränderte Produkt-, SQL-, Test-, Lockfile-, Workflow- und Paketbytes seit
+  Bildung des remedierten Freezes;
+- fortbestehende Abgrenzung des nicht ausgeführten Restore-Rehearsals als
+  akzeptiertes P2-Risiko für den internen Runtime-off-Releasepfad und als
+  Pflicht-Gate vor Pilot-, Kunden- oder Brokerbetrieb.
+
+Dieser Abschnitt ist ein reiner Status-/Manifestnachtrag nach dem
+findingfreien Review. Er verändert weder den geprüften Workflow noch Produkt,
+SQL, Tests, Lockfile, Releasepaket oder ein externes System. Der aktuelle
+Gatewert lautet:
+
+```text
+ci_backup_evidence_review = independent_review_pass_recorded
+production_backup = complete_verified
+production_restore_rehearsal = deferred_p2_accepted
+production_environment_variables = not_verified_for_production
+mexc_runtime_mode = off_required_not_production_verified
+runtime_activation = blocked
+cron = not_configured_blocked
+broker_requests = blocked
+real_mexc_probe = blocked
+supabase_changes = blocked
+production_preflight = blocked
+production_sql = blocked
+future_commit = blocked
+future_push = blocked
+main_push = blocked
+merge = blocked
+production_deployment = blocked
+automatic_journal_import = not_implemented_not_authorized
+overall_gate = G1_IN_PROGRESS_NO_GO
+```
+
+Die drei findingfreien Voten autorisieren ausschließlich die lokale
+Reviewkonsolidierung. Jede weitere Git-, Vercel-, Supabase-, Production-,
+Runtime-, Cron-, Broker-, MEXC- oder Restore-Aktion benötigt weiterhin ihre
+eigene ausdrückliche Freigabe.
