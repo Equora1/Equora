@@ -4227,3 +4227,227 @@ Reviewvoten im Status und aktualisiert dessen eine Hashzeile im
 Deploymentmanifest. Es verändert keine Produkt-, SQL-, Test-, Lockfile-,
 Konfigurations- oder Releasepaketbytes und autorisiert keine externe
 Folgeaktion. `overall_gate = G1_IN_PROGRESS_NO_GO` bleibt unverändert.
+
+## 30. Abgeschlossener Production-App-Release mit deaktivierter MEXC-Runtime
+
+### 30.1 Geltungs- und Supersessiongrenze
+
+`FAKT – ausgeführter App-Release am 2026-08-12, Europe/Berlin; anschließend
+ausschließlich lokale Evidenzkonsolidierung`
+
+Dieser Abschnitt ist für den aktuellen Production-App- und Deploymentzustand
+maßgeblich. Er supersediert ausschließlich frühere zeitgebundene Aussagen in
+den Abschnitten 1 bis 29, nach denen PR #1 noch nicht gemergt, `main` noch nicht
+fortgeschrieben oder das v57.61.0-App-Deployment noch gesperrt beziehungsweise
+nicht ausgeführt sei. Die damaligen Aussagen bleiben als historische
+Zwischenstände korrekt.
+
+Nicht supersediert werden die Sicherheits- und Produktgrenzen für MEXC:
+
+- `EQUORA_MEXC_RUNTIME_MODE=off` bleibt der verbindliche Productionzustand;
+- keine Broker- oder MEXC-Requests;
+- kein aktiver Capture-Cron und keine automatische Runtimeausführung;
+- kein automatischer Journalimport;
+- keine Trading-, Order-, Cancel-, Transfer- oder Withdrawal-Fähigkeit;
+- keine weitere Supabase-SQL-, Repair- oder Restore-Aktion ohne neue konkrete
+  Freigabe.
+
+Der Production-Datenbankstand aus Abschnitt 29 bleibt unverändert bei sieben
+exakten Markern, globalem Postflight-PASS und unveränderten Counts.
+
+### 30.2 Linearer PR-Merge und Main-CI
+
+Nach findingfreier Production-Readiness-, Datenbank- und Deploymentprüfung
+genehmigte der Nutzer ausdrücklich das lineare Zusammenführen von PR #1 nach
+`main` und akzeptierte den dadurch ausgelösten Vercel-Production-Impact. Die
+Freigabe verlangte gleichzeitig:
+
+- fortbestehendes `EQUORA_MEXC_RUNTIME_MODE=off`;
+- Überwachung des Deployments bis `READY`;
+- anschließend ausschließlich einen UI-/read-only Production-Smoketest;
+- sofortigen Stopp bei einem Fehler;
+- keinen automatischen Retry und kein Rollback ohne neue Freigabe.
+
+Der unmittelbar vor dem Merge geprüfte PR-Zustand war:
+
+- PR #1 offen und nicht mehr Draft;
+- Head-Commit
+  `5211e3c775dff8a48c2b56f2adaf67e02deafa91`;
+- Base-Commit
+  `15551c0a` als damaliger `main`-Stand;
+- Head exakt linear auf dem Base-Commit, `14` Commits voraus und `0` zurück;
+- Merge-Base exakt der Base-Commit;
+- Mergeability bestätigt;
+- drei von drei verbundenen Checks grün.
+
+PR #1 wurde anschließend über die authentifizierte GitHub-Oberfläche als
+linearer Squash-Merge abgeschlossen. Der neue Production-`main`-Commit lautet:
+
+```text
+04c4526395e4cd9d715ca6d0e3c38a66a5500852
+```
+
+GitHub protokollierte den Merge am `2026-08-12T09:28:55Z`, entsprechend
+`2026-08-12 11:28:55 CEST`. Der durch den Main-Push ausgelöste Workflow
+`Equora CI`, Run-ID `31583100815`, Run `#6`, lief genau einmal und endete
+`completed/success` für denselben Commit. Es wurde kein zusätzlicher direkter
+Push nach `main` ausgeführt.
+
+### 30.3 Vercel-Production-Deployment
+
+Der autorisierte Merge löste genau das erwartete automatische
+Vercel-Production-Deployment aus:
+
+```text
+project = equora
+scope = equora1s-projects
+deployment_id = dpl_DswXJSHCU3qu8fnB93TCWCRFstnc
+deployment_url = equora-94uyutom3-equora1s-projects.vercel.app
+target = production
+git_ref = main
+git_sha = 04c4526395e4cd9d715ca6d0e3c38a66a5500852
+github_commit_verification = verified
+state = READY
+alias_error = null
+```
+
+Das Deployment erreichte `READY` am `2026-08-12T09:29:52.343Z`. Die gebundenen
+Production-Aliase waren:
+
+- `equora-kappa.vercel.app`;
+- `equora-equora1s-projects.vercel.app`;
+- `equora-git-main-equora1s-projects.vercel.app`.
+
+Während dieses Schritts wurde keine Production-Environmentvariable verändert.
+Die zuvor kontrolliert Production-gebundene Einstellung
+`EQUORA_MEXC_RUNTIME_MODE=off` blieb bestehen. Das aktive `vercel.json` enthält
+keinen `crons`-Eintrag; es wurde kein Cron angelegt, aktiviert oder ausgeführt.
+Es gab kein zweites Deployment, keinen Deployment-Retry, keine Promotion und
+kein Rollback.
+
+### 30.4 Ausschließlich lesender Production-Smoketest
+
+Nach `READY` wurde genau der genehmigte UI-/read-only Smoketest gegen
+`https://equora-kappa.vercel.app/` ausgeführt. Die Production-Domain leitete
+kontrolliert auf
+`https://equora-kappa.vercel.app/login?next=%2F` weiter. Belegt wurden:
+
+- Seitentitel `Equora`;
+- sichtbare Equora-Loginoberfläche;
+- sichtbare Login- und Registrierungsformulare;
+- aktiv dargestellte Bedienelemente;
+- null Browser-Console-Warnungen und null Browser-Console-Fehler.
+
+Es wurden keine Zugangsdaten eingegeben, kein Formular abgesendet und keine
+fachliche Schreibaktion ausgelöst. Die Vercel-Runtimeprüfung im geprüften
+Zeitfenster zeigte:
+
+- null Runtimefehler;
+- ausschließlich HTTP `200` und kontrollierte `307`-Weiterleitungen;
+- nur `/`, `/login` und statische Fontpfade;
+- keinen Aufruf von `/api/internal/broker-capture`;
+- keinen MEXC-bezogenen Logtreffer;
+- keinen Broker-, Cron- oder Importlauf.
+
+Der Smoketest beweist Erreichbarkeit und grundlegende UI-Auslieferung des neuen
+Production-Commits. Er ist kein authentifizierter Fachfunktions-, Broker- oder
+Importtest und wird nicht als solcher behauptet.
+
+### 30.5 Lokaler Abschlussfreeze und verbleibende Gates
+
+Dieses Delta ändert ausschließlich dieses G1-Statusdokument und anschließend
+genau dessen Hashzeile im Deploymentmanifest. Der attestierte Vorgängerfreeze
+lautet:
+
+```text
+base_status_sha256 = 3aaf7fe3af070915e8c3c8a3b585724fbe2c127ebba7e58e6472b00a2c8fee68
+base_manifest_sha256 = c17c6fdb9c24ff05b1ec618347f6d20fa6111e56244985c9973d0353b1cf3df6
+release_zip_sha256 = 8e3a5c65124582959e4873e6dfb6b33a1050364d8fb14c634bfb2314b1b6eeb6
+release_sidecar_sha256 = 594e1bd78639385b1c4ceffc2bb3f45ca73f2877a99724512c9d47eec05bf32f
+release_filelist_sha256 = d861370e888c09e0a3eab18846e4613ff320d1e88ed715e3fc0d6d0ce738493a
+release_package_file_count = 369
+```
+
+Produkt-, SQL-, Test-, Lockfile-, Konfigurations-, Release-ZIP-, Sidecar- und
+Filelistbytes bleiben unverändert. Status und Deploymentmanifest sind nicht
+Bestandteil des Release-ZIP. Für den neuen Evidenzfreeze gilt:
+
+```text
+production_database_release = complete_seven_exact_postflight_pass
+production_application_release = complete
+production_main_sha = 04c4526395e4cd9d715ca6d0e3c38a66a5500852
+production_ci = completed_success
+production_vercel_deployment_id = dpl_DswXJSHCU3qu8fnB93TCWCRFstnc
+production_vercel_state = READY
+production_alias_error = null
+production_ui_smoke = pass_readonly_login_surface
+production_browser_console_warnings = 0
+production_browser_console_errors = 0
+production_runtime_errors_observed = 0
+production_mexc_runtime_mode = off
+production_broker_capture_requests = 0
+production_mexc_requests = 0
+production_cron_runs = 0
+production_automatic_journal_import = not_implemented_not_authorized
+production_deployment_retry = 0
+production_rollback = 0
+production_app_release_evidence_delta = independent_review_pass_recorded
+overall_gate = G1_IN_PROGRESS_NO_GO
+```
+
+Der technische v57.61.0-App- und Datenbankrelease ist damit abgeschlossen. Das
+fortbestehende `G1_IN_PROGRESS_NO_GO` betrifft die noch nicht freigegebene
+MEXC-Runtime-, Capture-, Reconciliation- und Importkette, nicht die
+Erreichbarkeit des veröffentlichten Runtime-off-Production-Releases. Eine
+MEXC-`probe`-, `capture`-, Cron-, Enrollment- oder Importaktivierung benötigt
+weiterhin jeweils eine neue, konkret abgegrenzte Freigabe.
+
+### 30.6 Unabhängiges Abschlussvotum für den Production-App-Release-Evidenzfreeze
+
+Der vollständige, strikt read-only und hashgebundene Review des Freezes
+
+- G1-Status
+  `fa22948749f52118b1cc3e324141e0ebfec3f283a84e5e086c21bf22ad0f1d2b`;
+- Deploymentmanifest
+  `e472f9d71469eb4ae6bf21662a17ea9b419f61856ed379ec5b0caeb16235b422`
+
+ist abgeschlossen. Die tatsächlichen unabhängigen Schlussvoten lauten:
+
+- A3 QA/Release: `PASS`, `P0=0`, `P1=0`, `P2=0`, `P3=0`;
+- A4 Security/Authority/Gates: `PASS`, `P0=0`, `P1=0`, `P2=0`, `P3=0`;
+- A5 Integrität/Provenienz/Packaging: `PASS`, `P0=0`, `P1=0`, `P2=0`,
+  `P3=0`.
+
+Alle drei Reviews bestätigten bei identischem Initial- und Schlussrehash:
+
+- Branch `feature/mexc-import-v57.61.0` sowie identischen HEAD und Upstream
+  `5211e3c775dff8a48c2b56f2adaf67e02deafa91`;
+- exakt zwei ungestagte und null gestagte Dokumentationspfade;
+- die bytegenaue Rückrekonstruktion des Vorgängerstatus
+  `3aaf7fe3af070915e8c3c8a3b585724fbe2c127ebba7e58e6472b00a2c8fee68`
+  und Vorgängermanifests
+  `c17c6fdb9c24ff05b1ec618347f6d20fa6111e56244985c9973d0353b1cf3df6`;
+- `96/96` gültige Manifestbindungen ohne Formatfehler, Missing, Mismatch oder
+  Duplikate;
+- die unveränderte Pakettrias mit `369/369` Dateien;
+- die enge, ehrliche Supersession ausschließlich des früheren PR-, `main`- und
+  App-Deploymentstatus;
+- den ausgeführten Merge, erfolgreichen Main-CI-Lauf, Vercel-Zustand `READY`
+  und den begrenzten read-only UI-Smoketest;
+- die fortbestehenden Grenzen `EQUORA_MEXC_RUNTIME_MODE=off`, kein
+  Broker-/MEXC-Request, kein Capture-Cron, kein automatischer Journalimport und
+  keine weitere Supabase-Aktion ohne neue konkrete Freigabe;
+- null Secret-, Credential- oder sensitive Supabase-Zielwerte im neuen Delta.
+
+Die externen GitHub-, Vercel- und Production-Control-Plane-Claims wurden in
+diesem strikt lokalen Abschlussreview nicht erneut live abgefragt. Die Reviewer
+führten selbst keine Runner, Datei-, Git-, Netzwerk-, Vercel-, Supabase-,
+MEXC-, Cron- oder Production-Aktion aus.
+
+Dieses Abschlussdelta protokolliert ausschließlich die tatsächlichen
+Reviewvoten und aktualisiert anschließend genau die Statushashzeile im
+Deploymentmanifest. Produkt-, SQL-, Test-, Lockfile-, Konfigurations-,
+Release-ZIP-, Sidecar- und Filelistbytes bleiben unverändert. Es autorisiert
+keine MEXC-, Cron-, Supabase-, Import-, Deployment- oder sonstige externe
+Folgeaktion. `overall_gate = G1_IN_PROGRESS_NO_GO` bleibt für die noch nicht
+freigegebene MEXC-Runtime-, Capture-, Reconciliation- und Importkette bestehen.
