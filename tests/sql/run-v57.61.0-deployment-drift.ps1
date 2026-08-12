@@ -25,7 +25,8 @@ $deploymentPaths = @(
   'schema-patch-v57.61.0-g1-lane-authority.sql',
   'schema-patch-v57.61.0-g1-activation-authority.sql',
   'schema-patch-v57.61.0-g1-scheduler-control.sql',
-  'schema-patch-v57.61.0-g1-runtime-deployment.sql'
+  'schema-patch-v57.61.0-g1-runtime-deployment.sql',
+  'schema-patch-v57.61.0-g1-broker-provider-rls.sql'
 )
 
 function Read-Utf8File {

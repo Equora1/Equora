@@ -70,8 +70,10 @@ Migrationsexecutor `postgres` ist kein Superuser, besitzt aber `CREATEROLE`
 und `BYPASSRLS`; `auth` und `auth.uid()` gehören den Plattformrollen
 `supabase_admin` beziehungsweise `supabase_auth_admin`. Normale `USAGE`-,
 `EXECUTE`- und `REFERENCES`-Rechte genügen. Grant Options werden weder erwartet
-noch erzeugt. Fresh Apply, exakter Sechs-Layer-Re-Run sowie Owner-, ACL-,
-Grantable- und fehlende-Executor-Rechte werden dynamisch geprüft.
+noch erzeugt. Fresh Apply aller sieben Layer, der exakte Sechs-zu-Sieben-
+Roll-forward, der vollständige Sieben-Layer-Re-Run mit sieben Skips, ein
+unbekannter Sieben-Marker-No-effect-Fall sowie Owner-, ACL-, Grantable- und
+fehlende-Executor-Rechte werden dynamisch geprüft.
 
 ## Backup und Preflight
 
@@ -98,10 +100,12 @@ einige Tabellennamen, sondern ausschließlich den exakt gepinnten semantischen
 v57.60.1-Vertrag aus Spalten, Constraints, Indizes, RLS/FORCE-RLS, Policies,
 Ownern, ACLs, funktionalen Triggern, internen FK-/Constraint-Triggerzuständen
 und öffentlichen Equora-Funktionen. Ein
-Wiederanlauf ist nur bei bereits vollständigen sechs, fingerprintgenauen
-v57.61.0-Markern zulässig; der Preflight revalidiert dann vor dem Treiber den
-gesamten aktuellen Vertrag. Ein Teilstand mit ein bis fünf Markern ist bewusst
-nicht resumierbar und verlangt Restore der geprüften v57.60.1-Baseline. Jeder
+Wiederanlauf ist nur beim exakt fingerprintgenauen Sechs-Marker-Vorgänger oder
+beim vollständigen Sieben-Marker-Endstand zulässig; der Preflight revalidiert
+dann vor dem Treiber den gesamten aktuellen Vertrag. Beim Sechs-Marker-Stand
+wendet der Treiber ausschließlich den forward-only Layer 7 an. Ein Teilstand
+mit ein bis fünf Markern ist bewusst nicht resumierbar und verlangt Restore
+der geprüften v57.60.1-Baseline. Jeder
 unerlaubte Credential-Tabellengrant, eine inkompatible Baseline oder eine
 PostgreSQL-Version unter 16 beendet den Preflight vor der ersten v57.61.0-DDL.
 Dasselbe gilt für unzulässige Default-ACLs des Migrationsexecutors:
@@ -161,16 +165,20 @@ Der psql-Treiber wendet exakt diese additive Reihenfolge an:
 4. Activation Authority
 5. Scheduler Control
 6. Runtime Deployment Authority
+7. Broker Provider RLS Normalization
 
 Keinen Einzelschritt überspringen, nicht über den Supabase SQL Editor neu
 sortieren und nach einem Fehler nicht blind erneut fortfahren. Erst Ursache und
 Transaktionsstatus prüfen. Danach darf derselbe Treiber kontrolliert erneut
-gestartet werden, wenn bereits alle sechs Marker mit exakt gepinntem
-Fingerprint vorhanden sind; dann überspringt er alle sechs Schichten und der
-globale Postflight revalidiert den aktuellen Objektvertrag. Bei ein bis fünf
-Markern bricht bereits der Preflight mit Restore-Anforderung ab. Es wird nicht
-ab der ersten fehlenden Migration fortgesetzt. Alle Dateien verwenden
-`ON_ERROR_STOP` bzw. eigene Transaktionsgrenzen.
+gestartet werden, wenn der exakte Sechs-Marker-Vorgänger oder alle sieben
+Marker mit exakt gepinntem Fingerprint vorhanden sind. Beim Vorgänger skippt er
+die unveränderten sechs Schichten und wendet nur Layer 7 an; beim Endstand
+skippt er alle sieben Schichten. Der globale Postflight revalidiert danach den
+aktuellen Objektvertrag. Bei ein bis fünf Markern bricht bereits der Preflight
+mit Restore-Anforderung ab. Es wird nicht allgemein ab der ersten fehlenden
+Migration fortgesetzt; ausschließlich der exakt gebundene Layer-7-Übergang ist
+zulässig. Alle Dateien verwenden `ON_ERROR_STOP` bzw. eigene
+Transaktionsgrenzen.
 
 ## Vercel-Umgebung
 
@@ -318,7 +326,7 @@ Schemadrift scheitert bereits im Preflight.
 
 Die lokale Beweiskette liegt in
 `tests/sql/run-v57.61.0-restored-v57601-upgrade.ps1`. Sie prüft Apply,
-gemeinsamen Endvertrag, sechs exakte Re-Run-Skips, unveränderte Marker-Receipts
+gemeinsamen Endvertrag, sieben exakte Re-Run-Skips, unveränderte Marker-Receipts
 und die vollständige No-partial-effect-Negativmatrix: vorab gesetzter alter GUC
 beim Standalone-Verifier und vollständigen Preflight, normaler Dirty-Preflight,
 nichtleere Altspalte, ownerloser Trade, unbekannter Schemadrift sowie nicht
@@ -365,3 +373,33 @@ wurde kein MEXC-Request oder Journalimport ausgelöst. Vercel Preview,
 RLS-/RPC-/Secret-App-Canaries, echter MEXC-Read-only-Probe, Capture-Cron,
 Supabase-Produktion, Produktions-SQL, Git-Push, Merge und Deployment benötigen
 weiterhin jeweils ihre eigene ausdrückliche Freigabe.
+
+## Forward-only Layer 7 nach dem Production-Postflight-Befund
+
+Der ursprüngliche Sechs-Layer-Apply bleibt historisch unverändert. Eine
+read-only Production-Diagnose am 2026-08-11 belegte anschließend sechs exakt
+committete Marker und unveränderte Datenzählstände, aber einen alleinigen
+globalen Relation-Hash-Drift: `public.broker_providers` besaß bereits
+`RLS=true`, während der damalige lokale Endvertrag `RLS=false` erwartete.
+
+Die Korrektur ist deshalb ausschließlich additiv und forward-only:
+
+- die sechs vorhandenen Migrationen und Fingerprints werden nicht geändert;
+- `schema-patch-v57.61.0-g1-broker-provider-rls.sql` setzt ausschließlich
+  `ENABLE ROW LEVEL SECURITY` auf `public.broker_providers`;
+- Layer 7 verändert keine Zeile, Policy, ACL, Funktion oder Runtimebindung;
+- der Preflight akzeptiert den Sechs-Marker-Vorgänger nur bei vollständigem
+  sonstigem Semantikvertrag und den Sieben-Marker-Endstand nur mit dem neuen
+  singulären Relation-Hash;
+- der Postflight verlangt exakt sieben Marker und den kanonischen RLS-Zustand.
+
+Der lokale Runner `tests/sql/run-v57.61.0-layer7-forward.ps1` prüft sowohl den
+Vorgänger mit `RLS=false` als auch den Hosted-Zustand mit `RLS=true`, jeweils
+mit sechs alten Skips, genau einem Layer-7-Apply, unveränderten alten Receipts
+und Datenzählständen, sieben Re-Run-Skips sowie einem unbekannten
+Sieben-Marker-No-effect-Negativfall.
+
+Dieser lokale Patch ist keine Production-Freigabe. Production bleibt bis zu
+einer neuen ausdrücklichen Genehmigung bei sechs Markern und globalem
+Postflight-FAIL; insbesondere ist weder ein weiterer SQL-Lauf noch ein Retry,
+Restore, Merge oder Deployment autorisiert.

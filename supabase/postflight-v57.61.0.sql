@@ -72,7 +72,8 @@ where migration_id in (
   'equora_v57.61.0_g1_lane_authority_v1',
   'equora_v57.61.0_g1_activation_authority_v1',
   'equora_v57.61.0_g1_scheduler_control_v2',
-  'equora_v57.61.0_g1_runtime_deployment_v1'
+  'equora_v57.61.0_g1_runtime_deployment_v1',
+  'equora_v57.61.0_broker_provider_rls_v1'
 )
 order by migration_id;
 
@@ -88,9 +89,23 @@ with expected(migration_id, contract_fingerprint) as (values
   ('equora_v57.61.0_g1_scheduler_control_v2',
     '87158546782b900817d3f36501a2e43b5619906a2f07636d0cb1167b042e5ab7'),
   ('equora_v57.61.0_g1_runtime_deployment_v1',
-    '892f1587e8e37937a538dad1239ec931d43bd1f65d2f224d56ab7b9356f89e96')
+    '892f1587e8e37937a538dad1239ec931d43bd1f65d2f224d56ab7b9356f89e96'),
+  ('equora_v57.61.0_broker_provider_rls_v1',
+    'd72047ce5e28e1400869a9abdcdad650a4f1b3b11e1e1b7cb07a9b37157eca47')
 )
-select count(actual.migration_id) = 6 as all_v57610_markers_present
+select count(actual.migration_id) = 7
+  and (
+    select count(*) from equora_private.schema_migrations marker
+    where marker.migration_id like 'equora_v57.61.0%'
+  ) = 7
+  and not exists (
+    select 1 from equora_private.schema_migrations marker
+    where marker.migration_id like 'equora_v57.61.0%'
+      and not exists (
+        select 1 from expected
+        where expected.migration_id = marker.migration_id
+      )
+  ) as all_v57610_markers_present
 from expected
 left join equora_private.schema_migrations actual
   on actual.migration_id = expected.migration_id
@@ -99,7 +114,7 @@ left join equora_private.schema_migrations actual
 
 \if :all_v57610_markers_present
 \else
-  \echo 'NO-GO: Nicht alle sechs v57.61.0-Migrationsmarker sind vorhanden.'
+  \echo 'NO-GO: Nicht alle sieben v57.61.0-Migrationsmarker sind vorhanden.'
   do $fail$ begin raise exception 'POSTFLIGHT_MIGRATION_MARKER_MISSING'; end $fail$;
 \endif
 
@@ -222,6 +237,6 @@ from public.trades
 select count(*) as postflight_trade_count
 from public.trades;
 
-\echo 'POSTFLIGHT PASS: sechs Marker, globaler Semantikvertrag, Runtime-ACL und Journal-Tradezahl sind unverÃ¤ndert geschlossen.'
+\echo 'POSTFLIGHT PASS: sieben Marker, globaler Semantikvertrag, Runtime-ACL und Journal-Tradezahl sind unverändert geschlossen.'
 
 commit;

@@ -23,7 +23,8 @@ $deploymentPaths = @(
   'schema-patch-v57.61.0-g1-lane-authority.sql',
   'schema-patch-v57.61.0-g1-activation-authority.sql',
   'schema-patch-v57.61.0-g1-scheduler-control.sql',
-  'schema-patch-v57.61.0-g1-runtime-deployment.sql'
+  'schema-patch-v57.61.0-g1-runtime-deployment.sql',
+  'schema-patch-v57.61.0-g1-broker-provider-rls.sql'
 )
 $adminRole = 'equora_hosted_fixture_admin'
 $baselineDatabase = 'equora_hosted_v57601_template'
@@ -208,8 +209,8 @@ from pg_roles where rolname='postgres';
   $rerun = Invoke-SqlText -Database $fullDatabase -Role 'postgres' `
     -Sql $fullSession -Phase 'Hosted exact rerun'
   if ($rerun.Text -notmatch 'POSTFLIGHT PASS' -or
-      ([regex]::Matches($rerun.Text, 'already exact; skip')).Count -ne 6) {
-    throw 'Hosted exact rerun did not prove six skips and POSTFLIGHT PASS.'
+      ([regex]::Matches($rerun.Text, 'already exact; skip')).Count -ne 7) {
+    throw 'Hosted exact rerun did not prove seven skips and POSTFLIGHT PASS.'
   }
 
   $adapter = (Invoke-SqlText -Database $fullDatabase -Role $adminRole -Sql @'

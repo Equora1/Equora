@@ -1415,18 +1415,21 @@ Supabase, Produktions-SQL, Push und Deployment bleiben gesperrt.
 
 ### Deploymentpaket und Operatorreihenfolge
 
-Der neue psql-Treiber `supabase/deploy-v57.61.0.sql` bindet die sechs additiven
+Der neue psql-Treiber `supabase/deploy-v57.61.0.sql` bindet die sieben additiven
 Migrationen in der einzig unterstützten Reihenfolge: Persistence, Capture
 Control, Lane Authority, Activation Authority, Scheduler Control und Runtime
-Deployment Authority. `ON_ERROR_STOP` ist verpflichtend; der Treiber enthält
-weder Backup noch Runtimeaktivierung.
+Deployment Authority, gefolgt von der forward-only Broker Provider RLS
+Normalization. `ON_ERROR_STOP` ist verpflichtend; der Treiber enthält weder
+Backup noch Runtimeaktivierung.
 
 `preflight-v57.61.0.sql` ist read-only und akzeptiert ausschließlich eine
-saubere v57.60.1-Baseline ohne v57.61-Marker oder einen bereits vollständigen,
-exakt sechsteiligen v57.61-Vertrag. Ein Teilstand mit ein bis fünf Markern ist
-kein Resumezustand, sondern erzwingt Restore der geprüften Baseline. Der
+saubere v57.60.1-Baseline ohne v57.61-Marker, den exakt fingerprintgenauen
+Sechs-Marker-Vorgänger oder den vollständigen Sieben-Marker-Endvertrag. Nur der
+Sechs-Marker-Vorgänger ist ein zulässiger Übergangszustand und darf allein
+durch Layer 7 fortgeschrieben werden. Ein Teilstand mit ein bis fünf Markern
+ist kein Resumezustand, sondern erzwingt Restore der geprüften Baseline. Der
 Preflight verlangt außerdem geschlossene Connection-Credential-Referenzen.
-`postflight-v57.61.0.sql` verlangt sechs Marker,
+`postflight-v57.61.0.sql` verlangt sieben Marker,
 RLS-/Owner-Evidenz und die enge RPC-/Secret-ACL. Baseline-/Postflight-
 Tradecounts müssen identisch sein; keine Migration erzeugt Journalzeilen.
 
@@ -1534,3 +1537,26 @@ Die Baseline-Funktionsdefinitionen werden vor dem Hashen semantisch
 kanonisiert; der Transport von SQL an `psql` muss zusätzlich UTF-8 explizit
 festlegen. Diese Trennung verhindert, dass eine Windows-Codepage-Verfälschung
 des Zeichens `ü` als realer Datenbank- oder Funktionsdrift behandelt wird.
+
+### Forward-only Normalisierung des Broker-Provider-RLS-Vertrags
+
+Die sechs ursprünglichen Migrationen sind immutable, weil ihre exakten
+Receipts bereits auf verbundenen Zielen existieren. Ein nach dem Production-
+Apply belegter Hosted-Unterschied darf daher weder durch Änderung eines alten
+Fingerprints noch durch Abschalten von RLS kaschiert werden. Der siebte Layer
+normalisiert `public.broker_providers` stattdessen additiv auf `RLS=true`.
+
+Die Zustandsmaschine ist absichtlich geschlossen:
+
+- `0` v57.61-Marker: exakte v57.60.1-Baseline, Fresh Apply aller sieben Layer;
+- exakt die sechs ursprünglichen Marker: vollständiger Semantikcheck und
+  ausschließlich Layer-7-Roll-forward;
+- exakt sieben bekannte Marker: vollständiger Endvertrag und sieben Skips;
+- ein bis fünf, unbekannte, driftende oder zusätzliche Marker: fail-closed.
+
+Der globale Relation-Hash besitzt im Endzustand genau einen Sollwert. Der alte
+Hash ist nur dann als Vorgängerevidenz zulässig, wenn exakt die sechs bekannten
+alten Marker vorhanden sind; ein vorhandener Layer-7-Marker erzwingt den neuen
+Hash. Layer 7 setzt kurze Lock-/Statement-Timeouts, verändert keine Daten und
+bindet Owner `postgres`, `FORCE RLS=false`, null Policies sowie exakt
+`SELECT`/`UPDATE` ohne Grant Option für die NOLOGIN-Capture-Authority.

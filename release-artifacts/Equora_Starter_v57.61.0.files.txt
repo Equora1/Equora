@@ -299,6 +299,7 @@ Equora Starter v57.61.0/supabase/schema-patch-v57.60.1.sql
 Equora Starter v57.61.0/supabase/schema-patch-v57.60.sql
 Equora Starter v57.61.0/supabase/schema-patch-v57.61.0.sql
 Equora Starter v57.61.0/supabase/schema-patch-v57.61.0-g1-activation-authority.sql
+Equora Starter v57.61.0/supabase/schema-patch-v57.61.0-g1-broker-provider-rls.sql
 Equora Starter v57.61.0/supabase/schema-patch-v57.61.0-g1-capture-control.sql
 Equora Starter v57.61.0/supabase/schema-patch-v57.61.0-g1-lane-authority.sql
 Equora Starter v57.61.0/supabase/schema-patch-v57.61.0-g1-runtime-deployment.sql
@@ -356,6 +357,7 @@ Equora Starter v57.61.0/tests/sql/run-v57.61.0-constraint-trigger-drift.ps1
 Equora Starter v57.61.0/tests/sql/run-v57.61.0-deployment.ps1
 Equora Starter v57.61.0/tests/sql/run-v57.61.0-deployment-drift.ps1
 Equora Starter v57.61.0/tests/sql/run-v57.61.0-hosted-supabase-compat.ps1
+Equora Starter v57.61.0/tests/sql/run-v57.61.0-layer7-forward.ps1
 Equora Starter v57.61.0/tests/sql/run-v57.61.0-restored-v57601-upgrade.ps1
 Equora Starter v57.61.0/tests/sql-contracts.test.ts
 Equora Starter v57.61.0/tests/trading-integrity.test.ts

@@ -27,7 +27,8 @@ $deploymentPaths = @(
   'schema-patch-v57.61.0-g1-lane-authority.sql',
   'schema-patch-v57.61.0-g1-activation-authority.sql',
   'schema-patch-v57.61.0-g1-scheduler-control.sql',
-  'schema-patch-v57.61.0-g1-runtime-deployment.sql'
+  'schema-patch-v57.61.0-g1-runtime-deployment.sql',
+  'schema-patch-v57.61.0-g1-broker-provider-rls.sql'
 )
 
 function Read-Utf8File {
@@ -131,8 +132,8 @@ try {
   $rerunText = $rerunOutput -join "`n"
   $skipCount = ([regex]::Matches($rerunText, 'already exact; skip')).Count
   if ($applyText -notmatch 'POSTFLIGHT PASS' -or
-    $rerunText -notmatch 'POSTFLIGHT PASS' -or $skipCount -ne 6) {
-    throw 'Fresh/re-run deployment output did not prove the expected postflight and six skips.'
+    $rerunText -notmatch 'POSTFLIGHT PASS' -or $skipCount -ne 7) {
+    throw 'Fresh/re-run deployment output did not prove the expected postflight and seven skips.'
   }
 
   Write-Output 'Full v57.61.0 fresh deployment and exact re-run passed.'

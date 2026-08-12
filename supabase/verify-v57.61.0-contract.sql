@@ -1,5 +1,8 @@
 -- Read-only semantic drift gate for the complete v57.61.0 broker surface.
--- This file is included by postflight after all six exact markers are present.
+-- This file is included by postflight after all seven exact markers are
+-- present. Preflight also uses it for the exact six-marker predecessor: only
+-- that state may still carry the former broker_providers RLS=false relation
+-- hash while the forward-only seventh layer is pending.
 -- It does not write data and is intentionally independent of marker age.
 do $$
 declare
@@ -12,7 +15,34 @@ declare
   v_schemas text;
   v_authority_security text;
   v_pgcrypto_schema text;
+  v_six_marker_predecessor_exact boolean;
 begin
+  with expected(migration_id, contract_fingerprint) as (values
+    ('equora_v57.61.0_broker_capture_v1',
+      '492ebad5496806ad60425abd58e9801c58a58b421e38392d54e6082d7fa2b083'),
+    ('equora_v57.61.0_g1_capture_control_v1',
+      'c133d5e0c987e7f927963db4465ef5ab2f6f4c174cfdc96a3ed1cffb5cd62be5'),
+    ('equora_v57.61.0_g1_lane_authority_v1',
+      '6be313155e81e0f14c48d0c71301e28a75b792a90e49542bc49ffe638f56c68d'),
+    ('equora_v57.61.0_g1_activation_authority_v1',
+      'b074a756a015b34a7e3da804f3d3955100a40f9a6391855a75c1e415cbbb2abb'),
+    ('equora_v57.61.0_g1_scheduler_control_v2',
+      '87158546782b900817d3f36501a2e43b5619906a2f07636d0cb1167b042e5ab7'),
+    ('equora_v57.61.0_g1_runtime_deployment_v1',
+      '892f1587e8e37937a538dad1239ec931d43bd1f65d2f224d56ab7b9356f89e96')
+  ), present as (
+    select expected.migration_id,
+      actual.contract_fingerprint = expected.contract_fingerprint as exact
+    from expected
+    left join equora_private.schema_migrations actual
+      on actual.migration_id = expected.migration_id
+  )
+  select (select count(*) from equora_private.schema_migrations
+          where migration_id like 'equora_v57.61.0%') = 6
+    and (select count(*) from present where exact) = 6
+    and not exists (select 1 from present where exact is distinct from true)
+  into v_six_marker_predecessor_exact;
+
   select namespace_row.nspname into v_pgcrypto_schema
   from pg_extension extension_row
   join pg_namespace namespace_row
@@ -632,7 +662,12 @@ begin
     raise exception 'POSTFLIGHT_INDEX_CONTRACT_DRIFT';
   end if;
   if v_relations is distinct from
-      'acd317c2a68f2028cb2573a94ba3ac917112af480a98aa7d68adef7e8e4a2ce8'
+      'd44f7661d68f9623bd1d3ef79da5af48e0ecee94f25aa3a24b829bc75a3fa8b8'
+    and not (
+      v_six_marker_predecessor_exact
+      and v_relations =
+        'acd317c2a68f2028cb2573a94ba3ac917112af480a98aa7d68adef7e8e4a2ce8'
+    )
   then
     raise exception 'POSTFLIGHT_RELATION_SECURITY_CONTRACT_DRIFT';
   end if;

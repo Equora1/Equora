@@ -72,6 +72,10 @@ const runtimeDeploymentSql = readFileSync(
   join(process.cwd(), 'supabase', 'schema-patch-v57.61.0-g1-runtime-deployment.sql'),
   'utf8',
 )
+const brokerProviderRlsSql = readFileSync(
+  join(process.cwd(), 'supabase', 'schema-patch-v57.61.0-g1-broker-provider-rls.sql'),
+  'utf8',
+).replace(/\r\n/g, '\n')
 const runtimeDeploymentIntegrationSql = readFileSync(
   join(process.cwd(), 'tests', 'sql', 'broker-capture-runtime-deployment.integration.sql'),
   'utf8',
@@ -123,6 +127,10 @@ const deploymentContractVerifierSql = readFileSync(
 )
 const deploymentDriftRunner = readFileSync(
   join(process.cwd(), 'tests', 'sql', 'run-v57.61.0-deployment-drift.ps1'),
+  'utf8',
+)
+const layer7ForwardRunner = readFileSync(
+  join(process.cwd(), 'tests', 'sql', 'run-v57.61.0-layer7-forward.ps1'),
   'utf8',
 )
 const constraintTriggerDriftRunner = readFileSync(
@@ -993,6 +1001,41 @@ describe('v57.61.0 inactive scheduler and durable Lease contracts', () => {
     )
   })
 
+  it('pins the forward-only seventh layer and its exact six-to-seven state transition', () => {
+    const fingerprint = 'd72047ce5e28e1400869a9abdcdad650a4f1b3b11e1e1b7cb07a9b37157eca47'
+    const normalizedArtifact = brokerProviderRlsSql.replaceAll(fingerprint, '0'.repeat(64))
+
+    expect(brokerProviderRlsSql.split(fingerprint)).toHaveLength(4)
+    expect(createHash('sha256').update(normalizedArtifact, 'utf8').digest('hex')).toBe(
+      fingerprint,
+    )
+    expect(brokerProviderRlsSql).toContain(
+      'alter table public.broker_providers enable row level security',
+    )
+    expect(brokerProviderRlsSql).not.toMatch(/disable row level security/i)
+    expect(brokerProviderRlsSql).toContain('BROKER_PROVIDER_RLS_PREDECESSOR_INVALID')
+    expect(brokerProviderRlsSql).toContain('BROKER_PROVIDER_RLS_POSTCONDITION_INVALID')
+    expect(brokerProviderRlsSql).toContain("set local lock_timeout = '3s'")
+    expect(brokerProviderRlsSql).toContain("set local statement_timeout = '60s'")
+
+    expect(deploymentPreflightSql).toContain('v5761_marker_predecessor')
+    expect(deploymentPreflightSql).toContain('count(*) = 7 as v5761_marker_complete')
+    expect(deploymentContractVerifierSql).toContain(
+      'v_six_marker_predecessor_exact boolean',
+    )
+    expect(deploymentContractVerifierSql).toContain(
+      'd44f7661d68f9623bd1d3ef79da5af48e0ecee94f25aa3a24b829bc75a3fa8b8',
+    )
+    expect(deploymentContractVerifierSql).toContain(
+      'acd317c2a68f2028cb2573a94ba3ac917112af480a98aa7d68adef7e8e4a2ce8',
+    )
+    expect(layer7ForwardRunner).toContain(
+      'Forward-only Layer-7 false/true predecessor, exact rerun and unknown-marker no-effect oracles passed.',
+    )
+    expect(layer7ForwardRunner).toContain('PREFLIGHT_MIGRATION_STATE_INVALID')
+    expect(layer7ForwardRunner).toContain('already exact; skip')
+  })
+
   it('makes the psql deployment gates preflight-bound, restore-only and process-failing on drift', () => {
     expect(capturePersistenceSql).toContain(
       'MIGRATION_LEGACY_SETUP_COLUMN_RECONCILIATION_REQUIRED',
@@ -1020,9 +1063,10 @@ describe('v57.61.0 inactive scheduler and durable Lease contracts', () => {
       'DEPLOY_ACTIVATION_MARKER_DRIFT',
       'DEPLOY_SCHEDULER_MARKER_DRIFT',
       'DEPLOY_RUNTIME_MARKER_DRIFT',
+      'DEPLOY_BROKER_PROVIDER_RLS_MARKER_DRIFT',
       'DEPLOY_PREFLIGHT_EVIDENCE_MISSING',
     ]) expect(deploymentDriverSql).toContain(code)
-    expect(deploymentDriverSql.match(/already exact; skip/g)).toHaveLength(6)
+    expect(deploymentDriverSql.match(/already exact; skip/g)).toHaveLength(7)
     expect(deploymentPreflightSql).toContain('PREFLIGHT_BASELINE_INVALID')
     expect(deploymentPreflightSql).toContain('executor_role.rolbypassrls')
     expect(deploymentPreflightSql).toContain("executor_role.rolname = 'postgres'")
@@ -1186,6 +1230,7 @@ describe('v57.61.0 inactive scheduler and durable Lease contracts', () => {
     expect(allLocalSqlRunner).toContain(
       "-PgcryptoSchema public -SkipNegativeOracles",
     )
+    expect(allLocalSqlRunner).toContain("'run-v57.61.0-layer7-forward.ps1'")
     for (const hash of [
       '91306cab2e10611b78ddc975b178317d2d44fd633c02b2da7aff30a7194c1e20',
       '2f943b4bc2672842d23004a95e3f69188e6a0c5e6048170c97886c11a9a1a359',
@@ -1234,6 +1279,7 @@ describe('v57.61.0 inactive scheduler and durable Lease contracts', () => {
       'b074a756a015b34a7e3da804f3d3955100a40f9a6391855a75c1e415cbbb2abb',
       '87158546782b900817d3f36501a2e43b5619906a2f07636d0cb1167b042e5ab7',
       '892f1587e8e37937a538dad1239ec931d43bd1f65d2f224d56ab7b9356f89e96',
+      'd72047ce5e28e1400869a9abdcdad650a4f1b3b11e1e1b7cb07a9b37157eca47',
     ]) {
       expect(deploymentDriverSql).toContain(fingerprint)
       expect(deploymentPostflightSql).toContain(fingerprint)

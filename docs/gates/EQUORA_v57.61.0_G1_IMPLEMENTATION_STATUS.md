@@ -3604,3 +3604,433 @@ Lockfile, Release-Dokumente und Pakettrias nicht. Das daraus entstehende reine
 Status-/Manifestdelta benötigt nur die enge kryptografische Rückrekonstruktion
 auf den findingfreien Freeze `200f7aba...` / `2ec594e2...`; es erteilt selbst
 keine Freigabe für Staging, Commit, Push, Merge oder externe Aktionen.
+
+## 27. Production-Vercel-Rebinding für Runtime-off und Supabase-Production
+
+### 27.1 Freigabe und exakter Änderungsumfang
+
+`FAKT – am 2026-08-11 Europe/Berlin extern ausgeführt und anschließend
+read-only nachkontrolliert`
+
+Der Nutzer genehmigte ausdrücklich genau einen kontrollierten Rebinding-Versuch
+im Vercel-Projekt `equora` des Team-Scopes `equora1s-projects`. Zulässig waren
+ausschließlich die folgenden sechs bereits vorhandenen Variablen im Target
+`production`:
+
+| Variable | Genehmigter Zielvertrag |
+|---|---|
+| `EQUORA_MEXC_RUNTIME_MODE` | exakt `off` |
+| `EQUORA_PERFORMANCE_DIAGNOSTICS` | exakt `false` |
+| `EQUORA_PERFORMANCE_LOGS` | exakt `false` |
+| `NEXT_PUBLIC_SUPABASE_URL` | validierte URL des Production-Projekts |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | validierter Production-Anon-/Publishable-Key |
+| `SUPABASE_SERVICE_ROLE_KEY` | validierter Production-Service-Role-/Secret-Key |
+
+Ausgeschlossen blieben Preview und Development, alle übrigen Environment-
+Variablen, Deployment/Redeployment, Promote/Rollback, Cron, Supabase-Schreib-
+operationen, MEXC, Runtime-Ausführung, Git, Pull-Request-Status und Merge.
+
+### 27.2 Secretfreie Quellen- und Preflight-Evidenz
+
+Die drei Supabase-Werte wurden ausschließlich verdeckt über lokale
+`SecureString`-Eingaben verarbeitet. Vor einer Vercel-Schreiboperation bestätigte
+ein separater lokaler In-Memory-Preflight mit Exit-Code `0`:
+
+- Project Ref exakt `rrkfdprhqilvicjbgfcn`;
+- Host exakt `rrkfdprhqilvicjbgfcn.supabase.co` über HTTPS, ohne unerwarteten
+  Pfad, Userinfo, Query oder Fragment;
+- zulässige Anon-/Publishable-Keyklasse beziehungsweise bei einem Legacy-JWT
+  die Rolle `anon`;
+- zulässige Service-Role-/Secret-Keyklasse beziehungsweise bei einem
+  Legacy-JWT die Rolle `service_role`;
+- unterschiedliche Anon- und Service-Schlüssel.
+
+Kein Secretwert wurde in Chat, Toolausgabe, Datei, Kommandoargument oder dieses
+Dokument übernommen. Die Übertragung an Vercel erfolgte ausschließlich über
+den Standardeingabekanal eines isolierten Unterprozesses; lokale Referenzen auf
+Klartext und `SecureString` wurden danach verworfen.
+
+Zwei vorherige, jeweils separat freigegebene Versuche änderten keine Variable:
+
+1. Ein erster sichtbarer Dialog wurde vor Abschluss geschlossen; ein
+   anschließender read-only Zeitstempelvergleich bestätigte `0/6` Änderungen.
+2. Ein weiterer Versuch stoppte vor dem ersten Update, weil Windows PowerShell
+   die reine Vercel-Fortschrittsmeldung `Retrieving project...` auf `stderr` bei
+   `$ErrorActionPreference = 'Stop'` als terminierenden Fehler behandelte. Die
+   read-only Nachkontrolle bestätigte erneut `0/6` Änderungen.
+
+Vor dem final genehmigten Versuch bestand deshalb zunächst ein isolierter,
+ausschließlich read-only ausgeführter CLI-Selbsttest. Er trennte `stdout` und
+`stderr`, endete mit Exit-Code `0` und bestätigte:
+
+- insgesamt `13` Production-Variablen;
+- exakt die sechs genehmigten Zielnamen;
+- für alle sechs `type=sensitive`;
+- für alle sechs ausschließlich `target=production`;
+- für alle sechs keine Git-Branchbindung.
+
+### 27.3 Ausführung und 6/6-Metadatenpostflight
+
+Nach bestandenem Supabase- und Vercel-Preflight wurden exakt die sechs
+genehmigten Variablen nacheinander aktualisiert. Jeder einzelne CLI-Aufruf
+endete erfolgreich. Der im selben kontrollierten Prozess ausgeführte Postflight
+endete mit `POSTFLIGHT PASS: 6/6` und Exit-Code `0`.
+
+Eine zusätzliche, davon unabhängige read-only Nachkontrolle um
+`2026-08-11 20:32:08 +02:00` bestätigte für alle sechs Ziele den unveränderten
+Scope `sensitive`/`production`/nicht branchgebunden und jeweils einen gegenüber
+dem Vorzustand fortgeschriebenen `updatedAt`-Wert:
+
+| Variable | `updatedAt` Unix-ms | Europe/Berlin |
+|---|---:|---|
+| `EQUORA_MEXC_RUNTIME_MODE` | `1786473012333` | `2026-08-11 20:30:12.333 +02:00` |
+| `EQUORA_PERFORMANCE_DIAGNOSTICS` | `1786473014933` | `2026-08-11 20:30:14.933 +02:00` |
+| `EQUORA_PERFORMANCE_LOGS` | `1786473017655` | `2026-08-11 20:30:17.655 +02:00` |
+| `NEXT_PUBLIC_SUPABASE_URL` | `1786473020362` | `2026-08-11 20:30:20.362 +02:00` |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | `1786473022965` | `2026-08-11 20:30:22.965 +02:00` |
+| `SUPABASE_SERVICE_ROLE_KEY` | `1786473025595` | `2026-08-11 20:30:25.595 +02:00` |
+
+Vercel gibt sensitive Werte nach dem Schreiben nicht wieder entschlüsselt aus.
+Die Wertevidenz besteht deshalb bewusst aus dem vollständig validierten lokalen
+Quellzustand, den sechs erfolgreichen stdin-gebundenen Update-Aufrufen und den
+sechs unabhängig fortgeschriebenen Metadatenzeitpunkten; der Postflight
+behauptet keinen nachträglichen Klartext-Readback.
+
+### 27.4 Deployment-, Git- und Betriebsabgrenzung
+
+Die read-only Deployment-Nachkontrolle bestätigte unverändert:
+
+- Target `production`;
+- Zustand `READY`;
+- `createdAt=1785849482677`;
+- Commit `15551c0a5fba367fd2e0e6283071bddaf7a329f2`.
+
+Es wurde kein neues Deployment ausgelöst. Die aktualisierten Production-
+Variablen sind damit für ein späteres Production-Deployment vorbereitet, aber
+vom bestehenden Deployment noch nicht neu eingelesen worden. Cron war nicht
+Teil dieses Rebindings und wurde weder geändert noch in diesem Schritt erneut
+live verifiziert. Supabase erhielt ausschließlich lesende Seitenzugriffe; es
+gab keine Datenbank-, Schema-, API-Key- oder sonstige Supabase-Mutation.
+
+Der lokale Nachzustand blieb:
+
+- Branch `feature/mexc-import-v57.61.0`;
+- `HEAD` und Upstream
+  `24b8d3de8ee8956d3c88f236d0a6cb130d9e77b0`;
+- vor diesem Evidenzdelta `0` veränderte Pfade.
+
+### 27.5 Lokaler Status-/Manifestfreeze vor unabhängigem Review
+
+Dieses genehmigte lokale Delta ändert ausschließlich:
+
+1. den vorliegenden G1-Status durch den Append dieses Abschnitts;
+2. dessen eine Hashzeile im Deployment-Kandidatenmanifest.
+
+Der findingfrei attestierte und anschließend committed/gepushte Basisstand war
+gebunden an:
+
+- Status-SHA-256:
+  `5a5c0f9e9529a979619333f3a263d4ba442f4af4cb0d2603658b06c54ac4fb34`;
+- Deploymentmanifest-SHA-256:
+  `67bf2efa170a1c2482ff47b197c422aefe70386409a13f28ed36b775b9dbe6eb`;
+- Manifest `94/94` ohne Missing-, Duplikat-, Format- oder Hashabweichung;
+- sauberer Branch/HEAD/Upstream gemäß Abschnitt 27.4.
+
+Produktcode, SQL, Tests, Workflow, `package.json`, Lockfile, Release-Dokumente,
+Release-ZIP, Sidecar und Filelist bleiben byteidentisch. Die unveränderte
+Pakettrias lautet:
+
+- ZIP-SHA-256:
+  `f4ba383f174c872231b42d11bc39b6565cf93b4de4b484d37ad290070cd92270`;
+- Sidecar-SHA-256:
+  `52f0c1a0326898088b099441d23cd5cd1392452e6cd9398065395c6f0446b3ae`;
+- Filelist-SHA-256:
+  `faa0c270a56ad89864184e859404b42a07016d03815af97f3e58ddd7d5095b3e`;
+- Paketdateien: `367`.
+
+Bis zum findingfreien, hashgebundenen A3-/A4-/A5-Review gilt:
+
+```text
+production_environment_rebinding = completed_6_of_6_metadata_postflight_verified
+production_supabase_binding = project_ref_and_key_class_verified_values_not_logged
+production_runtime_mode = off_write_attested_not_deployed
+production_performance_diagnostics = false_write_attested_not_deployed
+production_performance_logs = false_write_attested_not_deployed
+production_deployment = unchanged_ready_commit_15551c0
+production_database_changes = none
+cron_changes = none
+mexc_requests = none
+runtime_execution = none
+production_environment_evidence_delta = frozen_review_pending
+future_commit = blocked
+future_push = blocked
+main_push = blocked
+merge = blocked_pending_production_sequence_decision
+production_sql = blocked_pending_production_sequence_decision
+production_deployment_change = blocked
+automatic_journal_import = not_implemented_not_authorized
+overall_gate = G1_IN_PROGRESS_NO_GO
+```
+
+Erst nach einem findingfreien Review dieses reinen Status-/Manifestfreezes darf
+die Reihenfolge zwischen additiver Production-Datenbankmigration und PR-Merge
+neu bewertet werden. Dieser Abschnitt erteilt selbst keine Freigabe für Staging,
+Commit, Push, Merge, Production-SQL, Deployment, Runtime, Cron oder MEXC.
+
+## 28. Forward-only Layer 7 nach dem Production-Relation-Postflight
+
+### 28.1 Gebundener Production-Ausgangszustand
+
+`FAKT – am 2026-08-11 read-only diagnostiziert; in diesem Abschnitt keine
+weitere verbundene Aktion`
+
+Der genehmigte Production-Apply der damaligen Sechs-Layer-Fassung setzte alle
+sechs ursprünglichen Migrationsmarker mit ihren exakten Fingerprints. Der
+globale Postflight stoppte anschließend ausschließlich mit
+`POSTFLIGHT_RELATION_SECURITY_CONTRACT_DRIFT`; er war damit kein vollständiger
+Release-PASS. Die separat genehmigte read-only Zustandsprüfung bestätigte:
+
+- exakt die sechs ursprünglichen Marker und Fingerprints;
+- Journal-Trades `1280`, Broker Connections `1`, Broker Credentials `1`;
+- keine Zählstandsänderung durch den fehlgeschlagenen Postflight;
+- sieben der acht globalen Semantikhashes exakt;
+- erwarteter damaliger Relation-Hash
+  `acd317c2a68f2028cb2573a94ba3ac917112af480a98aa7d68adef7e8e4a2ce8`;
+- tatsächlicher Production-Relation-Hash
+  `d44f7661d68f9623bd1d3ef79da5af48e0ecee94f25aa3a24b829bc75a3fa8b8`.
+
+Die eng begrenzte read-only Diagnose zerlegte den Relation-Vertrag
+tabellengenau. Ausschließlich `public.broker_providers` wich ab:
+
+- Owner in beiden Zuständen exakt `postgres`;
+- `FORCE RLS=false` in beiden Zuständen;
+- null Policies in beiden Zuständen;
+- identische ACL-Zeilen und sonstige Relationseigenschaften;
+- lokaler damaliger Vertrag `RLS=false`;
+- Production `RLS=true`.
+
+Eine lokale Transaktionsprobe aktivierte auf dem alten exakten Vertrag nur
+`ENABLE ROW LEVEL SECURITY` für diese Tabelle und erzeugte bytegenau den
+Production-Relation-Hash `d44f7661...`; die Transaktion wurde danach
+zurückgerollt und der Wegwerfcontainer entfernt. Damit ist die alleinige
+Ursache belegt. Weder ein RLS-Disable in Production noch eine Änderung der
+bereits committeten sechs Migrationen ist fachlich zulässig.
+
+Production bleibt zum Zeitpunkt dieses lokalen Deltas bei sechs exakten
+Markern und globalem Postflight-FAIL. Seit der Diagnose wurde kein weiterer
+Production-Preflight, SQL-Apply, Postflight, Retry oder Restore ausgeführt.
+
+### 28.2 Lokale forward-only Implementierung
+
+Der neue Layer
+`supabase/schema-patch-v57.61.0-g1-broker-provider-rls.sql` besitzt:
+
+- Migration-ID `equora_v57.61.0_broker_provider_rls_v1`;
+- normalisierten SHA-256-Fingerprint
+  `d72047ce5e28e1400869a9abdcdad650a4f1b3b11e1e1b7cb07a9b37157eca47`;
+- exakt drei eingebettete Fingerprintvorkommen;
+- `lock_timeout=3s` und `statement_timeout=60s`;
+- ausschließlich `ALTER TABLE public.broker_providers ENABLE ROW LEVEL SECURITY`;
+- exakte Vor-/Nachbedingungen für Owner `postgres`, `FORCE RLS=false`, null
+  Policies sowie ausschließlich `SELECT` und `UPDATE`, jeweils nicht
+  grantable, für `equora_broker_capture_owner` außerhalb der Ownerrechte;
+- keine Daten-, Policy-, ACL-, Funktions-, Runtime- oder Brokerwirkung.
+
+Die sechs ursprünglichen Migrationsdateien und ihre eingebetteten Fingerprints
+bleiben gegenüber `HEAD=24b8d3de8ee8956d3c88f236d0a6cb130d9e77b0`
+byteidentisch. Preflight, Treiber, Postflight und globaler Verifier bilden jetzt
+die geschlossene Zustandsmaschine:
+
+1. `0` Marker: exakte v57.60.1-Baseline, Fresh Apply aller sieben Layer;
+2. exakt sechs bekannte alte Marker: vollständiger Semantikcheck und
+   ausschließlich Layer-7-Roll-forward;
+3. exakt sieben bekannte Marker: vollständiger Endvertrag und sieben Skips;
+4. ein bis fünf, unbekannte, zusätzliche oder driftende Marker: fail-closed.
+
+Der alte Relation-Hash ist im globalen Verifier ausschließlich mit dem exakt
+gebundenen Sechs-Marker-Vorgänger zulässig. Sobald Layer 7 vorhanden ist,
+erzwingt derselbe Verifier ausschließlich `d44f7661...`; der Postflight verlangt
+zusätzlich exakt sieben bekannte Marker. Es entsteht kein dauerhafter
+Mehrfach-Sollvertrag.
+
+### 28.3 Tatsächliche lokale Testevidenz
+
+Die Implementierungsprüfung war iterativ und wird vollständig offengelegt:
+
+1. Der erste Layer-7-Runner stoppte vor dem Apply-Durchlauf, weil sein eigener
+   Digest-Helfer die rohe `pgcrypto.digest`-Funktion im Namespace
+   `extensions` nicht qualifizierte. Der Runner wurde auf den bestehenden
+   fingerprintgebundenen Equora-Wrapper umgestellt; Produkt-SQL war davon nicht
+   betroffen.
+2. Der nächste Lauf stoppte an einer zu engen neuen ACL-Vorbedingung. Die
+   bestehende Authority besitzt vertragsgemäß exakt `SELECT` und `UPDATE` auf
+   `broker_providers`. Layer 7 wurde auf genau diese Zwei-Privileg-Allowlist
+   korrigiert und sein Fingerprint neu gebildet.
+3. Danach bestand das Layer-7-Orakel für beide zulässigen Vorgänger
+   (`RLS=false` und Hosted-`RLS=true`): jeweils sechs Skips, genau ein
+   Layer-7-Apply, unveränderte sechs alte Receipts und Datenzählstände,
+   kanonischer Sieben-Marker-Endvertrag und sieben Re-Run-Skips. Ein unbekannter
+   siebter Marker scheiterte im Preflight ohne Layer-7-Teileffekt.
+4. Ein erster Gesamt-Orchestratorlauf bestand sämtliche fachlichen SQL- und
+   Concurrencyphasen, stoppte aber am Testharness, weil ein mit
+   `--network none` gestarteter Datenbankcontainer nicht zusätzlich an das
+   kurzlebige lokale PostgREST-Probenetz gehängt werden kann. Es gab kein
+   Produktfinding. Der vollständige Lauf wurde deshalb in einem nicht
+   veröffentlichten Docker-Bridge-Container wiederholt.
+
+Der abschließende zusammenhängende lokale Nachweis lautet:
+
+- `tests/sql/run-v57.61.0-all-local.ps1`: PASS einschließlich Fresh/Re-Run,
+  beiden Restorepfaden, Activation-/Lane-/Scheduler-/Runtime-Integration,
+  Claim/Page/Failure/Outcome/Replay-/Scheduler-Concurrency, Driftmatrix,
+  internen FK-/Constraint-Triggern, PostgREST-v14-Timeout, Hosted-Supabase-v17
+  und neuem Layer 7;
+- PostgREST-Funktions-Timeout: SQLSTATE `57014` nach `15,03s`;
+- vollständige Vitest-Suite: `23/23` Dateien, `380/380` Tests PASS;
+- TypeScript `tsc --noEmit`: PASS;
+- Release-Check: PASS;
+- optimierter Next.js-15.5.21-Build: PASS;
+- alle lokalen Testcontainer und Wegwerfdatenbanken anschließend entfernt.
+
+Keiner dieser Tests kontaktierte Staging, Production, Vercel, MEXC oder einen
+Broker. Es gab keine Git-Schreibaktion.
+
+### 28.4 Lokaler Freeze- und Gatezustand
+
+Dieser Abschnitt supersediert für den aktuellen technischen Kandidaten nur
+ältere Aussagen, nach denen sechs Marker der vollständige Endvertrag seien.
+Die historische Staging-Evidenz eines damals findingfreien Sechs-Layer-
+Postflights bleibt als Zeitstand korrekt. Ein späterer verbundener Lauf muss
+den neuen Preflight verwenden und den aktuellen Zielzustand erneut binden.
+
+Das Releasepaket wurde nach der vollständigen Regression allowlistbasiert neu
+gebildet und unabhängig gegen den Workspace geprüft:
+
+- ZIP-SHA-256:
+  `8e3a5c65124582959e4873e6dfb6b33a1050364d8fb14c634bfb2314b1b6eeb6`;
+- Sidecar-SHA-256:
+  `594e1bd78639385b1c4ceffc2bb3f45ca73f2877a99724512c9d47eec05bf32f`;
+- Filelist-SHA-256:
+  `d861370e888c09e0a3eab18846e4613ff320d1e88ed715e3fc0d6d0ce738493a`;
+- `369` ZIP-Einträge und `369` Filelistzeilen;
+- Name-, Unsafe-Path-, Case-Duplikat-, Missing- und Extra-Differenzen jeweils
+  `0`;
+- alle `369` ZIP-Dateien byteidentisch zum Workspace;
+- neuer Layer und neuer Layer-7-Runner jeweils im Paket enthalten.
+
+Nach Re-Packaging und vor finalem Deploymentmanifest sowie unabhängigem
+A3/A4/A5-Review gilt:
+
+```text
+layer7_local_implementation = complete_tests_passed
+layer7_migration_id = equora_v57.61.0_broker_provider_rls_v1
+layer7_fingerprint = d72047ce5e28e1400869a9abdcdad650a4f1b3b11e1e1b7cb07a9b37157eca47
+final_relation_contract = d44f7661d68f9623bd1d3ef79da5af48e0ecee94f25aa3a24b829bc75a3fa8b8
+production_marker_state = six_exact_predecessor
+production_global_postflight = failed_relation_contract_not_retried
+production_counts = trades_1280_connections_1_credentials_1_unchanged
+production_sql = blocked
+production_retry = blocked
+production_restore = blocked
+staging_changes = blocked
+runtime_execution = blocked
+mexc_requests = blocked
+cron = blocked
+vercel_changes = blocked
+future_commit = blocked
+future_push = blocked
+main_push = blocked
+merge = blocked
+deployment = blocked
+layer7_release_delta = independent_review_pass_recorded
+automatic_journal_import = not_implemented_not_authorized
+overall_gate = G1_IN_PROGRESS_NO_GO
+```
+
+### 28.5 Verworfener erster Freeze und lokale Dokumentationsremediation
+
+Der erste neu gepackte Layer-7-Freeze war exakt gebunden an:
+
+- Status-SHA-256
+  `ca3609a575bd9c01fc0646dfa72f56afb5e63e774f506dee99bf81f8b047aaac`;
+- Deploymentmanifest-SHA-256
+  `0af2c933ed9330f1fa5376cc433826aa80e7cf666407501afaf1a7eb98326415`;
+- ZIP-/Sidecar-/Filelist-SHA-256 `ee1e29a3...` / `aa9ba245...` /
+  `d861370e...` bei `369` Dateien.
+
+A3, A4 und A5 lehnten diesen Freeze unabhängig jeweils mit
+`P0=0, P1=0, P2=1, P3=0` ab. Der technische Layer-7-, PostgreSQL-,
+Security-, Manifest- und Paketvertrag war findingfrei; der gemeinsame
+P2-Befund betraf ausschließlich die ausgelieferten aktuellen Evidenzclaims:
+
+- `INSTALL-v57.61.0.md` bezeichnete noch den Sechs-Layer-Re-Run als aktuelle
+  Hosted-Matrix, ohne den Sechs-zu-Sieben-Übergang und Sieben-Skip-Re-Run;
+- `RELEASE-v57.61.0.md` führte die historische Stagingmigration als pauschales
+  `6/6`-Gate, die aktuelle Kandidatenevidenz noch mit `22/22`, `367/367` und
+  Sechs-Layer-Re-Run sowie den bereits abgeschlossenen Paketbau noch im Futur.
+
+Die enge lokale Remediation aktualisiert deshalb nur diese Dokumentationsgrenze:
+
+- INSTALL nennt Fresh-7, Sechs-zu-Sieben-Roll-forward, Sieben-Skip-Re-Run und
+  Unknown-Marker-No-effect-Orakel;
+- RELEASE trennt den historischen Sechs-Layer-Staging-PASS ausdrücklich vom
+  wieder geöffneten verbundenen Layer-7-Gate;
+- RELEASE nennt als aktuelle Kandidatenevidenz `23/23`, `380/380`, die
+  vollständige Layer-7-SQL-Matrix und den `369`-Dateien-Paketstand;
+- der frühere nanoid-Paket-Futursatz ist ausdrücklich als historischer
+  Zwischenstand gekennzeichnet.
+
+Es gab für diese Remediation keine Produkt-, SQL-, Test-, Lockfile- oder
+Konfigurationsänderung und keine verbundene Aktion. Releasepaket und Sidecar
+wurden wegen der beiden geänderten Paketdokumente neu gebildet; die Filelist
+bleibt bei denselben `369` Pfaden. Die aktuellen Hashes stehen in Abschnitt
+28.4. Statushash und Deploymentmanifest werden auf diese Bytes gebunden. Erst
+der danach erneut vollständig und unabhängig geprüfte Freeze kann findingfrei
+sein.
+
+Der neue lokale Patch autorisiert keine verbundene Aktion. Der findingfreie,
+hashgebundene A3/A4/A5-Review des neu gepackten Freezes ist inzwischen
+abgeschlossen; eine nächste verbundene Aktion benötigt weiterhin eine eigene,
+konkret abgegrenzte Freigabe.
+
+### 28.6 Findingfreier unabhängiger Schlussreview
+
+Der korrigierte technische Freeze war exakt gebunden an:
+
+- Status-SHA-256
+  `15df1bface3caea3782cbb6a41cb07df4094e7ab909cea1b03a1a4d7384f0314`;
+- Deploymentmanifest-SHA-256
+  `c683ad3fc5f3fafedc6e5ff934ee692d9590cb2b2419232d6216a4d3f921dcf8`;
+- ZIP-SHA-256
+  `8e3a5c65124582959e4873e6dfb6b33a1050364d8fb14c634bfb2314b1b6eeb6`;
+- Sidecar-SHA-256
+  `594e1bd78639385b1c4ceffc2bb3f45ca73f2877a99724512c9d47eec05bf32f`;
+- Filelist-SHA-256
+  `d861370e888c09e0a3eab18846e4613ff320d1e88ed715e3fc0d6d0ce738493a`;
+- `96/96` Manifestartefakte, `369/369` Paketdateien sowie exakt `21`
+  ungestagte und `0` gestagte Scopepfade.
+
+Die tatsächlichen unabhängigen Schlussvoten lauten:
+
+- A3 QA/Release: `PASS`, `P0=0, P1=0, P2=0, P3=0`;
+- A4 Security/Authority/PostgreSQL: `PASS`,
+  `P0=0, P1=0, P2=0, P3=0`;
+- A5 Daten-/Artefaktintegrität: `PASS`,
+  `P0=0, P1=0, P2=0, P3=0`.
+
+Alle drei Reviews bestätigten die geschlossene 0-/6-/7-Marker-Zustandsmaschine,
+den exakten Layer-7-RLS-/ACL-/Owner-/Policy-/Lockvertrag, die Byteidentität der
+sechs Vorgängerschichten, die sieben normalisierten Fingerprints, die aktuelle
+INSTALL-/RELEASE-Historisierung sowie Manifest- und Paketparität. Initial- und
+Schlussrehash waren je Reviewer identisch. Die Reviewer führten selbst keine
+Runner, Datei-, Git-, Netzwerk-, Datenbank-, Vercel-, Supabase-, MEXC-, Cron-
+oder Produktionsaktion aus.
+
+Dieses anschließende Status-/Manifestdelta protokolliert ausschließlich die
+tatsächlichen Voten. Produkt-, SQL-, Test-, Lockfile-, Paket-, Sidecar- und
+Filelistbytes bleiben gegenüber dem findingfreien technischen Freeze
+unverändert. Production besitzt weiterhin nur den exakten Sechs-Marker-
+Vorgänger und den nicht wiederholten globalen Relation-Postflight-FAIL.
+Insbesondere Production-SQL, Retry, Restore, Staging, Runtime, MEXC, Cron,
+Vercel, Commit, Push, Main, Merge und Deployment bleiben ohne neue konkrete
+Freigabe gesperrt; `overall_gate = G1_IN_PROGRESS_NO_GO` bleibt unverändert.

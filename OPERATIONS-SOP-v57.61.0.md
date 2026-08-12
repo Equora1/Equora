@@ -77,12 +77,16 @@ Nach einem SQL-Fehler zuerst den konkreten Fehler und alle vorhandenen Einträge
 in `equora_private.schema_migrations` prüfen. Ein Teilstand mit ein bis fünf
 v57.61.0-Markern darf nicht fortgesetzt werden: Er verlangt Restore der zuvor
 geprüften v57.60.1-Baseline und einen vollständigen Neulauf. Nur bei bereits
-vollständigen sechs exakten Markern darf der unveränderte Treiber erneut laufen
-und alle Layer überspringen. Marker niemals manuell umschreiben.
+dem exakt fingerprintgenauen Sechs-Marker-Vorgänger oder bei sieben exakten
+Markern darf der unveränderte Treiber erneut laufen. Beim Vorgänger werden die
+sechs bestehenden Layer übersprungen und ausschließlich Layer 7 angewendet;
+beim Endstand werden alle sieben Layer übersprungen. Marker niemals manuell
+umschreiben.
 
 Der Wiederanlauf muss erneut als eine `psql`-Sitzung mit
 `preflight -> deploy -> postflight` erfolgen. Der Preflight akzeptiert nur null
-v57.61.0-Marker auf exakter Baseline oder den vollständigen Sechs-Marker-Satz;
+v57.61.0-Marker auf exakter Baseline, den exakten Sechs-Marker-Vorgänger oder
+den vollständigen Sieben-Marker-Satz;
 der Postflight revalidiert den
 vollständigen semantischen Spalten-/Constraint-/Index-/RLS-/ACL-/Funktionsvertrag
 auch für übersprungene Layer und erzwingt unveränderte Journal-Tradeanzahl.
@@ -248,3 +252,29 @@ ausschließlich ein separat freizugebendes Vercel-Preview gegen `Equora Staging`
 mit Runtime `off` und ohne Cron vorgesehen. Produktion, MEXC-Requests,
 automatische Runtime, Vercel, Git-Push, Merge und Deployment bleiben bis zu
 ihren jeweiligen ausdrücklichen Freigaben gesperrt.
+
+## Forward-only Layer-7-Betriebsgrenze
+
+Ein exakt fingerprintgenauer Sechs-Marker-Stand ist seit dem belegten
+Production-Postflight-Befund kein vollständiger Endstand mehr, sondern genau
+ein zulässiger Vorgänger für Layer 7. Der Operator darf in diesem Zustand nur
+die unveränderte Same-Session-Folge
+`preflight -> deploy -> postflight` verwenden. Der Preflight revalidiert zuerst
+alle übrigen globalen Hashes und akzeptiert beim Relation-Hash ausschließlich
+den früheren kanonischen Wert oder den bereits aktivierten Hosted-RLS-Wert.
+Danach skippt der Treiber Layer 1 bis 6 und wendet nur die
+Broker-Provider-RLS-Normalisierung an. Der Postflight verlangt anschließend
+exakt sieben Marker und ausschließlich den neuen Relation-Hash.
+
+Bei einem Fehler gilt weiterhin: sofort stoppen, keinen Marker ändern, keinen
+automatischen Retry und keinen Restore ohne neue Freigabe. Ein beliebiger
+Sechs-Marker- oder unbekannter Sieben-Marker-Zustand ist nicht zulässig. Der
+Layer verändert keine Datenzählstände; Abweichungen bei Journal-Trades,
+Connections, Credentials, Providerzeilen, alten Marker-Receipts, ACLs oder
+Policies sind ein hartes NO-GO.
+
+Zum Zeitpunkt dieses Paketfreezes ist Layer 7 ausschließlich lokal validiert.
+Production besitzt die sechs ursprünglichen exakten Marker, während der
+globale Postflight am ausschließlich abweichenden Relation-Security-Vertrag
+stoppte. Es wurde kein weiterer Production-SQL-Lauf ausgeführt. Production,
+Staging, Merge, Vercel, Runtime, Cron und MEXC bleiben getrennte Freigaben.

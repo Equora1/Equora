@@ -413,11 +413,13 @@ select to_regclass('equora_private.schema_migrations') is not null
 \gset
 \set v5761_marker_present false
 \set v5761_marker_partial false
+\set v5761_marker_predecessor false
 \set v5761_marker_complete false
 \if :migration_table_present
   select count(*) > 0 as v5761_marker_present,
     count(*) between 1 and 5 as v5761_marker_partial,
-    count(*) = 6 as v5761_marker_complete
+    count(*) = 6 as v5761_marker_predecessor,
+    count(*) = 7 as v5761_marker_complete
   from equora_private.schema_migrations
   where migration_id like 'equora_v57.61.0%'
   \gset
@@ -441,7 +443,9 @@ select to_regclass('equora_private.schema_migrations') is not null
     (5, 'equora_v57.61.0_g1_scheduler_control_v2',
       '87158546782b900817d3f36501a2e43b5619906a2f07636d0cb1167b042e5ab7'),
     (6, 'equora_v57.61.0_g1_runtime_deployment_v1',
-      '892f1587e8e37937a538dad1239ec931d43bd1f65d2f224d56ab7b9356f89e96')
+      '892f1587e8e37937a538dad1239ec931d43bd1f65d2f224d56ab7b9356f89e96'),
+    (7, 'equora_v57.61.0_broker_provider_rls_v1',
+      'd72047ce5e28e1400869a9abdcdad650a4f1b3b11e1e1b7cb07a9b37157eca47')
   ), present as (
     select expected.ordinal, expected.migration_id,
       actual.contract_fingerprint = expected.contract_fingerprint as exact
@@ -450,10 +454,15 @@ select to_regclass('equora_private.schema_migrations') is not null
       on actual.migration_id = expected.migration_id
   )
   select (
-    :'v5761_marker_complete'::boolean
+    (:'v5761_marker_predecessor'::boolean or :'v5761_marker_complete'::boolean)
     and
     not exists (select 1 from present where exact is distinct from true)
-    and (select count(*) from present) = 6
+    and (select count(*) from present) =
+      case when :'v5761_marker_predecessor'::boolean then 6 else 7 end
+    and (
+      :'v5761_marker_complete'::boolean
+      or not exists (select 1 from present where ordinal = 7)
+    )
     and not exists (
       select 1 from equora_private.schema_migrations actual
       where actual.migration_id like 'equora_v57.61.0%'
@@ -464,8 +473,10 @@ select to_regclass('equora_private.schema_migrations') is not null
   ) as migration_state_resumable
   \gset
   \if :migration_state_resumable
-    -- A full exact marker set is not current-state evidence. Revalidate the
-    -- complete semantic contract before the driver is allowed to skip layers.
+    -- Exact markers are not current-state evidence. Revalidate the complete
+    -- semantic contract before the driver may skip layers. The verifier admits
+    -- the former relation hash only for the exact six-marker predecessor; the
+    -- seven-marker state is bound exclusively to the canonical RLS=true hash.
     \ir verify-v57.61.0-contract.sql
   \endif
 \else
@@ -482,7 +493,7 @@ select to_regclass('equora_private.schema_migrations') is not null
 \endif
 \if :migration_state_resumable
 \else
-  \echo 'NO-GO: v57.61.0-Marker sind unbekannt, driftend oder kein vollständiger Sechs-Marker-Satz.'
+  \echo 'NO-GO: v57.61.0-Marker sind unbekannt, driftend oder weder der exakte Sechs-Marker-Vorgänger noch der vollständige Sieben-Marker-Satz.'
   do $fail$ begin raise exception 'PREFLIGHT_MIGRATION_STATE_INVALID'; end $fail$;
 \endif
 
@@ -537,7 +548,7 @@ select count(*)::bigint as equora_baseline_trade_count,
 from public.trades
 \gset
 
-\echo 'Preflight PASS: PostgreSQL 16+, Baseline oder vollständiger Markerstand, Executor und Credential-ACL sind geschlossen.'
+\echo 'Preflight PASS: PostgreSQL 16+, Baseline, exakter Sechs-Marker-Vorgänger oder vollständiger Sieben-Marker-Stand, Executor und Credential-ACL sind geschlossen.'
 \echo 'Trade-Baseline: ' :equora_baseline_trade_count
 
 commit;

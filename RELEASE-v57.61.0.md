@@ -29,13 +29,16 @@ implementiert.
 - Vercel-Endpoint mit Bearer-Secret, `no-store`, Default-off-Runtime und
   300-Sekunden-Funktionsgrenze; der Capturezyklus beendet Broker-Egress bereits
   nach spätestens 210 Sekunden und reserviert Zeit für Persistenz/Lease-Cleanup;
-- psql-Preflight, geordneter Sechs-Migrations-Treiber, Postflight, Betriebs-SOP
+- psql-Preflight, geordneter Sieben-Migrations-Treiber, Postflight, Betriebs-SOP
   und inaktives Vercel-Cronbeispiel. Der Preflight akzeptiert ausschließlich
-  eine markerfreie exakte v57.60.1-Baseline oder bereits alle sechs exakten
-  v57.61.0-Marker; ein Teilstand mit ein bis fünf Markern verlangt Restore.
+  eine markerfreie exakte v57.60.1-Baseline, den exakten Sechs-Marker-
+  Vorgänger oder alle sieben exakten v57.61.0-Marker; ein Teilstand mit ein bis
+  fünf Markern verlangt Restore.
   Preflight-, Fingerprint- oder ACL-Drift endet mit Nichtnull-Prozessstatus,
   und der globale Postflight revalidiert auch bei vollständigem Marker-Skip
-  alle sechs Layer. Vor jeder DDL werden PostgreSQL 16+, der exakte
+  alle sieben Layer. Der Sechs-Marker-Vorgänger darf ausschließlich durch den
+  forward-only Broker-Provider-RLS-Layer konvergieren. Vor jeder DDL werden
+  PostgreSQL 16+, der exakte
   `postgres`-/Superuser-Executorvertrag sowie fremde oder grantable Default-
   ACLs fail-closed geprüft. `PUBLIC` bleibt nur als nicht-grantable
   Funktions-`EXECUTE`-Default zulässig; Tabellenrechte für `PUBLIC` werden vor
@@ -69,7 +72,10 @@ implementiert.
    Freeze; der aktuelle Atteststatus steht ausschließlich im G1-Statusdokument;
 4. Backup- und Restore-Nachweis in separatem Supabase-Stagingprojekt
    (PASS für den verifizierten v57.60.1-Restore);
-5. kontrollierte Stagingmigration (PASS: 6/6 Marker und globaler Postflight);
+5. historische kontrollierte Stagingmigration der Sechs-Layer-Fassung (PASS:
+   6/6 Marker und damaliger globaler Postflight); dieses Ergebnis ist nur
+   Vorgängerevidenz. Das verbundene Layer-7-Gate des aktuellen Kandidaten ist
+   erneut offen und benötigt eine eigene Freigabe sowie 7/7-Postflight;
    die davon getrennten Vercel-/App-RLS-/RPC-/Secret-Canaries stehen noch aus;
 6. ausdrücklich freigegebener echter MEXC-Read-only-Probe;
 7. separates Go für Capture-Cron und erst später ein eigenes Importgate.
@@ -77,16 +83,18 @@ implementiert.
 ## Lokale Kandidatenevidenz
 
 - TypeScript-Typecheck PASS;
-- vollständige Vitest-Suite: 22/22 Dateien und 367/367 Tests PASS;
+- vollständige Vitest-Suite: 23/23 Dateien und 380/380 Tests PASS;
 - optimierter Next.js-15.5.21-Produktionsbuild PASS;
 - kein separater ESLint-Nachweis: das bestehende `next lint`-Script startet
   mangels gepinnter ESLint-Konfiguration nur den interaktiven, veralteten
   Next.js-Setupdialog und ist ausdrücklich kein Bestandteil dieses Gates;
-- vollständige lokale SQL-Matrix PASS: Fresh Apply, exakter Sechs-Layer-Re-run,
-  Activation/Lane/Claim/Page/Failure/Outcome, Race- und Lockorakel, Scheduler,
-  Runtime, Baseline-/Marker-/ACL-/GUC-/Constraint-/Indexdrift, internes
-  FK-Triggerdriftorakel sowie echter PostgREST-v14.15-Timeout nach 15,01
-  Sekunden;
+- vollständige lokale SQL-Matrix PASS: Fresh Apply aller sieben Layer,
+  exakter Sechs-zu-Sieben-Roll-forward für `RLS=false` und Hosted-`RLS=true`,
+  Sieben-Layer-Re-run mit sieben Skips, unbekannter Sieben-Marker-No-effect-
+  Fall, Activation/Lane/Claim/Page/Failure/Outcome, Race- und Lockorakel,
+  Scheduler, Runtime, Baseline-/Marker-/ACL-/GUC-/Constraint-/Indexdrift,
+  internes FK-Triggerdriftorakel sowie echter PostgREST-v14.15-Timeout nach
+  15,03 Sekunden;
 - isolierte Hosted-PG17-Matrix PASS: non-super `postgres`, getrennte
   `supabase_admin`-/`supabase_auth_admin`-Owner, normale nicht-grantable
   Plattformrechte, privater UID-Adapter, exakter Re-Run und sieben
@@ -298,8 +306,48 @@ Lokale Regressionsevidenz des technischen Zwei-Dateien-Deltas:
 - Release-Check PASS;
 - optimierter Next.js-15.5.21-Produktionsbuild PASS.
 
-Das Releasepaket und das Deploymentmanifest werden für dieses Delta neu
-gebildet und unabhängig geprüft. Bis zu einem findingfreien A3-/A4-/A5-Votum
-bleiben Commit, Push, Merge, weiteres Preview, Vercel Production, Supabase,
-Produktions-SQL, Runtime, Cron, Broker-/MEXC-Zugriff und Journalimport
-gesperrt. Die lokale Security-Remediation ist keine externe Freigabe.
+Dieser Absatz beschreibt den damaligen nanoid-Zwischenstand: Releasepaket und
+Deploymentmanifest waren für jenes Delta noch neu zu bilden und unabhängig zu
+prüfen. Die danach gebildete Paketgrenze wird durch die folgende Layer-7-
+Korrektur erneut supersediert. Eine lokale Security-Remediation ist niemals
+eine externe Freigabe.
+
+## Forward-only Layer-7-Releasekorrektur
+
+Die Production-Erstausführung setzte alle sechs ursprünglichen Marker exakt,
+ließ die drei Baselinezählstände unverändert und stoppte ausschließlich im
+globalen Relation-Security-Postflight. Die anschließende einmalig freigegebene
+read-only Diagnose belegte `public.broker_providers` als einzige Abweichung:
+Hosted Production führte die Relation bereits mit `RLS=true`, der bisherige
+lokale Endvertrag erwartete `RLS=false`.
+
+Der Releasekandidat ergänzt deshalb einen siebten, forward-only Layer. Er
+aktiviert RLS idempotent auf genau dieser Tabelle, erhält die exakte bestehende
+Owner-/ACL-/Policy-Grenze und fügt erst danach ein neues immutable Receipt ein.
+Der globale Verifier akzeptiert den alten Relation-Hash ausschließlich im
+exakten Sechs-Marker-Vorgänger; mit Layer-7-Marker gilt allein der neue
+Relation-Hash
+`d44f7661d68f9623bd1d3ef79da5af48e0ecee94f25aa3a24b829bc75a3fa8b8`.
+
+Die sechs früheren Migrationsartefakte und ihre Fingerprints bleiben
+byteidentisch. Der neue Layer-Fingerprint lautet
+`d72047ce5e28e1400869a9abdcdad650a4f1b3b11e1e1b7cb07a9b37157eca47`.
+
+Diese Sektion und die aktuelle „Lokale Kandidatenevidenz“ supersedieren für
+den Layer-7-Kandidaten alle früheren Testzahlen und Aussagen, nach denen sechs
+Marker den vollständigen Endvertrag bildeten. Tatsächlich bestätigt sind:
+
+- vollständiger lokaler SQL-Orchestrator einschließlich Fresh-7,
+  Sechs-zu-Sieben-Roll-forward, Sieben-Skip-Re-run und Unknown-Marker-
+  No-effect-Orakel PASS;
+- Vitest `23/23` Dateien und `380/380` Tests PASS;
+- TypeScript-Typecheck, Release-Check und optimierter
+  Next.js-15.5.21-Produktionsbuild PASS;
+- allowlistbasiertes Releasepaket mit `369` kanonischen, bytegenau gegen den
+  Workspace geprüften Dateien; autoritative Paket- und Freezehashes stehen nur
+  im externen Sidecar, Deploymentmanifest und G1-Status.
+
+Der Patch bleibt trotz dieser lokalen Evidenz rein lokal. Production bleibt
+bei sechs Markern und globalem Postflight-FAIL; das aktuelle verbundene
+Layer-7-Gate ist nicht ausgeführt. Kein Retry, Production-SQL, Restore, Merge,
+Deployment, Cron, Runtime- oder MEXC-Schritt ist dadurch freigegeben.

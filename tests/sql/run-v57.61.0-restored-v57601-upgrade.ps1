@@ -29,7 +29,8 @@ $deploymentPaths = @(
   'schema-patch-v57.61.0-g1-lane-authority.sql',
   'schema-patch-v57.61.0-g1-activation-authority.sql',
   'schema-patch-v57.61.0-g1-scheduler-control.sql',
-  'schema-patch-v57.61.0-g1-runtime-deployment.sql'
+  'schema-patch-v57.61.0-g1-runtime-deployment.sql',
+  'schema-patch-v57.61.0-g1-broker-provider-rls.sql'
 )
 
 function Read-Utf8File {
@@ -484,7 +485,7 @@ select concat_ws('|',
   (select count(*) from equora_private.schema_migrations)
 );
 '@ -Phase 'Restored-upgrade normalization proof').Text.Trim()
-  $expectedNormalization = '0|7|0|t|1|4|t|f|6'
+  $expectedNormalization = '0|7|0|t|1|4|t|f|7'
   if ($normalized -ne $expectedNormalization) {
     throw "Restored-upgrade normalization drift: $normalized"
   }
@@ -493,8 +494,8 @@ select concat_ws('|',
   $rerun = Invoke-SqlText -Database $TestDatabase -Sql $fullSession `
     -Phase 'Restored v57.61.0 exact re-run'
   if ($rerun.Text -notmatch 'POSTFLIGHT PASS' -or
-      ([regex]::Matches($rerun.Text, 'already exact; skip')).Count -ne 6) {
-    throw 'Restored exact re-run did not prove six skips and POSTFLIGHT PASS.'
+      ([regex]::Matches($rerun.Text, 'already exact; skip')).Count -ne 7) {
+    throw 'Restored exact re-run did not prove seven skips and POSTFLIGHT PASS.'
   }
   $markerDigestAfter = Get-MarkerDigest -Database $TestDatabase
   if ($markerDigestAfter -ne $markerDigestBefore) {

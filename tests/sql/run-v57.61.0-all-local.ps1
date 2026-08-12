@@ -164,6 +164,10 @@ try {
     & (Join-Path $PSScriptRoot 'run-v57.61.0-deployment-drift.ps1') `
       -ContainerName $ContainerName
   }
+  Invoke-Runner -Name 'forward-only-layer-7' -Action {
+    & (Join-Path $PSScriptRoot 'run-v57.61.0-layer7-forward.ps1') `
+      -ContainerName $ContainerName
+  }
   Invoke-Runner -Name 'internal-constraint-trigger-drift' -Action {
     & (Join-Path $PSScriptRoot 'run-v57.61.0-constraint-trigger-drift.ps1')
   }
