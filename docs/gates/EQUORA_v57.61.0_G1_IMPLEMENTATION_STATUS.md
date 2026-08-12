@@ -4034,3 +4034,196 @@ Vorgänger und den nicht wiederholten globalen Relation-Postflight-FAIL.
 Insbesondere Production-SQL, Retry, Restore, Staging, Runtime, MEXC, Cron,
 Vercel, Commit, Push, Main, Merge und Deployment bleiben ohne neue konkrete
 Freigabe gesperrt; `overall_gate = G1_IN_PROGRESS_NO_GO` bleibt unverändert.
+
+## 29. Production-Roll-forward auf den exakten Sieben-Marker-Endstand
+
+### 29.1 Geltungs- und Supersessiongrenze
+
+`FAKT – Production-Ausführung am 2026-08-12, Europe/Berlin; anschließend nur
+lokale Evidenzkonsolidierung`
+
+Dieser Abschnitt ist für den aktuellen Production-Datenbankzustand maßgeblich.
+Er supersediert ausschließlich frühere zeitgebundene Aussagen in den
+Abschnitten 1 bis 28, nach denen Production noch den exakten Sechs-Marker-
+Vorgänger besitze oder der globale Relation-Postflight weiterhin nicht
+wiederholt beziehungsweise fehlgeschlagen sei. Die damaligen Aussagen bleiben
+als historische Zwischenstände korrekt. Nicht supersediert werden die
+Sperren für Runtime, MEXC, Cron, Vercel, Commit, Push, `main`, Merge,
+App-Deployment und automatischen Journalimport.
+
+### 29.2 Erster genehmigter Versuch und unmittelbarer Stopp
+
+Der erste ausdrücklich genehmigte Production-SQL-Versuch ist nicht als Apply
+zu werten. Der lokale PowerShell-Wrapper verwendete
+`ErrorActionPreference=Stop` und behandelte den erwarteten PostgreSQL-`NOTICE`
+des read-only globalen Verifiers fälschlich als terminierenden
+`NativeCommandError`. Der Verifier hatte zu diesem Zeitpunkt alle acht
+kanonischen Contract-Hashes ausgegeben; ein SQL-Contractfehler war nicht
+festgestellt.
+
+Der Wrapper stoppte ohne bestätigtes `Preflight PASS`, ohne bestätigten
+Layer-7-Apply und ohne bestätigten Postflight. Es wurde kein automatischer
+Retry und kein Restore ausgeführt. Eine anschließend separat genehmigte,
+vollständig read-only Production-Zustandsprüfung belegte danach eindeutig:
+
+- Datenbank `postgres`, Executor `postgres`, PostgreSQL `17.6`;
+- exakt sechs bekannte Marker mit sechs exakten Fingerprints;
+- null unbekannte Marker und kein Layer-7-Marker;
+- unveränderte Counts `1280/1/1/1/2/93` für Journal-Trades, Broker
+  Connections, Broker Credentials, Broker Providers, Broker Sync Runs und
+  Broker Raw Events;
+- unveränderten Digest der sechs alten Marker-Receipts
+  `cc21daa87cba4695c1010b24acc8b9aa`;
+- `public.broker_providers` mit Owner `postgres`, `RLS=true`,
+  `FORCE RLS=false`, null Policies und exakt nicht-grantable `SELECT` und
+  `UPDATE` für `equora_broker_capture_owner` als einzigen Nicht-Owner-ACLs.
+
+Damit ist belegt, dass der abgebrochene Wrapperlauf keinen Layer-7-Teileffekt
+hinterließ. Die Zustandsprüfung lief in genau einer Verbindung mit
+`default_transaction_read_only=on` und expliziter Read-only-Transaktion; sie
+führte weder Migration, Repair, Retry noch Restore aus.
+
+### 29.3 Neu freigegebener Same-Session-Production-Roll-forward
+
+Nach dieser read-only Klärung genehmigte der Nutzer genau einen neuen
+Production-SQL-Versuch gegen den belegten Sechs-Marker-Vorgänger. Gebunden
+waren:
+
+- Supabase-Ziel `Equora Production`;
+- Project Ref `rrkfdprhqilvicjbgfcn`;
+- Session Pooler auf Port `5432` mit SSL;
+- Branch `feature/mexc-import-v57.61.0`;
+- veröffentlichter Commit
+  `10d3c441753c82ac7d468b0247cfda69885b96b6`;
+- sauberer Worktree und identischer Upstream;
+- die manifestgebundenen SHA-256-Werte von Preflight, Treiber, Layer 7 und
+  Postflight;
+- der unmittelbar zuvor erneut bestätigte Sechs-Marker-Zustand, die Counts
+  `1280/1/1/1/2/93`, der alte Receipt-Digest und der exakte
+  `broker_providers`-Sicherheitsvertrag.
+
+Der korrigierte Wrapper startete genau einen `psql`-Prozess und trennte
+PostgreSQL-`NOTICE`-Ausgaben vom tatsächlichen Prozess-Exitcode. Die gesamte
+Folge lief in derselben Datenbanksitzung:
+
+1. read-only Production-Ziel- und Ausgangszustandsbindung: PASS;
+2. normaler `supabase/preflight-v57.61.0.sql`: PASS;
+3. `supabase/deploy-v57.61.0.sql`: exakt sechs `already exact; skip`;
+4. ausschließlich
+   `supabase/schema-patch-v57.61.0-g1-broker-provider-rls.sql`: angewendet;
+5. `supabase/postflight-v57.61.0.sql`: PASS;
+6. zusätzliche read-only Nachkontrollen: PASS.
+
+Der Prozess endete mit Exitcode `0`. Der globale Contract-Verifier wurde genau
+zweimal ausgeführt, vor und nach Layer 7; beide Auswertungen bestätigten die
+acht kanonischen Hashes. Es gab keinen weiteren Retry und keinen Restore.
+
+### 29.4 Verifizierter aktueller Production-Datenbankzustand
+
+Der aktuelle Production-Endstand lautet:
+
+- exakt sieben bekannte v57.61.0-Marker;
+- sieben exakte Fingerprints und null unbekannte Marker;
+- neuer Marker
+  `equora_v57.61.0_broker_provider_rls_v1` mit Fingerprint
+  `d72047ce5e28e1400869a9abdcdad650a4f1b3b11e1e1b7cb07a9b37157eca47`;
+- Layer-7-`applied_at` `2026-08-12T07:55:58.293031+00:00`, entsprechend
+  `2026-08-12 09:55:58.293031 CEST`;
+- globaler Postflight PASS;
+- die sechs früheren Marker-Receipts byte-/digestgebunden unverändert;
+- alter Receipt-Digest weiterhin `cc21daa87cba4695c1010b24acc8b9aa`;
+- Journal-Trades `1280`, Broker Connections `1`, Broker Credentials `1`,
+  Broker Providers `1`, Broker Sync Runs `2` und Broker Raw Events `93`, jeweils
+  vor und nach Layer 7 unverändert;
+- `public.broker_providers`: Owner `postgres`, `RLS=true`,
+  `FORCE RLS=false`, null Policies und exakte Zwei-Privileg-ACL für die
+  NOLOGIN-Authority;
+- keine Daten-, Policy-, ACL-, Funktions-, Constraint-, Index-, Runtime- oder
+  Brokerwirkung außer dem neuen, fingerprintgebundenen Layer-7-Receipt;
+- keine laufenden lokalen `psql`-Prozesse nach Abschluss.
+
+### 29.5 Lokaler Evidenzfreeze und verbleibende Gates
+
+Dieses Delta ändert ausschließlich dieses G1-Statusdokument und anschließend
+genau dessen Hashzeile im Deploymentmanifest. Produkt-, SQL-, Test-, Lockfile-,
+Konfigurations-, Release-ZIP-, Sidecar- und Filelistbytes bleiben gegenüber
+Commit `10d3c441753c82ac7d468b0247cfda69885b96b6` unverändert. Für den zum
+unabhängigen A3/A4/A5-Review eingefrorenen technischen Evidenzstand gilt:
+
+```text
+production_target = Equora_Production_rrkfdprhqilvicjbgfcn
+production_marker_state = seven_exact_complete
+production_marker_count = 7
+production_unknown_marker_count = 0
+production_layer7_migration_id = equora_v57.61.0_broker_provider_rls_v1
+production_layer7_fingerprint = d72047ce5e28e1400869a9abdcdad650a4f1b3b11e1e1b7cb07a9b37157eca47
+production_layer7_applied_at_utc = 2026-08-12T07:55:58.293031+00:00
+production_preflight = pass
+production_layer1_to_6 = six_exact_skips
+production_layer7 = applied
+production_global_postflight = pass
+production_readonly_postchecks = pass
+production_old_receipts_digest = cc21daa87cba4695c1010b24acc8b9aa
+production_old_receipts_unchanged = true
+production_counts = trades_1280_connections_1_credentials_1_providers_1_sync_runs_2_raw_events_93_unchanged
+production_broker_providers_contract = owner_postgres_rls_true_force_false_policies_0_acl_exact
+production_retry_after_successful_run = 0
+production_restore = 0
+production_runtime_execution = blocked
+production_mexc_requests = blocked
+production_cron = blocked
+production_vercel_changes = blocked
+future_commit = blocked
+future_push = blocked
+main_push = blocked
+merge = blocked
+deployment = blocked
+production_layer7_evidence_delta = independent_review_pass_recorded
+automatic_journal_import = not_implemented_not_authorized
+overall_gate = G1_IN_PROGRESS_NO_GO
+```
+
+Die findingfreie Datenbankmigration ist kein App-, Runtime- oder
+Import-Deployment. Die allgemeine Nutzerformulierung „Freigabe bis zum Deploy“
+ändert in diesem eng abgegrenzten Schritt nicht die ausdrücklich festgelegte
+Stoppgrenze vor Commit, Push, Merge und Deployment. Der findingfreie,
+hashgebundene A3/A4/A5-Review dieses reinen Status-/Manifestfreezes ist
+inzwischen abgeschlossen und wird in Abschnitt 29.6 protokolliert. Eine
+externe Folgeaktion benötigt weiterhin eine eigene konkrete Freigabe.
+
+### 29.6 Unabhängiges Abschlussvotum für den Production-Layer-7-Evidenzfreeze
+
+Der vollständige, strikt read-only und hashgebundene Review des Freezes
+
+- G1-Status
+  `bbbf50722059cae4d0e4e9154a7b8b92117cd07994ffbcb851d3e11f057c7463`;
+- Deploymentmanifest
+  `5f64b234302b42b39c4df3ee16865369a86312dac74f7e2ea8d0f6ac8a19d710`
+
+ist abgeschlossen. Die tatsächlichen unabhängigen Schlussvoten lauten:
+
+- A3 QA/Release: `PASS`, `P0=0`, `P1=0`, `P2=0`, `P3=0`;
+- A4 Security/Authority/Postgres: `PASS`, `P0=0`, `P1=0`, `P2=0`, `P3=0`;
+- A5 Integrität/Provenienz/Packaging: `PASS`, `P0=0`, `P1=0`, `P2=0`,
+  `P3=0`.
+
+Alle drei Reviews bestätigten bei identischem Initial- und Schlussrehash:
+
+- exakt zwei ungestagte und null gestagte Dokumentationspfade;
+- die bytegenaue Rückrekonstruktion des vorherigen Status-
+  und Manifestfreezes;
+- `96/96` gültige Manifestbindungen ohne Missing, Mismatch oder Duplikate;
+- die unveränderte Pakettrias mit `369` Dateien;
+- die ehrliche Historisierung des ersten fehlgeschlagenen Wrapperlaufs und der
+  separat genehmigten read-only Klärung;
+- den aktuellen Production-Endstand mit `7/7` exakten Markern,
+  Layer-7-Fingerprint, globalem Postflight-PASS, unveränderten sechs
+  Alt-Receipts und Counts `1280/1/1/1/2/93`;
+- die fortbestehenden Sperren für Runtime, MEXC, Cron, Vercel, Commit, Push,
+  `main`, Merge, Deployment und automatischen Journalimport.
+
+Dieses Abschlussdelta konsolidiert ausschließlich die tatsächlichen
+Reviewvoten im Status und aktualisiert dessen eine Hashzeile im
+Deploymentmanifest. Es verändert keine Produkt-, SQL-, Test-, Lockfile-,
+Konfigurations- oder Releasepaketbytes und autorisiert keine externe
+Folgeaktion. `overall_gate = G1_IN_PROGRESS_NO_GO` bleibt unverändert.
