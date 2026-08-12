@@ -10,6 +10,7 @@ import {
 } from '@/lib/utils/calculations'
 import { deriveTradeKillZoneLabel, deriveTradeSessionLabel, getTradeHourInTimezone, resolveTradeOccurredAt } from '@/lib/utils/trade-time'
 import { resolveMonetaryScope, type MonetaryScope } from '@/lib/utils/currency'
+import { MIN_ANALYTICS_BUCKET_SIZE } from '@/lib/utils/statistics-scope'
 
 export type TimeWindowPerformanceRow = {
   key: string
@@ -429,14 +430,14 @@ export function buildTimeWindowPerformance(trades: Trade[]): TimeWindowPerforman
       netPnL: monetaryScope.isComparable ? metrics.netPnL : 0,
       averageR,
       rCount,
-      tone: !monetaryScope.isComparable || windowTrades.length === 0 ? 'neutral' as const : metrics.netPnL > 0 ? 'green' as const : metrics.netPnL < 0 ? 'red' as const : 'neutral' as const,
+      tone: !monetaryScope.isComparable || windowTrades.length < MIN_ANALYTICS_BUCKET_SIZE ? 'neutral' as const : metrics.netPnL > 0 ? 'green' as const : metrics.netPnL < 0 ? 'red' as const : 'neutral' as const,
       currency: monetaryScope.currency,
     }
   })
 
   const coveredTrades = rows.reduce((sum, row) => sum + row.trades, 0)
   const missingTrades = Math.max(0, getTradesWithResolvedPnL(trades).length - coveredTrades)
-  const populatedRows = rows.filter((row) => row.trades > 0)
+  const populatedRows = rows.filter((row) => row.trades >= MIN_ANALYTICS_BUCKET_SIZE)
   const bestWindow = monetaryScope.isComparable && populatedRows.length ? [...populatedRows].sort((a, b) => b.netPnL - a.netPnL || b.winRate - a.winRate)[0] : null
   const weakestWindow = monetaryScope.isComparable && populatedRows.length ? [...populatedRows].sort((a, b) => a.netPnL - b.netPnL || a.winRate - b.winRate)[0] : null
 
@@ -466,12 +467,12 @@ function buildLabelPerformance(trades: Trade[], labels: string[], getLabel: (tra
       netPnL: monetaryScope.isComparable ? metrics.netPnL : 0,
       averageR,
       rCount,
-      tone: !monetaryScope.isComparable || bucketTrades.length === 0 ? 'neutral' as const : metrics.netPnL > 0 ? 'green' as const : metrics.netPnL < 0 ? 'red' as const : 'neutral' as const,
+      tone: !monetaryScope.isComparable || bucketTrades.length < MIN_ANALYTICS_BUCKET_SIZE ? 'neutral' as const : metrics.netPnL > 0 ? 'green' as const : metrics.netPnL < 0 ? 'red' as const : 'neutral' as const,
       currency: monetaryScope.currency,
     }
   })
 
-  const populatedRows = rows.filter((row) => row.trades > 0)
+  const populatedRows = rows.filter((row) => row.trades >= MIN_ANALYTICS_BUCKET_SIZE)
   const bestRow = monetaryScope.isComparable && populatedRows.length ? [...populatedRows].sort((a, b) => b.netPnL - a.netPnL || b.winRate - a.winRate)[0] : null
   const weakestRow = monetaryScope.isComparable && populatedRows.length ? [...populatedRows].sort((a, b) => a.netPnL - b.netPnL || a.winRate - b.winRate)[0] : null
 

@@ -2,17 +2,20 @@ import { AppIcon } from '@/components/ui/app-icon'
 import { FuturisticCard } from '@/components/ui/futuristic-card'
 import { MexcConnectionPanel } from '@/components/broker-sync/mexc-connection-panel'
 import type { BrokerSyncSnapshot } from '@/lib/server/broker-sync'
-import type { BrokerPreviewItem } from '@/lib/types/broker-sync'
-import type { BrokerSyncRunRow } from '@/lib/types/db'
+import type { BrokerCaptureRunSummary, BrokerPreviewItem } from '@/lib/types/broker-sync'
 
 const workflow = [
   ['1', 'Leseschlüssel anlegen', 'Bei MEXC nur Futures-Leserechte aktivieren. Trading, Transfer und Auszahlung bleiben aus.'],
-  ['2', 'Verbindung prüfen', 'Equora bestätigt den Zugriff, ohne jemals eine Testorder zu senden.'],
+  ['2', 'Lesecapabilities prüfen', 'Equora prüft später nur fest benannte Leseabrufe; eine Testorder ist technisch nicht vorgesehen.'],
   ['3', 'Gefundene Daten ansehen', 'Orders und Ausführungen erscheinen zuerst als übersichtliche Vorschau.'],
   ['4', 'Später bewusst importieren', 'Erst in der nächsten Ausbaustufe entscheidest du, welche Trades ins Journal kommen.'],
 ] as const
 
 export function BrokerSyncHub({ snapshot }: { snapshot: BrokerSyncSnapshot }) {
+  const activeReadOnlyConnection = snapshot.connections.some((connection) =>
+    connection.status === 'ready'
+      && connection.permissions?.includes('read_only_user_attested'),
+  )
   return (
     <div className="space-y-5 xl:space-y-6">
       <FuturisticCard glow="orange" className="p-6 sm:p-7">
@@ -33,10 +36,12 @@ export function BrokerSyncHub({ snapshot }: { snapshot: BrokerSyncSnapshot }) {
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
-            <StatusPill label="v57.60.1" tone="gold" />
+            <StatusPill label="v57.61.0" tone="gold" />
             <StatusPill
-              label={snapshot.connectorReady ? 'MEXC bereit' : 'Einrichtung nötig'}
-              tone={snapshot.connectorReady ? 'quiet' : 'warning'}
+              label={activeReadOnlyConnection
+                ? 'Read-only Verbindung aktiv'
+                : snapshot.connectorReady ? 'Server vorbereitet' : 'Runtime aus'}
+              tone={activeReadOnlyConnection || snapshot.connectorReady ? 'quiet' : 'warning'}
             />
           </div>
         </div>
@@ -52,9 +57,13 @@ export function BrokerSyncHub({ snapshot }: { snapshot: BrokerSyncSnapshot }) {
         <FuturisticCard className="p-6">
           <SectionHeading eyebrow="Sicherheitsgrenze" title="Equora darf lesen, sonst nichts" />
           <div className="mt-5 grid gap-3 sm:grid-cols-3">
-            <PermissionCard title="Daten lesen" description="Orders, Ausführungen, Gebühren und Ergebnisse abrufen." state="Erlaubt" />
-            <PermissionCard title="Trades ausführen" description="Keine Order öffnen, ändern oder schließen." state="Aus" />
-            <PermissionCard title="Geld bewegen" description="Keine Auszahlung und kein interner Transfer." state="Aus" />
+            <PermissionCard
+              title="Daten lesen"
+              description="Orders, Ausführungen, Gebühren und Ergebnisse abrufen."
+              state={activeReadOnlyConnection ? 'Read-only bestätigt' : 'Nicht freigegeben'}
+            />
+            <PermissionCard title="Trades ausführen" description="Keine Order öffnen, ändern oder schließen." state="Nicht vorhanden" />
+            <PermissionCard title="Geld bewegen" description="Keine Auszahlung und kein interner Transfer." state="Nicht vorhanden" />
           </div>
           <p className="mt-5 rounded-2xl border border-white/8 bg-white/[0.025] p-4 text-sm leading-6 text-white/48">
             API-Schlüssel und Secret werden verschlüsselt in einem eigenen, serverseitigen Zugangsspeicher abgelegt.
@@ -67,7 +76,12 @@ export function BrokerSyncHub({ snapshot }: { snapshot: BrokerSyncSnapshot }) {
           <div className="mt-5 space-y-3">
             <ReadinessRow label="Broker-Bereich" value={snapshot.schemaReady ? 'Bereit' : 'Grundlage fehlt'} />
             <ReadinessRow label="Verschlüsselter Zugang" value={snapshot.secureStoreReady ? 'Bereit' : 'Patches v57.60 + v57.60.1 nötig'} />
-            <ReadinessRow label="MEXC-Verbindung prüfen" value={snapshot.connectorReady ? 'Bereit' : 'Vercel prüfen'} />
+            <ReadinessRow
+              label="Serverseitiger Verbindungscheck"
+              value={snapshot.connectorReady
+                ? 'Umgebung vorbereitet; Rollout wird beim Start geprüft'
+                : 'Runtime/Umgebung prüfen'}
+            />
             <ReadinessRow label="Automatisch ins Journal übernehmen" value="Noch ausgeschaltet" />
           </div>
         </FuturisticCard>
@@ -105,8 +119,9 @@ export function BrokerSyncHub({ snapshot }: { snapshot: BrokerSyncSnapshot }) {
             <div className="rounded-2xl border border-dashed border-white/12 px-6 py-9 text-center">
               <p className="text-sm font-medium text-white">Noch keine Datenvorschau vorhanden.</p>
               <p className="mx-auto mt-2 max-w-xl text-xs leading-5 text-white/40">
-                Sobald eine MEXC-Verbindung erfolgreich geprüft wurde, erscheinen hier die zuletzt gefundenen Orders und
-                Ausführungen. Sie sind noch keine Journal-Trades.
+                Erst nach einem ausdrücklich freigegebenen Capturelauf erscheinen hier die zuletzt erfassten
+                Brokerbeobachtungen. Der GET-only Verbindungsprobe speichert keine Rohdaten; Capture-Daten sind noch keine
+                Journal-Trades.
               </p>
             </div>
           )}
@@ -138,8 +153,8 @@ export function BrokerSyncHub({ snapshot }: { snapshot: BrokerSyncSnapshot }) {
               </div>
             ) : (
               <div className="rounded-2xl border border-white/8 bg-white/[0.02] p-5 text-sm leading-6 text-white/42">
-                Noch keine Verbindung geprüft. Hier erscheint später, wie viele Datensätze gefunden und wie viele bereits
-                bekannt waren.
+                Noch kein Capturelauf vorhanden. Nach einer eigenen Capturefreigabe erscheint hier, wie viele Datensätze
+                beobachtet und wie viele bereits bekannt waren.
               </div>
             )}
           </div>
@@ -167,12 +182,12 @@ function StatusPill({ label, tone }: { label: string; tone: 'gold' | 'quiet' | '
   return <span className={`rounded-full border px-3 py-1.5 text-[10px] uppercase tracking-[0.16em] ${className}`}>{label}</span>
 }
 
-function PermissionCard({ title, description, state }: { title: string; description: string; state: 'Erlaubt' | 'Aus' }) {
+function PermissionCard({ title, description, state }: { title: string; description: string; state: 'Read-only bestätigt' | 'Nicht freigegeben' | 'Nicht vorhanden' }) {
   return (
     <div className="rounded-2xl border border-white/8 bg-white/[0.022] p-4">
       <div className="flex items-center justify-between gap-3">
         <p className="text-sm font-medium text-white">{title}</p>
-        <span className={`text-[10px] uppercase tracking-[0.14em] ${state === 'Erlaubt' ? 'text-[#f0a855]' : 'text-white/35'}`}>{state}</span>
+        <span className={`text-[10px] uppercase tracking-[0.14em] ${state === 'Read-only bestätigt' ? 'text-emerald-300/75' : state === 'Nicht freigegeben' ? 'text-[#f0a855]' : 'text-white/35'}`}>{state}</span>
       </div>
       <p className="mt-3 text-xs leading-5 text-white/42">{description}</p>
     </div>
@@ -218,7 +233,7 @@ function PreviewRow({ item }: { item: BrokerPreviewItem }) {
   )
 }
 
-function RunCard({ run }: { run: BrokerSyncRunRow }) {
+function RunCard({ run }: { run: BrokerCaptureRunSummary }) {
   return (
     <div className="rounded-2xl border border-white/8 bg-white/[0.02] p-4">
       <div className="flex items-center justify-between gap-3">
@@ -226,7 +241,8 @@ function RunCard({ run }: { run: BrokerSyncRunRow }) {
         <span className="text-[10px] uppercase tracking-[0.14em] text-white/35">{formatDate(run.created_at)}</span>
       </div>
       <p className="mt-3 text-xs leading-5 text-white/42">
-        Gefunden {run.fetched_count ?? 0} · bereits bekannt {run.duplicate_count ?? 0} · noch nicht importiert
+        Beobachtet {run.observed_event_count} · neu gespeichert {run.inserted_raw_event_count}
+        {' '}· wiederholt {run.repeated_observation_count} · Fehler {run.failed_request_count}
       </p>
     </div>
   )
@@ -236,7 +252,7 @@ function runStatus(status: string) {
   const labels: Record<string, string> = {
     pending: 'Wartet',
     running: 'Wird geprüft',
-    completed: 'Erfolgreich geprüft',
+    completed: 'Erfassung abgeschlossen',
     partial: 'Teilweise gespeichert',
     failed: 'Prüfung fehlgeschlagen',
     cancelled: 'Abgebrochen',

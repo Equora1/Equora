@@ -17,6 +17,7 @@ export type BrokerPreviewItem = {
 
 export type ConnectMexcInput = {
   accountLabel: string
+  symbols: string
   apiKey: string
   secretKey: string
   readOnlyConfirmed: boolean
@@ -27,4 +28,21 @@ export type BrokerActionResult = {
   message: string
   connectionId?: string
   preview?: BrokerPreviewItem[]
+}
+
+export type BrokerCaptureRunSummary = {
+  id: string
+  user_id: string
+  broker_account_id: string
+  status: string
+  trigger_kind: string
+  lane_id: string
+  started_at: string | null
+  completed_at: string | null
+  observed_event_count: number
+  inserted_raw_event_count: number
+  repeated_observation_count: number
+  failed_request_count: number
+  scope_count: number
+  created_at: string
 }

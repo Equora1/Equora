@@ -3,6 +3,13 @@ import type { Trade } from '@/lib/types/trade'
 const TRADE_TIME_INPUT_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/
 export const DEFAULT_TRADE_TIMEZONE = 'Europe/Berlin'
 
+const TRADE_DATE_KEY_FORMATTER = new Intl.DateTimeFormat('de-DE', {
+  timeZone: DEFAULT_TRADE_TIMEZONE,
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+})
+
 type TradeTimeWindow = {
   key: string
   label: string
@@ -60,6 +67,20 @@ export function resolveTradeOccurredAt(trade: Pick<Trade, 'tradeOccurredAt' | 'c
 
 export function resolveTradeOccurredAtFromRow(row: { captured_at?: string | null; created_at?: string | null }) {
   return row.captured_at ?? row.created_at ?? new Date().toISOString()
+}
+
+export function getTradeDateKey(value?: string | null) {
+  if (!value) return null
+
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return null
+
+  const parts = TRADE_DATE_KEY_FORMATTER.formatToParts(date)
+  const year = parts.find((part) => part.type === 'year')?.value
+  const month = parts.find((part) => part.type === 'month')?.value
+  const day = parts.find((part) => part.type === 'day')?.value
+
+  return year && month && day ? `${year}-${month}-${day}` : null
 }
 
 export function getTradeHourInTimezone(value?: string | null, timeZone = DEFAULT_TRADE_TIMEZONE) {

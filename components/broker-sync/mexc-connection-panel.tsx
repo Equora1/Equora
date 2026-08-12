@@ -26,6 +26,7 @@ export function MexcConnectionPanel({
   const router = useRouter()
   const [isPending, startTransition] = useTransition()
   const [accountLabel, setAccountLabel] = useState('MEXC Futures')
+  const [symbols, setSymbols] = useState('BTC_USDT')
   const [apiKey, setApiKey] = useState('')
   const [secretKey, setSecretKey] = useState('')
   const [readOnlyConfirmed, setReadOnlyConfirmed] = useState(false)
@@ -40,6 +41,7 @@ export function MexcConnectionPanel({
     startTransition(async () => {
       const result = await connectMexcBroker({
         accountLabel,
+        symbols,
         apiKey,
         secretKey,
         readOnlyConfirmed,
@@ -68,7 +70,7 @@ export function MexcConnectionPanel({
   }
 
   function removeConnection(connectionId: string, title: string) {
-    const confirmed = window.confirm(`Verbindung „${title}“ wirklich entfernen? Der verschlüsselte Zugang wird ebenfalls gelöscht.`)
+    const confirmed = window.confirm(`Verbindung „${title}“ wirklich widerrufen? Der Brokerzugriff wird dauerhaft gesperrt; historische Rohdaten bleiben erhalten.`)
     if (!confirmed) return
 
     setFeedback(null)
@@ -90,16 +92,16 @@ export function MexcConnectionPanel({
           <p className="eq-display text-[0.58rem] text-[#b09a7a]">MEXC Futures</p>
           <h3 className="mt-2 text-xl font-semibold text-white">Neue Verbindung einrichten</h3>
           <p className="mt-3 text-sm leading-6 text-white/48">
-            Equora prüft den Schlüssel serverseitig und lädt nur eine Vorschau deiner letzten Orders und Ausführungen.
-            Es wird noch kein Trade in das Journal übernommen.
+            Equora prüft nur fest benannte Futures-Leseendpunkte für die gewählten Symbole. Automatische
+            Rohdatenerfassung und Journalimport bleiben davon getrennte Betriebsstufen.
           </p>
         </div>
 
         {!connectorReady ? (
           <div className="mt-5 rounded-2xl border border-[#e5a14d]/20 bg-[#e5a14d]/8 px-4 py-3 text-sm leading-6 text-[#efc98f]">
             {secureStoreReady
-              ? 'Der Verschlüsselungsschlüssel fehlt noch. Hinterlege EQUORA_BROKER_SECRET_KEY in Vercel.'
-              : 'Bitte zuerst die SQL-Patches v57.60 und v57.60.1 ausführen und die Servervariablen in Vercel prüfen.'}
+              ? 'Der MEXC-Connector ist in der Serverumgebung deaktiviert. Es werden keine Brokerrequests ausgeführt.'
+              : 'Bitte zuerst die freigegebenen SQL-Migrationen ausführen und die Servervariablen in Vercel prüfen.'}
           </div>
         ) : null}
 
@@ -114,6 +116,21 @@ export function MexcConnectionPanel({
               className="mt-2 w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-white outline-none transition placeholder:text-white/25 focus:border-[#c8823a]/45"
               placeholder="Zum Beispiel: MEXC Hauptkonto"
             />
+          </label>
+
+          <label className="block">
+            <span className="text-xs font-medium text-white/65">MEXC Futures-Symbole</span>
+            <input
+              value={symbols}
+              onChange={(event: ChangeEvent<HTMLInputElement>) => setSymbols(event.target.value.toUpperCase())}
+              required
+              maxLength={104}
+              autoComplete="off"
+              spellCheck={false}
+              className="mt-2 w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-white outline-none transition placeholder:text-white/25 focus:border-[#c8823a]/45"
+              placeholder="BTC_USDT, ETH_USDT"
+            />
+            <span className="mt-2 block text-[11px] leading-5 text-white/34">1 bis 5 Symbole, durch Komma oder Leerzeichen getrennt.</span>
           </label>
 
           <label className="block">
@@ -166,7 +183,7 @@ export function MexcConnectionPanel({
             disabled={disabled}
             className="w-full rounded-2xl border border-[#c8823a]/35 bg-[#c8823a]/15 px-4 py-3 text-sm font-medium text-[#ffd3a0] transition hover:bg-[#c8823a]/22 disabled:cursor-not-allowed disabled:opacity-45"
           >
-            {isPending && activeConnectionId === 'new' ? 'Verbindung wird geprüft …' : 'Verbindung sicher prüfen'}
+            {isPending && activeConnectionId === 'new' ? 'Lesecapabilities werden geprüft …' : 'Lesecapabilities prüfen'}
           </button>
         </form>
 
@@ -195,13 +212,13 @@ export function MexcConnectionPanel({
                 <div className="flex items-start justify-between gap-4">
                   <div>
                     <p className="text-sm font-medium text-white">{title}</p>
-                    <p className="mt-1 text-xs text-white/38">MEXC Futures · nur lesend</p>
+                    <p className="mt-1 text-xs text-white/38">MEXC Futures · gespeicherte Verbindung</p>
                   </div>
                   <ConnectionStatus status={connection.status} />
                 </div>
 
                 <dl className="mt-4 grid gap-2 text-xs">
-                  <ConnectionDetail label="Letzte Prüfung" value={formatDate(connection.last_sync_at)} />
+                  <ConnectionDetail label="Letzter Capturelauf" value={formatDate(connection.last_sync_at)} />
                   <ConnectionDetail label="Zugriff" value={permissionLabel(connection.permissions)} />
                 </dl>
 
@@ -214,11 +231,11 @@ export function MexcConnectionPanel({
                 <div className="mt-4 flex flex-wrap gap-2">
                   <button
                     type="button"
-                    disabled={isPending || !connectorReady}
+                    disabled={isPending}
                     onClick={() => refreshConnection(connection.id)}
                     className="rounded-full border border-[#c8823a]/25 bg-[#c8823a]/10 px-3 py-1.5 text-xs text-[#f3bd7f] transition hover:bg-[#c8823a]/16 disabled:opacity-45"
                   >
-                    {isActive ? 'Wird geprüft …' : 'Daten erneut prüfen'}
+                    {isActive ? 'Ansicht wird aktualisiert …' : 'Ansicht aktualisieren'}
                   </button>
                   <button
                     type="button"
@@ -226,7 +243,7 @@ export function MexcConnectionPanel({
                     onClick={() => removeConnection(connection.id, title)}
                     className="rounded-full border border-white/10 bg-white/[0.03] px-3 py-1.5 text-xs text-white/48 transition hover:text-white/70 disabled:opacity-45"
                   >
-                    Verbindung entfernen
+                    Verbindung widerrufen
                   </button>
                 </div>
               </article>
@@ -260,7 +277,7 @@ export function MexcConnectionPanel({
 
 function ConnectionStatus({ status }: { status: string }) {
   const labels: Record<string, string> = {
-    ready: 'Bereit',
+    ready: 'Read-only bestätigt',
     draft: 'Noch offen',
     paused: 'Pausiert',
     error: 'Prüfen',
@@ -284,13 +301,15 @@ function ConnectionDetail({ label, value }: { label: string; value: string }) {
 
 function permissionLabel(permissions?: string[] | null) {
   if (!permissions?.length) return 'Noch nicht bestätigt'
-  if (permissions.includes('futures_read_verified')) return 'Futures-Daten lesbar'
-  return 'Leserechte gespeichert'
+  if (permissions.includes('historical_orders_read_observed') && permissions.includes('historical_executions_read_observed')) return 'Orders und Ausführungen beobachtet (Legacy)'
+  if (permissions.includes('historical_orders_read_observed')) return 'Historische Orders beobachtet (Legacy)'
+  if (permissions.includes('read_only_user_attested')) return 'Read-only vom Nutzer bestätigt'
+  return 'Gespeicherter Legacy-Status'
 }
 
 function formatDate(value?: string | null) {
-  if (!value) return 'Noch nicht geprüft'
+  if (!value) return 'Noch kein Capturelauf'
   const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return 'Noch nicht geprüft'
+  if (Number.isNaN(date.getTime())) return 'Noch kein Capturelauf'
   return new Intl.DateTimeFormat('de-DE', { dateStyle: 'short', timeStyle: 'short' }).format(date)
 }

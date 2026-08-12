@@ -1,11 +1,20 @@
 import { describe, expect, it } from 'vitest'
-import type { Trade } from '../lib/types/trade'
+import type { FilterState, Trade } from '../lib/types/trade'
 import { buildSetupPerformanceRows } from '../lib/utils/setup-analytics'
 import { getTradeTrustState, getTrustedTrades } from '../lib/utils/trade-trust'
 import { buildCsvImportPreview, inferCsvImportMapping } from '../lib/utils/trade-import'
 import { computeTradeMetrics, derivePartialExitPnL, resolveTradeCostBreakdown } from '../lib/utils/calculations'
-import { buildDrawdownProfile, getCoreMetrics } from '../lib/utils/analytics'
+import { buildDrawdownProfile, buildKillZonePerformance, buildSessionPerformance, buildTimeWindowPerformance, getCoreMetrics } from '../lib/utils/analytics'
 import { buildDrawdownSeries, buildEquitySeries } from '../lib/utils/chart-series'
+import { filterTrades } from '../lib/utils/filters'
+import {
+  getAnalyticsEvidenceState,
+  getAnalyticsBucketEvidenceLabel,
+  getAnalyticsBucketTone,
+  MIN_ANALYTICS_BUCKET_SIZE,
+  getAnalyticsScopeLabels,
+  MIN_ANALYTICS_SAMPLE_SIZE,
+} from '../lib/utils/statistics-scope'
 
 function trade(overrides: Partial<Trade>): Trade {
   return {
@@ -24,7 +33,114 @@ function trade(overrides: Partial<Trade>): Trade {
   }
 }
 
+function statisticFilters(overrides: Partial<FilterState> = {}): FilterState {
+  return {
+    account: 'Alle',
+    session: 'Alle',
+    concept: 'Alle',
+    quality: 'Alle',
+    emotion: 'Alle',
+    setup: 'Alle',
+    dateFrom: '',
+    dateTo: '',
+    ...overrides,
+  }
+}
+
 describe('trading and data integrity gates', () => {
+  it('limits strategy statistics to inclusive Europe/Berlin trade dates', () => {
+    const trades = [
+      trade({ id: 'before', tradeOccurredAt: '2026-08-04T21:59:59.000Z', setup: 'Strategy V2' }),
+      trade({ id: 'start', tradeOccurredAt: '2026-08-04T22:00:00.000Z', setup: 'Strategy V2' }),
+      trade({ id: 'end', tradeOccurredAt: '2026-08-05T21:59:59.000Z', setup: 'Strategy V2' }),
+      trade({ id: 'after', tradeOccurredAt: '2026-08-05T22:00:00.000Z', setup: 'Strategy V2' }),
+    ]
+
+    expect(filterTrades(trades, statisticFilters({ dateFrom: '2026-08-05', dateTo: '2026-08-05' })).map((item) => item.id)).toEqual(['start', 'end'])
+  })
+
+  it('combines strategy and date scope without deleting older journal trades', () => {
+    const trades = [
+      trade({ id: 'old-v2', tradeOccurredAt: '2026-07-31T10:00:00.000Z', setup: 'Strategy V2' }),
+      trade({ id: 'new-v1', tradeOccurredAt: '2026-08-05T10:00:00.000Z', setup: 'Strategy V1' }),
+      trade({ id: 'new-v2', tradeOccurredAt: '2026-08-05T10:00:00.000Z', setup: 'Strategy V2' }),
+    ]
+    const before = structuredClone(trades)
+
+    const filtered = filterTrades(trades, statisticFilters({ setup: 'Strategy V2', dateFrom: '2026-08-01' }))
+
+    expect(filtered.map((item) => item.id)).toEqual(['new-v2'])
+    expect(trades).toEqual(before)
+  })
+
+  it('makes the active strategy and date scope persistently describable', () => {
+    const filters = statisticFilters({ setup: 'Strategy V2', dateFrom: '2026-08-01', dateTo: '2026-08-05' })
+
+    expect(getAnalyticsScopeLabels(filters)).toEqual([
+      'Setup: Strategy V2',
+      'Von: 2026-08-01',
+      'Bis: 2026-08-05',
+    ])
+    expect(getAnalyticsScopeLabels(statisticFilters())).toEqual([])
+  })
+
+  it('blocks performance claims for empty and undersized samples', () => {
+    expect(getAnalyticsEvidenceState(0, 0)).toBe('empty')
+    expect(getAnalyticsEvidenceState(2, 0)).toBe('untrusted')
+    expect(getAnalyticsEvidenceState(2, 1)).toBe('insufficient')
+    expect(getAnalyticsEvidenceState(MIN_ANALYTICS_SAMPLE_SIZE, MIN_ANALYTICS_SAMPLE_SIZE)).toBe('descriptive')
+
+    const oneTradeWindow = buildTimeWindowPerformance([
+      trade({ tradeOccurredAt: '2026-08-05T08:00:00.000Z', netPnL: 10, accountCurrency: 'EUR' }),
+    ])
+    expect(oneTradeWindow.bestWindow).toBeNull()
+    expect(oneTradeWindow.weakestWindow).toBeNull()
+    expect(oneTradeWindow.rows.find((row) => row.trades === 1)?.tone).toBe('neutral')
+  })
+
+  it('keeps every analytics sub-bucket neutral until its three-trade boundary', () => {
+    const builders = [buildTimeWindowPerformance, buildSessionPerformance, buildKillZonePerformance]
+
+    for (const builder of builders) {
+      for (const count of [1, 2, 3]) {
+        const sample = Array.from({ length: count }, (_, index) => trade({
+          id: `bucket-${count}-${index}`,
+          tradeOccurredAt: `2026-08-05T07:0${index}:00.000Z`,
+          netPnL: 10,
+          accountCurrency: 'EUR',
+        }))
+        const result = builder(sample)
+        const populated = result.rows.find((row) => row.trades === count)
+        const best = 'bestWindow' in result ? result.bestWindow : result.bestRow
+
+        expect(populated?.tone).toBe(count < MIN_ANALYTICS_BUCKET_SIZE ? 'neutral' : 'green')
+        expect(best).toBe(count < MIN_ANALYTICS_BUCKET_SIZE ? null : populated)
+      }
+    }
+
+    expect(getAnalyticsBucketTone(1, 'green')).toBe('neutral')
+    expect(getAnalyticsBucketTone(2, 'red')).toBe('neutral')
+    expect(getAnalyticsBucketTone(3, 'green')).toBe('green')
+    expect(getAnalyticsBucketEvidenceLabel(2)).toBe('Zu wenig Daten: 2/3')
+    expect(getAnalyticsBucketEvidenceLabel(3)).toBe('Deskriptiv')
+  })
+
+  it('suppresses setup strength and session rankings below their bucket boundary', () => {
+    for (const count of [1, 2, 3]) {
+      const [row] = buildSetupPerformanceRows(['Opening Range'], Array.from({ length: count }, (_, index) => trade({
+        id: `setup-${count}-${index}`,
+        setup: 'Opening Range',
+        session: 'London',
+        netPnL: 10,
+        accountCurrency: 'EUR',
+      })))
+
+      expect(row?.tone).toBe(count < MIN_ANALYTICS_BUCKET_SIZE ? 'neutral' : 'green')
+      expect(row?.bestSession).toBe(count < MIN_ANALYTICS_BUCKET_SIZE ? '—' : 'London')
+      expect(row?.weakestSession).toBe(count < MIN_ANALYTICS_BUCKET_SIZE ? '—' : 'London')
+    }
+  })
+
   it('does not classify monetary trades without currency as trusted', () => {
     const missingCurrency = trade({ netPnL: 125, accountCurrency: null })
 

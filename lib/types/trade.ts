@@ -202,4 +202,6 @@ export type FilterState = {
   emotion: string
   setup: string
   account: string
+  dateFrom: string
+  dateTo: string
 }

@@ -1,194 +1,182 @@
 import 'server-only'
 
-import { createHmac } from 'node:crypto'
-
-const MEXC_CONTRACT_BASE_URL = 'https://contract.mexc.com'
-const REQUEST_TIMEOUT_MS = 12_000
-const MAX_PREVIEW_ORDERS = 20
-const MAX_SYMBOLS_FOR_EXECUTIONS = 5
+import {
+  executeMexcPrivateReadWorkUnit,
+  MexcTransportError,
+  type MexcCredentialLoader,
+  type MexcPrivateCapabilityId,
+  type MexcPrivateReadOutcome,
+  type MexcWireResponse,
+} from '@/lib/server/mexc-transport'
+import { getMexcJsonIntegerLexeme } from '@/lib/server/mexc-json'
+import { MexcOracleError, validateMexcCapabilityData } from '@/lib/server/mexc-oracles'
+import type { EquoraTcjDigest } from '@/lib/server/equora-tcj'
 
 type MexcRecord = Record<string, unknown>
 
-type MexcResponse<T> = {
-  success?: boolean
-  code?: number | string
-  message?: string
-  data?: T
-}
+export type MexcPreviewScope = Readonly<{
+  symbol: string
+  startTime: number
+  endTime: number
+  pageNumber?: number
+  pageSize?: number
+}>
 
 export type MexcReadResult = {
   orders: MexcRecord[]
   executions: MexcRecord[]
   serverTime: number
+  scope: Required<MexcPreviewScope>
+  responseShapes: {
+    orders: 'bare_array_v1'
+    executions: 'bare_array_v1'
+  }
+  rawBodyDigests: {
+    orders: EquoraTcjDigest<'raw_response_body'>
+    executions: EquoraTcjDigest<'raw_response_body'>
+  }
 }
 
 export class MexcReadError extends Error {
   public readonly publicMessage: string
   public readonly providerCode: string | null
+  public readonly errorCode: string
 
-  constructor(publicMessage: string, providerCode?: string | number | null) {
+  constructor(publicMessage: string, providerCode?: string | number | null, errorCode = 'mexc_read_failed') {
     super(publicMessage)
     this.name = 'MexcReadError'
     this.publicMessage = publicMessage
     this.providerCode = providerCode == null ? null : String(providerCode)
+    this.errorCode = errorCode
   }
-}
-
-function isRecord(value: unknown): value is MexcRecord {
-  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
-}
-
-function toRecordArray(value: unknown): MexcRecord[] {
-  if (Array.isArray(value)) return value.filter(isRecord)
-  if (!isRecord(value)) return []
-
-  const possibleLists = [value.resultList, value.list, value.rows]
-  for (const list of possibleLists) {
-    if (Array.isArray(list)) return list.filter(isRecord)
-  }
-  return []
 }
 
 function stringValue(value: unknown) {
   if (typeof value === 'string') return value.trim()
-  if (typeof value === 'number' && Number.isFinite(value)) return String(value)
+  if (typeof value === 'number' && Number.isSafeInteger(value)) return String(value)
+  const integerLexeme = getMexcJsonIntegerLexeme(value)
+  if (integerLexeme !== null) return integerLexeme
   return ''
 }
 
-function sortedQuery(params: Record<string, string | number | undefined>) {
-  return Object.entries(params)
-    .filter((entry): entry is [string, string | number] => entry[1] !== undefined)
-    .sort(([left], [right]) => left.localeCompare(right))
-    .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(String(value))}`)
-    .join('&')
-}
-
-async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
-  const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)
-
-  try {
-    const response = await fetch(url, {
-      ...init,
-      cache: 'no-store',
-      signal: controller.signal,
-    })
-
-    const payload = await response.json().catch(() => null) as T | null
-    if (!response.ok) {
-      if (response.status === 401 || response.status === 403) {
-        throw new MexcReadError('MEXC hat den Zugriff abgelehnt. Bitte API-Schlüssel, Secret Key und Leserechte prüfen.', response.status)
-      }
-      throw new MexcReadError('MEXC ist gerade nicht erreichbar. Bitte die Verbindung später erneut prüfen.', response.status)
-    }
-    if (payload == null) {
-      throw new MexcReadError('MEXC hat keine lesbare Antwort geliefert.')
-    }
-    return payload
-  } catch (error) {
-    if (error instanceof MexcReadError) throw error
-    if (error instanceof Error && error.name === 'AbortError') {
-      throw new MexcReadError('Die Antwort von MEXC hat zu lange gedauert. Bitte erneut versuchen.')
-    }
-    throw new MexcReadError('Die Verbindung zu MEXC konnte nicht hergestellt werden.')
-  } finally {
-    clearTimeout(timer)
+function mapTransportError(error: MexcTransportError) {
+  const messages: Partial<Record<MexcTransportError['code'], string>> = {
+    invalid_credential: 'MEXC hat den Lesezugriff abgelehnt. Bitte API-Schlüssel und Secret Key prüfen.',
+    ip_not_allowed: 'Die aktuelle IP-Adresse ist bei MEXC nicht für diesen Leseabruf freigegeben.',
+    permission_missing: 'Für diesen Abruf fehlt bei MEXC die Leseberechtigung „View Order Details“.',
+    rate_limited: 'MEXC begrenzt den Lesezugriff vorübergehend. Es wurden keine leeren Ergebnisse angenommen.',
+    provider_busy: 'MEXC ist vorübergehend ausgelastet. Es wurde kein erfolgreicher Leerabruf gespeichert.',
+    maintenance: 'MEXC befindet sich für diese Lesecapability in Wartung.',
+    invalid_request: 'MEXC hat den freigegebenen Leseabruf als ungültig abgelehnt.',
+    unsupported_contract: 'Der angefragte MEXC-Vertrag wird nicht unterstützt.',
+    unknown_provider_error: 'MEXC hat einen unbekannten Providerfehler gemeldet. Es erfolgt kein automatischer Retry.',
+    invalid_provider_time: 'MEXC hat keine gültige Serverzeit geliefert. Der private Abruf wurde nicht gestartet.',
+    invalid_query: 'Der MEXC-Abrufscope entspricht nicht dem freigegebenen Read-only-Vertrag.',
+    response_too_large: 'Die MEXC-Antwort überschreitet das sichere Größenlimit.',
+    malformed_response: 'MEXC hat eine nicht vertragsgemäße Antwort geliefert. Es wurden keine leeren Daten angenommen.',
+    timeout: 'Die MEXC-Leseantwort hat zu lange gedauert. Es wurde kein erfolgreicher Leerabruf gespeichert.',
+    transport_contract_violation: 'Der MEXC-Read-only-Transport hat einen nicht erlaubten Request blockiert.',
   }
+  return new MexcReadError(
+    messages[error.code] ?? 'Die MEXC-Leseverbindung ist derzeit nicht verfügbar.',
+    error.providerCode,
+    error.code,
+  )
 }
 
-async function getMexcServerTime() {
-  const payload = await fetchJson<MexcResponse<number>>(`${MEXC_CONTRACT_BASE_URL}/api/v1/contract/ping`)
-  const serverTime = typeof payload.data === 'number' ? payload.data : Date.now()
-  return Number.isFinite(serverTime) ? serverTime : Date.now()
+function mapOracleError(error: MexcOracleError) {
+  const messages: Record<MexcOracleError['code'], string> = {
+    invalid_scope: 'Der interne MEXC-Oracle wurde mit einem ungültigen Capabilityscope aufgerufen.',
+    malformed_response: 'MEXC hat Datensätze geliefert, die den capabilitybezogenen Feldvertrag verletzen.',
+    scope_violation: 'MEXC hat mindestens einen Datensatz außerhalb des angefragten Symbol- oder Zeitfensters geliefert.',
+    ordering_violation: 'MEXC hat Datensätze außerhalb der erwarteten nichtzunehmenden Reihenfolge geliefert.',
+  }
+  return new MexcReadError(messages[error.code], null, error.code)
 }
 
-async function signedGet<T>(
-  path: string,
-  params: Record<string, string | number | undefined>,
-  credentials: { apiKey: string; secretKey: string },
-  requestTime: number,
-) {
-  const query = sortedQuery(params)
-  const signatureTarget = `${credentials.apiKey}${requestTime}${query}`
-  const signature = createHmac('sha256', credentials.secretKey).update(signatureTarget).digest('hex')
-  const url = `${MEXC_CONTRACT_BASE_URL}${path}${query ? `?${query}` : ''}`
-
-  const payload = await fetchJson<MexcResponse<T>>(url, {
-    method: 'GET',
-    headers: {
-      ApiKey: credentials.apiKey,
-      'Request-Time': String(requestTime),
-      Signature: signature,
-      'Content-Type': 'application/json',
-      'Recv-Window': '15000',
-    },
-  })
-
-  if (payload.success === false) {
-    const code = payload.code ?? null
-    const providerMessage = typeof payload.message === 'string' ? payload.message.toLowerCase() : ''
-    const authProblem = providerMessage.includes('signature')
-      || providerMessage.includes('api key')
-      || providerMessage.includes('permission')
-      || String(code) === '401'
-      || String(code) === '403'
-
+function requireSucceededOutcome(
+  outcome: MexcPrivateReadOutcome | undefined,
+  capabilityId: MexcPrivateCapabilityId,
+): MexcWireResponse {
+  if (!outcome || outcome.capabilityId !== capabilityId) {
     throw new MexcReadError(
-      authProblem
-        ? 'MEXC konnte den Schlüssel nicht als lesenden Zugang bestätigen. Bitte Schlüssel, Secret und Futures-Leserechte prüfen.'
-        : 'MEXC konnte die Daten nicht bereitstellen. Bitte die Verbindung erneut prüfen.',
-      code,
+      'Die MEXC-Work-Unit hat keine vollständige capabilitybezogene Vorschauantwort geliefert.',
+      null,
+      'malformed_response',
     )
   }
-
-  return payload.data
+  if (outcome.status === 'failed') throw outcome.error
+  return outcome.response
 }
 
-export async function readMexcFuturesPreview(credentials: { apiKey: string; secretKey: string }): Promise<MexcReadResult> {
-  const serverTime = await getMexcServerTime()
-  const localOffset = serverTime - Date.now()
-  const currentRequestTime = () => Date.now() + localOffset
+export async function readMexcFuturesPreview(
+  loadCredentials: MexcCredentialLoader,
+  scope?: MexcPreviewScope,
+): Promise<MexcReadResult> {
+  if (!scope || typeof scope !== 'object') {
+    throw new MexcReadError(
+      'Der alte ungescopte MEXC-Vorschauabruf ist gesperrt. G1 verlangt Symbol und geschlossenes Zeitfenster.',
+      null,
+      'scope_required',
+    )
+  }
+  if (typeof scope.symbol !== 'string') {
+    throw new MexcReadError('Der MEXC-Vorschauabruf besitzt keinen gültigen Symbolscope.', null, 'invalid_scope')
+  }
 
-  const orderData = await signedGet<unknown>(
-    '/api/v1/private/order/list/history_orders',
-    { page_num: 1, page_size: MAX_PREVIEW_ORDERS },
-    credentials,
-    currentRequestTime(),
-  )
-  const orders = toRecordArray(orderData)
+  const normalizedScope: Required<MexcPreviewScope> = {
+    symbol: scope.symbol.trim().toUpperCase(),
+    startTime: scope.startTime,
+    endTime: scope.endTime,
+    pageNumber: scope.pageNumber ?? 1,
+    pageSize: scope.pageSize ?? 20,
+  }
+  const ordersQuery = {
+    symbol: normalizedScope.symbol,
+    start_time: normalizedScope.startTime,
+    end_time: normalizedScope.endTime,
+    page_num: normalizedScope.pageNumber,
+    page_size: normalizedScope.pageSize,
+  }
+  const executionsQuery = { ...ordersQuery }
 
-  const symbols = Array.from(new Set(
-    orders
-      .map((order) => stringValue(order.symbol))
-      .filter(Boolean),
-  )).slice(0, MAX_SYMBOLS_FOR_EXECUTIONS)
-
-  const executionGroups = await Promise.all(symbols.map(async (symbol) => {
-    try {
-      const executionData = await signedGet<unknown>(
-        '/api/v1/private/order/list/order_deals',
-        { symbol, page_num: 1, page_size: 20 },
-        credentials,
-        currentRequestTime(),
-      )
-      return toRecordArray(executionData)
-    } catch (error) {
-      if (error instanceof MexcReadError) return []
-      throw error
+  try {
+    const { serverTime, outcomes } = await executeMexcPrivateReadWorkUnit([
+      { capabilityId: 'historical_orders_v1', query: ordersQuery },
+      { capabilityId: 'historical_executions_v3', query: executionsQuery },
+    ], loadCredentials)
+    const ordersResponse = requireSucceededOutcome(outcomes[0], 'historical_orders_v1')
+    const executionsResponse = requireSucceededOutcome(outcomes[1], 'historical_executions_v3')
+    const oracleScope = {
+      symbol: normalizedScope.symbol,
+      startTime: normalizedScope.startTime,
+      endTime: normalizedScope.endTime,
+      pageNumber: normalizedScope.pageNumber,
+      pageSize: normalizedScope.pageSize,
     }
-  }))
+    const ordersPage = validateMexcCapabilityData('historical_orders_v1', ordersResponse.data, oracleScope)
+    const executionsPage = validateMexcCapabilityData('historical_executions_v3', executionsResponse.data, oracleScope)
 
-  return {
-    orders,
-    executions: executionGroups.flat(),
-    serverTime,
+    return {
+      orders: [...ordersPage.records] as MexcRecord[],
+      executions: [...executionsPage.records] as MexcRecord[],
+      serverTime,
+      scope: normalizedScope,
+      responseShapes: { orders: 'bare_array_v1', executions: 'bare_array_v1' },
+      rawBodyDigests: { orders: ordersResponse.rawBodyDigest, executions: executionsResponse.rawBodyDigest },
+    }
+  } catch (error) {
+    if (error instanceof MexcReadError) throw error
+    if (error instanceof MexcOracleError) throw mapOracleError(error)
+    if (error instanceof MexcTransportError) throw mapTransportError(error)
+    throw new MexcReadError('Die MEXC-Leseverbindung konnte nicht geprüft werden.')
   }
 }
 
 export function getMexcRecordId(record: MexcRecord, kind: 'order' | 'execution') {
-  const candidates = kind === 'order'
-    ? [record.orderId, record.externalOid, record.id]
-    : [record.id, record.orderId]
-  const resolved = candidates.map(stringValue).find(Boolean)
-  return resolved || `${kind}-${stringValue(record.symbol)}-${stringValue(record.timestamp ?? record.updateTime ?? record.createTime)}`
+  const resolved = kind === 'order' ? stringValue(record.orderId) : stringValue(record.id)
+  if (!/^[0-9]+$/.test(resolved)) {
+    throw new MexcReadError('MEXC-Datensatz besitzt keine belastbare Provider-ID.', null, 'missing_provider_id')
+  }
+  return resolved.replace(/^0+(?=\d)/, '')
 }

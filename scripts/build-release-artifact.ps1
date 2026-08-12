@@ -1,15 +1,16 @@
 $ErrorActionPreference = 'Stop'
+Add-Type -AssemblyName System.IO.Compression
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 
 $projectRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $artifactRoot = Join-Path $projectRoot 'release-artifacts'
-$packageFolderName = 'Equora Starter v57.60.1'
-$stagingRoot = Join-Path $artifactRoot '.staging-v57.60.1'
+$packageFolderName = 'Equora Starter v57.61.0'
+$stagingRoot = Join-Path $artifactRoot '.staging-v57.61.0'
 $payloadRoot = Join-Path $stagingRoot $packageFolderName
-$verificationRoot = Join-Path $artifactRoot '.verify-v57.60.1'
-$zipPath = Join-Path $artifactRoot 'Equora_Starter_v57.60.1.zip'
-$hashPath = Join-Path $artifactRoot 'Equora_Starter_v57.60.1.sha256.txt'
-$fileListPath = Join-Path $artifactRoot 'Equora_Starter_v57.60.1.files.txt'
+$verificationRoot = Join-Path $artifactRoot '.verify-v57.61.0'
+$zipPath = Join-Path $artifactRoot 'Equora_Starter_v57.61.0.zip'
+$hashPath = Join-Path $artifactRoot 'Equora_Starter_v57.61.0.sha256.txt'
+$fileListPath = Join-Path $artifactRoot 'Equora_Starter_v57.61.0.files.txt'
 
 New-Item -ItemType Directory -Path $artifactRoot -Force | Out-Null
 $resolvedArtifactRoot = (Resolve-Path $artifactRoot).Path.TrimEnd([IO.Path]::DirectorySeparatorChar)
@@ -28,6 +29,7 @@ $allowedRootFiles = @(
   'BUILD-STATUS-v57.60.md',
   'GIT-SETUP.md',
   'INSTALL-v57.60.1.md',
+  'INSTALL-v57.61.0.md',
   'INSTALL-v57.60.md',
   'INTEGRATION.md',
   'middleware.ts',
@@ -35,6 +37,7 @@ $allowedRootFiles = @(
   'next-env.d.ts',
   'next.config.ts',
   'OPERATIONS-SOP-v57.60.1.md',
+  'OPERATIONS-SOP-v57.61.0.md',
   'package-lock.json',
   'package.json',
   'PERFORMANCE-v57.55.md',
@@ -45,11 +48,13 @@ $allowedRootFiles = @(
   'PRODUCT-GLOSSAR.md',
   'README.md',
   'RELEASE-v57.60.1.md',
+  'RELEASE-v57.61.0.md',
   'RELEASE-v57.60.md',
   'tailwind.config.ts',
   'TRADINGVIEW-IMPORT.md',
   'tsconfig.json',
-  'UEBERGABE-v57.60-fuer-v57.61.txt',
+  'vercel.capture.pro.example.json',
+  'vercel.json',
   'vitest.config.mts'
 )
 
@@ -64,7 +69,7 @@ $allowedExtensionsByDirectory = [ordered]@{
   'public' = @('.png')
   'scripts' = @('.mjs', '.ps1')
   'supabase' = @('.sql')
-  'tests' = @('.ts', '.tsx')
+  'tests' = @('.ps1', '.sql', '.ts', '.tsx')
   'types' = @('.ts')
 }
 
@@ -130,12 +135,45 @@ try {
   Set-Content -LiteralPath $fileListPath -Value $relativeFiles -Encoding utf8
 
   if (Test-Path -LiteralPath $zipPath) { Remove-Item -LiteralPath $zipPath -Force }
-  [System.IO.Compression.ZipFile]::CreateFromDirectory(
-    $stagingRoot,
-    $zipPath,
-    [System.IO.Compression.CompressionLevel]::Optimal,
-    $false
-  )
+  $zipStream = [IO.File]::Open($zipPath, [IO.FileMode]::CreateNew, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None)
+  try {
+    $archive = [IO.Compression.ZipArchive]::new(
+      $zipStream, [IO.Compression.ZipArchiveMode]::Create, $false
+    )
+    try {
+      foreach ($relativeFile in $relativeFiles) {
+        $sourcePath = Join-Path $stagingRoot $relativeFile.Replace([char]47, [IO.Path]::DirectorySeparatorChar)
+        [IO.Compression.ZipFileExtensions]::CreateEntryFromFile(
+          $archive,
+          $sourcePath,
+          $relativeFile,
+          [IO.Compression.CompressionLevel]::Optimal
+        ) | Out-Null
+      }
+    } finally {
+      $archive.Dispose()
+    }
+  } finally {
+    $zipStream.Dispose()
+  }
+
+  $archiveReader = [IO.Compression.ZipFile]::OpenRead($zipPath)
+  try {
+    $archiveEntries = @($archiveReader.Entries | ForEach-Object { $_.FullName } | Sort-Object)
+    foreach ($entryName in $archiveEntries) {
+      $segments = $entryName.Split([char]47)
+      if ($entryName.Contains([char]92) -or $entryName.StartsWith([char]47) -or
+          $segments -contains '..' -or $segments -contains '.') {
+        throw "ZIP contains a non-canonical or unsafe entry name: $entryName"
+      }
+    }
+    $centralDirectoryDifference = Compare-Object -ReferenceObject $relativeFiles -DifferenceObject $archiveEntries
+    if ($centralDirectoryDifference) {
+      throw "ZIP central directory does not match the canonical file manifest: $($centralDirectoryDifference | Out-String)"
+    }
+  } finally {
+    $archiveReader.Dispose()
+  }
 
   New-Item -ItemType Directory -Path $verificationRoot -Force | Out-Null
   [System.IO.Compression.ZipFile]::ExtractToDirectory($zipPath, $verificationRoot)
@@ -152,6 +190,16 @@ try {
     throw "The generated ZIP does not match the checked file manifest: $($archiveDifference | Out-String)"
   }
 
+  foreach ($relativeFile in $relativeFiles) {
+    $sourcePath = Join-Path $stagingRoot $relativeFile.Replace([char]47, [IO.Path]::DirectorySeparatorChar)
+    $verifiedPath = Join-Path $verificationRoot $relativeFile.Replace([char]47, [IO.Path]::DirectorySeparatorChar)
+    $sourceHash = (Get-FileHash -LiteralPath $sourcePath -Algorithm SHA256).Hash
+    $verifiedHash = (Get-FileHash -LiteralPath $verifiedPath -Algorithm SHA256).Hash
+    if ($sourceHash -cne $verifiedHash) {
+      throw "Extracted ZIP content digest mismatch: $relativeFile"
+    }
+  }
+
   $verifiedPayloadRoot = Join-Path $verificationRoot $packageFolderName
   Push-Location $verifiedPayloadRoot
   try {
@@ -162,7 +210,7 @@ try {
   }
 
   $hash = (Get-FileHash -LiteralPath $zipPath -Algorithm SHA256).Hash.ToLowerInvariant()
-  Set-Content -LiteralPath $hashPath -Value "$hash  Equora_Starter_v57.60.1.zip" -Encoding ascii
+  Set-Content -LiteralPath $hashPath -Value "$hash  Equora_Starter_v57.61.0.zip" -Encoding ascii
 
   Write-Output "Release artifact: $zipPath"
   Write-Output "SHA-256: $hash"

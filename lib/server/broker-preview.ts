@@ -120,7 +120,10 @@ export function buildMexcRawEvents(result: MexcReadResult): PendingRawEvent[] {
 
 export function mapRawEventToPreview(row: Pick<BrokerRawEventRow, 'id' | 'connection_id' | 'event_type' | 'external_event_id' | 'occurred_at' | 'payload'>): BrokerPreviewItem {
   const payload = asRecord(row.payload)
-  const kind: BrokerPreviewKind = row.event_type === 'execution' ? 'execution' : 'order'
+  if (row.event_type !== 'order' && row.event_type !== 'execution') {
+    throw new Error('BROKER_PREVIEW_EVENT_TYPE_UNSUPPORTED')
+  }
+  const kind: BrokerPreviewKind = row.event_type
 
   return {
     id: row.id,
@@ -136,4 +139,24 @@ export function mapRawEventToPreview(row: Pick<BrokerRawEventRow, 'id' | 'connec
     occurredAt: row.occurred_at ?? eventTime(payload),
     externalId: row.external_event_id,
   }
+}
+
+export function mapCaptureRawEventToPreview(row: Readonly<{
+  id: string
+  broker_account_id: string
+  event_type: string
+  external_event_id: string | null
+  provider_occurred_at_us: number | string | null
+  raw_payload: unknown
+}>, connectionId: string): BrokerPreviewItem {
+  return mapRawEventToPreview({
+    id: row.id,
+    connection_id: connectionId,
+    event_type: row.event_type,
+    external_event_id: row.external_event_id,
+    occurred_at: row.provider_occurred_at_us === null
+      ? null
+      : new Date(Math.floor(Number(row.provider_occurred_at_us) / 1_000)).toISOString(),
+    payload: asRecord(row.raw_payload),
+  })
 }
