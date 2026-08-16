@@ -506,6 +506,8 @@ describe('closed MEXC capture orchestrator', () => {
   })
 
   it('serializes an authentic committed page into the closed server-only RPC contract', async () => {
+    // The static MAC vector authenticates request duration, so its monotonic clock input must be deterministic.
+    vi.spyOn(performance, 'now').mockReturnValue(1_000)
     const wireResponse = await authenticWireResponse('historical_orders_v1', [order()])
     const capturedPage = applyMexcCapturedPage(captureInput(wireResponse))
     const args = buildBrokerCapturePageRpcArguments({
@@ -517,7 +519,7 @@ describe('closed MEXC capture orchestrator', () => {
       wireResponse,
       capturedPage,
     })
-    expect(args.p_transition_mac).toBe('649a5134e60d5543d8e46737ae627850170431acccb925d430904295f17d0dee')
+    expect(args.p_transition_mac).toBe('6fa53931bf1da17bb8f8be9b714c3193611dbe3891c0eca782ffd221e8e6c137')
     expect(args).toMatchObject({
       p_request_authorization_id: REQUEST_AUTHORIZATION_ID,
       p_work_unit_id: uuid('work-unit'),
