@@ -108,11 +108,13 @@ describe('v57.60.1 application safety contracts', () => {
 
   it('keeps broker egress centralized and deployment runtime default-off', () => {
     const transport = source('lib/server/mexc-transport.ts')
+    const requestContract = source('lib/server/mexc-request-contract.ts')
     const adapter = source('lib/server/mexc-readonly.ts')
     const actions = source('app/actions/broker-sync.ts')
     const runtime = source('lib/server/mexc-runtime.ts')
 
-    expect(transport).toContain("MEXC_API_ORIGIN = 'https://api.mexc.com'")
+    expect(requestContract).toContain("MEXC_API_ORIGIN = 'https://api.mexc.com'")
+    expect(transport).toContain("from '@/lib/server/mexc-request-contract'")
     expect(transport).toContain("import 'server-only'")
     expect(transport).toContain("redirect: 'error'")
     expect(transport).toContain("method: 'GET'")
@@ -122,6 +124,10 @@ describe('v57.60.1 application safety contracts', () => {
     expect(transport).not.toContain('now?:')
     expect(transport).not.toContain('timeoutMs?:')
     expect(transport).not.toContain('export async function executeMexcPrivateRead(')
+    expect(transport).not.toContain('executeMexcPreparedPrivateRead')
+    expect(transport).not.toContain('export async function executePreparedRequest')
+    expect(source('lib/server/mexc-central-network-transport.ts'))
+      .toContain("export { mexcBrokerNetworkTransport } from '@/lib/server/mexc-transport'")
     expect(adapter).not.toMatch(/\bfetch\s*\(/)
     expect(actions).not.toMatch(/\bfetch\s*\(/)
     expect(actions).toContain('isMexcRuntimeActivated()')

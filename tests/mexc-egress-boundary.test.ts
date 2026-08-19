@@ -13,6 +13,8 @@ type ProductSource = Readonly<{
 const WORKSPACE = process.cwd()
 const PRODUCT_ROOTS = ['app', 'lib', 'components'] as const
 const TRANSPORT_PATH = 'lib/server/mexc-transport.ts'
+const CENTRAL_TRANSPORT_PATH = 'lib/server/mexc-central-network-transport.ts'
+const REQUEST_CONTRACT_PATH = 'lib/server/mexc-request-contract.ts'
 const ALLOWED_LOCAL_ROUTE_PATHS = ['app/api/sidebar-overview/route.ts'] as const
 const FORBIDDEN_NETWORK_MODULES = new Set([
   'http', 'https', 'http2', 'net', 'tls',
@@ -121,14 +123,16 @@ function reachableFiles(graph: ReadonlyMap<string, readonly string[]>, roots: re
 }
 
 describe('MEXC repository-wide egress boundary', () => {
-  it('allows the MEXC origin only in the central server-only transport across all product sources', () => {
+  it('allows the MEXC origin only in the pure request contract consumed by the central server-only transport', () => {
     const sources = loadProductSources()
     const originOwners = [...sources.values()]
       .filter((source) => /(?:api|contract)\.mexc\.com/.test(source.content))
       .map((source) => source.relativePath)
 
-    expect(originOwners).toEqual([TRANSPORT_PATH])
+    expect(originOwners).toEqual([REQUEST_CONTRACT_PATH])
     expect(sources.get(normalize(join(WORKSPACE, TRANSPORT_PATH)))?.content).toContain("import 'server-only'")
+    expect(sources.get(normalize(join(WORKSPACE, TRANSPORT_PATH)))?.content).toContain("from '@/lib/server/mexc-request-contract'")
+    expect(sources.get(normalize(join(WORKSPACE, REQUEST_CONTRACT_PATH)))?.content).toContain("import 'server-only'")
   })
 
   it('forbids direct and transitive network primitives throughout the broker dependency graph', () => {
@@ -150,6 +154,29 @@ describe('MEXC repository-wide egress boundary', () => {
       { path: TRANSPORT_PATH, primitive: 'fetch' },
       { path: 'components/layout/sidebar-nav.tsx', primitive: 'local-fetch:/api/sidebar-overview' },
     ])
+  })
+
+  it('keeps the private signer module-local and the single-use authorization consumer on the sole central transport', () => {
+    const sources = loadProductSources()
+    const privateSenderOwners = [...sources.values()]
+      .filter((source) => /executeMexcPreparedPrivateRead/.test(source.content))
+      .map((source) => source.relativePath)
+    const authorizationConsumerOwners = [...sources.values()]
+      .filter((source) => /consumeBrokerSendAuthorizationForTransport/.test(source.content))
+      .map((source) => source.relativePath)
+      .sort()
+    const transport = sources.get(normalize(join(WORKSPACE, TRANSPORT_PATH)))?.content ?? ''
+    const centralTransport = sources.get(normalize(join(WORKSPACE, CENTRAL_TRANSPORT_PATH)))?.content ?? ''
+
+    expect(privateSenderOwners).toEqual([])
+    expect(authorizationConsumerOwners).toEqual([
+      'lib/server/broker-core-contracts.ts',
+      TRANSPORT_PATH,
+    ])
+    expect(transport).toContain('function mexcPrivateReadHeaders(')
+    expect(transport).not.toContain('export function mexcPrivateReadHeaders(')
+    expect(transport).not.toContain('export async function executePreparedRequest(')
+    expect(centralTransport).toContain("export { mexcBrokerNetworkTransport } from '@/lib/server/mexc-transport'")
   })
 
   it('detects an indirect bypass in a nested neutral-name module with the same AST and graph checks', () => {
