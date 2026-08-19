@@ -23,6 +23,8 @@ import {
   computeCheckpointMacVerification,
   computeCheckpointTransitionMacVerification,
   computeCapturePurposeScopeDigest,
+  PAGE_SEQUENCE_CONTRACT_VERSION,
+  consumeBrokerSendAuthorizationForTransport,
   createCaptureCommitBoundary,
   createBrokerAdapterInspectionBoundary,
   createCentralBrokerEgress,
@@ -179,6 +181,15 @@ function authorityTupleDigest(authority: CaptureAuthorityTuple | ConnectionProbe
   return computeAuthorityTupleDigest(authority)
 }
 
+function rehashAuthorityTuple<Authority extends CaptureAuthorityTuple | ConnectionProbeAuthorityTuple>(
+  authority: Authority,
+): Authority {
+  const next = structuredClone(authority) as Authority
+  ;(next as unknown as { authorityTupleDigest: string }).authorityTupleDigest = ''
+  ;(next as unknown as { authorityTupleDigest: string }).authorityTupleDigest = authorityTupleDigest(next)
+  return next
+}
+
 function capabilityContractDigest(contract: ReadCapabilityExecutionContract) {
   const { capabilityDescriptorDigest: _providedDigest, ...ref } = contract.ref
   return sha256(canonicalContractJson({ ...contract, ref }))
@@ -199,6 +210,8 @@ function requestPlanDigestInput(plan: BrokerReadRequestPlan<never>) {
     responseByteLimit: plan.responseByteLimit,
     requestTimeoutMs: plan.requestTimeoutMs,
     planContractVersion: plan.planContractVersion,
+    pageSequenceContractVersion: plan.pageSequenceContractVersion,
+    pageSequence: plan.pageSequence,
   }
 }
 
@@ -238,6 +251,7 @@ function runtimeCaptureFixture(suffix: string, constantHttpsOrigin = 'https://fi
     queryContractVersion: 'v1',
     cursorContractVersion: 'v1',
     responseContractVersion: 'v1',
+    pageSequenceContractVersion: PAGE_SEQUENCE_CONTRACT_VERSION,
   } as ReadCapabilityExecutionContract
   ;(provider as unknown as { capabilityDescriptorDigest: string }).capabilityDescriptorDigest = capabilityContractDigest(capabilityContract)
   const capabilityProfile = {
@@ -245,7 +259,10 @@ function runtimeCaptureFixture(suffix: string, constantHttpsOrigin = 'https://fi
     profileVersion: 'v1',
     profileDigest: `profile-digest-${suffix}`,
   } as CaptureAuthorityTuple['capabilityProfile']
-  const scope = { instrumentScopeKey: 'all', requestWindowStartUs: '0', requestWindowEndUs: '1' } as const
+  const scope = {
+    instrumentScopeKey: 'all', requestWindowStartUs: '0', requestWindowEndUs: '1', positionType: null,
+    captureQueryProfileDigest: '1'.repeat(64),
+  } as const
   const authority = {
     authorityTupleContractVersion: 'equora-broker-authority-tuple-v1',
     authorityPurpose: 'capture',
@@ -304,6 +321,8 @@ function runtimeCaptureFixture(suffix: string, constantHttpsOrigin = 'https://fi
     responseByteLimit: 1000,
     requestTimeoutMs: 1000,
     planContractVersion: 'v1',
+    pageSequenceContractVersion: PAGE_SEQUENCE_CONTRACT_VERSION,
+    pageSequence: 0,
   } as const
   const requestBinding = {
     requestId: `request-${suffix}` as string,
@@ -335,6 +354,8 @@ function runtimeCaptureFixture(suffix: string, constantHttpsOrigin = 'https://fi
     responseByteLimit: 1000,
     requestTimeoutMs: 1000,
     planContractVersion: 'v1',
+    pageSequenceContractVersion: PAGE_SEQUENCE_CONTRACT_VERSION,
+    pageSequence: 0,
     canonicalUnsignedRequestDigest: requestBinding.canonicalUnsignedRequestDigest,
   }
   const permit: AuthorizedBrokerReadPermit<typeof authorizationBinding> = {
@@ -391,7 +412,12 @@ function runtimeCaptureFixture(suffix: string, constantHttpsOrigin = 'https://fi
     chainBinding,
     integrityKeyReference: { id: 'integrity', keyVersion: 'v1' },
     scope,
-    checkpoint: { checkpointContractVersion: 'v1', payload: null, mac: `checkpoint-${suffix}` },
+    checkpoint: {
+      checkpointContractVersion: 'v1',
+      captureQueryProfileDigest: scope.captureQueryProfileDigest,
+      payload: null,
+      mac: `checkpoint-${suffix}`,
+    },
   } as BrokerReadWorkUnit<typeof chainBinding>
   const event = (eventId: string, ordinal: number, page = pageBinding, completeness = page.completenessStatus) => {
     const observationBinding = {
@@ -468,6 +494,7 @@ function runtimeProbeFixture(suffix: string) {
     queryContractVersion: 'v1',
     cursorContractVersion: 'v1',
     responseContractVersion: 'v1',
+    pageSequenceContractVersion: PAGE_SEQUENCE_CONTRACT_VERSION,
   } as ReadCapabilityExecutionContract
   ;(provider as unknown as { capabilityDescriptorDigest: string }).capabilityDescriptorDigest = capabilityContractDigest(capabilityContract)
   const capabilityProfile = {
@@ -538,6 +565,8 @@ function runtimeProbeFixture(suffix: string) {
     responseByteLimit: 1000,
     requestTimeoutMs: 1000,
     planContractVersion: 'v1',
+    pageSequenceContractVersion: PAGE_SEQUENCE_CONTRACT_VERSION,
+    pageSequence: 0,
   } as const
   const requestBinding = {
     requestId: `probe-request-${suffix}`,
@@ -578,6 +607,10 @@ function builtDescriptor(
 ): ReadCapabilityDescriptor<Readonly<Record<string, string>>, null> {
   return Object.freeze({
     ...contract,
+    canonicalizeQuery(input: unknown) {
+      if (canonicalContractJson(input) !== canonicalContractJson(canonicalQuery)) throw new Error('query rejected')
+      return structuredClone(canonicalQuery)
+    },
     parseQuery(input: unknown) {
       if (canonicalContractJson(input) !== canonicalContractJson(canonicalQuery)) throw new Error('query rejected')
       return structuredClone(canonicalQuery)
@@ -585,6 +618,10 @@ function builtDescriptor(
     parseCursor(input: unknown) {
       if (input !== null) throw new Error('cursor rejected')
       return null
+    },
+    pageSequenceFromQuery(input: Readonly<Record<string, string>>) {
+      if (canonicalContractJson(input) !== canonicalContractJson(canonicalQuery)) throw new Error('query rejected')
+      return 0
     },
   })
 }
@@ -673,11 +710,12 @@ function runtimeEgressHarness(
     return [fixture.capabilityContract.ref.capabilityDescriptorDigest, adapter] as const
   }))
   const fixturesByRequestId = new Map(fixtures.map((fixture) => [fixture.requestBinding.requestId, fixture]))
-  const authorities = new Map(fixtures.map((fixture) => [
+  const authorities = new Map<string, CaptureAuthorityTuple | ConnectionProbeAuthorityTuple>(fixtures.map((fixture) => [
     `${fixture.authority.authorityPurpose}:${fixture.authority.provider.providerCode}`,
-    fixture.authority.runtimeAuthority,
+    fixture.authority,
   ]))
   const consumed = options.sharedConsumed ?? new Set<string>()
+  const consumedRuntimeAuthorityFences = new Set<string>()
   const loadedCredentialMaterials: Uint8Array[] = []
   const transportAuthorizations: unknown[] = []
   let afterNextConsume: (() => void) | null = null
@@ -686,6 +724,7 @@ function runtimeEgressHarness(
   const calls = {
     codeRegistry: 0,
     runtimeAuthority: 0,
+    runtimeAuthorityFence: 0,
     controlPlane: 0,
     credentialLoader: 0,
     networkTransport: 0,
@@ -742,7 +781,42 @@ function runtimeEgressHarness(
     runtimeAuthority: {
       async readCurrentRuntimeAuthority(purpose, provider) {
         calls.runtimeAuthority += 1
-        return authorities.get(`${purpose}:${provider.providerCode}`) ?? null
+        return authorities.get(`${purpose}:${provider.providerCode}`)?.runtimeAuthority ?? null
+      },
+      async consumeCurrentRuntimeAuthoritySendFenceAtomically(command) {
+        calls.runtimeAuthorityFence += 1
+        const currentAuthorityTuple = authorities.get(`${command.authorityPurpose}:${command.provider.providerCode}`) ?? null
+        const currentAuthorityTupleDigest = currentAuthorityTuple
+          ? computeAuthorityTupleDigest(currentAuthorityTuple)
+          : null
+        if (!currentAuthorityTuple
+          || currentAuthorityTuple.authorityTupleDigest !== currentAuthorityTupleDigest
+          || currentAuthorityTupleDigest !== command.authorityTupleDigest
+          || canonicalContractJson(currentAuthorityTuple.runtimeAuthority) !== canonicalContractJson(command.expectedRuntimeAuthority)) {
+          throw new Error('fixture_runtime_authority_send_fence_rejected')
+        }
+        if (consumedRuntimeAuthorityFences.has(command.runtimeAuthorityFenceId)) {
+          throw new Error('fixture_runtime_authority_send_fence_replayed')
+        }
+        consumedRuntimeAuthorityFences.add(command.runtimeAuthorityFenceId)
+        return {
+          receiptContractVersion: 'equora-broker-runtime-authority-send-fence-receipt-v2',
+          runtimeAuthorityFenceId: command.runtimeAuthorityFenceId,
+          uniquenessScope: command.uniquenessScope,
+          authorityPurpose: command.authorityPurpose,
+          provider: command.provider,
+          currentRuntimeAuthority: currentAuthorityTuple.runtimeAuthority,
+          currentAuthorityTuple,
+          currentAuthorityTupleDigest,
+          authorityTupleDigest: command.authorityTupleDigest,
+          requestAuthorityId: command.requestAuthorityId,
+          permitConsumptionId: command.permitConsumptionId,
+          canonicalUnsignedRequestDigest: command.canonicalUnsignedRequestDigest,
+          capabilityDescriptorDigest: command.capabilityDescriptorDigest,
+          sendDeadlineAt: command.sendDeadlineAt,
+          validatedAtEpochMs: command.trustedNowEpochMs,
+          runtimeAuthorityTransactionId: `runtime-authority-tx-${command.runtimeAuthorityFenceId}`,
+        } as never
       },
     },
     controlPlane: {
@@ -775,6 +849,7 @@ function runtimeEgressHarness(
     },
     networkTransport: {
       async executeCentralRead({ plan, sendAuthorization }) {
+        await consumeBrokerSendAuthorizationForTransport(sendAuthorization, plan)
         calls.networkTransport += 1
         transportAuthorizations.push(sendAuthorization)
         const fixture = fixturesByRequestId.get(plan.requestBinding.requestId)
@@ -803,6 +878,25 @@ function runtimeEgressHarness(
     },
     revokeRuntime(purpose: BrokerAuthorityPurpose, providerCode: string) {
       authorities.delete(`${purpose}:${providerCode}`)
+    },
+    replaceRuntimeAuthority(
+      purpose: BrokerAuthorityPurpose,
+      providerCode: string,
+      authority: CaptureAuthorityTuple['runtimeAuthority'] | ConnectionProbeAuthorityTuple['runtimeAuthority'],
+    ) {
+      const key = `${purpose}:${providerCode}`
+      const current = authorities.get(key)
+      if (!current) throw new Error('fixture_current_authority_tuple_missing')
+      const replacement = {
+        ...current,
+        authorityTupleDigest: '',
+        runtimeAuthority: authority,
+      } as CaptureAuthorityTuple | ConnectionProbeAuthorityTuple
+      ;(replacement as unknown as { authorityTupleDigest: string }).authorityTupleDigest = authorityTupleDigest(replacement)
+      authorities.set(key, replacement)
+    },
+    replaceCurrentAuthorityTuple(authority: CaptureAuthorityTuple | ConnectionProbeAuthorityTuple) {
+      authorities.set(`${authority.authorityPurpose}:${authority.provider.providerCode}`, authority)
     },
     removeDescriptor(descriptorDigest: string) {
       descriptors.delete(descriptorDigest)
@@ -998,18 +1092,27 @@ const EVIDENCE_PATH = 'docs/gates/EQUORA_v57.61.0_MULTI_BROKER_PARITY_EVIDENCE.j
 const REQUIRED_NORMATIVE_PATHS = [
   '.github/workflows/ci.yml',
   'docs/architecture/EQUORA_v57.61.0_PROVIDER_NEUTRAL_MULTI_BROKER_ARCHITECTURE.md',
+  'lib/server/broker-code-registry.ts',
   'lib/server/broker-core-contracts.ts',
+  'lib/server/mexc-central-network-transport.ts',
+  'lib/server/mexc-request-contract.ts',
+  'lib/server/mexc-transport.ts',
+  'lib/server/providers/mexc-readonly-adapter.ts',
   'package-lock.json',
   'package.json',
   'scripts/release-check.mjs',
   'scripts/validate-multibroker-parity-manifest.mjs',
   'tests/multibroker-core-contracts.test.ts',
+  'tests/mexc-central-network-transport.test.ts',
+  'tests/mexc-readonly-adapter.test.ts',
   'tsconfig.json',
   'vitest.config.mts',
 ] as const
 const REQUIRED_PARITY_PATHS = [
   'tests/application-contracts.test.ts',
   'tests/mexc-egress-boundary.test.ts',
+  'tests/mexc-central-network-transport.test.ts',
+  'tests/mexc-readonly-adapter.test.ts',
   'tests/mexc-readonly-transport.test.ts',
   'tests/mexc-readonly-probe.test.ts',
   'tests/mexc-pagination.test.ts',
@@ -1029,9 +1132,17 @@ const REQUIRED_PARITY_PATHS = [
 const REQUIRED_CANDIDATE_SCOPE = [
   EVIDENCE_PATH,
   MANIFEST_PATH,
+  'lib/server/broker-code-registry.ts',
   'lib/server/broker-core-contracts.ts',
+  'lib/server/mexc-central-network-transport.ts',
+  'lib/server/mexc-request-contract.ts',
+  'lib/server/mexc-transport.ts',
+  'lib/server/providers/mexc-readonly-adapter.ts',
   'scripts/validate-multibroker-parity-manifest.mjs',
-  'tests/mexc-capture-orchestrator.test.ts',
+  'tests/application-contracts.test.ts',
+  'tests/mexc-central-network-transport.test.ts',
+  'tests/mexc-egress-boundary.test.ts',
+  'tests/mexc-readonly-adapter.test.ts',
   'tests/multibroker-core-contracts.test.ts',
 ] as const
 
@@ -1847,6 +1958,7 @@ function createValidatorFixture(): Fixture {
     outputBytes: number,
     outputSha256: string,
     resultCounts?: Record<string, number>,
+    outputTranscriptPolicy = 'canonical_gate_transcript_v1',
   ) => ({
     attempt_id: attemptId,
     command,
@@ -1855,7 +1967,7 @@ function createValidatorFixture(): Fixture {
     exit_code: 0,
     result,
     ...(resultCounts ? { result_counts: resultCounts } : {}),
-    output_transcript_policy: 'canonical_gate_transcript_v1',
+    output_transcript_policy: outputTranscriptPolicy,
     stdout_stderr_utf8_bytes: outputBytes,
     stdout_stderr_sha256: outputSha256,
   })
@@ -1863,31 +1975,47 @@ function createValidatorFixture(): Fixture {
   const evidence: Record<string, unknown> = {
     schema_version: 'equora_multi_broker_parity_evidence_v1',
     evidence_format_version: 1,
-    phase: 'MB0',
+    phase: 'MB1',
+    generated_at_utc: '2026-08-18T00:00:00.000Z',
     toolchain: {
       node: 'v24.18.0',
       npm: '11.16.0',
       git: '2.53.0.windows.2',
       operating_system: 'Microsoft Windows NT 10.0.26100.0',
-      docker_client: '29.6.2',
+      docker_client: '29.7.2',
       docker_client_observation: 'fixture observation',
       postgres_client: 'not_available_on_path',
-      postgres_image: 'not_invoked_in_mb0',
+      postgres_image: 'not_invoked_in_mb1',
       ci_node: '24.18.0',
     },
+    ci_evidence: {
+      evidence_scope: 'historical_pre_mb0_ci',
+      commit: '3d88f47c339fa990734308cf9e923d23d4a9cc4f',
+    },
     expected_baseline_counts: {
+      evidence_scope: 'historical_pre_mb0_repository_baseline',
+      commit: '3d88f47c339fa990734308cf9e923d23d4a9cc4f',
       test_files: 23,
       tests: 380,
       audit_all_vulnerabilities: 0,
       audit_production_vulnerabilities: 0,
     },
-    candidate_counts: {
+    current_mb1_baseline_evidence: {
+      evidence_scope: 'integrated_mb0_tree_inherited_by_mb1',
+      commit: '19817a96dff114c3bb7a2173d1774880e8e00fbc',
+      tree: '8df26d7dd4ace9d755640a34381af191b85b58d5',
       test_files: 24,
       tests: 398,
-      new_contract_test_files: 1,
-      new_contract_tests: 18,
-      audit_all_vulnerabilities: 0,
-      audit_production_vulnerabilities: 0,
+      current_ci_status: 'not_requeried_for_mb1',
+    },
+    candidate_counts: {
+      test_files: 26,
+      tests: 433,
+      new_contract_test_files: 2,
+      new_contract_tests: 30,
+      audit_all_vulnerabilities: null,
+      audit_production_vulnerabilities: null,
+      audit_status: 'not_run_no_external_advisory_api_authorization',
     },
     gate_transcript_policies: {
       canonical_gate_transcript_v1: {
@@ -1897,6 +2025,17 @@ function createValidatorFixture(): Fixture {
           'Vitest Start at line replaced by:    Start at <redacted>',
           'Vitest Duration line replaced by:    Duration <redacted>',
           'Next.js Compiled successfully duration suffix replaced by: in <redacted>',
+        ],
+        non_redacted_contract: 'All other stdout/stderr text, commands, exit codes and result counts remain unchanged; the recorded byte count and SHA-256 bind the canonical transcript rather than the volatile physical terminal transcript.',
+      },
+      canonical_gate_transcript_v2: {
+        encoding: 'UTF-8',
+        line_endings: 'LF',
+        redactions: [
+          'Vitest Start at line replaced by:    Start at <redacted>',
+          'Vitest Duration line replaced by:    Duration <redacted>',
+          'Next.js Compiled successfully duration suffix replaced by: in <redacted>',
+          'Optional npm CLI update-notice block removed in full, whether present or absent',
         ],
         non_redacted_contract: 'All other stdout/stderr text, commands, exit codes and result counts remain unchanged; the recorded byte count and SHA-256 bind the canonical transcript rather than the volatile physical terminal transcript.',
       },
@@ -2062,6 +2201,104 @@ function createValidatorFixture(): Fixture {
       canonicalPinnedAttempt('mb0-remediation10-closure-manifest-001', 'node scripts/validate-multibroker-parity-manifest.mjs --allow-pending-manifest-attempt', 'pass_bootstrap_before_append_only_evidence_rehash', 91, 'db11f17592857b5e169cc446fb5da39e95903e3871d78dd7dd0afe1742792207', {
         manifest_entries_passed: 28, manifest_entries_total: 28,
       }),
+      canonicalPinnedAttempt('mb1-closure-targeted-001', 'npm.cmd test -- tests/application-contracts.test.ts tests/multibroker-core-contracts.test.ts tests/mexc-readonly-transport.test.ts tests/mexc-readonly-probe.test.ts tests/mexc-egress-boundary.test.ts tests/mexc-oracles.test.ts tests/mexc-pagination.test.ts tests/mexc-capture-orchestrator.test.ts tests/mexc-capture-runtime.test.ts tests/mexc-readonly-adapter.test.ts tests/mexc-central-network-transport.test.ts', 'pass', 845, 'd7ebd297de57e87e6229c604f3a36f2ca9647f593ce8f2ef4cbaabe6d578bc54', {
+        test_files_passed: 11, test_files_total: 11, tests_passed: 236, tests_total: 236,
+      }),
+      canonicalPinnedAttempt('mb1-closure-typecheck-001', 'npm.cmd run typecheck', 'pass', 272, '859c6371e48ae9c9a5dd396943de7eb97d62b71b9512a68dd3736367eb258b4f'),
+      canonicalPinnedAttempt('mb1-closure-full-001', 'npm.cmd test', 'pass', 448, '2df6737a22add9c630933e63be9e9a4e3a88ad740fff96618d416f4b8899cbfa', {
+        test_files_passed: 26, test_files_total: 26, tests_passed: 425, tests_total: 425,
+      }),
+      canonicalPinnedAttempt('mb1-closure-release-001', 'npm.cmd run release:check', 'pass', 358, 'a838c5640bb362b0f3d78d39102f2687e8020cb3a95dab0c32e6f25499cf1ae4'),
+      canonicalPinnedAttempt('mb1-closure-build-001', 'npm.cmd run build', 'pass', 2392, 'bc620124e8486cceb03a955a8be8662c0f9c7c0d3f6d1718037751bab0375358', {
+        static_pages_generated: 3, static_pages_total: 3,
+      }),
+      canonicalPinnedAttempt('mb1-closure-manifest-001', 'node scripts/validate-multibroker-parity-manifest.mjs --allow-pending-manifest-attempt', 'pass_bootstrap_before_append_only_evidence_rehash', 91, '2daa5f2087db82b4bcd365d23672173731fe5ad834b0bd4482105481b8b5e59e', {
+        manifest_entries_passed: 35, manifest_entries_total: 35,
+      }),
+      canonicalPinnedAttempt('mb1-remediation2-closure-targeted-001', 'npm.cmd test -- tests/application-contracts.test.ts tests/multibroker-core-contracts.test.ts tests/mexc-readonly-transport.test.ts tests/mexc-readonly-probe.test.ts tests/mexc-egress-boundary.test.ts tests/mexc-oracles.test.ts tests/mexc-pagination.test.ts tests/mexc-capture-orchestrator.test.ts tests/mexc-capture-runtime.test.ts tests/mexc-readonly-adapter.test.ts tests/mexc-central-network-transport.test.ts', 'pass', 845, '1b82bc278d34150d65c6b4b7152832e13210da66c2531fb3190226f048f0f8cc', {
+        test_files_passed: 11, test_files_total: 11, tests_passed: 238, tests_total: 238,
+      }),
+      canonicalPinnedAttempt('mb1-remediation2-closure-typecheck-001', 'npm.cmd run typecheck', 'pass', 272, '859c6371e48ae9c9a5dd396943de7eb97d62b71b9512a68dd3736367eb258b4f'),
+      canonicalPinnedAttempt('mb1-remediation2-closure-full-001', 'npm.cmd test', 'pass', 448, '3bb005e10cb8dcc806ea5b0425a4b9b2a62afca4101e0003b818b8e8a5c38ce2', {
+        test_files_passed: 26, test_files_total: 26, tests_passed: 427, tests_total: 427,
+      }),
+      canonicalPinnedAttempt('mb1-remediation2-closure-release-001', 'npm.cmd run release:check', 'pass', 358, 'a838c5640bb362b0f3d78d39102f2687e8020cb3a95dab0c32e6f25499cf1ae4'),
+      canonicalPinnedAttempt('mb1-remediation2-closure-build-001', 'npm.cmd run build', 'pass', 2392, 'bc620124e8486cceb03a955a8be8662c0f9c7c0d3f6d1718037751bab0375358', {
+        static_pages_generated: 3, static_pages_total: 3,
+      }),
+      canonicalPinnedAttempt('mb1-remediation2-closure-manifest-001', 'node scripts/validate-multibroker-parity-manifest.mjs --allow-pending-manifest-attempt', 'pass_bootstrap_before_append_only_evidence_rehash', 91, '2daa5f2087db82b4bcd365d23672173731fe5ad834b0bd4482105481b8b5e59e', {
+        manifest_entries_passed: 35, manifest_entries_total: 35,
+      }),
+      canonicalPinnedAttempt('mb1-remediation3-closure-targeted-001', 'npm.cmd test -- tests/application-contracts.test.ts tests/multibroker-core-contracts.test.ts tests/mexc-readonly-transport.test.ts tests/mexc-readonly-probe.test.ts tests/mexc-egress-boundary.test.ts tests/mexc-oracles.test.ts tests/mexc-pagination.test.ts tests/mexc-capture-orchestrator.test.ts tests/mexc-capture-runtime.test.ts tests/mexc-readonly-adapter.test.ts tests/mexc-central-network-transport.test.ts', 'pass', 845, '1b82bc278d34150d65c6b4b7152832e13210da66c2531fb3190226f048f0f8cc', {
+        test_files_passed: 11, test_files_total: 11, tests_passed: 238, tests_total: 238,
+      }),
+      canonicalPinnedAttempt('mb1-remediation3-closure-typecheck-001', 'npm.cmd run typecheck', 'pass', 272, '859c6371e48ae9c9a5dd396943de7eb97d62b71b9512a68dd3736367eb258b4f'),
+      canonicalPinnedAttempt('mb1-remediation3-closure-full-001', 'npm.cmd test', 'pass', 448, '3bb005e10cb8dcc806ea5b0425a4b9b2a62afca4101e0003b818b8e8a5c38ce2', {
+        test_files_passed: 26, test_files_total: 26, tests_passed: 427, tests_total: 427,
+      }),
+      canonicalPinnedAttempt('mb1-remediation3-closure-release-001', 'npm.cmd run release:check', 'pass', 358, 'a838c5640bb362b0f3d78d39102f2687e8020cb3a95dab0c32e6f25499cf1ae4'),
+      canonicalPinnedAttempt('mb1-remediation3-closure-build-001', 'npm.cmd run build', 'pass', 2392, 'bc620124e8486cceb03a955a8be8662c0f9c7c0d3f6d1718037751bab0375358', {
+        static_pages_generated: 3, static_pages_total: 3,
+      }),
+      canonicalPinnedAttempt('mb1-remediation3-closure-manifest-001', 'node scripts/validate-multibroker-parity-manifest.mjs --allow-pending-manifest-attempt', 'pass_bootstrap_before_append_only_evidence_rehash', 91, '2daa5f2087db82b4bcd365d23672173731fe5ad834b0bd4482105481b8b5e59e', {
+        manifest_entries_passed: 35, manifest_entries_total: 35,
+      }),
+      canonicalPinnedAttempt('mb1-remediation4-closure-targeted-001', 'npm.cmd test -- tests/application-contracts.test.ts tests/multibroker-core-contracts.test.ts tests/mexc-readonly-transport.test.ts tests/mexc-readonly-probe.test.ts tests/mexc-egress-boundary.test.ts tests/mexc-oracles.test.ts tests/mexc-pagination.test.ts tests/mexc-capture-orchestrator.test.ts tests/mexc-capture-runtime.test.ts tests/mexc-readonly-adapter.test.ts tests/mexc-central-network-transport.test.ts', 'pass', 845, '5087e338bda0fb3c74658f0a9ae3ed30754877891a61255320727c2c5cdcf07d', {
+        test_files_passed: 11, test_files_total: 11, tests_passed: 240, tests_total: 240,
+      }),
+      canonicalPinnedAttempt('mb1-remediation4-closure-typecheck-001', 'npm.cmd run typecheck', 'pass', 272, '859c6371e48ae9c9a5dd396943de7eb97d62b71b9512a68dd3736367eb258b4f'),
+      canonicalPinnedAttempt('mb1-remediation4-closure-full-001', 'npm.cmd test', 'pass', 448, 'cb030344ec59dcf3f4a42ad107e7acaefbcd0277848822426d9da9303936ed11', {
+        test_files_passed: 26, test_files_total: 26, tests_passed: 429, tests_total: 429,
+      }),
+      canonicalPinnedAttempt('mb1-remediation4-closure-release-001', 'npm.cmd run release:check', 'pass', 358, 'a838c5640bb362b0f3d78d39102f2687e8020cb3a95dab0c32e6f25499cf1ae4'),
+      canonicalPinnedAttempt('mb1-remediation4-closure-build-001', 'npm.cmd run build', 'pass', 2392, 'bc620124e8486cceb03a955a8be8662c0f9c7c0d3f6d1718037751bab0375358', {
+        static_pages_generated: 3, static_pages_total: 3,
+      }),
+      canonicalPinnedAttempt('mb1-remediation4-closure-manifest-001', 'node scripts/validate-multibroker-parity-manifest.mjs --allow-pending-manifest-attempt', 'pass_bootstrap_before_append_only_evidence_rehash', 91, '2daa5f2087db82b4bcd365d23672173731fe5ad834b0bd4482105481b8b5e59e', {
+        manifest_entries_passed: 35, manifest_entries_total: 35,
+      }),
+      canonicalPinnedAttempt('mb1-remediation5-closure-targeted-001', 'npm.cmd test -- tests/application-contracts.test.ts tests/multibroker-core-contracts.test.ts tests/mexc-readonly-transport.test.ts tests/mexc-readonly-probe.test.ts tests/mexc-egress-boundary.test.ts tests/mexc-oracles.test.ts tests/mexc-pagination.test.ts tests/mexc-capture-orchestrator.test.ts tests/mexc-capture-runtime.test.ts tests/mexc-readonly-adapter.test.ts tests/mexc-central-network-transport.test.ts', 'pass', 636, 'f0b459a8682328c7fd9efa59fc21a1aa2defa9500a7c4a2d283ff7f899af63a7', {
+        test_files_passed: 11, test_files_total: 11, tests_passed: 240, tests_total: 240,
+      }, 'canonical_gate_transcript_v2'),
+      canonicalPinnedAttempt('mb1-remediation5-closure-typecheck-001', 'npm.cmd run typecheck', 'pass', 63, '8fdcec4087966dd38af8fcd84fa03e08088dd4b0a599f1f3d5dc87a931ea9e17', undefined, 'canonical_gate_transcript_v2'),
+      canonicalPinnedAttempt('mb1-remediation5-closure-full-001', 'npm.cmd test', 'pass', 239, '156ea5b0586766b3d6eb53f58756a27d1073efad5603739072a685c8c3acce52', {
+        test_files_passed: 26, test_files_total: 26, tests_passed: 429, tests_total: 429,
+      }, 'canonical_gate_transcript_v2'),
+      canonicalPinnedAttempt('mb1-remediation5-closure-release-001', 'npm.cmd run release:check', 'pass', 149, 'bd84e5259443e96ebff13807ed3ce463e1c86252d9167fdbd9850a86d911969a', undefined, 'canonical_gate_transcript_v2'),
+      canonicalPinnedAttempt('mb1-remediation5-closure-build-001', 'npm.cmd run build', 'pass', 2183, '70dc6e49ebfb502b8ce8e8f0fcd3895ec30dab464d4f43a1fc49e0636bf3825c', {
+        static_pages_generated: 3, static_pages_total: 3,
+      }, 'canonical_gate_transcript_v2'),
+      canonicalPinnedAttempt('mb1-remediation5-closure-manifest-001', 'node scripts/validate-multibroker-parity-manifest.mjs --allow-pending-manifest-attempt', 'pass_bootstrap_before_append_only_evidence_rehash', 91, '2daa5f2087db82b4bcd365d23672173731fe5ad834b0bd4482105481b8b5e59e', {
+        manifest_entries_passed: 35, manifest_entries_total: 35,
+      }, 'canonical_gate_transcript_v2'),
+      canonicalPinnedAttempt('mb1-remediation6-closure-targeted-001', 'npm.cmd test -- tests/application-contracts.test.ts tests/multibroker-core-contracts.test.ts tests/mexc-readonly-transport.test.ts tests/mexc-readonly-probe.test.ts tests/mexc-egress-boundary.test.ts tests/mexc-oracles.test.ts tests/mexc-pagination.test.ts tests/mexc-capture-orchestrator.test.ts tests/mexc-capture-runtime.test.ts tests/mexc-readonly-adapter.test.ts tests/mexc-central-network-transport.test.ts', 'pass', 636, 'f0b459a8682328c7fd9efa59fc21a1aa2defa9500a7c4a2d283ff7f899af63a7', {
+        test_files_passed: 11, test_files_total: 11, tests_passed: 240, tests_total: 240,
+      }, 'canonical_gate_transcript_v2'),
+      canonicalPinnedAttempt('mb1-remediation6-closure-typecheck-001', 'npm.cmd run typecheck', 'pass', 63, '8fdcec4087966dd38af8fcd84fa03e08088dd4b0a599f1f3d5dc87a931ea9e17', undefined, 'canonical_gate_transcript_v2'),
+      canonicalPinnedAttempt('mb1-remediation6-closure-full-001', 'npm.cmd test', 'pass', 239, '156ea5b0586766b3d6eb53f58756a27d1073efad5603739072a685c8c3acce52', {
+        test_files_passed: 26, test_files_total: 26, tests_passed: 429, tests_total: 429,
+      }, 'canonical_gate_transcript_v2'),
+      canonicalPinnedAttempt('mb1-remediation6-closure-release-001', 'npm.cmd run release:check', 'pass', 149, 'bd84e5259443e96ebff13807ed3ce463e1c86252d9167fdbd9850a86d911969a', undefined, 'canonical_gate_transcript_v2'),
+      canonicalPinnedAttempt('mb1-remediation6-closure-build-001', 'npm.cmd run build', 'pass', 2183, '70dc6e49ebfb502b8ce8e8f0fcd3895ec30dab464d4f43a1fc49e0636bf3825c', {
+        static_pages_generated: 3, static_pages_total: 3,
+      }, 'canonical_gate_transcript_v2'),
+      canonicalPinnedAttempt('mb1-remediation6-closure-manifest-001', 'node scripts/validate-multibroker-parity-manifest.mjs --allow-pending-manifest-attempt', 'pass_bootstrap_before_append_only_evidence_rehash', 91, '2daa5f2087db82b4bcd365d23672173731fe5ad834b0bd4482105481b8b5e59e', {
+        manifest_entries_passed: 35, manifest_entries_total: 35,
+      }, 'canonical_gate_transcript_v2'),
+      canonicalPinnedAttempt('mb1-remediation7-closure-targeted-001', 'npm.cmd test -- tests/application-contracts.test.ts tests/multibroker-core-contracts.test.ts tests/mexc-readonly-transport.test.ts tests/mexc-readonly-probe.test.ts tests/mexc-egress-boundary.test.ts tests/mexc-oracles.test.ts tests/mexc-pagination.test.ts tests/mexc-capture-orchestrator.test.ts tests/mexc-capture-runtime.test.ts tests/mexc-readonly-adapter.test.ts tests/mexc-central-network-transport.test.ts', 'pass', 636, 'bad1a49df924d41de9a82912a86ed3f108423d6af71245cf928fe38028e91776', {
+        test_files_passed: 11, test_files_total: 11, tests_passed: 244, tests_total: 244,
+      }, 'canonical_gate_transcript_v2'),
+      canonicalPinnedAttempt('mb1-remediation7-closure-typecheck-001', 'npm.cmd run typecheck', 'pass', 63, '8fdcec4087966dd38af8fcd84fa03e08088dd4b0a599f1f3d5dc87a931ea9e17', undefined, 'canonical_gate_transcript_v2'),
+      canonicalPinnedAttempt('mb1-remediation7-closure-full-001', 'npm.cmd test', 'pass', 239, '6f6d65ddf6ca38c65d758b6a596ed98d3c1bcc6a53106d40c0f5a2e2a03750c1', {
+        test_files_passed: 26, test_files_total: 26, tests_passed: 433, tests_total: 433,
+      }, 'canonical_gate_transcript_v2'),
+      canonicalPinnedAttempt('mb1-remediation7-closure-release-001', 'npm.cmd run release:check', 'pass', 149, 'bd84e5259443e96ebff13807ed3ce463e1c86252d9167fdbd9850a86d911969a', undefined, 'canonical_gate_transcript_v2'),
+      canonicalPinnedAttempt('mb1-remediation7-closure-build-001', 'npm.cmd run build', 'pass', 2183, '70dc6e49ebfb502b8ce8e8f0fcd3895ec30dab464d4f43a1fc49e0636bf3825c', {
+        static_pages_generated: 3, static_pages_total: 3,
+      }, 'canonical_gate_transcript_v2'),
+      canonicalPinnedAttempt('mb1-remediation7-closure-manifest-001', 'node scripts/validate-multibroker-parity-manifest.mjs --allow-pending-manifest-attempt', 'pass_bootstrap_before_append_only_evidence_rehash', 91, '2daa5f2087db82b4bcd365d23672173731fe5ad834b0bd4482105481b8b5e59e', {
+        manifest_entries_passed: 35, manifest_entries_total: 35,
+      }, 'canonical_gate_transcript_v2'),
     ],
     canonical_hash_policy: {
       manifest_entry_prefix: 'lf:',
@@ -2111,7 +2348,7 @@ async function loadValidator() {
 }
 
 describe('provider-neutral MB0 core contract', () => {
-  it('keeps the provider-neutral server-bound contract and central egress boundary unwired from product runtime', () => {
+  it('keeps the provider-neutral boundary free of new product control-flow invocation or deployment activation', () => {
     expect(importSpecifiers()).toEqual(['server-only', 'node:crypto', 'node:util/types'])
     expect(networkFindings(CONTRACT_SOURCE, CONTRACT_PATH)).toEqual([])
     expect(brokerRuntimeRootFindings(CONTRACT_SOURCE, CONTRACT_PATH)).toEqual([])
@@ -2135,6 +2372,8 @@ describe('provider-neutral MB0 core contract', () => {
       'responseByteLimit',
       'requestTimeoutMs',
       'planContractVersion',
+      'pageSequenceContractVersion',
+      'pageSequence',
       'canonicalUnsignedRequestDigest',
     ])
     expect(typeLiteralMemberNames('AuthorizedBrokerReadPermit')).toEqual([
@@ -2535,7 +2774,7 @@ describe('provider-neutral MB0 core contract', () => {
     const capture = structuredClone(runtimeCaptureFixture('known-vector').authority)
     ;(capture.captureBudget as { requestDeadlineAt: string }).requestDeadlineAt = '2030-01-01T00:00:00.000Z'
     ;(capture as { authorityTupleDigest: string }).authorityTupleDigest = ''
-    expect(computeAuthorityTupleDigest(capture)).toBe('a724200e8b91b101b6008712a32e8aa920b9bc48eb27a01f322d173266e778e7')
+    expect(computeAuthorityTupleDigest(capture)).toBe('5e9ee6c39a4b90344c42cc2401bf6fb1386263e5f75130770767fc9a4e0a4f6b')
 
     const probe = structuredClone(runtimeProbeFixture('known-vector').authority)
     ;(probe.probeBudget as { absoluteDeadlineAt: string }).absoluteDeadlineAt = '2030-01-01T00:00:00.000Z'
@@ -2779,6 +3018,13 @@ describe('provider-neutral MB0 core contract', () => {
     expect(() => validateCaptureWirePage({ execution: consumedExecution, wireResponse, pageBinding: invalidPageSequence })).toThrow(
       /capture_page_sequence_invalid/,
     )
+    const planMismatchedPageSequence = structuredClone(a.pageBinding)
+    ;(planMismatchedPageSequence as { pageSequence: number }).pageSequence = 1
+    expect(() => validateCaptureWirePage({
+      execution: consumedExecution,
+      wireResponse,
+      pageBinding: planMismatchedPageSequence,
+    })).toThrow(/capture_wire_page_plan_sequence_mismatch/)
     const overBudgetPageSequence = structuredClone(a.pageBinding)
     ;(overBudgetPageSequence as { pageSequence: number }).pageSequence = 10
     expect(() => validateCaptureWirePage({ execution: consumedExecution, wireResponse, pageBinding: overBudgetPageSequence })).toThrow(
@@ -2882,6 +3128,13 @@ describe('provider-neutral MB0 core contract', () => {
     expect(() => validateProviderPageTransition({ workUnit: wrongCheckpointContract, wirePage: wireSnapshot, inspectedPage: transitionInspectedPage })).toThrow(
       /page_transition_work_unit_semantics_invalid/,
     )
+    const wrongCheckpointProfile = structuredClone(a.workUnit)
+    ;(wrongCheckpointProfile.checkpoint as { captureQueryProfileDigest: string }).captureQueryProfileDigest = 'f'.repeat(64)
+    expect(() => validateProviderPageTransition({
+      workUnit: wrongCheckpointProfile,
+      wirePage: wireSnapshot,
+      inspectedPage: transitionInspectedPage,
+    })).toThrow(/page_transition_work_unit_semantics_invalid/)
     const noncanonicalPageTimeCase = await inspectFreshCapturePage('noncanonical-page-time', (value) => ({
       ...value,
       pageBinding: { ...(value.pageBinding as Record<string, unknown>), observedAt: '2099-08-14T21:00:01Z' },
@@ -2901,6 +3154,7 @@ describe('provider-neutral MB0 core contract', () => {
     expect(egressHarness.calls).toEqual({
       codeRegistry: 17,
       runtimeAuthority: 5,
+      runtimeAuthorityFence: 2,
       controlPlane: 2,
       credentialLoader: 2,
       networkTransport: 2,
@@ -2931,7 +3185,12 @@ describe('provider-neutral MB0 core contract', () => {
       ...envelopeWithoutDigest,
       rawObservationDigest: sha256(canonicalContractJson(envelopeWithoutDigest)),
     }
-    const nextCheckpoint = { checkpointContractVersion: 'v1', payload: null, mac: '' }
+    const nextCheckpoint = {
+      checkpointContractVersion: 'v1',
+      captureQueryProfileDigest: transitionSnapshot.workUnit.scope.captureQueryProfileDigest,
+      payload: null,
+      mac: '',
+    }
     const nextCheckpointVerification = computeCheckpointMacVerification(nextCheckpoint, transitionSnapshot)
     nextCheckpoint.mac = createHmac('sha256', 'fixture-integrity-key')
       .update(nextCheckpointVerification.canonicalMacInput, 'utf8')
@@ -3024,6 +3283,16 @@ describe('provider-neutral MB0 core contract', () => {
         ...validCommit.checkpointTransition,
         previousCheckpoint: { ...validCommit.checkpointTransition.previousCheckpoint, mac: 'foreign-checkpoint' },
         previousCheckpointMac: 'foreign-checkpoint',
+      },
+    }, transitionSnapshot)).toThrow(/checkpoint_transition_contract_or_mac_mismatch/)
+    expect(() => validateCommit({
+      ...validCommit,
+      checkpointTransition: {
+        ...validCommit.checkpointTransition,
+        nextCheckpoint: {
+          ...validCommit.checkpointTransition.nextCheckpoint,
+          captureQueryProfileDigest: 'f'.repeat(64),
+        },
       },
     }, transitionSnapshot)).toThrow(/checkpoint_transition_contract_or_mac_mismatch/)
     expect(() => validateCommit({
@@ -3143,13 +3412,80 @@ describe('provider-neutral MB0 core contract', () => {
     expect([...successfulHarness.loadedCredentialMaterials[0]]).toEqual([0, 0, 0])
     expect(successfulHarness.transportAuthorizations).toHaveLength(1)
     expect(successfulHarness.transportAuthorizations[0]).toEqual(expect.objectContaining({
-      sendAuthorizationContractVersion: 'equora-broker-send-authorization-v1',
+      sendAuthorizationContractVersion: 'equora-broker-send-authorization-v2',
       authorityPurpose: 'capture',
+      authorityTupleDigest: successful.authority.authorityTupleDigest,
       requestAuthorityId: successful.authorizationBinding.requestAuthorityId,
       permitConsumptionId: computeBrokerPermitConsumptionId('capture', successful.authorizationBinding.requestAuthorityId),
+      canonicalUnsignedRequestDigest: successful.requestBinding.canonicalUnsignedRequestDigest,
+      capabilityDescriptorDigest: successful.authority.provider.capabilityDescriptorDigest,
+      runtimeAuthorityRefDigest: sha256(canonicalContractJson(successful.authority.runtimeAuthority)),
+      runtimeAuthorityFenceId: expect.stringMatching(/^[a-f0-9]{64}$/),
       sendDeadlineAt: successful.permit.sendDeadlineAt,
     }))
     expect(Object.isFrozen(successfulHarness.transportAuthorizations[0])).toBe(true)
+
+    const revokedDuringCredential = runtimeCaptureFixture('revoked-during-credential')
+    const revokedDuringCredentialHarness = runtimeEgressHarness([revokedDuringCredential])
+    revokedDuringCredentialHarness.afterNextCredentialMaterialLoad(() => {
+      revokedDuringCredentialHarness.revokeRuntime('capture', revokedDuringCredential.authority.provider.providerCode)
+    })
+    await expect(revokedDuringCredentialHarness.egress.executeAuthorizedRead({
+      authorityPurpose: 'capture',
+      capabilityContract: revokedDuringCredential.capabilityContract,
+      requestBinding: revokedDuringCredential.requestBinding,
+      authorizationBinding: revokedDuringCredential.authorizationBinding,
+      plan: revokedDuringCredential.plan,
+      permit: revokedDuringCredential.permit,
+    })).rejects.toThrow(/fixture_runtime_authority_send_fence_rejected/)
+    expect(revokedDuringCredentialHarness.calls.credentialLoader).toBe(1)
+    expect(revokedDuringCredentialHarness.calls.runtimeAuthorityFence).toBe(1)
+    expect(revokedDuringCredentialHarness.calls.networkTransport).toBe(0)
+    expect([...revokedDuringCredentialHarness.loadedCredentialMaterials[0]]).toEqual([0, 0, 0])
+
+    const runtimeEpochChangedDuringCredential = runtimeCaptureFixture('runtime-epoch-changed-during-credential')
+    const runtimeEpochChangedHarness = runtimeEgressHarness([runtimeEpochChangedDuringCredential])
+    runtimeEpochChangedHarness.afterNextCredentialMaterialLoad(() => {
+      runtimeEpochChangedHarness.replaceRuntimeAuthority(
+        'capture',
+        runtimeEpochChangedDuringCredential.authority.provider.providerCode,
+        {
+          ...runtimeEpochChangedDuringCredential.authority.runtimeAuthority,
+          runtimeAuthorityEpoch: runtimeEpochChangedDuringCredential.authority.runtimeAuthority.runtimeAuthorityEpoch + 1,
+        },
+      )
+    })
+    await expect(runtimeEpochChangedHarness.egress.executeAuthorizedRead({
+      authorityPurpose: 'capture',
+      capabilityContract: runtimeEpochChangedDuringCredential.capabilityContract,
+      requestBinding: runtimeEpochChangedDuringCredential.requestBinding,
+      authorizationBinding: runtimeEpochChangedDuringCredential.authorizationBinding,
+      plan: runtimeEpochChangedDuringCredential.plan,
+      permit: runtimeEpochChangedDuringCredential.permit,
+    })).rejects.toThrow(/fixture_runtime_authority_send_fence_rejected/)
+    expect(runtimeEpochChangedHarness.calls.runtimeAuthorityFence).toBe(1)
+    expect(runtimeEpochChangedHarness.calls.networkTransport).toBe(0)
+
+    const probeRevokedDuringCredential = runtimeProbeFixture('revoked-during-credential')
+    const probeRevokedHarness = runtimeEgressHarness([probeRevokedDuringCredential])
+    probeRevokedHarness.afterNextCredentialMaterialLoad(() => {
+      probeRevokedHarness.revokeRuntime(
+        'connection_probe',
+        probeRevokedDuringCredential.authority.provider.providerCode,
+      )
+    })
+    await expect(probeRevokedHarness.egress.executeAuthorizedRead({
+      authorityPurpose: 'connection_probe',
+      capabilityContract: probeRevokedDuringCredential.capabilityContract,
+      requestBinding: probeRevokedDuringCredential.requestBinding,
+      authorizationBinding: probeRevokedDuringCredential.authorizationBinding,
+      plan: probeRevokedDuringCredential.plan,
+      permit: probeRevokedDuringCredential.permit,
+    })).rejects.toThrow(/fixture_runtime_authority_send_fence_rejected/)
+    expect(probeRevokedHarness.calls.credentialLoader).toBe(1)
+    expect(probeRevokedHarness.calls.runtimeAuthorityFence).toBe(1)
+    expect(probeRevokedHarness.calls.networkTransport).toBe(0)
+    expect([...probeRevokedHarness.loadedCredentialMaterials[0]]).toEqual([0, 0, 0])
 
     const slowCredential = runtimeCaptureFixture('slow-credential')
     const slowCredentialHarness = runtimeEgressHarness([slowCredential])
@@ -3238,6 +3574,77 @@ describe('provider-neutral MB0 core contract', () => {
     expect(() => validateCaptureBrokerReadExecution(accessorCandidate as never)).toThrow(
       /canonical_value_accessor_or_hidden_property/,
     )
+  })
+
+  it.each([
+    ['activation.generation', (authority: CaptureAuthorityTuple) => ({
+      ...authority,
+      activation: { ...authority.activation, generation: authority.activation.generation + 1 },
+    })],
+    ['activation.authorityEpoch', (authority: CaptureAuthorityTuple) => ({
+      ...authority,
+      activation: { ...authority.activation, authorityEpoch: authority.activation.authorityEpoch + 1 },
+    })],
+    ['persistentCredentialReference.generation', (authority: CaptureAuthorityTuple) => ({
+      ...authority,
+      persistentCredentialReference: {
+        ...authority.persistentCredentialReference,
+        generation: authority.persistentCredentialReference.generation + 1,
+      },
+    })],
+  ] as const)(
+    'rejects Capture %s drift during credential I/O at the full-authority send fence',
+    async (label, mutateAuthority) => {
+      const fixture = runtimeCaptureFixture(`authority-drift-${label.replaceAll('.', '-')}`)
+      const harness = runtimeEgressHarness([fixture])
+      harness.afterNextCredentialMaterialLoad(() => {
+        const changed = rehashAuthorityTuple(mutateAuthority(fixture.authority) as CaptureAuthorityTuple)
+        expect(changed.runtimeAuthority).toEqual(fixture.authority.runtimeAuthority)
+        expect(changed.authorityTupleDigest).not.toBe(fixture.authority.authorityTupleDigest)
+        harness.replaceCurrentAuthorityTuple(changed)
+      })
+      await expect(harness.egress.executeAuthorizedRead({
+        authorityPurpose: 'capture',
+        capabilityContract: fixture.capabilityContract,
+        requestBinding: fixture.requestBinding,
+        authorizationBinding: fixture.authorizationBinding,
+        plan: fixture.plan,
+        permit: fixture.permit,
+      })).rejects.toThrow(/fixture_runtime_authority_send_fence_rejected/)
+      expect(harness.calls.credentialLoader).toBe(1)
+      expect(harness.calls.runtimeAuthorityFence).toBe(1)
+      expect(harness.calls.networkTransport).toBe(0)
+      expect([...harness.loadedCredentialMaterials[0]]).toEqual([0, 0, 0])
+    },
+  )
+
+  it('rejects Probe ephemeralCredentialSession.generation drift during credential I/O at the full-authority send fence', async () => {
+    const fixture = runtimeProbeFixture('authority-drift-ephemeral-session-generation')
+    const harness = runtimeEgressHarness([fixture])
+    harness.afterNextCredentialMaterialLoad(() => {
+      const changed = rehashAuthorityTuple({
+        ...fixture.authority,
+        ephemeralCredentialSession: {
+          ...fixture.authority.ephemeralCredentialSession,
+          generation: fixture.authority.ephemeralCredentialSession.generation + 1,
+        },
+      } as ConnectionProbeAuthorityTuple)
+      expect(changed.runtimeAuthority).toEqual(fixture.authority.runtimeAuthority)
+      expect(changed.authorityTupleDigest).not.toBe(fixture.authority.authorityTupleDigest)
+      harness.replaceCurrentAuthorityTuple(changed)
+    })
+    await expect(harness.egress.executeAuthorizedRead({
+      authorityPurpose: 'connection_probe',
+      capabilityContract: fixture.capabilityContract,
+      requestBinding: fixture.requestBinding,
+      authorizationBinding: fixture.authorizationBinding,
+      plan: fixture.plan,
+      permit: fixture.permit,
+    })).rejects.toThrow(/fixture_runtime_authority_send_fence_rejected/)
+    expect(harness.calls.credentialLoader).toBe(1)
+    expect(harness.calls.runtimeAuthorityFence).toBe(1)
+    expect(harness.calls.networkTransport).toBe(0)
+    expect([...harness.loadedCredentialMaterials[0]]).toEqual([0, 0, 0])
   })
 
   it('validates dynamic event batches before granting the unique-batch brand', () => {
@@ -3383,7 +3790,7 @@ describe('provider-neutral MB0 core contract', () => {
 })
 
 describe('multi-broker parity manifest validator', () => {
-  it('accepts a closed 28-entry canonical fixture', async () => {
+  it('accepts a closed 35-entry canonical fixture', async () => {
     const fixture = createValidatorFixture()
     try {
       const validate = await loadValidator()
@@ -3401,7 +3808,7 @@ describe('multi-broker parity manifest validator', () => {
         evidence_loss_reason: 'The fixture models an unwrapped development attempt with explicit null evidence fields.',
       })
       fixture.rewrite()
-      expect(validate({ root: fixture.root })).toEqual({ validated: 28, total: 28 })
+      expect(validate({ root: fixture.root })).toEqual({ validated: 35, total: 35 })
     } finally {
       fixture.dispose()
     }
@@ -3585,23 +3992,77 @@ describe('multi-broker parity manifest validator', () => {
           npm: '11.99.0',
           git: '2.53.0.windows.2',
           operating_system: 'Microsoft Windows NT 10.0.26100.0',
-          docker_client: '29.6.2',
+          docker_client: '29.7.2',
           docker_client_observation: 'fixture observation',
           postgres_client: 'not_available_on_path',
-          postgres_image: 'not_invoked_in_mb0',
+          postgres_image: 'not_invoked_in_mb1',
           ci_node: '24.18.0',
         }
         fixture.rewrite()
       },
       (fixture) => {
+        const ci = fixture.evidence.ci_evidence as Record<string, unknown>
+        ci.evidence_scope = 'current_mb1_ci'
+        fixture.rewrite()
+      },
+      (fixture) => {
+        const historical = fixture.evidence.expected_baseline_counts as Record<string, unknown>
+        historical.commit = '19817a96dff114c3bb7a2173d1774880e8e00fbc'
+        fixture.rewrite()
+      },
+      (fixture) => {
+        const integrated = fixture.evidence.current_mb1_baseline_evidence as Record<string, unknown>
+        integrated.tests = 380
+        fixture.rewrite()
+      },
+      (fixture) => {
+        fixture.evidence.generated_at_utc = '2026-08-14T21:59:59.999Z'
+        fixture.rewrite()
+      },
+      (fixture) => {
+        const attempts = fixture.evidence.candidate_attempts as Array<Record<string, unknown>>
+        const latest = attempts.find((attempt) => attempt.attempt_id === 'mb1-remediation5-closure-manifest-001')
+        if (!latest) throw new Error('Fixture-Remediation-5-Manifest-Attempt fehlt.')
+        latest.ended_at_utc = '2026-08-17T19:31:09.1989738Z'
+        fixture.evidence.generated_at_utc = '2026-08-17T19:31:09.1989737Z'
+        fixture.rewrite()
+      },
+      (fixture) => {
+        const attempts = fixture.evidence.candidate_attempts as Array<Record<string, unknown>>
+        const latest = attempts.find((attempt) => attempt.attempt_id === 'mb1-remediation5-closure-manifest-001')
+        if (!latest) throw new Error('Fixture-Remediation-5-Manifest-Attempt fehlt.')
+        latest.started_at_utc = '2026-08-17T19:31:09.1989739Z'
+        latest.ended_at_utc = '2026-08-17T19:31:09.1989738Z'
+        fixture.rewrite()
+      },
+      (fixture) => {
+        fixture.evidence.generated_at_utc = '2026-02-30T12:00:00.0000000Z'
+        fixture.rewrite()
+      },
+      (fixture) => {
         fixture.evidence.candidate_counts = {
-          test_files: 24,
+          test_files: 26,
           tests: 395,
-          new_contract_test_files: 1,
+          new_contract_test_files: 2,
           new_contract_tests: 15,
-          audit_all_vulnerabilities: 0,
-          audit_production_vulnerabilities: 0,
+          audit_all_vulnerabilities: null,
+          audit_production_vulnerabilities: null,
+          audit_status: 'not_run_no_external_advisory_api_authorization',
         }
+        fixture.rewrite()
+      },
+      (fixture) => {
+        const attempts = fixture.evidence.candidate_attempts as Array<Record<string, unknown>>
+        attempts.push({
+          attempt_id: 'unexplained-lost-command',
+          command: null,
+          started_at_utc: null,
+          ended_at_utc: null,
+          exit_code: null,
+          result: 'development_observation',
+          stdout_stderr_utf8_bytes: null,
+          stdout_stderr_sha256: null,
+        })
         fixture.rewrite()
       },
       (fixture) => {
@@ -3711,6 +4172,48 @@ describe('multi-broker parity manifest validator', () => {
       'mb0-remediation10-closure-audit-prod-001',
       'mb0-remediation10-closure-build-001',
       'mb0-remediation10-closure-manifest-001',
+      'mb1-closure-targeted-001',
+      'mb1-closure-typecheck-001',
+      'mb1-closure-full-001',
+      'mb1-closure-release-001',
+      'mb1-closure-build-001',
+      'mb1-closure-manifest-001',
+      'mb1-remediation2-closure-targeted-001',
+      'mb1-remediation2-closure-typecheck-001',
+      'mb1-remediation2-closure-full-001',
+      'mb1-remediation2-closure-release-001',
+      'mb1-remediation2-closure-build-001',
+      'mb1-remediation2-closure-manifest-001',
+      'mb1-remediation3-closure-targeted-001',
+      'mb1-remediation3-closure-typecheck-001',
+      'mb1-remediation3-closure-full-001',
+      'mb1-remediation3-closure-release-001',
+      'mb1-remediation3-closure-build-001',
+      'mb1-remediation3-closure-manifest-001',
+      'mb1-remediation4-closure-targeted-001',
+      'mb1-remediation4-closure-typecheck-001',
+      'mb1-remediation4-closure-full-001',
+      'mb1-remediation4-closure-release-001',
+      'mb1-remediation4-closure-build-001',
+      'mb1-remediation4-closure-manifest-001',
+      'mb1-remediation5-closure-targeted-001',
+      'mb1-remediation5-closure-typecheck-001',
+      'mb1-remediation5-closure-full-001',
+      'mb1-remediation5-closure-release-001',
+      'mb1-remediation5-closure-build-001',
+      'mb1-remediation5-closure-manifest-001',
+      'mb1-remediation6-closure-targeted-001',
+      'mb1-remediation6-closure-typecheck-001',
+      'mb1-remediation6-closure-full-001',
+      'mb1-remediation6-closure-release-001',
+      'mb1-remediation6-closure-build-001',
+      'mb1-remediation6-closure-manifest-001',
+      'mb1-remediation7-closure-targeted-001',
+      'mb1-remediation7-closure-typecheck-001',
+      'mb1-remediation7-closure-full-001',
+      'mb1-remediation7-closure-release-001',
+      'mb1-remediation7-closure-build-001',
+      'mb1-remediation7-closure-manifest-001',
     ] as const
     const closureAttemptMutations: Array<{
       name: string
@@ -3771,7 +4274,7 @@ describe('multi-broker parity manifest validator', () => {
     try {
       const attempts = currentBootstrapFixture.evidence.candidate_attempts as Array<Record<string, unknown>>
       currentBootstrapFixture.evidence.candidate_attempts = attempts.filter(
-        (attempt) => attempt.attempt_id !== 'mb0-remediation10-closure-manifest-001',
+        (attempt) => attempt.attempt_id !== 'mb1-remediation7-closure-manifest-001',
       )
       currentBootstrapFixture.rewrite()
       expect(() => validate({ root: currentBootstrapFixture.root })).toThrow(/Paritätsmanifest ungültig/)
@@ -3786,6 +4289,13 @@ describe('multi-broker parity manifest validator', () => {
     for (const historicalAttemptId of [
       'mb0-remediation8-closure-manifest-001',
       'mb0-remediation9-closure-manifest-001',
+      'mb0-remediation10-closure-manifest-001',
+      'mb1-closure-manifest-001',
+      'mb1-remediation2-closure-manifest-001',
+      'mb1-remediation3-closure-manifest-001',
+      'mb1-remediation4-closure-manifest-001',
+      'mb1-remediation5-closure-manifest-001',
+      'mb1-remediation6-closure-manifest-001',
     ]) {
       const historicalBootstrapFixture = createValidatorFixture()
       try {
@@ -3802,5 +4312,5 @@ describe('multi-broker parity manifest validator', () => {
         historicalBootstrapFixture.dispose()
       }
     }
-  }, 60_000)
+  }, 120_000)
 })

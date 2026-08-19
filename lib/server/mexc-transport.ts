@@ -2,40 +2,72 @@ import 'server-only'
 
 import { createHmac } from 'node:crypto'
 import {
+  consumeBrokerSendAuthorizationForTransport,
+  type AnyBrokerRequestBinding,
+  type BrokerNetworkTransportPort,
+  type BrokerReadRequestPlan,
+  type BrokerSendAuthorization,
+  type BrokerTransportResponse,
+} from '@/lib/server/broker-core-contracts'
+import {
   digestEquoraRawResponseBody,
   isEquoraTcjDigest,
   type EquoraTcjDigest,
 } from '@/lib/server/equora-tcj'
 import {
   getMexcJsonIntegerLexeme,
-  isMexcJsonNumber,
-  parseMexcJson,
   type MexcJsonValue,
 } from '@/lib/server/mexc-json'
+import {
+  MEXC_API_ORIGIN,
+  MEXC_MAX_RESPONSE_BYTES,
+  MEXC_REQUEST_TIMEOUT_MS,
+  MEXC_READ_CAPABILITIES,
+  MEXC_TRANSPORT_CONTRACT_VERSION,
+  MEXC_TRANSPORT_ERROR_POLICY,
+  MexcTransportError,
+  canonicalMexcQueryString,
+  parseMexcResponseEnvelope,
+  prepareCanonicalMexcRequest,
+  prepareMexcRequest,
+  type MexcPreparedRequest,
+  type MexcPrivateCapabilityId,
+  type MexcPublicCapabilityId,
+  type MexcReadCapabilityId,
+  type MexcTransportErrorCode,
+} from '@/lib/server/mexc-request-contract'
+import {
+  MEXC_ADAPTER_VERSION,
+  MEXC_ADAPTER_PLAN_CONTRACT_VERSION,
+  MEXC_PROVIDER_CODE,
+  MEXC_PROVIDER_CONTRACT_VERSION,
+  MEXC_READONLY_CAPABILITIES,
+} from '@/lib/server/providers/mexc-readonly-adapter'
 
-export const MEXC_API_ORIGIN = 'https://api.mexc.com' as const
-export const MEXC_TRANSPORT_CONTRACT_VERSION = 'mexc-readonly-transport-v1' as const
-export const MEXC_MAX_RESPONSE_BYTES = 64 * 1024
+export {
+  MEXC_API_ORIGIN,
+  MEXC_MAX_RESPONSE_BYTES,
+  MEXC_REQUEST_TIMEOUT_MS,
+  MEXC_READ_CAPABILITIES,
+  MEXC_TRANSPORT_CONTRACT_VERSION,
+  MEXC_TRANSPORT_ERROR_POLICY,
+  MexcTransportError,
+  canonicalMexcQueryString,
+  parseMexcResponseEnvelope,
+  prepareMexcRequest,
+}
+export type {
+  MexcPreparedRequest,
+  MexcPrivateCapabilityId,
+  MexcPublicCapabilityId,
+  MexcReadCapabilityId,
+  MexcTransportErrorCode,
+}
 export const MEXC_MAX_CLOCK_SKEW_MS = 60_000
 
 const MEXC_WIRE_RESPONSE_PROVENANCE = new WeakSet<object>()
 
-const REQUEST_TIMEOUT_MS = 12_000
 const TRANSPORT_DEADLINE_MARGIN_MS = 500
-const MAX_HISTORY_WINDOW_MS = 31 * 24 * 60 * 60 * 1000
-
-export const MEXC_READ_CAPABILITIES = Object.freeze({
-  server_time_v1: Object.freeze({ method: 'GET', path: '/api/v1/contract/ping', auth: 'public' }),
-  contract_metadata_v1: Object.freeze({ method: 'GET', path: '/api/v1/contract/detail/country', auth: 'public' }),
-  historical_orders_v1: Object.freeze({ method: 'GET', path: '/api/v1/private/order/list/history_orders', auth: 'private' }),
-  historical_executions_v3: Object.freeze({ method: 'GET', path: '/api/v1/private/order/list/order_deals/v3', auth: 'private' }),
-  historical_positions_v1: Object.freeze({ method: 'GET', path: '/api/v1/private/position/list/history_positions', auth: 'private' }),
-  funding_records_v1: Object.freeze({ method: 'GET', path: '/api/v1/private/position/funding_records', auth: 'private' }),
-} as const)
-
-export type MexcReadCapabilityId = keyof typeof MEXC_READ_CAPABILITIES
-export type MexcPrivateCapabilityId = Exclude<MexcReadCapabilityId, 'server_time_v1' | 'contract_metadata_v1'>
-export type MexcPublicCapabilityId = Extract<MexcReadCapabilityId, 'server_time_v1' | 'contract_metadata_v1'>
 export type MexcCredentials = Readonly<{ apiKey: string; secretKey: string }>
 export type MexcCredentialReference = Readonly<{ id: string; keyVersion: string }>
 export type MexcBoundCredentialContext = Readonly<{
@@ -73,47 +105,6 @@ export type MexcPrivateRequestAuthorizationContext = Readonly<{
 export type MexcPrivateRequestAuthorizer = (
   context: MexcPrivateRequestAuthorizationContext,
 ) => MexcPrivateRequestAuthorization | Promise<MexcPrivateRequestAuthorization>
-
-export type MexcTransportErrorCode =
-  | 'transport_contract_violation'
-  | 'invalid_query'
-  | 'invalid_provider_time'
-  | 'invalid_credential'
-  | 'ip_not_allowed'
-  | 'permission_missing'
-  | 'rate_limited'
-  | 'provider_busy'
-  | 'maintenance'
-  | 'invalid_request'
-  | 'unsupported_contract'
-  | 'unknown_provider_error'
-  | 'provider_unavailable'
-  | 'timeout'
-  | 'response_too_large'
-  | 'malformed_response'
-
-export class MexcTransportError extends Error {
-  constructor(
-    public readonly code: MexcTransportErrorCode,
-    message: string,
-    public readonly httpStatus: number | null = null,
-    public readonly providerCode: string | null = null,
-  ) {
-    super(message)
-    this.name = 'MexcTransportError'
-  }
-}
-
-export type MexcPreparedRequest = Readonly<{
-  capabilityId: MexcReadCapabilityId
-  contractVersion: typeof MEXC_TRANSPORT_CONTRACT_VERSION
-  method: 'GET'
-  auth: 'public' | 'private'
-  path: string
-  query: Readonly<Record<string, string>>
-  queryString: string
-  url: string
-}>
 
 export type MexcTransportCaptureBinding = Readonly<{
   bindingVersion: 'mexc-transport-capture-binding-v1'
@@ -178,25 +169,6 @@ export type MexcPrivateReadOutcome = Readonly<{
   status: 'failed'
   error: MexcTransportError
 }>
-
-export const MEXC_TRANSPORT_ERROR_POLICY = Object.freeze({
-  transport_contract_violation: Object.freeze({ retry: 'never' }),
-  invalid_query: Object.freeze({ retry: 'never' }),
-  invalid_provider_time: Object.freeze({ retry: 'never_automatically' }),
-  invalid_credential: Object.freeze({ retry: 'after_user_correction' }),
-  ip_not_allowed: Object.freeze({ retry: 'after_user_correction' }),
-  permission_missing: Object.freeze({ retry: 'after_user_correction' }),
-  rate_limited: Object.freeze({ retry: 'bounded_backoff' }),
-  provider_busy: Object.freeze({ retry: 'bounded_backoff' }),
-  maintenance: Object.freeze({ retry: 'later' }),
-  invalid_request: Object.freeze({ retry: 'never' }),
-  unsupported_contract: Object.freeze({ retry: 'never' }),
-  unknown_provider_error: Object.freeze({ retry: 'never_automatically' }),
-  provider_unavailable: Object.freeze({ retry: 'bounded_backoff' }),
-  timeout: Object.freeze({ retry: 'bounded_backoff' }),
-  response_too_large: Object.freeze({ retry: 'never_automatically' }),
-  malformed_response: Object.freeze({ retry: 'after_classification' }),
-} satisfies Record<MexcTransportErrorCode, Readonly<{ retry: string }>>)
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
@@ -290,147 +262,6 @@ function canonicalCaptureBinding(input: unknown): MexcTransportCaptureBinding {
     runReference: Object.freeze({ ...runReference }) as MexcTransportCaptureBinding['runReference'],
     requestResultReference: Object.freeze({ ...requestResultReference }) as MexcTransportCaptureBinding['requestResultReference'],
     requestSequence: input.requestSequence as number,
-  })
-}
-
-function assertExactKeys(query: Record<string, unknown>, required: readonly string[], optional: readonly string[] = []) {
-  const allowed = new Set([...required, ...optional])
-  const keys = Object.keys(query)
-  const missing = required.filter((key) => !Object.prototype.hasOwnProperty.call(query, key))
-  const unknown = keys.filter((key) => !allowed.has(key))
-  if (missing.length || unknown.length) {
-    throw new MexcTransportError('invalid_query', 'MEXC-Query entspricht nicht dem freigegebenen Capabilityvertrag.')
-  }
-}
-
-function canonicalSymbol(value: unknown) {
-  if (typeof value !== 'string') throw new MexcTransportError('invalid_query', 'MEXC-Symbol fehlt oder ist ungültig.')
-  const symbol = value.trim().toUpperCase()
-  if (!/^[A-Z0-9]{1,20}_[A-Z0-9]{1,20}$/.test(symbol)) {
-    throw new MexcTransportError('invalid_query', 'MEXC-Symbol liegt außerhalb des freigegebenen Formats.')
-  }
-  return symbol
-}
-
-function canonicalInteger(value: unknown, label: string, minimum: number, maximum: number) {
-  if (!Number.isSafeInteger(value) || (value as number) < minimum || (value as number) > maximum) {
-    throw new MexcTransportError('invalid_query', `${label} liegt außerhalb des freigegebenen Bereichs.`)
-  }
-  return String(value)
-}
-
-function canonicalUnixMs(value: unknown, label: string) {
-  if (!Number.isSafeInteger(value) || (value as number) < 1_000_000_000_000 || (value as number) > 9_999_999_999_999) {
-    throw new MexcTransportError('invalid_query', `${label} muss ein gültiger Unix-Millisekundenwert sein.`)
-  }
-  return String(value)
-}
-
-function canonicalProviderId(value: unknown) {
-  if (typeof value !== 'string' || !/^[0-9]+$/.test(value) || value.length > 40) {
-    throw new MexcTransportError('invalid_query', 'MEXC-Position-ID liegt außerhalb des freigegebenen Formats.')
-  }
-  return value.replace(/^0+(?=\d)/, '')
-}
-
-function canonicalStates(value: unknown) {
-  if (!Array.isArray(value) || !value.length || value.some((item) => !Number.isInteger(item) || item < 1 || item > 5)) {
-    throw new MexcTransportError('invalid_query', 'MEXC-Orderstatus liegt außerhalb des freigegebenen Bereichs.')
-  }
-  const states = [...new Set(value as number[])].sort((left, right) => left - right)
-  if (states.length !== value.length) {
-    throw new MexcTransportError('invalid_query', 'MEXC-Orderstatus darf keine Duplikate enthalten.')
-  }
-  return states.join(',')
-}
-
-function assertHistoryWindow(query: Record<string, unknown>) {
-  const startTime = Number(canonicalUnixMs(query.start_time, 'start_time'))
-  const endTime = Number(canonicalUnixMs(query.end_time, 'end_time'))
-  if (startTime > endTime || endTime - startTime > MAX_HISTORY_WINDOW_MS) {
-    throw new MexcTransportError('invalid_query', 'MEXC-Zeitfenster ist ungültig oder größer als 31 Tage.')
-  }
-  return { start_time: String(startTime), end_time: String(endTime) }
-}
-
-function canonicalQuery(capabilityId: MexcReadCapabilityId, input: unknown): Record<string, string> {
-  if (!isRecord(input)) throw new MexcTransportError('invalid_query', 'MEXC-Query muss ein geschlossenes Objekt sein.')
-
-  if (capabilityId === 'server_time_v1') {
-    assertExactKeys(input, [])
-    return {}
-  }
-
-  if (capabilityId === 'contract_metadata_v1') {
-    assertExactKeys(input, ['symbol'])
-    return { symbol: canonicalSymbol(input.symbol) }
-  }
-
-  if (capabilityId === 'historical_orders_v1') {
-    assertExactKeys(input, ['symbol', 'start_time', 'end_time', 'page_num', 'page_size'], ['states', 'category'])
-    const window = assertHistoryWindow(input)
-    const query: Record<string, string> = {
-      symbol: canonicalSymbol(input.symbol),
-      ...window,
-      page_num: canonicalInteger(input.page_num, 'page_num', 1, 10_000),
-      page_size: canonicalInteger(input.page_size, 'page_size', 1, 100),
-    }
-    if (input.states !== undefined) query.states = canonicalStates(input.states)
-    if (input.category !== undefined) query.category = canonicalInteger(input.category, 'category', 1, 4)
-    return query
-  }
-
-  const positionQuery = capabilityId === 'historical_positions_v1' || capabilityId === 'funding_records_v1'
-  assertExactKeys(
-    input,
-    positionQuery
-      ? ['symbol', 'position_type', 'start_time', 'end_time', 'page_num', 'page_size']
-      : ['symbol', 'start_time', 'end_time', 'page_num', 'page_size'],
-    capabilityId === 'funding_records_v1' ? ['position_id'] : [],
-  )
-  const window = assertHistoryWindow(input)
-  const query: Record<string, string> = {
-    symbol: canonicalSymbol(input.symbol),
-    ...window,
-    page_num: canonicalInteger(input.page_num, 'page_num', 1, 10_000),
-    page_size: canonicalInteger(input.page_size, 'page_size', 1, capabilityId === 'historical_executions_v3' ? 1000 : 100),
-  }
-  if (positionQuery) query.position_type = canonicalInteger(input.position_type, 'position_type', 1, 2)
-  if (capabilityId === 'funding_records_v1' && input.position_id !== undefined) query.position_id = canonicalProviderId(input.position_id)
-  return query
-}
-
-function sortedQuery(query: Readonly<Record<string, string>>) {
-  return Object.entries(query)
-    .sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0)
-    .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(value)}`)
-    .join('&')
-}
-
-export function prepareMexcRequest(capabilityId: MexcReadCapabilityId, query: unknown): MexcPreparedRequest {
-  const capability = MEXC_READ_CAPABILITIES[capabilityId]
-  if (!capability) throw new MexcTransportError('transport_contract_violation', 'Unbekannte MEXC-Read-Capability.')
-  if (capability.method !== 'GET' || !capability.path.startsWith('/api/v1/')) {
-    throw new MexcTransportError('transport_contract_violation', 'MEXC-Capability verletzt die GET-/Pfadgrenze.')
-  }
-
-  const normalizedQuery = canonicalQuery(capabilityId, query)
-  const queryString = sortedQuery(normalizedQuery)
-  const url = `${MEXC_API_ORIGIN}${capability.path}${queryString ? `?${queryString}` : ''}`
-  const parsedUrl = new URL(url)
-  if (parsedUrl.protocol !== 'https:' || parsedUrl.origin !== MEXC_API_ORIGIN || parsedUrl.pathname !== capability.path) {
-    throw new MexcTransportError('transport_contract_violation', 'MEXC-Origin oder -Pfad liegt außerhalb der Allowlist.')
-  }
-
-  return Object.freeze({
-    capabilityId,
-    contractVersion: MEXC_TRANSPORT_CONTRACT_VERSION,
-    method: 'GET',
-    auth: capability.auth,
-    path: capability.path,
-    query: Object.freeze(normalizedQuery),
-    queryString,
-    url,
   })
 }
 
@@ -625,25 +456,6 @@ function classifyHttpFailure(status: number) {
   return new MexcTransportError('provider_unavailable', 'MEXC ist für diesen Leseabruf nicht verfügbar.', status)
 }
 
-function classifyProviderFailure(payload: Record<string, unknown>, status: number) {
-  const providerCode = typeof payload.code === 'string'
-    ? payload.code
-    : isMexcJsonNumber(payload.code)
-      ? payload.code.lexeme
-      : null
-  if (providerCode === null) return new MexcTransportError('malformed_response', 'MEXC meldet einen Fehler ohne Provider-Code.', status)
-  if (['401', '402', '602'].includes(providerCode)) return new MexcTransportError('invalid_credential', 'MEXC hat den Lesezugriff abgelehnt.', status, providerCode)
-  if (providerCode === '406') return new MexcTransportError('ip_not_allowed', 'Die aktuelle IP-Adresse ist bei MEXC nicht freigegeben.', status, providerCode)
-  if (providerCode === '511' || /^(70[1-4])$/.test(providerCode)) return new MexcTransportError('permission_missing', 'MEXC-Leserechte fehlen für diese Capability.', status, providerCode)
-  if (providerCode === '510') return new MexcTransportError('rate_limited', 'MEXC begrenzt den Lesezugriff vorübergehend.', status, providerCode)
-  if (['500', '501', '801'].includes(providerCode)) return new MexcTransportError('provider_busy', 'MEXC ist vorübergehend ausgelastet.', status, providerCode)
-  if (providerCode === '604') return new MexcTransportError('maintenance', 'MEXC befindet sich für diese Capability in Wartung.', status, providerCode)
-  if (['513', '600'].includes(providerCode)) return new MexcTransportError('invalid_request', 'MEXC hat den freigegebenen Request als ungültig abgelehnt.', status, providerCode)
-  if (providerCode === '601') return new MexcTransportError('malformed_response', 'MEXC hat eine nicht vertragsgemäße Antwort gemeldet.', status, providerCode)
-  if (['1001', '1002'].includes(providerCode)) return new MexcTransportError('unsupported_contract', 'Der angefragte MEXC-Vertrag wird nicht unterstützt.', status, providerCode)
-  return new MexcTransportError('unknown_provider_error', 'MEXC meldet einen unbekannten Fehler für diese Lesecapability.', status, providerCode)
-}
-
 function parseEnvelope(
   body: Uint8Array,
   response: Response,
@@ -658,37 +470,12 @@ function parseEnvelope(
     throw new MexcTransportError('malformed_response', 'MEXC-Antwort ist kein JSON.', response.status)
   }
 
-  let rawText: string
-  try {
-    rawText = new TextDecoder('utf-8', { fatal: true }).decode(body)
-  } catch {
-    throw new MexcTransportError('malformed_response', 'MEXC-Antwort ist kein gültiges UTF-8.', response.status)
-  }
-  let payload: unknown
-  try {
-    payload = parseMexcJson(rawText)
-  } catch {
-    throw new MexcTransportError('malformed_response', 'MEXC-Antwort enthält ungültiges JSON.', response.status)
-  }
-  if (!isRecord(payload)) {
-    throw new MexcTransportError('malformed_response', 'MEXC-Antwort verletzt den freigegebenen Envelopevertrag.', response.status)
-  }
-  const providerCode = typeof payload.code === 'string'
-    ? payload.code
-    : isMexcJsonNumber(payload.code)
-      ? payload.code.lexeme
-      : null
-  if (payload.success === false || (providerCode !== null && providerCode !== '0')) {
-    throw classifyProviderFailure(payload, response.status)
-  }
-  if (payload.success !== true || !isMexcJsonNumber(payload.code) || payload.code.lexeme !== '0' || !Object.prototype.hasOwnProperty.call(payload, 'data') || payload.data == null) {
-    throw new MexcTransportError('malformed_response', 'MEXC-Antwort verletzt den freigegebenen Envelopevertrag.', response.status, providerCode)
-  }
+  const data = parseMexcResponseEnvelope(body, response.status)
 
   const wireResponse = Object.freeze({
     request,
     captureBinding,
-    data: payload.data as MexcJsonValue,
+    data,
     rawBodyBase64: Buffer.from(body).toString('base64'),
     rawBodyDigest: digestEquoraRawResponseBody(body),
     rawBodyBytes: body.byteLength,
@@ -711,7 +498,7 @@ function inspectPreparedRequest(request: MexcPreparedRequest) {
   ) throw new MexcTransportError('transport_contract_violation', 'MEXC-Wire-Request besitzt keine geschlossene kanonische Struktur.')
 
   const capability = MEXC_READ_CAPABILITIES[request.capabilityId]
-  const queryString = sortedQuery(request.query)
+  const queryString = canonicalMexcQueryString(request.query)
   const expectedUrl = `${MEXC_API_ORIGIN}${capability?.path ?? ''}${queryString ? `?${queryString}` : ''}`
   if (
     !capability
@@ -850,7 +637,7 @@ async function executePreparedRequest(
   absoluteDeadlineAtMs: number | null = null,
 ) {
   const remainingMs = absoluteDeadlineAtMs === null
-    ? REQUEST_TIMEOUT_MS
+    ? MEXC_REQUEST_TIMEOUT_MS
     : absoluteDeadlineAtMs - Date.now() - TRANSPORT_DEADLINE_MARGIN_MS
   if (!Number.isFinite(remainingMs) || remainingMs <= 0) {
     throw new MexcTransportError('timeout', 'Das End-to-End-Zeitbudget erlaubt keinen weiteren MEXC-Leseabruf.')
@@ -858,7 +645,7 @@ async function executePreparedRequest(
   const controller = new AbortController()
   const timeout = setTimeout(
     () => controller.abort(),
-    Math.min(REQUEST_TIMEOUT_MS, Math.max(1, Math.floor(remainingMs))),
+    Math.min(MEXC_REQUEST_TIMEOUT_MS, Math.max(1, Math.floor(remainingMs))),
   )
   const requestStartedAtMs = Date.now()
   const startedAt = performance.now()
@@ -910,22 +697,20 @@ export async function executeMexcPublicRead(capabilityId: MexcPublicCapabilityId
   return executePreparedRequest(request, { Accept: 'application/json' })
 }
 
-async function executeMexcPrivateRead(
+function mexcPrivateReadHeaders(
   request: MexcPreparedRequest,
   requestTime: number,
   credentials: MexcCredentials,
-  captureBinding: MexcTransportCaptureBinding | null,
-  absoluteDeadlineAtMs: number | null,
 ) {
   if (request.auth !== 'private') throw new MexcTransportError('transport_contract_violation', 'Öffentliche MEXC-Capability wurde als privat aufgerufen.')
   const signature = createMexcSignature(credentials.apiKey, credentials.secretKey, requestTime, request.queryString)
-  return executePreparedRequest(request, {
+  return {
     Accept: 'application/json',
     ApiKey: credentials.apiKey,
     'Request-Time': String(requestTime),
     Signature: signature,
     'Recv-Window': '10000',
-  }, captureBinding, absoluteDeadlineAtMs)
+  }
 }
 
 async function readMexcServerTime(absoluteDeadlineAtMs: number | null = null) {
@@ -1098,10 +883,9 @@ export async function executeMexcPrivateReadWorkUnit(
         : invocationDeadlineAtMs === null
           ? Date.parse(authorization.sendDeadlineAt)
           : Math.min(invocationDeadlineAtMs, Date.parse(authorization.sendDeadlineAt))
-      const response = await executeMexcPrivateRead(
+       const response = await executePreparedRequest(
         request,
-        serverTime,
-        credentials,
+        mexcPrivateReadHeaders(request, serverTime, credentials),
         captureBinding,
         authorizationDeadlineAtMs,
       )
@@ -1115,3 +899,119 @@ export async function executeMexcPrivateReadWorkUnit(
   }))
   return Object.freeze({ serverTime, outcomes: Object.freeze(outcomes) })
 }
+
+const MEXC_CENTRAL_CREDENTIAL_FRAME_VERSION = 1
+const MEXC_CENTRAL_MAX_CREDENTIAL_FIELD_BYTES = 256
+
+function decodeCentralMexcCredentialMaterial(material: Uint8Array) {
+  if (!(material instanceof Uint8Array)
+    || material.byteLength < 21
+    || material[0] !== MEXC_CENTRAL_CREDENTIAL_FRAME_VERSION) {
+    throw new MexcTransportError('invalid_credential', 'MEXC-Credentialmaterial verletzt den binären Framevertrag.')
+  }
+  const apiKeyBytes = material[1] * 256 + material[2]
+  const secretKeyBytes = material[3] * 256 + material[4]
+  if (apiKeyBytes < 8 || apiKeyBytes > MEXC_CENTRAL_MAX_CREDENTIAL_FIELD_BYTES
+    || secretKeyBytes < 8 || secretKeyBytes > MEXC_CENTRAL_MAX_CREDENTIAL_FIELD_BYTES
+    || material.byteLength !== 5 + apiKeyBytes + secretKeyBytes) {
+    throw new MexcTransportError('invalid_credential', 'MEXC-Credentialmaterial besitzt ungültige Feldlängen.')
+  }
+  let apiKey: string
+  let secretKey: string
+  try {
+    const decoder = new TextDecoder('utf-8', { fatal: true })
+    apiKey = decoder.decode(material.subarray(5, 5 + apiKeyBytes))
+    secretKey = decoder.decode(material.subarray(5 + apiKeyBytes))
+  } catch {
+    throw new MexcTransportError('invalid_credential', 'MEXC-Credentialmaterial ist kein gültiges UTF-8.')
+  }
+  if (apiKey !== apiKey.trim() || secretKey !== secretKey.trim()) {
+    throw new MexcTransportError('invalid_credential', 'MEXC-Credentialmaterial enthält unzulässigen Rand-Whitespace.')
+  }
+  return { apiKey, secretKey }
+}
+
+function canonicalCentralMexcPlan(plan: BrokerReadRequestPlan<AnyBrokerRequestBinding>) {
+  if (plan.provider.providerCode !== MEXC_PROVIDER_CODE
+    || plan.provider.providerContractVersion !== MEXC_PROVIDER_CONTRACT_VERSION
+    || plan.provider.adapterVersion !== MEXC_ADAPTER_VERSION
+    || plan.method !== 'GET'
+    || plan.httpsOrigin !== MEXC_API_ORIGIN
+    || plan.port !== 443
+    || plan.redirectMode !== 'error'
+    || plan.responseByteLimit > MEXC_MAX_RESPONSE_BYTES
+    || plan.requestTimeoutMs !== MEXC_REQUEST_TIMEOUT_MS
+    || plan.planContractVersion !== MEXC_ADAPTER_PLAN_CONTRACT_VERSION) {
+    throw new MexcTransportError('transport_contract_violation', 'Zentraler MEXC-Transport lehnt Provider-, GET- oder Originabweichung ab.')
+  }
+  const descriptor = MEXC_READONLY_CAPABILITIES.find((candidate) => (
+    candidate.ref.capabilityDescriptorDigest === plan.provider.capabilityDescriptorDigest
+    && candidate.ref.providerCapabilityId === plan.provider.providerCapabilityId
+  ))
+  if (!descriptor || descriptor.authClass !== 'signed_read') {
+    throw new MexcTransportError('unsupported_contract', 'Zentraler MEXC-Transport akzeptiert nur gepinnte signed-read-Capabilities.')
+  }
+  if (plan.pageSequenceContractVersion !== descriptor.pageSequenceContractVersion
+    || plan.pageSequence !== descriptor.pageSequenceFromQuery(plan.canonicalQuery)) {
+    throw new MexcTransportError(
+      'transport_contract_violation',
+      'Zentraler MEXC-Transport lehnt eine vom Descriptor abweichende Seitensequenz ab.',
+    )
+  }
+  const capabilityId = descriptor.ref.providerCapabilityId as MexcPrivateCapabilityId
+  const capability = MEXC_READ_CAPABILITIES[capabilityId]
+  const request = prepareCanonicalMexcRequest(capabilityId, plan.canonicalQuery)
+  if (capability.auth !== 'private'
+    || plan.pathTemplateId !== descriptor.constantPathTemplate
+    || plan.canonicalPath !== descriptor.constantPathTemplate
+    || request.path !== plan.canonicalPath) {
+    throw new MexcTransportError('transport_contract_violation', 'Zentraler MEXC-Transport lehnt Capability- oder Pfadabweichung ab.')
+  }
+  return request
+}
+
+function centralUnixMicrosecondsToIso(value: string) {
+  if (!/^(?:0|[1-9]\d*)$/.test(value)) {
+    throw new MexcTransportError('transport_contract_violation', 'MEXC-Transportzeit ist nicht kanonisch.')
+  }
+  const epochMs = BigInt(value) / BigInt(1_000)
+  if (epochMs > BigInt(Number.MAX_SAFE_INTEGER)) {
+    throw new MexcTransportError('transport_contract_violation', 'MEXC-Transportzeit liegt außerhalb des sicheren Bereichs.')
+  }
+  return new Date(Number(epochMs)).toISOString()
+}
+
+export const mexcBrokerNetworkTransport: BrokerNetworkTransportPort = Object.freeze({
+  async executeCentralRead<Binding extends AnyBrokerRequestBinding>(input: Readonly<{
+    plan: BrokerReadRequestPlan<Binding>
+    credentialMaterial: Uint8Array
+    sendAuthorization: BrokerSendAuthorization<Binding['authorityPurpose']>
+  }>): Promise<BrokerTransportResponse> {
+    const plan = input.plan as BrokerReadRequestPlan<AnyBrokerRequestBinding>
+    try {
+      await consumeBrokerSendAuthorizationForTransport(
+        input.sendAuthorization as BrokerSendAuthorization<'capture' | 'connection_probe'>,
+        plan,
+      )
+    } catch {
+      throw new MexcTransportError(
+        'transport_contract_violation',
+        'Zentrale MEXC-Sendeautorität wurde nicht für exakt diesen Plan ausgegeben oder bereits verbraucht.',
+      )
+    }
+    const request = canonicalCentralMexcPlan(plan)
+    const credentials = decodeCentralMexcCredentialMaterial(input.credentialMaterial)
+    const response = await executePreparedRequest(
+      request,
+      mexcPrivateReadHeaders(request, input.sendAuthorization.authorizedAtEpochMs, credentials),
+      null,
+      Date.parse(input.sendAuthorization.sendDeadlineAt),
+    )
+    return Object.freeze({
+      startedAt: centralUnixMicrosecondsToIso(response.requestStartedAtUs),
+      receivedAt: centralUnixMicrosecondsToIso(response.responseReceivedAtUs),
+      httpStatus: response.httpStatus,
+      rawBody: Uint8Array.from(Buffer.from(response.rawBodyBase64, 'base64')),
+    })
+  },
+})

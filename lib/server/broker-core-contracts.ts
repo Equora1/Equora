@@ -26,6 +26,9 @@ declare const consumedProbeExecutionBrand: unique symbol
 const AUTHORITY_TUPLE_CONTRACT_VERSION = 'equora-broker-authority-tuple-v1'
 const BROKER_READ_PERMIT_CONTRACT_VERSION = 'equora-broker-read-permit-v1'
 const PERMIT_CONSUMPTION_KEY_CONTRACT_VERSION = 'equora-broker-permit-consumption-key-v1'
+export const CAPTURE_QUERY_PROFILE_DIGEST_CONTRACT_VERSION = 'equora-broker-capture-query-profile-digest-v1' as const
+export const DESCRIPTOR_QUERY_DIGEST_CONTRACT_VERSION = 'equora-broker-descriptor-query-digest-v1' as const
+export const PAGE_SEQUENCE_CONTRACT_VERSION = 'equora-zero-based-page-sequence-v1' as const
 const GLOBAL_PERMIT_CONSUMPTION_SCOPE = 'global_request_authority_all_workers'
 const MAX_CLOCK_SKEW_MS = 30_000
 const validatedCaptureExecutions = new WeakSet<object>()
@@ -43,6 +46,11 @@ const captureWirePageBindings = new WeakMap<object, object>()
 const inspectedCaptureWirePages = new WeakSet<object>()
 const inspectedCapturePageWireBindings = new WeakMap<object, object>()
 const inspectedProbeResultWireBindings = new WeakMap<object, object>()
+const issuedBrokerSendAuthorizations = new WeakMap<object, Readonly<{
+  plan: object
+  consumeRuntimeAuthorityFenceAtTransport: () => Promise<void>
+}>>()
+const consumedBrokerSendAuthorizations = new WeakSet<object>()
 
 export type ProviderCode = string & { readonly [providerCodeBrand]: true }
 export type ProviderContractVersion = string & { readonly [providerContractVersionBrand]: true }
@@ -183,6 +191,9 @@ export type ConnectionProbeAuthorityTuple = CommonBrokerAuthorityCore<'connectio
   }>
 }>
 
+export type BrokerAuthorityTupleForPurpose<Purpose extends BrokerAuthorityPurpose> =
+  Purpose extends 'capture' ? CaptureAuthorityTuple : ConnectionProbeAuthorityTuple
+
 export type ReadCapabilityDescriptor<Query, Cursor> = Readonly<{
   ref: ProviderCapabilityRef
   mutationContract: 'mutations_forbidden'
@@ -196,8 +207,11 @@ export type ReadCapabilityDescriptor<Query, Cursor> = Readonly<{
   queryContractVersion: string
   cursorContractVersion: string
   responseContractVersion: string
+  pageSequenceContractVersion: typeof PAGE_SEQUENCE_CONTRACT_VERSION
+  canonicalizeQuery(input: unknown): Query
   parseQuery(input: unknown): Query
   parseCursor(input: unknown): Cursor | null
+  pageSequenceFromQuery(input: Query): number
 }>
 
 export type ReadCapabilityExecutionContract = Readonly<{
@@ -213,10 +227,12 @@ export type ReadCapabilityExecutionContract = Readonly<{
   queryContractVersion: string
   cursorContractVersion: string
   responseContractVersion: string
+  pageSequenceContractVersion: typeof PAGE_SEQUENCE_CONTRACT_VERSION
 }>
 
 export type ProviderCheckpoint = Readonly<{
   checkpointContractVersion: string
+  captureQueryProfileDigest: string
   payload: CanonicalJsonValue
   mac: string
 }>
@@ -249,13 +265,77 @@ export type BrokerReadWorkUnit<Binding extends CaptureChainBinding<string>> = Re
     instrumentScopeKey: string
     requestWindowStartUs: string
     requestWindowEndUs: string
+    positionType: '1' | '2' | null
+    captureQueryProfileDigest: string
   }>
   checkpoint: ProviderCheckpoint
 }>
 
+export type BrokerConnectionSetupCommand<CommandId extends string = string> = Readonly<{
+  setupCommandContractVersion: 'equora-broker-connection-setup-command-v2'
+  setupCommandId: CommandId
+  expectedSetupCommandRowVersion: number
+  userId: string
+  environment: BrokerEnvironment
+  provider: ProviderCapabilityRef
+  capabilityProfile: CapabilityProfileRef
+  descriptorQueryDigestContractVersion: typeof DESCRIPTOR_QUERY_DIGEST_CONTRACT_VERSION
+  queryContractVersion: string
+  canonicalDescriptorQueryDigest: string
+  readOnlyAttestation: true
+  probeBudget: Readonly<{
+    cumulativeRequestLimit: number
+    responseByteLimit: number
+    absoluteDeadlineAt: string
+  }>
+  persistenceAuthority: 'secret_free_setup_command_only'
+  credentialPersistenceAuthority: 'none_before_atomic_apply'
+  captureAuthority: 'none'
+  importAuthority: 'none'
+}>
+
 export type BrokerConnectionProbeWork<Binding extends ConnectionProbeChainBinding<string>> = Readonly<{
   chainBinding: Binding
+  setupCommand: BrokerConnectionSetupCommand<Binding['authority']['setupCommandId']>
+  requestInput: CanonicalJsonValue
 }>
+
+export type BrokerConnectionApplyCommand<
+  AuthorizationBinding extends BrokerRequestAuthorizationBinding<
+    ConnectionProbeRequestBinding<ConnectionProbeChainBinding<string>, string>,
+    string
+  >,
+> = Readonly<{
+  applyContractVersion: 'equora-broker-connection-apply-v1'
+  setupCommandId: AuthorizationBinding['requestBinding']['chainBinding']['authority']['setupCommandId']
+  expectedSetupCommandRowVersion: AuthorizationBinding['requestBinding']['chainBinding']['authority']['expectedSetupCommandRowVersion']
+  authorizationBinding: AuthorizationBinding
+  validatedProbeResultDigest: string
+  ephemeralCredentialSessionId: AuthorizationBinding['requestBinding']['chainBinding']['authority']['ephemeralCredentialSession']['sessionId']
+  requestedAt: string
+  mutationAuthority: 'atomic_connection_and_encrypted_credential_apply_only'
+  captureAuthority: 'none'
+  importAuthority: 'none'
+}>
+
+export type BrokerConnectionApplyReceipt = Readonly<{
+  receiptContractVersion: 'equora-broker-connection-apply-receipt-v1'
+  setupCommandId: string
+  connectionAccountId: string
+  brokerAccountId: string
+  activationId: string
+  activationGeneration: number
+  appliedAt: string
+  credentialMaterialPersisted: 'encrypted_generation_bound'
+  automaticCaptureStarted: false
+  automaticImportStarted: false
+}>
+
+export interface BrokerConnectionApplyPort {
+  applyConnectionAtomically(
+    command: BrokerConnectionApplyCommand<any>,
+  ): Promise<BrokerConnectionApplyReceipt>
+}
 
 export type BrokerRequestBinding<
   ChainBinding extends AnyBrokerChainBinding,
@@ -315,7 +395,77 @@ export type BrokerReadRequestPlan<Binding extends AnyBrokerRequestBinding> = Rea
   responseByteLimit: number
   requestTimeoutMs: number
   planContractVersion: string
+  pageSequenceContractVersion: typeof PAGE_SEQUENCE_CONTRACT_VERSION
+  pageSequence: number
   canonicalUnsignedRequestDigest: Binding['canonicalUnsignedRequestDigest']
+}>
+
+export type BrokerReadRequestPlanDraft = Readonly<{
+  provider: ProviderCapabilityRef
+  method: ProviderReadMethod
+  httpsOrigin: string
+  port: 443
+  pathTemplateId: string
+  canonicalPath: string
+  canonicalQuery: Readonly<Record<string, string>>
+  redirectMode: 'error'
+  responseByteLimit: number
+  requestTimeoutMs: number
+  planContractVersion: string
+  pageSequenceContractVersion: typeof PAGE_SEQUENCE_CONTRACT_VERSION
+  pageSequence: number
+}>
+
+export type PlannedCaptureBrokerRead<
+  ChainBinding extends CaptureChainBinding<string>,
+  RequestId extends string,
+> = Readonly<{
+  capabilityContract: ReadCapabilityExecutionContract
+  requestBinding: CaptureRequestBinding<ChainBinding, RequestId>
+  plan: BrokerReadRequestPlan<CaptureRequestBinding<ChainBinding, RequestId>>
+}>
+
+export type PlannedConnectionProbeBrokerRead<
+  ChainBinding extends ConnectionProbeChainBinding<string>,
+  RequestId extends string,
+> = Readonly<{
+  capabilityContract: ReadCapabilityExecutionContract
+  requestBinding: ConnectionProbeRequestBinding<ChainBinding, RequestId>
+  plan: BrokerReadRequestPlan<ConnectionProbeRequestBinding<ChainBinding, RequestId>>
+}>
+
+export type ProviderCheckpointAdvanceCandidate<
+  PageBinding extends CapturePageObservationBinding<
+    BrokerRequestAuthorizationBinding<
+      CaptureRequestBinding<CaptureChainBinding<string>, string>,
+      string
+    >,
+    string
+  >,
+> = Readonly<{
+  pageBinding: PageBinding
+  previousCheckpoint: ProviderCheckpoint
+  nextCheckpointContractVersion: string
+  nextCaptureQueryProfileDigest: string
+  nextCheckpointPayload: CanonicalJsonValue
+  status: 'next_page' | 'complete' | 'partial' | 'blocked'
+}>
+
+export type AdapterRawEventCandidate<
+  PageBinding extends CapturePageObservationBinding<
+    BrokerRequestAuthorizationBinding<
+      CaptureRequestBinding<CaptureChainBinding<string>, string>,
+      string
+    >,
+    string
+  >,
+> = Readonly<{
+  pageBinding: PageBinding
+  eventKind: CanonicalRawEventKind
+  providerIdentity: ProviderEventIdentity
+  providerRevision: string | null
+  providerOccurredAtUs: string | null
+  payload: CanonicalJsonValue
 }>
 
 export type AuthorizedBrokerReadPermit<
@@ -928,6 +1078,10 @@ function canonicalSha256(value: unknown): string {
   return createHash('sha256').update(canonicalSemanticValue(value), 'utf8').digest('hex')
 }
 
+export function computeCanonicalBrokerValueDigest(value: CanonicalJsonValue): string {
+  return canonicalSha256(value)
+}
+
 export function computeBrokerPermitConsumptionId(
   authorityPurpose: BrokerAuthorityPurpose,
   requestAuthorityId: string,
@@ -986,10 +1140,48 @@ function sameCanonicalSemantics(left: unknown, right: unknown) {
 
 export function computeCapturePurposeScopeDigest(scope: BrokerReadWorkUnit<CaptureChainBinding<string>>['scope']) {
   return createHash('sha256')
-    .update('equora-broker-capture-scope-v1', 'utf8')
+    .update('equora-broker-capture-scope-v2', 'utf8')
     .update(Buffer.from([0]))
     .update(encodeEquoraTcj(scope), 'utf8')
     .digest('hex')
+}
+
+export function computeCaptureQueryProfileDigest(input: Readonly<{
+  provider: ProviderCapabilityRef
+  queryContractVersion: string
+  stableCanonicalQuery: CanonicalJsonValue
+}>) {
+  validateProviderCapability(input.provider)
+  requireNonEmptyString(input.queryContractVersion, 'capture_query_profile_query_contract_version_empty')
+  const stableCanonicalQuery = canonicalSnapshot(input.stableCanonicalQuery)
+  if (isPlainRecord(stableCanonicalQuery)
+    && Object.prototype.hasOwnProperty.call(stableCanonicalQuery, 'page_num')) {
+    bindingValidationFailure('capture_query_profile_contains_page_progress')
+  }
+  return canonicalSha256({
+    digestContractVersion: CAPTURE_QUERY_PROFILE_DIGEST_CONTRACT_VERSION,
+    provider: input.provider,
+    queryContractVersion: input.queryContractVersion,
+    stableCanonicalQuery,
+  })
+}
+
+export function computeBrokerDescriptorQueryDigest(input: Readonly<{
+  provider: ProviderCapabilityRef
+  capabilityProfile: CapabilityProfileRef
+  queryContractVersion: string
+  canonicalQuery: CanonicalJsonValue
+}>) {
+  validateProviderCapability(input.provider)
+  validateCapabilityProfile(input.capabilityProfile)
+  requireNonEmptyString(input.queryContractVersion, 'descriptor_query_contract_version_empty')
+  return canonicalSha256({
+    digestContractVersion: DESCRIPTOR_QUERY_DIGEST_CONTRACT_VERSION,
+    provider: input.provider,
+    capabilityProfile: input.capabilityProfile,
+    queryContractVersion: input.queryContractVersion,
+    canonicalQuery: canonicalSnapshot(input.canonicalQuery),
+  })
 }
 
 function isCanonicalUtcInstant(value: unknown): value is string {
@@ -1129,6 +1321,79 @@ export function computeAuthorityTupleDigest(authority: CaptureAuthorityTuple | C
     .digest('hex')
 }
 
+export function computeBrokerConnectionSetupRequestDigest(
+  command: BrokerConnectionSetupCommand,
+): string {
+  return canonicalSha256(command)
+}
+
+export function validateBrokerConnectionSetupCommand(
+  candidate: BrokerConnectionSetupCommand,
+  authority: ConnectionProbeAuthorityTuple,
+): BrokerConnectionSetupCommand {
+  const command = canonicalSnapshot(candidate)
+  exactKeys(command, [
+    'setupCommandContractVersion', 'setupCommandId', 'expectedSetupCommandRowVersion', 'userId', 'environment',
+    'provider', 'capabilityProfile', 'descriptorQueryDigestContractVersion', 'queryContractVersion',
+    'canonicalDescriptorQueryDigest', 'readOnlyAttestation', 'probeBudget',
+    'persistenceAuthority', 'credentialPersistenceAuthority', 'captureAuthority', 'importAuthority',
+  ], 'connection_setup_command_shape_invalid')
+  exactKeys(command.probeBudget, [
+    'cumulativeRequestLimit', 'responseByteLimit', 'absoluteDeadlineAt',
+  ], 'connection_setup_command_budget_shape_invalid')
+  validateProviderCapability(command.provider)
+  validateCapabilityProfile(command.capabilityProfile)
+  requireNonEmptyStrings([
+    command.setupCommandId,
+    command.userId,
+    command.queryContractVersion,
+    command.canonicalDescriptorQueryDigest,
+  ], 'connection_setup_command_required_string_empty')
+  requirePositiveSafeInteger(command.expectedSetupCommandRowVersion, 'connection_setup_command_row_version_invalid')
+  requirePositiveSafeInteger(command.probeBudget.cumulativeRequestLimit, 'connection_setup_command_request_limit_invalid')
+  requirePositiveSafeInteger(command.probeBudget.responseByteLimit, 'connection_setup_command_response_limit_invalid')
+  if (!isCanonicalUtcInstant(command.probeBudget.absoluteDeadlineAt)) {
+    bindingValidationFailure('connection_setup_command_deadline_invalid')
+  }
+  if (command.setupCommandContractVersion !== 'equora-broker-connection-setup-command-v2'
+    || command.descriptorQueryDigestContractVersion !== DESCRIPTOR_QUERY_DIGEST_CONTRACT_VERSION
+    || !/^[a-f0-9]{64}$/.test(command.canonicalDescriptorQueryDigest)
+    || command.userId !== authority.userId
+    || command.environment !== authority.environment
+    || command.setupCommandId !== authority.setupCommandId
+    || command.expectedSetupCommandRowVersion !== authority.expectedSetupCommandRowVersion
+    || !sameProviderCapability(command.provider, authority.provider)
+    || !sameCapabilityProfile(command.capabilityProfile, authority.capabilityProfile)
+    || computeBrokerConnectionSetupRequestDigest(command) !== authority.setupRequestDigest
+    || command.probeBudget.cumulativeRequestLimit !== authority.probeBudget.cumulativeRequestLimit
+    || command.probeBudget.responseByteLimit !== authority.probeBudget.responseByteLimit
+    || command.probeBudget.absoluteDeadlineAt !== authority.probeBudget.absoluteDeadlineAt
+    || command.readOnlyAttestation !== true
+    || command.persistenceAuthority !== 'secret_free_setup_command_only'
+    || command.credentialPersistenceAuthority !== 'none_before_atomic_apply'
+    || command.captureAuthority !== 'none'
+    || command.importAuthority !== 'none') {
+    bindingValidationFailure('connection_setup_command_authority_mismatch')
+  }
+  return command
+}
+
+export function validateBrokerConnectionProbeWork<Binding extends ConnectionProbeChainBinding<string>>(
+  candidate: BrokerConnectionProbeWork<Binding>,
+): BrokerConnectionProbeWork<Binding> {
+  const work = canonicalSnapshot(candidate)
+  exactKeys(work, ['chainBinding', 'setupCommand', 'requestInput'], 'connection_probe_work_shape_invalid')
+  exactKeys(work.chainBinding, ['chainId', 'authorityPurpose', 'authority'], 'connection_probe_chain_shape_invalid')
+  requireNonEmptyString(work.chainBinding.chainId, 'connection_probe_chain_id_empty')
+  if (work.chainBinding.authorityPurpose !== 'connection_probe') {
+    bindingValidationFailure('connection_probe_chain_purpose_invalid')
+  }
+  validateProbeAuthority(work.chainBinding.authority)
+  validateBrokerConnectionSetupCommand(work.setupCommand, work.chainBinding.authority)
+  cloneCanonicalValue(work.requestInput)
+  return work
+}
+
 function requestPlanDigestInput(plan: BrokerReadRequestPlan<AnyBrokerRequestBinding>) {
   return {
     authorityPurpose: plan.authorityPurpose,
@@ -1144,6 +1409,8 @@ function requestPlanDigestInput(plan: BrokerReadRequestPlan<AnyBrokerRequestBind
     responseByteLimit: plan.responseByteLimit,
     requestTimeoutMs: plan.requestTimeoutMs,
     planContractVersion: plan.planContractVersion,
+    pageSequenceContractVersion: plan.pageSequenceContractVersion,
+    pageSequence: plan.pageSequence,
   }
 }
 
@@ -1513,11 +1780,53 @@ function validateProbeAuthority(authority: ConnectionProbeAuthorityTuple) {
   if (authority.authorityTupleDigest !== computeAuthorityTupleDigest(authority)) bindingValidationFailure('probe_authority_tuple_digest_mismatch')
 }
 
+export function validateBrokerReadWorkUnit<Binding extends CaptureChainBinding<string>>(
+  candidate: BrokerReadWorkUnit<Binding>,
+): BrokerReadWorkUnit<Binding> {
+  const work = canonicalSnapshot(candidate)
+  exactKeys(work, ['chainBinding', 'integrityKeyReference', 'scope', 'checkpoint'], 'work_unit_shape_invalid')
+  exactKeys(work.chainBinding, ['chainId', 'authorityPurpose', 'authority'], 'capture_chain_binding_shape_invalid')
+  exactKeys(work.integrityKeyReference, ['id', 'keyVersion'], 'work_unit_integrity_key_shape_invalid')
+  exactKeys(work.scope, [
+    'instrumentScopeKey', 'requestWindowStartUs', 'requestWindowEndUs', 'positionType',
+    'captureQueryProfileDigest',
+  ], 'work_unit_scope_shape_invalid')
+  exactKeys(work.checkpoint, [
+    'checkpointContractVersion', 'captureQueryProfileDigest', 'payload', 'mac',
+  ], 'work_unit_checkpoint_shape_invalid')
+  if (work.chainBinding.authorityPurpose !== 'capture') bindingValidationFailure('work_unit_purpose_invalid')
+  validateCaptureAuthority(work.chainBinding.authority)
+  cloneCanonicalValue(work.checkpoint.payload)
+  requireNonEmptyStrings([
+    work.chainBinding.chainId,
+    work.integrityKeyReference.id,
+    work.integrityKeyReference.keyVersion,
+    work.scope.instrumentScopeKey,
+    work.scope.requestWindowStartUs,
+    work.scope.requestWindowEndUs,
+    work.scope.captureQueryProfileDigest,
+    work.checkpoint.checkpointContractVersion,
+    work.checkpoint.captureQueryProfileDigest,
+    work.checkpoint.mac,
+  ], 'work_unit_required_string_empty')
+  if (work.checkpoint.checkpointContractVersion !== work.chainBinding.authority.checkpointContractVersion
+    || work.checkpoint.captureQueryProfileDigest !== work.scope.captureQueryProfileDigest
+    || work.chainBinding.authority.purposeScopeDigest !== computeCapturePurposeScopeDigest(work.scope)
+    || !/^\d+$/.test(work.scope.requestWindowStartUs)
+    || !/^\d+$/.test(work.scope.requestWindowEndUs)
+    || BigInt(work.scope.requestWindowStartUs) > BigInt(work.scope.requestWindowEndUs)
+    || !/^[a-f0-9]{64}$/.test(work.scope.captureQueryProfileDigest)
+    || work.scope.positionType !== null && work.scope.positionType !== '1' && work.scope.positionType !== '2') {
+    bindingValidationFailure('work_unit_semantics_invalid')
+  }
+  return work
+}
+
 function validateCapabilityContract(contract: ReadCapabilityExecutionContract, provider: ProviderCapabilityRef) {
   exactKeys(contract, [
     'ref', 'mutationContract', 'methodContract', 'constantMethod', 'constantHttpsOrigin', 'constantPort',
     'constantPathTemplate', 'authClass', 'dataClass', 'queryContractVersion', 'cursorContractVersion',
-    'responseContractVersion',
+    'responseContractVersion', 'pageSequenceContractVersion',
   ], 'capability_contract_shape_invalid')
   validateProviderCapability(contract.ref)
   if (!sameProviderCapability(contract.ref, provider)) bindingValidationFailure('capability_contract_provider_mismatch')
@@ -1531,7 +1840,7 @@ function validateCapabilityContract(contract: ReadCapabilityExecutionContract, p
   }
   requireNonEmptyStrings([
     contract.constantHttpsOrigin, contract.constantPathTemplate, contract.queryContractVersion,
-    contract.cursorContractVersion, contract.responseContractVersion,
+    contract.cursorContractVersion, contract.responseContractVersion, contract.pageSequenceContractVersion,
   ], 'capability_contract_required_string_empty')
   let parsedOrigin: URL
   try {
@@ -1560,7 +1869,8 @@ function validatePlan(
   exactKeys(plan, [
     'authorityPurpose', 'authorityTupleDigest', 'provider', 'requestBinding', 'method', 'httpsOrigin', 'port',
     'pathTemplateId', 'canonicalPath', 'canonicalQuery', 'redirectMode', 'responseByteLimit',
-    'requestTimeoutMs', 'planContractVersion', 'canonicalUnsignedRequestDigest',
+    'requestTimeoutMs', 'planContractVersion', 'pageSequenceContractVersion', 'pageSequence',
+    'canonicalUnsignedRequestDigest',
   ], 'broker_read_plan_shape_invalid')
   const authority = plan.requestBinding.chainBinding.authority
   if (plan.authorityPurpose !== plan.requestBinding.authorityPurpose
@@ -1586,6 +1896,17 @@ function validatePlan(
     bindingValidationFailure('broker_read_plan_path_template_mismatch')
   }
   for (const value of [plan.pathTemplateId, plan.planContractVersion]) requireNonEmptyString(value, 'broker_read_plan_required_string_empty')
+  if (plan.pageSequenceContractVersion !== contract.pageSequenceContractVersion
+    || plan.pageSequenceContractVersion !== PAGE_SEQUENCE_CONTRACT_VERSION) {
+    bindingValidationFailure('broker_read_plan_page_sequence_contract_mismatch')
+  }
+  if (!Number.isSafeInteger(plan.pageSequence) || plan.pageSequence < 0) {
+    bindingValidationFailure('broker_read_plan_page_sequence_invalid')
+  }
+  if (plan.authorityPurpose === 'capture'
+    && plan.pageSequence >= (authority as CaptureAuthorityTuple).captureBudget.pageLimit) {
+    bindingValidationFailure('broker_read_plan_page_sequence_exceeds_authority_budget')
+  }
   requirePositiveSafeInteger(plan.responseByteLimit, 'broker_read_plan_response_limit_invalid')
   if (plan.responseByteLimit > responseByteLimit) bindingValidationFailure('broker_read_plan_response_limit_exceeds_authority')
   requirePositiveSafeInteger(plan.requestTimeoutMs, 'broker_read_plan_timeout_invalid')
@@ -1763,6 +2084,9 @@ export function validateCaptureWirePage<
   }
   if (snapshot.pageBinding.pageObservationId !== computeCapturePageObservationId(wire)) {
     bindingValidationFailure('capture_page_observation_id_not_wire_derived')
+  }
+  if (snapshot.pageBinding.pageSequence !== snapshot.execution.plan.pageSequence) {
+    bindingValidationFailure('capture_wire_page_plan_sequence_mismatch')
   }
   if (wire.authorityPurpose !== 'capture'
     || wire.methodEvidence !== snapshot.execution.plan.method
@@ -1955,9 +2279,12 @@ export function validateProviderPageTransition<
   exactKeys(snapshot.workUnit, ['chainBinding', 'integrityKeyReference', 'scope', 'checkpoint'], 'work_unit_shape_invalid')
   exactKeys(snapshot.workUnit.integrityKeyReference, ['id', 'keyVersion'], 'work_unit_integrity_key_shape_invalid')
   exactKeys(snapshot.workUnit.scope, [
-    'instrumentScopeKey', 'requestWindowStartUs', 'requestWindowEndUs',
+    'instrumentScopeKey', 'requestWindowStartUs', 'requestWindowEndUs', 'positionType',
+    'captureQueryProfileDigest',
   ], 'work_unit_scope_shape_invalid')
-  exactKeys(snapshot.workUnit.checkpoint, ['checkpointContractVersion', 'payload', 'mac'], 'work_unit_checkpoint_shape_invalid')
+  exactKeys(snapshot.workUnit.checkpoint, [
+    'checkpointContractVersion', 'captureQueryProfileDigest', 'payload', 'mac',
+  ], 'work_unit_checkpoint_shape_invalid')
   exactKeys(snapshot.inspectedPage, [
     'pageBinding', 'responseContractVersion', 'requestEvidence', 'pageEvidence',
   ], 'inspected_page_shape_invalid')
@@ -2019,16 +2346,23 @@ export function validateProviderPageTransition<
     snapshot.workUnit.scope.instrumentScopeKey,
     snapshot.workUnit.scope.requestWindowStartUs,
     snapshot.workUnit.scope.requestWindowEndUs,
+    snapshot.workUnit.scope.captureQueryProfileDigest,
     snapshot.workUnit.checkpoint.checkpointContractVersion,
+    snapshot.workUnit.checkpoint.captureQueryProfileDigest,
     snapshot.workUnit.checkpoint.mac,
   ], 'page_transition_required_string_empty')
   cloneCanonicalValue(snapshot.workUnit.checkpoint.payload)
   const authority = pageBinding.authorizationBinding.requestBinding.chainBinding.authority
   if (snapshot.workUnit.checkpoint.checkpointContractVersion !== authority.checkpointContractVersion
+    || snapshot.workUnit.checkpoint.captureQueryProfileDigest !== snapshot.workUnit.scope.captureQueryProfileDigest
     || authority.purposeScopeDigest !== computeCapturePurposeScopeDigest(snapshot.workUnit.scope)
     || !/^\d+$/.test(snapshot.workUnit.scope.requestWindowStartUs)
     || !/^\d+$/.test(snapshot.workUnit.scope.requestWindowEndUs)
-    || BigInt(snapshot.workUnit.scope.requestWindowStartUs) > BigInt(snapshot.workUnit.scope.requestWindowEndUs)) {
+    || BigInt(snapshot.workUnit.scope.requestWindowStartUs) > BigInt(snapshot.workUnit.scope.requestWindowEndUs)
+    || !/^[a-f0-9]{64}$/.test(snapshot.workUnit.scope.captureQueryProfileDigest)
+    || snapshot.workUnit.scope.positionType !== null
+      && snapshot.workUnit.scope.positionType !== '1'
+      && snapshot.workUnit.scope.positionType !== '2') {
     bindingValidationFailure('page_transition_work_unit_semantics_invalid')
   }
   const validatedSnapshot = deepFreezeSnapshot(snapshot)
@@ -2159,6 +2493,7 @@ export type BrokerCheckpointMacVerification = Readonly<{
   provider: ProviderCapabilityRef
   purposeScopeDigest: string
   checkpointContractVersion: string
+  captureQueryProfileDigest: string
   canonicalMacInput: string
   mac: string
 }>
@@ -2218,6 +2553,7 @@ export function computeCheckpointMacVerification(
     integrityKeyReference: context.workUnit.integrityKeyReference,
     checkpoint: {
       checkpointContractVersion: checkpoint.checkpointContractVersion,
+      captureQueryProfileDigest: checkpoint.captureQueryProfileDigest,
       payload: checkpoint.payload,
     },
   })
@@ -2228,6 +2564,7 @@ export function computeCheckpointMacVerification(
     provider: authority.provider,
     purposeScopeDigest: authority.purposeScopeDigest,
     checkpointContractVersion: checkpoint.checkpointContractVersion,
+    captureQueryProfileDigest: checkpoint.captureQueryProfileDigest,
     canonicalMacInput,
     mac: checkpoint.mac,
   })
@@ -2312,10 +2649,10 @@ function validateCaptureRawObservationCommitWithIntegrity<
     'transitionMac', 'status',
   ], 'checkpoint_transition_shape_invalid')
   exactKeys(unbrandedSnapshot.checkpointTransition.previousCheckpoint, [
-    'checkpointContractVersion', 'payload', 'mac',
+    'checkpointContractVersion', 'captureQueryProfileDigest', 'payload', 'mac',
   ], 'previous_checkpoint_shape_invalid')
   exactKeys(unbrandedSnapshot.checkpointTransition.nextCheckpoint, [
-    'checkpointContractVersion', 'payload', 'mac',
+    'checkpointContractVersion', 'captureQueryProfileDigest', 'payload', 'mac',
   ], 'next_checkpoint_shape_invalid')
   if (unbrandedSnapshot.authorityPurpose !== 'capture'
     || unbrandedSnapshot.persistenceAuthority !== 'append_only_raw_observation'
@@ -2385,9 +2722,11 @@ function validateCaptureRawObservationCommitWithIntegrity<
   const authorityCheckpointContract = unbrandedSnapshot.pageBinding.authorizationBinding.requestBinding.chainBinding.authority.checkpointContractVersion
   requireNonEmptyStrings([
     transition.previousCheckpoint.checkpointContractVersion,
+    transition.previousCheckpoint.captureQueryProfileDigest,
     transition.previousCheckpoint.mac,
     transition.previousCheckpointMac,
     transition.nextCheckpoint.checkpointContractVersion,
+    transition.nextCheckpoint.captureQueryProfileDigest,
     transition.nextCheckpoint.mac,
     transition.transitionDigest,
     transition.transitionMac,
@@ -2395,7 +2734,9 @@ function validateCaptureRawObservationCommitWithIntegrity<
   if (transition.previousCheckpointMac !== transition.previousCheckpoint.mac
     || !sameCanonicalSemantics(transition.previousCheckpoint, contextSnapshot.workUnit.checkpoint)
     || transition.previousCheckpoint.checkpointContractVersion !== authorityCheckpointContract
-    || transition.nextCheckpoint.checkpointContractVersion !== authorityCheckpointContract) {
+    || transition.nextCheckpoint.checkpointContractVersion !== authorityCheckpointContract
+    || transition.previousCheckpoint.captureQueryProfileDigest !== contextSnapshot.workUnit.scope.captureQueryProfileDigest
+    || transition.nextCheckpoint.captureQueryProfileDigest !== contextSnapshot.workUnit.scope.captureQueryProfileDigest) {
     bindingValidationFailure('checkpoint_transition_contract_or_mac_mismatch')
   }
   const integrityContext = contextSnapshot as unknown as ProviderPageTransitionInput<CapturePageObservationBinding<
@@ -2510,20 +2851,16 @@ export interface ReadOnlyBrokerAdapter {
   readonly adapterVersion: AdapterVersion
   readonly capabilities: readonly ReadCapabilityDescriptor<unknown, unknown>[]
 
-  prepareReadPlan<
-    ChainBinding extends CaptureChainBinding<string>,
-    RequestBinding extends CaptureRequestBinding<ChainBinding, string>,
-  >(input: Readonly<{
+  prepareReadPlan<ChainBinding extends CaptureChainBinding<string>>(input: Readonly<{
     workUnit: BrokerReadWorkUnit<ChainBinding>
-    requestBinding: RequestBinding
-  }>): BrokerReadRequestPlan<RequestBinding>
-  prepareProbeReadPlan<
-    ChainBinding extends ConnectionProbeChainBinding<string>,
-    RequestBinding extends ConnectionProbeRequestBinding<ChainBinding, string>,
-  >(input: Readonly<{
+    requestId: string
+    requestInput: CanonicalJsonValue
+  }>): BrokerReadRequestPlanDraft
+  prepareProbeReadPlan<ChainBinding extends ConnectionProbeChainBinding<string>>(input: Readonly<{
     probeWork: BrokerConnectionProbeWork<ChainBinding>
-    requestBinding: RequestBinding
-  }>): BrokerReadRequestPlan<RequestBinding>
+    requestId: string
+    requestInput: CanonicalJsonValue
+  }>): BrokerReadRequestPlanDraft
   inspectCaptureWireResponse<
     PageBinding extends CapturePageObservationBinding<
       BrokerRequestAuthorizationBinding<
@@ -2549,7 +2886,7 @@ export interface ReadOnlyBrokerAdapter {
       >,
       string
     >,
-  >(input: RuntimeValidatedProviderPageTransitionInput<PageBinding>): ProviderCheckpointTransition<PageBinding>
+  >(input: RuntimeValidatedProviderPageTransitionInput<PageBinding>): ProviderCheckpointAdvanceCandidate<PageBinding>
   mapRawEvents<
     PageBinding extends CapturePageObservationBinding<
       BrokerRequestAuthorizationBinding<
@@ -2558,8 +2895,25 @@ export interface ReadOnlyBrokerAdapter {
       >,
       string
     >,
-  >(input: InspectedCapturePage<PageBinding>): readonly CanonicalRawEventInput<PageBinding, string>[]
+  >(input: InspectedCapturePage<PageBinding>): readonly AdapterRawEventCandidate<PageBinding>[]
   classifyFailure(error: unknown): BrokerFailure
+}
+
+export interface BrokerRequestPlanningBoundary {
+  prepareConnectionSetupCommand(input: Readonly<{
+    authority: ConnectionProbeAuthorityTuple
+    requestInput: CanonicalJsonValue
+  }>): Promise<BrokerConnectionSetupCommand>
+  prepareCaptureRead<ChainBinding extends CaptureChainBinding<string>, RequestId extends string>(input: Readonly<{
+    workUnit: BrokerReadWorkUnit<ChainBinding>
+    requestId: RequestId
+    requestInput: CanonicalJsonValue
+  }>): Promise<PlannedCaptureBrokerRead<ChainBinding, RequestId>>
+  prepareConnectionProbeRead<ChainBinding extends ConnectionProbeChainBinding<string>, RequestId extends string>(input: Readonly<{
+    probeWork: BrokerConnectionProbeWork<ChainBinding>
+    requestId: RequestId
+    requestInput: CanonicalJsonValue
+  }>): Promise<PlannedConnectionProbeBrokerRead<ChainBinding, RequestId>>
 }
 
 export interface BrokerAdapterInspectionBoundary {
@@ -2600,12 +2954,53 @@ export type BrokerTransportResponse = Readonly<{
 }>
 
 export type BrokerSendAuthorization<Purpose extends BrokerAuthorityPurpose> = Readonly<{
-  sendAuthorizationContractVersion: 'equora-broker-send-authorization-v1'
+  sendAuthorizationContractVersion: 'equora-broker-send-authorization-v2'
   authorityPurpose: Purpose
+  authorityTupleDigest: string
   requestAuthorityId: string
   permitConsumptionId: string
+  canonicalUnsignedRequestDigest: string
+  capabilityDescriptorDigest: string
+  runtimeAuthorityRefDigest: string
+  runtimeAuthorityFenceId: string
   authorizedAtEpochMs: number
   sendDeadlineAt: string
+}>
+
+export type BrokerRuntimeAuthoritySendFenceConsumeCommand<Purpose extends BrokerAuthorityPurpose> = Readonly<{
+  fenceContractVersion: 'equora-broker-runtime-authority-send-fence-v2'
+  runtimeAuthorityFenceId: string
+  uniquenessScope: 'deployment_full_authority_tuple_and_request'
+  authorityPurpose: Purpose
+  provider: ProviderCapabilityRef
+  expectedRuntimeAuthority: BrokerRuntimeAuthorityRef<BrokerRuntimeModeForPurpose<Purpose>>
+  expectedAuthorityTuple: BrokerAuthorityTupleForPurpose<Purpose>
+  authorityTupleDigest: string
+  requestAuthorityId: string
+  permitConsumptionId: string
+  canonicalUnsignedRequestDigest: string
+  capabilityDescriptorDigest: string
+  sendDeadlineAt: string
+  trustedNowEpochMs: number
+}>
+
+export type BrokerRuntimeAuthoritySendFenceReceipt<Purpose extends BrokerAuthorityPurpose> = Readonly<{
+  receiptContractVersion: 'equora-broker-runtime-authority-send-fence-receipt-v2'
+  runtimeAuthorityFenceId: string
+  uniquenessScope: 'deployment_full_authority_tuple_and_request'
+  authorityPurpose: Purpose
+  provider: ProviderCapabilityRef
+  currentRuntimeAuthority: BrokerRuntimeAuthorityRef<BrokerRuntimeModeForPurpose<Purpose>>
+  currentAuthorityTuple: BrokerAuthorityTupleForPurpose<Purpose>
+  currentAuthorityTupleDigest: string
+  authorityTupleDigest: string
+  requestAuthorityId: string
+  permitConsumptionId: string
+  canonicalUnsignedRequestDigest: string
+  capabilityDescriptorDigest: string
+  sendDeadlineAt: string
+  validatedAtEpochMs: number
+  runtimeAuthorityTransactionId: string
 }>
 
 export type BrokerEgressCaptureResult<
@@ -2640,6 +3035,19 @@ export interface BrokerRuntimeAuthorityPort {
     purpose: BrokerAuthorityPurpose,
     provider: ProviderCapabilityRef,
   ): Promise<BrokerRuntimeAuthorityRef<'capture'> | BrokerRuntimeAuthorityRef<'probe'> | null>
+  /**
+   * The implementation MUST read the complete current CaptureAuthorityTuple or
+   * ConnectionProbeAuthorityTuple from its authoritative source, independently recompute that
+   * tuple's digest with computeAuthorityTupleDigest, compare it with authorityTupleDigest and then
+   * atomically consume runtimeAuthorityFenceId in the same transaction. It MUST NOT trust a digest
+   * supplied by the caller as the current value. The transport invokes this operation exactly once
+   * immediately before its private signing/send path. Any activation, activation-authority,
+   * credential/session generation, policy, Runtime Authority, provider, scope or other tuple drift,
+   * as well as revocation or replay, MUST fail without any network effect.
+   */
+  consumeCurrentRuntimeAuthoritySendFenceAtomically<Purpose extends BrokerAuthorityPurpose>(
+    command: BrokerRuntimeAuthoritySendFenceConsumeCommand<Purpose>,
+  ): Promise<BrokerRuntimeAuthoritySendFenceReceipt<Purpose>>
 }
 
 export type BrokerPermitConsumeCommand<
@@ -2732,6 +3140,7 @@ function descriptorExecutionContract(descriptor: ReadCapabilityDescriptor<unknow
     queryContractVersion: descriptor.queryContractVersion,
     cursorContractVersion: descriptor.cursorContractVersion,
     responseContractVersion: descriptor.responseContractVersion,
+    pageSequenceContractVersion: descriptor.pageSequenceContractVersion,
   }
 }
 
@@ -2747,9 +3156,13 @@ async function validateBuiltCapability(
   exactKeys(descriptor, [
     'ref', 'mutationContract', 'methodContract', 'constantMethod', 'constantHttpsOrigin', 'constantPort',
     'constantPathTemplate', 'authClass', 'dataClass', 'queryContractVersion', 'cursorContractVersion',
-    'responseContractVersion', 'parseQuery', 'parseCursor',
+    'responseContractVersion', 'pageSequenceContractVersion', 'canonicalizeQuery', 'parseQuery', 'parseCursor',
+    'pageSequenceFromQuery',
   ], 'code_registry_descriptor_shape_invalid')
-  if (typeof descriptor.parseQuery !== 'function' || typeof descriptor.parseCursor !== 'function') {
+  if (typeof descriptor.canonicalizeQuery !== 'function'
+    || typeof descriptor.parseQuery !== 'function'
+    || typeof descriptor.parseCursor !== 'function'
+    || typeof descriptor.pageSequenceFromQuery !== 'function') {
     bindingValidationFailure('code_registry_parser_missing')
   }
   const registeredContract = canonicalSnapshot(descriptorExecutionContract(descriptor))
@@ -2766,9 +3179,28 @@ async function validateBuiltCapability(
   if (!sameCanonicalSemantics(parsedQuery, plan.canonicalQuery)) {
     bindingValidationFailure('code_registry_query_not_canonical')
   }
+  let descriptorPageSequence: unknown
+  try {
+    descriptorPageSequence = descriptor.pageSequenceFromQuery(parsedQuery)
+  } catch {
+    bindingValidationFailure('code_registry_page_sequence_rejected')
+  }
+  if (descriptor.pageSequenceContractVersion !== plan.pageSequenceContractVersion
+    || descriptorPageSequence !== plan.pageSequence) {
+    bindingValidationFailure('code_registry_page_sequence_mismatch')
+  }
   validatePlan(plan, registeredContract, plan.requestBinding.chainBinding.authority.authorityPurpose === 'capture'
     ? plan.requestBinding.chainBinding.authority.captureBudget.responseByteLimit
     : plan.requestBinding.chainBinding.authority.probeBudget.responseByteLimit)
+  return descriptor
+}
+
+function requireSignedReadCentralEgressCapability(
+  descriptor: ReadCapabilityDescriptor<unknown, unknown>,
+) {
+  if (descriptor.authClass !== 'signed_read') {
+    bindingValidationFailure('central_signed_egress_public_or_unsupported_capability')
+  }
   return descriptor
 }
 
@@ -2865,6 +3297,148 @@ function validateTransportResponse(
   }
 }
 
+function computeBrokerRuntimeAuthorityFenceId(input: Readonly<{
+  purpose: BrokerAuthorityPurpose
+  plan: BrokerReadRequestPlan<AnyBrokerRequestBinding>
+  requestAuthorityId: string
+  permitConsumptionId: string
+  runtimeAuthority: BrokerRuntimeAuthorityRef<'capture'> | BrokerRuntimeAuthorityRef<'probe'>
+}>) {
+  return canonicalSha256({
+    fenceContractVersion: 'equora-broker-runtime-authority-send-fence-v2',
+    authorityPurpose: input.purpose,
+    authorityTupleDigest: input.plan.authorityTupleDigest,
+    requestAuthorityId: input.requestAuthorityId,
+    permitConsumptionId: input.permitConsumptionId,
+    canonicalUnsignedRequestDigest: input.plan.canonicalUnsignedRequestDigest,
+    capabilityDescriptorDigest: input.plan.provider.capabilityDescriptorDigest,
+    runtimeAuthority: input.runtimeAuthority,
+  })
+}
+
+function validateRuntimeAuthorityFenceReceipt<Purpose extends BrokerAuthorityPurpose>(
+  receipt: BrokerRuntimeAuthoritySendFenceReceipt<Purpose>,
+  command: BrokerRuntimeAuthoritySendFenceConsumeCommand<Purpose>,
+) {
+  const snapshot = canonicalSnapshot(receipt)
+  exactKeys(snapshot, [
+    'receiptContractVersion', 'runtimeAuthorityFenceId', 'uniquenessScope', 'authorityPurpose',
+    'provider', 'currentRuntimeAuthority', 'currentAuthorityTuple', 'currentAuthorityTupleDigest',
+    'authorityTupleDigest', 'requestAuthorityId',
+    'permitConsumptionId', 'canonicalUnsignedRequestDigest', 'capabilityDescriptorDigest',
+    'sendDeadlineAt', 'validatedAtEpochMs', 'runtimeAuthorityTransactionId',
+  ], 'runtime_authority_send_fence_receipt_shape_invalid')
+  const expectedAuthorityTuple = command.expectedAuthorityTuple as CaptureAuthorityTuple | ConnectionProbeAuthorityTuple
+  const expectedAuthorityTupleDigest = computeAuthorityTupleDigest(expectedAuthorityTuple)
+  const currentAuthorityTuple = snapshot.currentAuthorityTuple as CaptureAuthorityTuple | ConnectionProbeAuthorityTuple
+  const currentAuthorityTupleDigest = computeAuthorityTupleDigest(currentAuthorityTuple)
+  if (snapshot.receiptContractVersion !== 'equora-broker-runtime-authority-send-fence-receipt-v2'
+    || snapshot.runtimeAuthorityFenceId !== command.runtimeAuthorityFenceId
+    || snapshot.uniquenessScope !== command.uniquenessScope
+    || snapshot.authorityPurpose !== command.authorityPurpose
+    || !sameProviderCapability(snapshot.provider, command.provider)
+    || !sameCanonicalSemantics(snapshot.currentRuntimeAuthority, command.expectedRuntimeAuthority)
+    || currentAuthorityTuple.authorityPurpose !== command.authorityPurpose
+    || !sameProviderCapability(currentAuthorityTuple.provider, command.provider)
+    || !sameCanonicalSemantics(currentAuthorityTuple.runtimeAuthority, command.expectedRuntimeAuthority)
+    || !sameCanonicalSemantics(currentAuthorityTuple, expectedAuthorityTuple)
+    || currentAuthorityTuple.authorityTupleDigest !== command.authorityTupleDigest
+    || currentAuthorityTupleDigest !== command.authorityTupleDigest
+    || expectedAuthorityTuple.authorityPurpose !== command.authorityPurpose
+    || !sameProviderCapability(expectedAuthorityTuple.provider, command.provider)
+    || !sameCanonicalSemantics(expectedAuthorityTuple.runtimeAuthority, command.expectedRuntimeAuthority)
+    || expectedAuthorityTuple.authorityTupleDigest !== command.authorityTupleDigest
+    || expectedAuthorityTupleDigest !== command.authorityTupleDigest
+    || snapshot.currentAuthorityTupleDigest !== command.authorityTupleDigest
+    || snapshot.authorityTupleDigest !== command.authorityTupleDigest
+    || snapshot.requestAuthorityId !== command.requestAuthorityId
+    || snapshot.permitConsumptionId !== command.permitConsumptionId
+    || snapshot.canonicalUnsignedRequestDigest !== command.canonicalUnsignedRequestDigest
+    || snapshot.capabilityDescriptorDigest !== command.capabilityDescriptorDigest
+    || snapshot.sendDeadlineAt !== command.sendDeadlineAt
+    || snapshot.validatedAtEpochMs !== command.trustedNowEpochMs
+    || !Number.isSafeInteger(snapshot.validatedAtEpochMs)
+    || snapshot.validatedAtEpochMs >= Date.parse(snapshot.sendDeadlineAt)) {
+    bindingValidationFailure('runtime_authority_send_fence_receipt_binding_invalid')
+  }
+  validateCurrentRuntimeAuthority(
+    snapshot.currentRuntimeAuthority as BrokerRuntimeAuthorityRef<'capture'> | BrokerRuntimeAuthorityRef<'probe'>,
+    command.expectedRuntimeAuthority as BrokerRuntimeAuthorityRef<'capture'> | BrokerRuntimeAuthorityRef<'probe'>,
+  )
+  requireNonEmptyString(snapshot.runtimeAuthorityTransactionId, 'runtime_authority_transaction_id_empty')
+  return snapshot
+}
+
+function issueBrokerSendAuthorization<Purpose extends BrokerAuthorityPurpose>(input: Readonly<{
+  purpose: Purpose
+  plan: BrokerReadRequestPlan<AnyBrokerRequestBinding>
+  requestAuthorityId: string
+  permitConsumptionId: string
+  runtimeAuthority: BrokerRuntimeAuthorityRef<BrokerRuntimeModeForPurpose<Purpose>>
+  runtimeAuthorityFenceId: string
+  consumeRuntimeAuthorityFenceAtTransport: () => Promise<void>
+  authorizedAtEpochMs: number
+  sendDeadlineAt: string
+}>): BrokerSendAuthorization<Purpose> {
+  const authorization = Object.freeze({
+    sendAuthorizationContractVersion: 'equora-broker-send-authorization-v2' as const,
+    authorityPurpose: input.purpose,
+    authorityTupleDigest: input.plan.authorityTupleDigest,
+    requestAuthorityId: input.requestAuthorityId,
+    permitConsumptionId: input.permitConsumptionId,
+    canonicalUnsignedRequestDigest: input.plan.canonicalUnsignedRequestDigest,
+    capabilityDescriptorDigest: input.plan.provider.capabilityDescriptorDigest,
+    runtimeAuthorityRefDigest: canonicalSha256(input.runtimeAuthority),
+    runtimeAuthorityFenceId: input.runtimeAuthorityFenceId,
+    authorizedAtEpochMs: input.authorizedAtEpochMs,
+    sendDeadlineAt: input.sendDeadlineAt,
+  })
+  issuedBrokerSendAuthorizations.set(authorization, Object.freeze({
+    plan: input.plan,
+    consumeRuntimeAuthorityFenceAtTransport: input.consumeRuntimeAuthorityFenceAtTransport,
+  }))
+  return authorization
+}
+
+export async function consumeBrokerSendAuthorizationForTransport<Binding extends AnyBrokerRequestBinding>(
+  authorization: BrokerSendAuthorization<Binding['authorityPurpose']>,
+  plan: BrokerReadRequestPlan<Binding>,
+): Promise<BrokerSendAuthorization<Binding['authorityPurpose']>> {
+  if (!authorization || isProxy(authorization) || !Object.isFrozen(authorization)) {
+    bindingValidationFailure('broker_send_authorization_missing_mutable_or_proxy')
+  }
+  exactKeys(authorization, [
+    'sendAuthorizationContractVersion', 'authorityPurpose', 'authorityTupleDigest', 'requestAuthorityId',
+    'permitConsumptionId', 'canonicalUnsignedRequestDigest', 'capabilityDescriptorDigest',
+    'runtimeAuthorityRefDigest', 'runtimeAuthorityFenceId', 'authorizedAtEpochMs', 'sendDeadlineAt',
+  ], 'broker_send_authorization_shape_invalid')
+  const provenance = issuedBrokerSendAuthorizations.get(authorization)
+  if (!provenance || provenance.plan !== plan || consumedBrokerSendAuthorizations.has(authorization)) {
+    bindingValidationFailure('broker_send_authorization_not_issued_for_plan_or_replayed')
+  }
+  if (authorization.sendAuthorizationContractVersion !== 'equora-broker-send-authorization-v2'
+    || authorization.authorityPurpose !== plan.authorityPurpose
+    || authorization.authorityTupleDigest !== plan.authorityTupleDigest
+    || authorization.canonicalUnsignedRequestDigest !== plan.canonicalUnsignedRequestDigest
+    || authorization.capabilityDescriptorDigest !== plan.provider.capabilityDescriptorDigest
+    || authorization.permitConsumptionId !== computeBrokerPermitConsumptionId(
+      authorization.authorityPurpose,
+      authorization.requestAuthorityId,
+    )
+    || !/^[a-f0-9]{64}$/.test(authorization.runtimeAuthorityRefDigest)
+    || !/^[a-f0-9]{64}$/.test(authorization.runtimeAuthorityFenceId)
+    || !Number.isSafeInteger(authorization.authorizedAtEpochMs)
+    || authorization.authorizedAtEpochMs < 1_000_000_000_000
+    || !isCanonicalUtcInstant(authorization.sendDeadlineAt)
+    || authorization.authorizedAtEpochMs >= Date.parse(authorization.sendDeadlineAt)) {
+    bindingValidationFailure('broker_send_authorization_binding_invalid')
+  }
+  consumedBrokerSendAuthorizations.add(authorization)
+  issuedBrokerSendAuthorizations.delete(authorization)
+  await provenance.consumeRuntimeAuthorityFenceAtTransport()
+  return authorization
+}
+
 function wireResponseFromTransport<
   AuthorizationBinding extends BrokerRequestAuthorizationBinding<AnyBrokerRequestBinding, string>,
 >(
@@ -2916,6 +3490,234 @@ async function readRegisteredAdapter(
     bindingValidationFailure('code_registry_adapter_missing_or_mismatched')
   }
   return adapter
+}
+
+async function readRegisteredDescriptor(
+  registry: Pick<BrokerCodeRegistryPort, 'readBuiltCapability'>,
+  provider: ProviderCapabilityRef,
+) {
+  const descriptor = await registry.readBuiltCapability(provider)
+  if (!descriptor || isProxy(descriptor) || !Object.isFrozen(descriptor)
+    || !sameProviderCapability(descriptor.ref, provider)) {
+    bindingValidationFailure('code_registry_descriptor_missing_or_mismatched')
+  }
+  exactKeys(descriptor, [
+    'ref', 'mutationContract', 'methodContract', 'constantMethod', 'constantHttpsOrigin', 'constantPort',
+    'constantPathTemplate', 'authClass', 'dataClass', 'queryContractVersion', 'cursorContractVersion',
+    'responseContractVersion', 'pageSequenceContractVersion', 'canonicalizeQuery', 'parseQuery', 'parseCursor',
+    'pageSequenceFromQuery',
+  ], 'code_registry_descriptor_shape_invalid')
+  if (typeof descriptor.canonicalizeQuery !== 'function'
+    || typeof descriptor.parseQuery !== 'function'
+    || typeof descriptor.parseCursor !== 'function'
+    || typeof descriptor.pageSequenceFromQuery !== 'function') {
+    bindingValidationFailure('code_registry_parser_missing')
+  }
+  validateCapabilityContract(canonicalSnapshot(descriptorExecutionContract(descriptor)), provider)
+  return descriptor
+}
+
+function canonicalizeRegisteredDescriptorQuery(
+  descriptor: ReadCapabilityDescriptor<unknown, unknown>,
+  rawRequestInput: CanonicalJsonValue,
+) {
+  let canonicalQuery: unknown
+  try {
+    canonicalQuery = descriptor.canonicalizeQuery(canonicalSnapshot(rawRequestInput))
+  } catch {
+    bindingValidationFailure('code_registry_setup_query_rejected')
+  }
+  const snapshot = canonicalSnapshot(canonicalQuery) as CanonicalJsonValue
+  let parsedCanonicalQuery: unknown
+  try {
+    parsedCanonicalQuery = descriptor.parseQuery(snapshot)
+  } catch {
+    bindingValidationFailure('code_registry_setup_query_not_canonical')
+  }
+  if (!sameCanonicalSemantics(parsedCanonicalQuery, snapshot)) {
+    bindingValidationFailure('code_registry_setup_query_not_canonical')
+  }
+  return snapshot
+}
+
+function bindPlannedBrokerRead<
+  ChainBinding extends AnyBrokerChainBinding,
+  RequestId extends string,
+>(input: Readonly<{
+  chainBinding: ChainBinding
+  requestId: RequestId
+  draft: BrokerReadRequestPlanDraft
+  adapter: ReadOnlyBrokerAdapter
+}>) {
+  requireNonEmptyString(input.requestId, 'broker_request_planning_request_id_empty')
+  const draft = canonicalSnapshot(input.draft)
+  exactKeys(draft, [
+    'provider', 'method', 'httpsOrigin', 'port', 'pathTemplateId', 'canonicalPath', 'canonicalQuery',
+    'redirectMode', 'responseByteLimit', 'requestTimeoutMs', 'planContractVersion',
+    'pageSequenceContractVersion', 'pageSequence',
+  ], 'broker_request_plan_draft_shape_invalid')
+  const authority = input.chainBinding.authority
+  if (!sameProviderCapability(draft.provider, authority.provider)) {
+    bindingValidationFailure('broker_request_plan_draft_provider_mismatch')
+  }
+  const descriptor = input.adapter.capabilities.find((candidate) => sameProviderCapability(candidate.ref, draft.provider))
+  if (!descriptor || !Object.isFrozen(descriptor)) {
+    bindingValidationFailure('broker_request_plan_draft_descriptor_missing')
+  }
+  const capabilityContract = canonicalSnapshot(descriptorExecutionContract(descriptor))
+  validateCapabilityContract(capabilityContract, authority.provider)
+  let parsedQuery: unknown
+  try {
+    parsedQuery = descriptor.parseQuery(draft.canonicalQuery)
+  } catch {
+    bindingValidationFailure('broker_request_plan_draft_query_rejected')
+  }
+  if (!sameCanonicalSemantics(parsedQuery, draft.canonicalQuery)) {
+    bindingValidationFailure('broker_request_plan_draft_query_not_canonical')
+  }
+  let descriptorPageSequence: unknown
+  try {
+    descriptorPageSequence = descriptor.pageSequenceFromQuery(parsedQuery)
+  } catch {
+    bindingValidationFailure('broker_request_plan_draft_page_sequence_rejected')
+  }
+  if (draft.pageSequenceContractVersion !== descriptor.pageSequenceContractVersion
+    || draft.pageSequenceContractVersion !== PAGE_SEQUENCE_CONTRACT_VERSION
+    || descriptorPageSequence !== draft.pageSequence) {
+    bindingValidationFailure('broker_request_plan_draft_page_sequence_mismatch')
+  }
+  const planDigestFields = {
+    authorityPurpose: input.chainBinding.authorityPurpose,
+    authorityTupleDigest: authority.authorityTupleDigest,
+    provider: authority.provider,
+    method: draft.method,
+    httpsOrigin: draft.httpsOrigin,
+    port: draft.port,
+    pathTemplateId: draft.pathTemplateId,
+    canonicalPath: draft.canonicalPath,
+    canonicalQuery: draft.canonicalQuery,
+    redirectMode: draft.redirectMode,
+    responseByteLimit: draft.responseByteLimit,
+    requestTimeoutMs: draft.requestTimeoutMs,
+    planContractVersion: draft.planContractVersion,
+    pageSequenceContractVersion: draft.pageSequenceContractVersion,
+    pageSequence: draft.pageSequence,
+  }
+  const canonicalUnsignedRequestDigest = canonicalSha256(planDigestFields)
+  const requestBinding = deepFreezeSnapshot({
+    requestId: input.requestId,
+    authorityPurpose: input.chainBinding.authorityPurpose,
+    chainBinding: input.chainBinding,
+    canonicalUnsignedRequestDigest,
+    queryDigest: canonicalSha256(draft.canonicalQuery),
+    purposeRequestSequence: authority.purposeRequestSequence,
+    provider: authority.provider,
+    capabilityProfile: authority.capabilityProfile,
+  }) as unknown as AnyBrokerRequestBinding
+  const plan = deepFreezeSnapshot({
+    ...planDigestFields,
+    requestBinding,
+    canonicalUnsignedRequestDigest,
+  }) as BrokerReadRequestPlan<AnyBrokerRequestBinding>
+  if (input.chainBinding.authorityPurpose === 'capture') {
+    validateCaptureRequestBinding(requestBinding as CaptureRequestBinding<CaptureChainBinding<string>, string>)
+    validatePlan(plan, capabilityContract, input.chainBinding.authority.captureBudget.responseByteLimit)
+  } else {
+    validateProbeRequestBinding(requestBinding as ConnectionProbeRequestBinding<ConnectionProbeChainBinding<string>, string>)
+    validatePlan(plan, capabilityContract, input.chainBinding.authority.probeBudget.responseByteLimit)
+  }
+  return deepFreezeSnapshot({ capabilityContract, requestBinding, plan })
+}
+
+export function createBrokerRequestPlanningBoundary(
+  codeRegistry: BrokerCodeRegistryPort,
+): BrokerRequestPlanningBoundary {
+  if (!codeRegistry || isProxy(codeRegistry)) bindingValidationFailure('broker_request_planning_registry_proxy_or_missing')
+  const registry = Object.freeze({
+    readBuiltCapability: bindRequiredPortMethod(codeRegistry, 'readBuiltCapability') as BrokerCodeRegistryPort['readBuiltCapability'],
+    readBuiltAdapter: bindRequiredPortMethod(codeRegistry, 'readBuiltAdapter') as BrokerCodeRegistryPort['readBuiltAdapter'],
+  })
+  return Object.freeze({
+    async prepareConnectionSetupCommand(input: Readonly<{
+      authority: ConnectionProbeAuthorityTuple
+      requestInput: CanonicalJsonValue
+    }>) {
+      exactKeys(input, ['authority', 'requestInput'], 'connection_setup_planning_input_shape_invalid')
+      const authority = canonicalSnapshot(input.authority)
+      validateProbeAuthority(authority)
+      const descriptor = await readRegisteredDescriptor(registry, authority.provider)
+      const canonicalQuery = canonicalizeRegisteredDescriptorQuery(descriptor, input.requestInput)
+      const canonicalDescriptorQueryDigest = computeBrokerDescriptorQueryDigest({
+        provider: authority.provider,
+        capabilityProfile: authority.capabilityProfile,
+        queryContractVersion: descriptor.queryContractVersion,
+        canonicalQuery,
+      })
+      const command = deepFreezeSnapshot({
+        setupCommandContractVersion: 'equora-broker-connection-setup-command-v2' as const,
+        setupCommandId: authority.setupCommandId,
+        expectedSetupCommandRowVersion: authority.expectedSetupCommandRowVersion,
+        userId: authority.userId,
+        environment: authority.environment,
+        provider: authority.provider,
+        capabilityProfile: authority.capabilityProfile,
+        descriptorQueryDigestContractVersion: DESCRIPTOR_QUERY_DIGEST_CONTRACT_VERSION,
+        queryContractVersion: descriptor.queryContractVersion,
+        canonicalDescriptorQueryDigest,
+        readOnlyAttestation: true as const,
+        probeBudget: Object.freeze({
+          cumulativeRequestLimit: authority.probeBudget.cumulativeRequestLimit,
+          responseByteLimit: authority.probeBudget.responseByteLimit,
+          absoluteDeadlineAt: authority.probeBudget.absoluteDeadlineAt,
+        }),
+        persistenceAuthority: 'secret_free_setup_command_only' as const,
+        credentialPersistenceAuthority: 'none_before_atomic_apply' as const,
+        captureAuthority: 'none' as const,
+        importAuthority: 'none' as const,
+      })
+      return validateBrokerConnectionSetupCommand(command, authority)
+    },
+    async prepareCaptureRead<ChainBinding extends CaptureChainBinding<string>, RequestId extends string>(input: Readonly<{
+      workUnit: BrokerReadWorkUnit<ChainBinding>
+      requestId: RequestId
+      requestInput: CanonicalJsonValue
+    }>) {
+      exactKeys(input, ['workUnit', 'requestId', 'requestInput'], 'capture_request_planning_input_shape_invalid')
+      const workUnit = validateBrokerReadWorkUnit(input.workUnit)
+      const requestInput = canonicalSnapshot(input.requestInput)
+      const adapter = await readRegisteredAdapter(registry as BrokerCodeRegistryPort, workUnit.chainBinding.authority.provider)
+      const prepare = bindRequiredPortMethod(adapter, 'prepareReadPlan') as ReadOnlyBrokerAdapter['prepareReadPlan']
+      const draft = await Promise.resolve(prepare({ workUnit, requestId: input.requestId, requestInput }))
+      return bindPlannedBrokerRead({ chainBinding: workUnit.chainBinding, requestId: input.requestId, draft, adapter }) as PlannedCaptureBrokerRead<ChainBinding, RequestId>
+    },
+    async prepareConnectionProbeRead<ChainBinding extends ConnectionProbeChainBinding<string>, RequestId extends string>(input: Readonly<{
+      probeWork: BrokerConnectionProbeWork<ChainBinding>
+      requestId: RequestId
+      requestInput: CanonicalJsonValue
+    }>) {
+      exactKeys(input, ['probeWork', 'requestId', 'requestInput'], 'probe_request_planning_input_shape_invalid')
+      const work = validateBrokerConnectionProbeWork(input.probeWork)
+      if (!sameCanonicalSemantics(input.requestInput, work.requestInput)) {
+        bindingValidationFailure('probe_request_planning_input_mismatch')
+      }
+      const descriptor = await readRegisteredDescriptor(registry, work.chainBinding.authority.provider)
+      const canonicalQuery = canonicalizeRegisteredDescriptorQuery(descriptor, input.requestInput)
+      const canonicalDescriptorQueryDigest = computeBrokerDescriptorQueryDigest({
+        provider: work.chainBinding.authority.provider,
+        capabilityProfile: work.chainBinding.authority.capabilityProfile,
+        queryContractVersion: descriptor.queryContractVersion,
+        canonicalQuery,
+      })
+      if (work.setupCommand.queryContractVersion !== descriptor.queryContractVersion
+        || work.setupCommand.canonicalDescriptorQueryDigest !== canonicalDescriptorQueryDigest) {
+        bindingValidationFailure('probe_request_planning_descriptor_query_mismatch')
+      }
+      const adapter = await readRegisteredAdapter(registry as BrokerCodeRegistryPort, work.chainBinding.authority.provider)
+      const prepare = bindRequiredPortMethod(adapter, 'prepareProbeReadPlan') as ReadOnlyBrokerAdapter['prepareProbeReadPlan']
+      const draft = await Promise.resolve(prepare(input))
+      return bindPlannedBrokerRead({ chainBinding: work.chainBinding, requestId: input.requestId, draft, adapter }) as PlannedConnectionProbeBrokerRead<ChainBinding, RequestId>
+    },
+  })
 }
 
 export function createBrokerAdapterInspectionBoundary(
@@ -2974,6 +3776,10 @@ export function createCentralBrokerEgress(dependencies: CentralBrokerEgressDepen
         dependencies.runtimeAuthority,
         'readCurrentRuntimeAuthority',
       ) as BrokerRuntimeAuthorityPort['readCurrentRuntimeAuthority'],
+      consumeCurrentRuntimeAuthoritySendFenceAtomically: bindRequiredPortMethod(
+        dependencies.runtimeAuthority,
+        'consumeCurrentRuntimeAuthoritySendFenceAtomically',
+      ) as BrokerRuntimeAuthorityPort['consumeCurrentRuntimeAuthoritySendFenceAtomically'],
     }),
     controlPlane: Object.freeze({
       consumeCapturePermitAtomically: bindRequiredPortMethod(
@@ -3012,7 +3818,9 @@ export function createCentralBrokerEgress(dependencies: CentralBrokerEgressDepen
     const authority = execution.requestBinding.chainBinding.authority
     const preconsumeNow = nextNow()
     validatePermit(execution.permit, authority.captureBudget.requestDeadlineAt, preconsumeNow)
-    await validateBuiltCapability(ports.codeRegistry, execution.capabilityContract, execution.plan)
+    requireSignedReadCentralEgressCapability(
+      await validateBuiltCapability(ports.codeRegistry, execution.capabilityContract, execution.plan),
+    )
     const currentRuntimeAuthority = await ports.runtimeAuthority.readCurrentRuntimeAuthority('capture', authority.provider)
     validateCurrentRuntimeAuthority(currentRuntimeAuthority, authority.runtimeAuthority)
     const permitConsumptionId = computeBrokerPermitConsumptionId('capture', execution.authorizationBinding.requestAuthorityId)
@@ -3036,7 +3844,9 @@ export function createCentralBrokerEgress(dependencies: CentralBrokerEgressDepen
     const consumedExecution = promoteControlPlaneConsumedCaptureExecution(execution)
     const postcommitNow = nextNow()
     validatePermit(consumedExecution.permit, authority.captureBudget.requestDeadlineAt, postcommitNow)
-    await validateBuiltCapability(ports.codeRegistry, consumedExecution.capabilityContract, consumedExecution.plan)
+    requireSignedReadCentralEgressCapability(
+      await validateBuiltCapability(ports.codeRegistry, consumedExecution.capabilityContract, consumedExecution.plan),
+    )
     validateCurrentRuntimeAuthority(
       await ports.runtimeAuthority.readCurrentRuntimeAuthority('capture', authority.provider),
       authority.runtimeAuthority,
@@ -3049,11 +3859,44 @@ export function createCentralBrokerEgress(dependencies: CentralBrokerEgressDepen
       }
       const authorizedAtEpochMs = nextNow()
       validatePermit(consumedExecution.permit, authority.captureBudget.requestDeadlineAt, authorizedAtEpochMs)
-      const sendAuthorization = Object.freeze({
-        sendAuthorizationContractVersion: 'equora-broker-send-authorization-v1' as const,
-        authorityPurpose: 'capture' as const,
+      const runtimeAuthorityFenceId = computeBrokerRuntimeAuthorityFenceId({
+        purpose: 'capture',
+        plan: consumedExecution.plan,
         requestAuthorityId: consumedExecution.authorizationBinding.requestAuthorityId,
         permitConsumptionId,
+        runtimeAuthority: authority.runtimeAuthority,
+      })
+      const sendAuthorization = issueBrokerSendAuthorization({
+        purpose: 'capture' as const,
+        plan: consumedExecution.plan,
+        requestAuthorityId: consumedExecution.authorizationBinding.requestAuthorityId,
+        permitConsumptionId,
+        runtimeAuthority: authority.runtimeAuthority,
+        runtimeAuthorityFenceId,
+        consumeRuntimeAuthorityFenceAtTransport: async () => {
+          const trustedNowEpochMs = nextNow()
+          validatePermit(consumedExecution.permit, authority.captureBudget.requestDeadlineAt, trustedNowEpochMs)
+          const command: BrokerRuntimeAuthoritySendFenceConsumeCommand<'capture'> = Object.freeze({
+            fenceContractVersion: 'equora-broker-runtime-authority-send-fence-v2',
+            runtimeAuthorityFenceId,
+            uniquenessScope: 'deployment_full_authority_tuple_and_request',
+            authorityPurpose: 'capture',
+            provider: authority.provider,
+            expectedRuntimeAuthority: authority.runtimeAuthority,
+            expectedAuthorityTuple: authority,
+            authorityTupleDigest: authority.authorityTupleDigest,
+            requestAuthorityId: consumedExecution.authorizationBinding.requestAuthorityId,
+            permitConsumptionId,
+            canonicalUnsignedRequestDigest: consumedExecution.plan.canonicalUnsignedRequestDigest,
+            capabilityDescriptorDigest: consumedExecution.plan.provider.capabilityDescriptorDigest,
+            sendDeadlineAt: consumedExecution.permit.sendDeadlineAt,
+            trustedNowEpochMs,
+          })
+          validateRuntimeAuthorityFenceReceipt(
+            await ports.runtimeAuthority.consumeCurrentRuntimeAuthoritySendFenceAtomically(command),
+            command,
+          )
+        },
         authorizedAtEpochMs,
         sendDeadlineAt: consumedExecution.permit.sendDeadlineAt,
       })
@@ -3091,7 +3934,9 @@ export function createCentralBrokerEgress(dependencies: CentralBrokerEgressDepen
     const authority = execution.requestBinding.chainBinding.authority
     const preconsumeNow = nextNow()
     validatePermit(execution.permit, authority.probeBudget.absoluteDeadlineAt, preconsumeNow)
-    await validateBuiltCapability(ports.codeRegistry, execution.capabilityContract, execution.plan)
+    requireSignedReadCentralEgressCapability(
+      await validateBuiltCapability(ports.codeRegistry, execution.capabilityContract, execution.plan),
+    )
     const currentRuntimeAuthority = await ports.runtimeAuthority.readCurrentRuntimeAuthority('connection_probe', authority.provider)
     validateCurrentRuntimeAuthority(currentRuntimeAuthority, authority.runtimeAuthority)
     const permitConsumptionId = computeBrokerPermitConsumptionId('connection_probe', execution.authorizationBinding.requestAuthorityId)
@@ -3115,7 +3960,9 @@ export function createCentralBrokerEgress(dependencies: CentralBrokerEgressDepen
     const consumedExecution = promoteControlPlaneConsumedProbeExecution(execution)
     const postcommitNow = nextNow()
     validatePermit(consumedExecution.permit, authority.probeBudget.absoluteDeadlineAt, postcommitNow)
-    await validateBuiltCapability(ports.codeRegistry, consumedExecution.capabilityContract, consumedExecution.plan)
+    requireSignedReadCentralEgressCapability(
+      await validateBuiltCapability(ports.codeRegistry, consumedExecution.capabilityContract, consumedExecution.plan),
+    )
     validateCurrentRuntimeAuthority(
       await ports.runtimeAuthority.readCurrentRuntimeAuthority('connection_probe', authority.provider),
       authority.runtimeAuthority,
@@ -3128,11 +3975,44 @@ export function createCentralBrokerEgress(dependencies: CentralBrokerEgressDepen
       }
       const authorizedAtEpochMs = nextNow()
       validatePermit(consumedExecution.permit, authority.probeBudget.absoluteDeadlineAt, authorizedAtEpochMs)
-      const sendAuthorization = Object.freeze({
-        sendAuthorizationContractVersion: 'equora-broker-send-authorization-v1' as const,
-        authorityPurpose: 'connection_probe' as const,
+      const runtimeAuthorityFenceId = computeBrokerRuntimeAuthorityFenceId({
+        purpose: 'connection_probe',
+        plan: consumedExecution.plan,
         requestAuthorityId: consumedExecution.authorizationBinding.requestAuthorityId,
         permitConsumptionId,
+        runtimeAuthority: authority.runtimeAuthority,
+      })
+      const sendAuthorization = issueBrokerSendAuthorization({
+        purpose: 'connection_probe' as const,
+        plan: consumedExecution.plan,
+        requestAuthorityId: consumedExecution.authorizationBinding.requestAuthorityId,
+        permitConsumptionId,
+        runtimeAuthority: authority.runtimeAuthority,
+        runtimeAuthorityFenceId,
+        consumeRuntimeAuthorityFenceAtTransport: async () => {
+          const trustedNowEpochMs = nextNow()
+          validatePermit(consumedExecution.permit, authority.probeBudget.absoluteDeadlineAt, trustedNowEpochMs)
+          const command: BrokerRuntimeAuthoritySendFenceConsumeCommand<'connection_probe'> = Object.freeze({
+            fenceContractVersion: 'equora-broker-runtime-authority-send-fence-v2',
+            runtimeAuthorityFenceId,
+            uniquenessScope: 'deployment_full_authority_tuple_and_request',
+            authorityPurpose: 'connection_probe',
+            provider: authority.provider,
+            expectedRuntimeAuthority: authority.runtimeAuthority,
+            expectedAuthorityTuple: authority,
+            authorityTupleDigest: authority.authorityTupleDigest,
+            requestAuthorityId: consumedExecution.authorizationBinding.requestAuthorityId,
+            permitConsumptionId,
+            canonicalUnsignedRequestDigest: consumedExecution.plan.canonicalUnsignedRequestDigest,
+            capabilityDescriptorDigest: consumedExecution.plan.provider.capabilityDescriptorDigest,
+            sendDeadlineAt: consumedExecution.permit.sendDeadlineAt,
+            trustedNowEpochMs,
+          })
+          validateRuntimeAuthorityFenceReceipt(
+            await ports.runtimeAuthority.consumeCurrentRuntimeAuthoritySendFenceAtomically(command),
+            command,
+          )
+        },
         authorizedAtEpochMs,
         sendDeadlineAt: consumedExecution.permit.sendDeadlineAt,
       })
