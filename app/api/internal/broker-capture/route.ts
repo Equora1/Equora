@@ -1,10 +1,6 @@
 import { timingSafeEqual } from 'node:crypto'
 import { NextResponse } from 'next/server'
-import { runMexcCaptureCycle } from '@/lib/server/mexc-capture-runtime'
-import {
-  isMexcAutomaticCaptureActivated,
-  isMexcCaptureEnvironmentReady,
-} from '@/lib/server/mexc-runtime'
+import { runBrokerCaptureCycle } from '@/lib/server/broker-capture-runtime'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 300
@@ -27,20 +23,17 @@ export async function GET(request: Request) {
       headers: { 'Cache-Control': 'no-store' },
     })
   }
-  if (!isMexcAutomaticCaptureActivated()) {
-    return NextResponse.json({ ok: false, code: 'runtime_disabled' }, {
-      status: 503,
-      headers: { 'Cache-Control': 'no-store' },
-    })
-  }
-  if (!isMexcCaptureEnvironmentReady()) {
-    return NextResponse.json({ ok: false, code: 'runtime_not_configured' }, {
-      status: 503,
-      headers: { 'Cache-Control': 'no-store' },
-    })
-  }
   try {
-    const result = await runMexcCaptureCycle()
+    const result = await runBrokerCaptureCycle()
+    if (result.status === 'disabled' || result.status === 'runtime_not_configured') {
+      return NextResponse.json({
+        ok: false,
+        code: result.status === 'disabled' ? 'runtime_disabled' : 'runtime_not_configured',
+      }, {
+        status: 503,
+        headers: { 'Cache-Control': 'no-store' },
+      })
+    }
     if (result.status === 'failed') {
       return NextResponse.json({
         ok: false,

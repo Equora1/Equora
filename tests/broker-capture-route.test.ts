@@ -1,20 +1,22 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
-  activated: vi.fn(),
-  environmentReady: vi.fn(),
   runCycle: vi.fn(),
 }))
 
-vi.mock('@/lib/server/mexc-runtime', () => ({
-  isMexcAutomaticCaptureActivated: mocks.activated,
-  isMexcCaptureEnvironmentReady: mocks.environmentReady,
-}))
-vi.mock('@/lib/server/mexc-capture-runtime', () => ({
-  runMexcCaptureCycle: mocks.runCycle,
+vi.mock('server-only', () => ({}))
+
+vi.mock('@/lib/server/broker-capture-runtime', () => ({
+  runBrokerCaptureCycle: mocks.runCycle,
 }))
 
 import { GET } from '../app/api/internal/broker-capture/route'
+import {
+  BROKER_CAPTURE_RUNTIME_AUTHORITY_VERSION,
+  BROKER_CAPTURE_RUNTIME_REGISTRATION_VERSION,
+  createBrokerCaptureDispatcher,
+  type BrokerCaptureEffectAuthority,
+} from '../lib/server/broker-capture-dispatcher'
 
 const SECRET = 'cron-secret-test-value'
 const originalSecret = process.env.CRON_SECRET
@@ -28,8 +30,6 @@ function request(secret = SECRET) {
 beforeEach(() => {
   vi.clearAllMocks()
   process.env.CRON_SECRET = SECRET
-  mocks.activated.mockReturnValue(true)
-  mocks.environmentReady.mockReturnValue(true)
 })
 
 afterEach(() => {
@@ -46,14 +46,22 @@ describe('broker capture Cron route contract', () => {
   })
 
   it('returns runtime_disabled while automatic capture is off', async () => {
-    mocks.activated.mockReturnValue(false)
+    mocks.runCycle.mockResolvedValue({
+      dispatcherContractVersion: 'equora-broker-capture-dispatcher-v6',
+      status: 'disabled', providerCode: null, workUnitId: null, pagesCommitted: 0,
+      scopeFinalized: false, failureCode: null, authorityBlocked: true,
+    })
     const response = await GET(request())
     expect(response.status).toBe(503)
     expect(await response.json()).toEqual({ ok: false, code: 'runtime_disabled' })
   })
 
   it('returns runtime_not_configured before invoking capture', async () => {
-    mocks.environmentReady.mockReturnValue(false)
+    mocks.runCycle.mockResolvedValue({
+      dispatcherContractVersion: 'equora-broker-capture-dispatcher-v6',
+      status: 'runtime_not_configured', providerCode: 'mexc', workUnitId: null,
+      pagesCommitted: 0, scopeFinalized: false, failureCode: null, authorityBlocked: true,
+    })
     const response = await GET(request())
     expect(response.status).toBe(503)
     expect(await response.json()).toEqual({ ok: false, code: 'runtime_not_configured' })
@@ -63,7 +71,11 @@ describe('broker capture Cron route contract', () => {
     'reports the %s domain outcome as an operationally successful invocation',
     async (status) => {
       mocks.runCycle.mockResolvedValue({
-        status, workUnitId: null, pagesCommitted: status === 'captured' ? 1 : 0,
+      dispatcherContractVersion: 'equora-broker-capture-dispatcher-v6',
+        providerCode: 'mexc',
+        status,
+        workUnitId: status === 'idle' ? null : '11111111-1111-4111-8111-111111111111',
+        pagesCommitted: status === 'captured' ? 1 : 0,
         scopeFinalized: status === 'captured', failureCode: null,
         authorityBlocked: true,
       })
@@ -73,19 +85,43 @@ describe('broker capture Cron route contract', () => {
     },
   )
 
-  it('keeps a durable domain failure HTTP-successful but explicitly not ok', async () => {
-    mocks.runCycle.mockResolvedValue({
-      status: 'failed', workUnitId: 'redacted', pagesCommitted: 1,
-      scopeFinalized: false, failureCode: 'SCOPE_BUDGET_EXHAUSTED',
-      authorityBlocked: true,
+  it('preserves a real lowercase provider failure through dispatcher and route as a domain outcome', async () => {
+    const registration = Object.freeze({
+      registrationContractVersion: BROKER_CAPTURE_RUNTIME_REGISTRATION_VERSION,
+      providerCode: 'mexc',
+      providerContractVersion: 'mexc_contract_v1',
+      adapterVersion: 'mexc_adapter_v1',
+      failureCodes: Object.freeze(['rate_limited']),
+      readRuntimeAuthority: () => Object.freeze({
+        authorityContractVersion: BROKER_CAPTURE_RUNTIME_AUTHORITY_VERSION,
+        providerCode: 'mexc',
+        providerContractVersion: 'mexc_contract_v1',
+        adapterVersion: 'mexc_adapter_v1',
+        runtimeAuthorityEpoch: 2,
+        runtimeConfigurationDigest: 'a'.repeat(64),
+        captureActivated: true,
+        environmentReady: true,
+      }),
+      runCaptureCycle: (effectAuthority: BrokerCaptureEffectAuthority) => (
+        effectAuthority.runAtEffectBoundary(async () => Object.freeze({
+          status: 'failed' as const,
+          workUnitId: '11111111-1111-4111-8111-111111111111',
+          pagesCommitted: 1,
+          scopeFinalized: false,
+          failureCode: 'rate_limited',
+          authorityBlocked: true as const,
+        }))
+      ),
     })
+    const dispatcher = createBrokerCaptureDispatcher(Object.freeze([registration]))
+    mocks.runCycle.mockImplementation(() => dispatcher.runCycle())
     const response = await GET(request())
     expect(response.status).toBe(200)
     expect(await response.json()).toEqual({
       ok: false,
       code: 'capture_domain_failed',
       status: 'failed',
-      failureCode: 'SCOPE_BUDGET_EXHAUSTED',
+      failureCode: 'rate_limited',
       pagesCommitted: 1,
       scopeFinalized: false,
     })
