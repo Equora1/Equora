@@ -1091,8 +1091,11 @@ const MANIFEST_PATH = 'docs/gates/EQUORA_v57.61.0_MULTI_BROKER_PARITY_MANIFEST.s
 const EVIDENCE_PATH = 'docs/gates/EQUORA_v57.61.0_MULTI_BROKER_PARITY_EVIDENCE.json'
 const REQUIRED_NORMATIVE_PATHS = [
   '.github/workflows/ci.yml',
+  'app/api/internal/broker-capture/route.ts',
   'docs/architecture/EQUORA_v57.61.0_PROVIDER_NEUTRAL_MULTI_BROKER_ARCHITECTURE.md',
   'lib/server/broker-code-registry.ts',
+  'lib/server/broker-capture-dispatcher.ts',
+  'lib/server/broker-capture-runtime.ts',
   'lib/server/broker-core-contracts.ts',
   'lib/server/mexc-central-network-transport.ts',
   'lib/server/mexc-request-contract.ts',
@@ -1110,6 +1113,7 @@ const REQUIRED_NORMATIVE_PATHS = [
 ] as const
 const REQUIRED_PARITY_PATHS = [
   'tests/application-contracts.test.ts',
+  'tests/broker-capture-dispatcher.test.ts',
   'tests/mexc-egress-boundary.test.ts',
   'tests/mexc-central-network-transport.test.ts',
   'tests/mexc-readonly-adapter.test.ts',
@@ -1132,17 +1136,12 @@ const REQUIRED_PARITY_PATHS = [
 const REQUIRED_CANDIDATE_SCOPE = [
   EVIDENCE_PATH,
   MANIFEST_PATH,
-  'lib/server/broker-code-registry.ts',
-  'lib/server/broker-core-contracts.ts',
-  'lib/server/mexc-central-network-transport.ts',
-  'lib/server/mexc-request-contract.ts',
-  'lib/server/mexc-transport.ts',
-  'lib/server/providers/mexc-readonly-adapter.ts',
+  'app/api/internal/broker-capture/route.ts',
+  'lib/server/broker-capture-dispatcher.ts',
+  'lib/server/broker-capture-runtime.ts',
   'scripts/validate-multibroker-parity-manifest.mjs',
-  'tests/application-contracts.test.ts',
-  'tests/mexc-central-network-transport.test.ts',
-  'tests/mexc-egress-boundary.test.ts',
-  'tests/mexc-readonly-adapter.test.ts',
+  'tests/broker-capture-dispatcher.test.ts',
+  'tests/broker-capture-route.test.ts',
   'tests/multibroker-core-contracts.test.ts',
 ] as const
 
@@ -1649,7 +1648,9 @@ function brokerRuntimeRootFindings(content: string, path: string) {
     && node.parent.expression === node
     && node.parent.name.text === property
   const isAllowedRuntimeRoot = (node: ts.Identifier) => {
-    if ((path === CONTRACT_PATH || path === 'lib/server/broker-core-contracts.ts')
+    if ((path === CONTRACT_PATH
+      || path === 'lib/server/broker-core-contracts.ts'
+      || path === 'lib/server/broker-capture-dispatcher.ts')
       && node.text === 'Reflect'
       && isDirectPropertyRoot(node, 'ownKeys')
       && ts.isCallExpression(node.parent.parent)
@@ -1945,6 +1946,7 @@ function createValidatorFixture(): Fixture {
   const sourceEvidence = JSON.parse(readFileSync(join(WORKSPACE, ...EVIDENCE_PATH.split('/')), 'utf8')) as {
     baseline_attempts: Array<Record<string, unknown>>
     candidate_attempts: Array<Record<string, unknown>>
+    independent_review_history: Array<Record<string, unknown>>
   }
   const pinnedAttempts = (collection: 'baseline_attempts' | 'candidate_attempts', ids: readonly string[]) => ids.map((id) => {
     const attempt = sourceEvidence[collection].find((candidate) => candidate.attempt_id === id)
@@ -1975,7 +1977,7 @@ function createValidatorFixture(): Fixture {
   const evidence: Record<string, unknown> = {
     schema_version: 'equora_multi_broker_parity_evidence_v1',
     evidence_format_version: 1,
-    phase: 'MB1',
+    phase: 'MB2',
     generated_at_utc: '2026-08-18T00:00:00.000Z',
     toolchain: {
       node: 'v24.18.0',
@@ -1985,7 +1987,7 @@ function createValidatorFixture(): Fixture {
       docker_client: '29.7.2',
       docker_client_observation: 'fixture observation',
       postgres_client: 'not_available_on_path',
-      postgres_image: 'not_invoked_in_mb1',
+      postgres_image: 'not_invoked_in_mb2',
       ci_node: '24.18.0',
     },
     ci_evidence: {
@@ -2000,19 +2002,19 @@ function createValidatorFixture(): Fixture {
       audit_all_vulnerabilities: 0,
       audit_production_vulnerabilities: 0,
     },
-    current_mb1_baseline_evidence: {
-      evidence_scope: 'integrated_mb0_tree_inherited_by_mb1',
-      commit: '19817a96dff114c3bb7a2173d1774880e8e00fbc',
-      tree: '8df26d7dd4ace9d755640a34381af191b85b58d5',
-      test_files: 24,
-      tests: 398,
-      current_ci_status: 'not_requeried_for_mb1',
-    },
-    candidate_counts: {
+    current_mb2_baseline_evidence: {
+      evidence_scope: 'integrated_mb1_tree_inherited_by_mb2',
+      commit: '76328faac45d221cdbf978eacd10bf518e18a4cb',
+      tree: '1e9a8bbb5a13b4d32af7650f2366ccea3841a6de',
       test_files: 26,
       tests: 433,
-      new_contract_test_files: 2,
-      new_contract_tests: 30,
+      current_ci_status: 'not_requeried_for_mb2_local_block',
+    },
+    candidate_counts: {
+      test_files: 27,
+      tests: 480,
+      new_contract_test_files: 3,
+      new_contract_tests: 76,
       audit_all_vulnerabilities: null,
       audit_production_vulnerabilities: null,
       audit_status: 'not_run_no_external_advisory_api_authorization',
@@ -2040,6 +2042,7 @@ function createValidatorFixture(): Fixture {
         non_redacted_contract: 'All other stdout/stderr text, commands, exit codes and result counts remain unchanged; the recorded byte count and SHA-256 bind the canonical transcript rather than the volatile physical terminal transcript.',
       },
     },
+    independent_review_history: JSON.parse(JSON.stringify(sourceEvidence.independent_review_history)),
     baseline_attempts: pinnedAttempts('baseline_attempts', [
       'mb0-local-002',
       'mb0-local-003',
@@ -2299,6 +2302,174 @@ function createValidatorFixture(): Fixture {
       canonicalPinnedAttempt('mb1-remediation7-closure-manifest-001', 'node scripts/validate-multibroker-parity-manifest.mjs --allow-pending-manifest-attempt', 'pass_bootstrap_before_append_only_evidence_rehash', 91, '2daa5f2087db82b4bcd365d23672173731fe5ad834b0bd4482105481b8b5e59e', {
         manifest_entries_passed: 35, manifest_entries_total: 35,
       }, 'canonical_gate_transcript_v2'),
+      canonicalPinnedAttempt('mb2-dispatcher-closure-targeted-003', 'npm.cmd test -- tests/broker-capture-dispatcher.test.ts tests/broker-capture-route.test.ts tests/multibroker-core-contracts.test.ts tests/mexc-capture-runtime.test.ts', 'pass', 386, '3b1980cefe886d44303a97b33cdc7ee9e2fb3a5fa70b058b793f6bccb201cc90', {
+        test_files_passed: 4, test_files_total: 4, tests_passed: 53, tests_total: 53,
+      }, 'canonical_gate_transcript_v2'),
+      canonicalPinnedAttempt('mb2-dispatcher-closure-typecheck-001', 'npm.cmd run typecheck', 'pass', 63, '8fdcec4087966dd38af8fcd84fa03e08088dd4b0a599f1f3d5dc87a931ea9e17', undefined, 'canonical_gate_transcript_v2'),
+      canonicalPinnedAttempt('mb2-dispatcher-closure-full-001', 'npm.cmd test', 'pass', 239, 'a6c02f6ae419bad7004963c048280bf53fd3c1c50f9eb2ef65ffc9d21ab55ad1', {
+        test_files_passed: 27, test_files_total: 27, tests_passed: 441, tests_total: 441,
+      }, 'canonical_gate_transcript_v2'),
+      canonicalPinnedAttempt('mb2-dispatcher-closure-release-001', 'npm.cmd run release:check', 'pass', 149, 'bd84e5259443e96ebff13807ed3ce463e1c86252d9167fdbd9850a86d911969a', undefined, 'canonical_gate_transcript_v2'),
+      canonicalPinnedAttempt('mb2-dispatcher-closure-build-001', 'npm.cmd run build', 'pass', 2183, '70dc6e49ebfb502b8ce8e8f0fcd3895ec30dab464d4f43a1fc49e0636bf3825c', {
+        static_pages_generated: 3, static_pages_total: 3,
+      }, 'canonical_gate_transcript_v2'),
+      canonicalPinnedAttempt('mb2-dispatcher-closure-manifest-001', 'node scripts/validate-multibroker-parity-manifest.mjs --allow-pending-manifest-attempt', 'pass_bootstrap_before_append_only_evidence_rehash', 91, 'ed70e94f2b24fbdee05703a0c9dfb76dda5139b0259d6b693cfa77d6e551095a', {
+        manifest_entries_passed: 39, manifest_entries_total: 39,
+      }, 'canonical_gate_transcript_v2'),
+      canonicalPinnedAttempt('mb2-dispatcher-final-targeted-001', 'npm.cmd test -- tests/broker-capture-dispatcher.test.ts tests/broker-capture-route.test.ts tests/multibroker-core-contracts.test.ts tests/mexc-capture-runtime.test.ts', 'pass', 386, '3b1980cefe886d44303a97b33cdc7ee9e2fb3a5fa70b058b793f6bccb201cc90', {
+        test_files_passed: 4, test_files_total: 4, tests_passed: 53, tests_total: 53,
+      }, 'canonical_gate_transcript_v2'),
+      canonicalPinnedAttempt('mb2-dispatcher-final-typecheck-001', 'npm.cmd run typecheck', 'pass', 63, '8fdcec4087966dd38af8fcd84fa03e08088dd4b0a599f1f3d5dc87a931ea9e17', undefined, 'canonical_gate_transcript_v2'),
+      canonicalPinnedAttempt('mb2-dispatcher-final-full-001', 'npm.cmd test', 'pass', 239, 'a6c02f6ae419bad7004963c048280bf53fd3c1c50f9eb2ef65ffc9d21ab55ad1', {
+        test_files_passed: 27, test_files_total: 27, tests_passed: 441, tests_total: 441,
+      }, 'canonical_gate_transcript_v2'),
+      canonicalPinnedAttempt('mb2-dispatcher-final-release-001', 'npm.cmd run release:check', 'pass', 149, 'bd84e5259443e96ebff13807ed3ce463e1c86252d9167fdbd9850a86d911969a', undefined, 'canonical_gate_transcript_v2'),
+      canonicalPinnedAttempt('mb2-dispatcher-final-build-001', 'npm.cmd run build', 'pass', 2183, '70dc6e49ebfb502b8ce8e8f0fcd3895ec30dab464d4f43a1fc49e0636bf3825c', {
+        static_pages_generated: 3, static_pages_total: 3,
+      }, 'canonical_gate_transcript_v2'),
+      canonicalPinnedAttempt('mb2-dispatcher-final-manifest-001', 'node scripts/validate-multibroker-parity-manifest.mjs --allow-pending-manifest-attempt', 'pass_bootstrap_before_append_only_evidence_rehash', 91, 'ed70e94f2b24fbdee05703a0c9dfb76dda5139b0259d6b693cfa77d6e551095a', {
+        manifest_entries_passed: 39, manifest_entries_total: 39,
+      }, 'canonical_gate_transcript_v2'),
+      canonicalPinnedAttempt('mb2-dispatcher-remediation1-closure-targeted-001', 'npm.cmd test -- tests/broker-capture-dispatcher.test.ts tests/broker-capture-route.test.ts tests/multibroker-core-contracts.test.ts tests/mexc-capture-runtime.test.ts', 'pass', 386, '74705be77ca4744e12739374a5f88e9957521b9c74983fc6041cb1b43d74d735', {
+        test_files_passed: 4, test_files_total: 4, tests_passed: 76, tests_total: 76,
+      }, 'canonical_gate_transcript_v2'),
+      canonicalPinnedAttempt('mb2-dispatcher-remediation1-closure-typecheck-001', 'npm.cmd run typecheck', 'pass', 63, '8fdcec4087966dd38af8fcd84fa03e08088dd4b0a599f1f3d5dc87a931ea9e17', undefined, 'canonical_gate_transcript_v2'),
+      canonicalPinnedAttempt('mb2-dispatcher-remediation1-closure-full-001', 'npm.cmd test', 'pass', 239, '7d9da68bee101ec650c0c40aaabb58590a02273678d1f890ec12750b9eb2740e', {
+        test_files_passed: 27, test_files_total: 27, tests_passed: 464, tests_total: 464,
+      }, 'canonical_gate_transcript_v2'),
+      canonicalPinnedAttempt('mb2-dispatcher-remediation1-closure-release-001', 'npm.cmd run release:check', 'pass', 149, 'bd84e5259443e96ebff13807ed3ce463e1c86252d9167fdbd9850a86d911969a', undefined, 'canonical_gate_transcript_v2'),
+      canonicalPinnedAttempt('mb2-dispatcher-remediation1-closure-build-001', 'npm.cmd run build', 'pass', 2183, '70dc6e49ebfb502b8ce8e8f0fcd3895ec30dab464d4f43a1fc49e0636bf3825c', {
+        static_pages_generated: 3, static_pages_total: 3,
+      }, 'canonical_gate_transcript_v2'),
+      canonicalPinnedAttempt('mb2-dispatcher-remediation1-closure-manifest-001', 'node scripts/validate-multibroker-parity-manifest.mjs --allow-pending-manifest-attempt', 'pass_bootstrap_before_append_only_evidence_rehash', 91, 'ed70e94f2b24fbdee05703a0c9dfb76dda5139b0259d6b693cfa77d6e551095a', {
+        manifest_entries_passed: 39, manifest_entries_total: 39,
+      }, 'canonical_gate_transcript_v2'),
+      canonicalPinnedAttempt('mb2-dispatcher-remediation1-final-targeted-002', 'npm.cmd test -- tests/broker-capture-dispatcher.test.ts tests/broker-capture-route.test.ts tests/multibroker-core-contracts.test.ts tests/mexc-capture-runtime.test.ts', 'pass', 386, '74705be77ca4744e12739374a5f88e9957521b9c74983fc6041cb1b43d74d735', {
+        test_files_passed: 4, test_files_total: 4, tests_passed: 76, tests_total: 76,
+      }, 'canonical_gate_transcript_v2'),
+      canonicalPinnedAttempt('mb2-dispatcher-remediation1-final-typecheck-001', 'npm.cmd run typecheck', 'pass', 63, '8fdcec4087966dd38af8fcd84fa03e08088dd4b0a599f1f3d5dc87a931ea9e17', undefined, 'canonical_gate_transcript_v2'),
+      canonicalPinnedAttempt('mb2-dispatcher-remediation1-final-full-001', 'npm.cmd test', 'pass', 239, '7d9da68bee101ec650c0c40aaabb58590a02273678d1f890ec12750b9eb2740e', {
+        test_files_passed: 27, test_files_total: 27, tests_passed: 464, tests_total: 464,
+      }, 'canonical_gate_transcript_v2'),
+      canonicalPinnedAttempt('mb2-dispatcher-remediation1-final-release-001', 'npm.cmd run release:check', 'pass', 149, 'bd84e5259443e96ebff13807ed3ce463e1c86252d9167fdbd9850a86d911969a', undefined, 'canonical_gate_transcript_v2'),
+      canonicalPinnedAttempt('mb2-dispatcher-remediation1-final-build-001', 'npm.cmd run build', 'pass', 2183, '70dc6e49ebfb502b8ce8e8f0fcd3895ec30dab464d4f43a1fc49e0636bf3825c', {
+        static_pages_generated: 3, static_pages_total: 3,
+      }, 'canonical_gate_transcript_v2'),
+      canonicalPinnedAttempt('mb2-dispatcher-remediation1-final-manifest-001', 'node scripts/validate-multibroker-parity-manifest.mjs --allow-pending-manifest-attempt', 'pass_bootstrap_before_append_only_evidence_rehash', 91, 'ed70e94f2b24fbdee05703a0c9dfb76dda5139b0259d6b693cfa77d6e551095a', {
+        manifest_entries_passed: 39, manifest_entries_total: 39,
+      }, 'canonical_gate_transcript_v2'),
+      canonicalPinnedAttempt('mb2-dispatcher-remediation2-closure-targeted-001', 'npm.cmd test -- tests/broker-capture-dispatcher.test.ts tests/broker-capture-route.test.ts tests/multibroker-core-contracts.test.ts tests/mexc-capture-runtime.test.ts', 'pass', 386, '4ba4c6134afecff9d793f80878fdab3d1a830e40671da61386fb1953385453f6', {
+        test_files_passed: 4, test_files_total: 4, tests_passed: 83, tests_total: 83,
+      }, 'canonical_gate_transcript_v2'),
+      canonicalPinnedAttempt('mb2-dispatcher-remediation2-closure-typecheck-001', 'npm.cmd run typecheck', 'pass', 63, '8fdcec4087966dd38af8fcd84fa03e08088dd4b0a599f1f3d5dc87a931ea9e17', undefined, 'canonical_gate_transcript_v2'),
+      canonicalPinnedAttempt('mb2-dispatcher-remediation2-closure-full-001', 'npm.cmd test', 'pass', 239, 'cfa110f098263afbd11df7d6bbb822f32a5fa6562953c54ff6982becb9afdc8c', {
+        test_files_passed: 27, test_files_total: 27, tests_passed: 471, tests_total: 471,
+      }, 'canonical_gate_transcript_v2'),
+      canonicalPinnedAttempt('mb2-dispatcher-remediation2-closure-release-001', 'npm.cmd run release:check', 'pass', 149, 'bd84e5259443e96ebff13807ed3ce463e1c86252d9167fdbd9850a86d911969a', undefined, 'canonical_gate_transcript_v2'),
+      canonicalPinnedAttempt('mb2-dispatcher-remediation2-closure-build-001', 'npm.cmd run build', 'pass', 2183, '70dc6e49ebfb502b8ce8e8f0fcd3895ec30dab464d4f43a1fc49e0636bf3825c', {
+        static_pages_generated: 3, static_pages_total: 3,
+      }, 'canonical_gate_transcript_v2'),
+      canonicalPinnedAttempt('mb2-dispatcher-remediation2-closure-manifest-001', 'node scripts/validate-multibroker-parity-manifest.mjs --allow-pending-manifest-attempt', 'pass_bootstrap_before_append_only_evidence_rehash', 91, 'ed70e94f2b24fbdee05703a0c9dfb76dda5139b0259d6b693cfa77d6e551095a', {
+        manifest_entries_passed: 39, manifest_entries_total: 39,
+      }, 'canonical_gate_transcript_v2'),
+      canonicalPinnedAttempt('mb2-dispatcher-remediation2-final-targeted-001', 'npm.cmd test -- tests/broker-capture-dispatcher.test.ts tests/broker-capture-route.test.ts tests/multibroker-core-contracts.test.ts tests/mexc-capture-runtime.test.ts', 'pass', 386, '4ba4c6134afecff9d793f80878fdab3d1a830e40671da61386fb1953385453f6', {
+        test_files_passed: 4, test_files_total: 4, tests_passed: 83, tests_total: 83,
+      }, 'canonical_gate_transcript_v2'),
+      canonicalPinnedAttempt('mb2-dispatcher-remediation2-final-typecheck-001', 'npm.cmd run typecheck', 'pass', 63, '8fdcec4087966dd38af8fcd84fa03e08088dd4b0a599f1f3d5dc87a931ea9e17', undefined, 'canonical_gate_transcript_v2'),
+      canonicalPinnedAttempt('mb2-dispatcher-remediation2-final-full-001', 'npm.cmd test', 'pass', 239, 'cfa110f098263afbd11df7d6bbb822f32a5fa6562953c54ff6982becb9afdc8c', {
+        test_files_passed: 27, test_files_total: 27, tests_passed: 471, tests_total: 471,
+      }, 'canonical_gate_transcript_v2'),
+      canonicalPinnedAttempt('mb2-dispatcher-remediation2-final-release-001', 'npm.cmd run release:check', 'pass', 149, 'bd84e5259443e96ebff13807ed3ce463e1c86252d9167fdbd9850a86d911969a', undefined, 'canonical_gate_transcript_v2'),
+      canonicalPinnedAttempt('mb2-dispatcher-remediation2-final-build-001', 'npm.cmd run build', 'pass', 2183, '70dc6e49ebfb502b8ce8e8f0fcd3895ec30dab464d4f43a1fc49e0636bf3825c', {
+        static_pages_generated: 3, static_pages_total: 3,
+      }, 'canonical_gate_transcript_v2'),
+      canonicalPinnedAttempt('mb2-dispatcher-remediation2-final-manifest-001', 'node scripts/validate-multibroker-parity-manifest.mjs --allow-pending-manifest-attempt', 'pass_bootstrap_before_append_only_evidence_rehash', 91, 'ed70e94f2b24fbdee05703a0c9dfb76dda5139b0259d6b693cfa77d6e551095a', {
+        manifest_entries_passed: 39, manifest_entries_total: 39,
+      }, 'canonical_gate_transcript_v2'),
+      canonicalPinnedAttempt('mb2-dispatcher-remediation3-closure-targeted-001', 'npm.cmd test -- tests/broker-capture-dispatcher.test.ts tests/broker-capture-route.test.ts tests/multibroker-core-contracts.test.ts tests/mexc-capture-runtime.test.ts', 'pass', 386, '65077648ac2c08e31a5a16e89c36a938f84a25e9629273e51cf118ed79638bd1', {
+        test_files_passed: 4, test_files_total: 4, tests_passed: 86, tests_total: 86,
+      }, 'canonical_gate_transcript_v2'),
+      canonicalPinnedAttempt('mb2-dispatcher-remediation3-closure-typecheck-001', 'npm.cmd run typecheck', 'pass', 63, '8fdcec4087966dd38af8fcd84fa03e08088dd4b0a599f1f3d5dc87a931ea9e17', undefined, 'canonical_gate_transcript_v2'),
+      canonicalPinnedAttempt('mb2-dispatcher-remediation3-closure-full-001', 'npm.cmd test', 'pass', 239, '4071f98840ce873a70e587c1952fb797792fd4ea872150d0d30b3a23df60914c', {
+        test_files_passed: 27, test_files_total: 27, tests_passed: 474, tests_total: 474,
+      }, 'canonical_gate_transcript_v2'),
+      canonicalPinnedAttempt('mb2-dispatcher-remediation3-closure-release-001', 'npm.cmd run release:check', 'pass', 149, 'bd84e5259443e96ebff13807ed3ce463e1c86252d9167fdbd9850a86d911969a', undefined, 'canonical_gate_transcript_v2'),
+      canonicalPinnedAttempt('mb2-dispatcher-remediation3-closure-build-001', 'npm.cmd run build', 'pass', 2183, '70dc6e49ebfb502b8ce8e8f0fcd3895ec30dab464d4f43a1fc49e0636bf3825c', {
+        static_pages_generated: 3, static_pages_total: 3,
+      }, 'canonical_gate_transcript_v2'),
+      canonicalPinnedAttempt('mb2-dispatcher-remediation3-closure-manifest-001', 'node scripts/validate-multibroker-parity-manifest.mjs --allow-pending-manifest-attempt', 'pass_bootstrap_before_append_only_evidence_rehash', 91, 'ed70e94f2b24fbdee05703a0c9dfb76dda5139b0259d6b693cfa77d6e551095a', {
+        manifest_entries_passed: 39, manifest_entries_total: 39,
+      }, 'canonical_gate_transcript_v2'),
+      canonicalPinnedAttempt('mb2-dispatcher-remediation3-final-targeted-001', 'npm.cmd test -- tests/broker-capture-dispatcher.test.ts tests/broker-capture-route.test.ts tests/multibroker-core-contracts.test.ts tests/mexc-capture-runtime.test.ts', 'pass', 386, '65077648ac2c08e31a5a16e89c36a938f84a25e9629273e51cf118ed79638bd1', {
+        test_files_passed: 4, test_files_total: 4, tests_passed: 86, tests_total: 86,
+      }, 'canonical_gate_transcript_v2'),
+      canonicalPinnedAttempt('mb2-dispatcher-remediation3-final-typecheck-001', 'npm.cmd run typecheck', 'pass', 63, '8fdcec4087966dd38af8fcd84fa03e08088dd4b0a599f1f3d5dc87a931ea9e17', undefined, 'canonical_gate_transcript_v2'),
+      canonicalPinnedAttempt('mb2-dispatcher-remediation3-final-full-001', 'npm.cmd test', 'pass', 239, '4071f98840ce873a70e587c1952fb797792fd4ea872150d0d30b3a23df60914c', {
+        test_files_passed: 27, test_files_total: 27, tests_passed: 474, tests_total: 474,
+      }, 'canonical_gate_transcript_v2'),
+      canonicalPinnedAttempt('mb2-dispatcher-remediation3-final-release-001', 'npm.cmd run release:check', 'pass', 149, 'bd84e5259443e96ebff13807ed3ce463e1c86252d9167fdbd9850a86d911969a', undefined, 'canonical_gate_transcript_v2'),
+      canonicalPinnedAttempt('mb2-dispatcher-remediation3-final-build-001', 'npm.cmd run build', 'pass', 2183, '70dc6e49ebfb502b8ce8e8f0fcd3895ec30dab464d4f43a1fc49e0636bf3825c', {
+        static_pages_generated: 3, static_pages_total: 3,
+      }, 'canonical_gate_transcript_v2'),
+      canonicalPinnedAttempt('mb2-dispatcher-remediation3-final-manifest-001', 'node scripts/validate-multibroker-parity-manifest.mjs --allow-pending-manifest-attempt', 'pass_bootstrap_before_append_only_evidence_rehash', 91, 'ed70e94f2b24fbdee05703a0c9dfb76dda5139b0259d6b693cfa77d6e551095a', {
+        manifest_entries_passed: 39, manifest_entries_total: 39,
+      }, 'canonical_gate_transcript_v2'),
+      canonicalPinnedAttempt('mb2-dispatcher-remediation4-closure-targeted-001', 'npm.cmd test -- tests/broker-capture-dispatcher.test.ts tests/broker-capture-route.test.ts tests/multibroker-core-contracts.test.ts tests/mexc-capture-runtime.test.ts', 'pass', 386, '94522718f443c0e9a49b59f6b845a629d494f166a4524ad67fce4fb8e6382c39', {
+        test_files_passed: 4, test_files_total: 4, tests_passed: 87, tests_total: 87,
+      }, 'canonical_gate_transcript_v2'),
+      canonicalPinnedAttempt('mb2-dispatcher-remediation4-closure-typecheck-001', 'npm.cmd run typecheck', 'pass', 63, '8fdcec4087966dd38af8fcd84fa03e08088dd4b0a599f1f3d5dc87a931ea9e17', undefined, 'canonical_gate_transcript_v2'),
+      canonicalPinnedAttempt('mb2-dispatcher-remediation4-closure-full-001', 'npm.cmd test', 'pass', 239, '7060407516420c6eb6c10b3b6dddfa1b89e6a3bb0d9756de525ddbf7281731dc', {
+        test_files_passed: 27, test_files_total: 27, tests_passed: 475, tests_total: 475,
+      }, 'canonical_gate_transcript_v2'),
+      canonicalPinnedAttempt('mb2-dispatcher-remediation4-closure-release-001', 'npm.cmd run release:check', 'pass', 149, 'bd84e5259443e96ebff13807ed3ce463e1c86252d9167fdbd9850a86d911969a', undefined, 'canonical_gate_transcript_v2'),
+      canonicalPinnedAttempt('mb2-dispatcher-remediation4-closure-build-001', 'npm.cmd run build', 'pass', 2183, '70dc6e49ebfb502b8ce8e8f0fcd3895ec30dab464d4f43a1fc49e0636bf3825c', {
+        static_pages_generated: 3, static_pages_total: 3,
+      }, 'canonical_gate_transcript_v2'),
+      canonicalPinnedAttempt('mb2-dispatcher-remediation4-closure-manifest-001', 'node scripts/validate-multibroker-parity-manifest.mjs --allow-pending-manifest-attempt', 'pass_bootstrap_before_append_only_evidence_rehash', 91, 'ed70e94f2b24fbdee05703a0c9dfb76dda5139b0259d6b693cfa77d6e551095a', {
+        manifest_entries_passed: 39, manifest_entries_total: 39,
+      }, 'canonical_gate_transcript_v2'),
+      canonicalPinnedAttempt('mb2-dispatcher-remediation4-final-targeted-001', 'npm.cmd test -- tests/broker-capture-dispatcher.test.ts tests/broker-capture-route.test.ts tests/multibroker-core-contracts.test.ts tests/mexc-capture-runtime.test.ts', 'pass', 386, '94522718f443c0e9a49b59f6b845a629d494f166a4524ad67fce4fb8e6382c39', {
+        test_files_passed: 4, test_files_total: 4, tests_passed: 87, tests_total: 87,
+      }, 'canonical_gate_transcript_v2'),
+      canonicalPinnedAttempt('mb2-dispatcher-remediation4-final-typecheck-001', 'npm.cmd run typecheck', 'pass', 63, '8fdcec4087966dd38af8fcd84fa03e08088dd4b0a599f1f3d5dc87a931ea9e17', undefined, 'canonical_gate_transcript_v2'),
+      canonicalPinnedAttempt('mb2-dispatcher-remediation4-final-full-001', 'npm.cmd test', 'pass', 239, '7060407516420c6eb6c10b3b6dddfa1b89e6a3bb0d9756de525ddbf7281731dc', {
+        test_files_passed: 27, test_files_total: 27, tests_passed: 475, tests_total: 475,
+      }, 'canonical_gate_transcript_v2'),
+      canonicalPinnedAttempt('mb2-dispatcher-remediation4-final-release-001', 'npm.cmd run release:check', 'pass', 149, 'bd84e5259443e96ebff13807ed3ce463e1c86252d9167fdbd9850a86d911969a', undefined, 'canonical_gate_transcript_v2'),
+      canonicalPinnedAttempt('mb2-dispatcher-remediation4-final-build-001', 'npm.cmd run build', 'pass', 2183, '70dc6e49ebfb502b8ce8e8f0fcd3895ec30dab464d4f43a1fc49e0636bf3825c', {
+        static_pages_generated: 3, static_pages_total: 3,
+      }, 'canonical_gate_transcript_v2'),
+      canonicalPinnedAttempt('mb2-dispatcher-remediation4-final-manifest-001', 'node scripts/validate-multibroker-parity-manifest.mjs --allow-pending-manifest-attempt', 'pass_bootstrap_before_append_only_evidence_rehash', 91, 'ed70e94f2b24fbdee05703a0c9dfb76dda5139b0259d6b693cfa77d6e551095a', {
+        manifest_entries_passed: 39, manifest_entries_total: 39,
+      }, 'canonical_gate_transcript_v2'),
+      canonicalPinnedAttempt('mb2-dispatcher-remediation5-closure-targeted-001', 'npm.cmd test -- tests/broker-capture-dispatcher.test.ts tests/broker-capture-route.test.ts tests/multibroker-core-contracts.test.ts tests/mexc-capture-runtime.test.ts', 'pass', 386, '8ecda1e963357d93d72669b536ccab8f2ad42edee729a713514957d67a4477f1', {
+        test_files_passed: 4, test_files_total: 4, tests_passed: 92, tests_total: 92,
+      }, 'canonical_gate_transcript_v2'),
+      canonicalPinnedAttempt('mb2-dispatcher-remediation5-closure-typecheck-001', 'npm.cmd run typecheck', 'pass', 63, '8fdcec4087966dd38af8fcd84fa03e08088dd4b0a599f1f3d5dc87a931ea9e17', undefined, 'canonical_gate_transcript_v2'),
+      canonicalPinnedAttempt('mb2-dispatcher-remediation5-closure-full-001', 'npm.cmd test', 'pass', 239, 'ccf508d7079892d1cd04ed18bbd4474092d3c2d16ae1424dfb209bd7ee6d2bf8', {
+        test_files_passed: 27, test_files_total: 27, tests_passed: 480, tests_total: 480,
+      }, 'canonical_gate_transcript_v2'),
+      canonicalPinnedAttempt('mb2-dispatcher-remediation5-closure-release-001', 'npm.cmd run release:check', 'pass', 149, 'bd84e5259443e96ebff13807ed3ce463e1c86252d9167fdbd9850a86d911969a', undefined, 'canonical_gate_transcript_v2'),
+      canonicalPinnedAttempt('mb2-dispatcher-remediation5-closure-build-001', 'npm.cmd run build', 'pass', 2183, '70dc6e49ebfb502b8ce8e8f0fcd3895ec30dab464d4f43a1fc49e0636bf3825c', {
+        static_pages_generated: 3, static_pages_total: 3,
+      }, 'canonical_gate_transcript_v2'),
+      canonicalPinnedAttempt('mb2-dispatcher-remediation5-closure-manifest-001', 'node scripts/validate-multibroker-parity-manifest.mjs --allow-pending-manifest-attempt', 'pass_bootstrap_before_append_only_evidence_rehash', 91, 'ed70e94f2b24fbdee05703a0c9dfb76dda5139b0259d6b693cfa77d6e551095a', {
+        manifest_entries_passed: 39, manifest_entries_total: 39,
+      }, 'canonical_gate_transcript_v2'),
+      canonicalPinnedAttempt('mb2-dispatcher-remediation5-final-targeted-001', 'npm.cmd test -- tests/broker-capture-dispatcher.test.ts tests/broker-capture-route.test.ts tests/multibroker-core-contracts.test.ts tests/mexc-capture-runtime.test.ts', 'pass', 386, '8ecda1e963357d93d72669b536ccab8f2ad42edee729a713514957d67a4477f1', {
+        test_files_passed: 4, test_files_total: 4, tests_passed: 92, tests_total: 92,
+      }, 'canonical_gate_transcript_v2'),
+      canonicalPinnedAttempt('mb2-dispatcher-remediation5-final-typecheck-001', 'npm.cmd run typecheck', 'pass', 63, '8fdcec4087966dd38af8fcd84fa03e08088dd4b0a599f1f3d5dc87a931ea9e17', undefined, 'canonical_gate_transcript_v2'),
+      canonicalPinnedAttempt('mb2-dispatcher-remediation5-final-full-001', 'npm.cmd test', 'pass', 239, 'ccf508d7079892d1cd04ed18bbd4474092d3c2d16ae1424dfb209bd7ee6d2bf8', {
+        test_files_passed: 27, test_files_total: 27, tests_passed: 480, tests_total: 480,
+      }, 'canonical_gate_transcript_v2'),
+      canonicalPinnedAttempt('mb2-dispatcher-remediation5-final-release-001', 'npm.cmd run release:check', 'pass', 149, 'bd84e5259443e96ebff13807ed3ce463e1c86252d9167fdbd9850a86d911969a', undefined, 'canonical_gate_transcript_v2'),
+      canonicalPinnedAttempt('mb2-dispatcher-remediation5-final-build-001', 'npm.cmd run build', 'pass', 2183, '70dc6e49ebfb502b8ce8e8f0fcd3895ec30dab464d4f43a1fc49e0636bf3825c', {
+        static_pages_generated: 3, static_pages_total: 3,
+      }, 'canonical_gate_transcript_v2'),
+      canonicalPinnedAttempt('mb2-dispatcher-remediation5-final-manifest-001', 'node scripts/validate-multibroker-parity-manifest.mjs --allow-pending-manifest-attempt', 'pass_bootstrap_before_append_only_evidence_rehash', 91, 'ed70e94f2b24fbdee05703a0c9dfb76dda5139b0259d6b693cfa77d6e551095a', {
+        manifest_entries_passed: 39, manifest_entries_total: 39,
+      }, 'canonical_gate_transcript_v2'),
     ],
     canonical_hash_policy: {
       manifest_entry_prefix: 'lf:',
@@ -2520,6 +2691,14 @@ describe('provider-neutral MB0 core contract', () => {
       content: "export const value = process['env'].EQUORA_EXAMPLE\n",
     }])).toContain('lib/server/computed-process-env.ts:runtime-root:restricted-runtime-root:process')
     expect(brokerRuntimeRootFindings("void Reflect.ownKeys({ value: true })\n", CONTRACT_PATH)).toEqual([])
+    expect(brokerRuntimeRootFindings(
+      "void Reflect.ownKeys({ value: true })\n",
+      'lib/server/broker-capture-dispatcher.ts',
+    )).toEqual([])
+    expect(brokerRuntimeRootFindings(
+      "void Reflect.get({}, 'value')\n",
+      'lib/server/broker-capture-dispatcher.ts',
+    )).toContain('restricted-runtime-root:Reflect')
     expect(brokerRuntimeRootFindings("void Reflect.get({}, 'value')\n", CONTRACT_PATH)).toContain(
       'restricted-runtime-root:Reflect',
     )
@@ -3790,7 +3969,7 @@ describe('provider-neutral MB0 core contract', () => {
 })
 
 describe('multi-broker parity manifest validator', () => {
-  it('accepts a closed 35-entry canonical fixture', async () => {
+  it('accepts a closed 39-entry canonical fixture', async () => {
     const fixture = createValidatorFixture()
     try {
       const validate = await loadValidator()
@@ -3808,11 +3987,76 @@ describe('multi-broker parity manifest validator', () => {
         evidence_loss_reason: 'The fixture models an unwrapped development attempt with explicit null evidence fields.',
       })
       fixture.rewrite()
-      expect(validate({ root: fixture.root })).toEqual({ validated: 35, total: 35 })
+      expect(validate({ root: fixture.root })).toEqual({ validated: 39, total: 39 })
     } finally {
       fixture.dispose()
     }
   })
+
+  it('pins the complete MB1-R7 and MB2 independent-review closure against deletion and mutation', async () => {
+    const validate = await loadValidator()
+    const requiredReviews = [
+      ['A3', 'mb1_seventh_remediation_fourteen_path_unstaged_snapshot'],
+      ['A4', 'mb1_seventh_remediation_fourteen_path_unstaged_snapshot'],
+      ['A5', 'mb1_seventh_remediation_fourteen_path_unstaged_snapshot'],
+      ['A3', 'mb2_initial_nine_path_unstaged_snapshot'],
+      ['A4', 'mb2_initial_nine_path_unstaged_snapshot'],
+      ['A5', 'mb2_initial_nine_path_unstaged_snapshot'],
+      ['A3', 'mb2_first_remediation_nine_path_unstaged_snapshot'],
+      ['A4', 'mb2_first_remediation_nine_path_unstaged_snapshot'],
+      ['A5', 'mb2_first_remediation_nine_path_unstaged_snapshot'],
+      ['A3', 'mb2_second_remediation_nine_path_unstaged_snapshot'],
+      ['A4', 'mb2_second_remediation_nine_path_unstaged_snapshot'],
+      ['A5', 'mb2_second_remediation_nine_path_unstaged_snapshot'],
+      ['A3', 'mb2_third_remediation_nine_path_unstaged_snapshot'],
+      ['A4', 'mb2_third_remediation_nine_path_unstaged_snapshot'],
+      ['A5', 'mb2_third_remediation_nine_path_unstaged_snapshot'],
+      ['A3', 'mb2_fourth_remediation_nine_path_unstaged_snapshot'],
+      ['A4', 'mb2_fourth_remediation_nine_path_unstaged_snapshot'],
+      ['A5', 'mb2_fourth_remediation_nine_path_unstaged_snapshot'],
+    ] as const
+    for (const [review, snapshot] of requiredReviews) {
+      const deletionFixture = createValidatorFixture()
+      try {
+        const history = deletionFixture.evidence.independent_review_history as Array<Record<string, unknown>>
+        deletionFixture.evidence.independent_review_history = history.filter(
+          (entry) => entry.review !== review || entry.snapshot !== snapshot,
+        )
+        deletionFixture.rewrite()
+        expect(() => validate({ root: deletionFixture.root }), `delete:${review}/${snapshot}`)
+          .toThrow(/Paritätsmanifest ungültig/)
+      } finally {
+        deletionFixture.dispose()
+      }
+
+      const countMutationFixture = createValidatorFixture()
+      try {
+        const history = countMutationFixture.evidence.independent_review_history as Array<Record<string, unknown>>
+        const entry = history.find((candidate) => candidate.review === review && candidate.snapshot === snapshot)!
+        const counts = entry.counts as Record<string, number>
+        counts.P2 += 1
+        countMutationFixture.rewrite()
+        expect(() => validate({ root: countMutationFixture.root }), `counts:${review}/${snapshot}`)
+          .toThrow(/Paritätsmanifest ungültig/)
+      } finally {
+        countMutationFixture.dispose()
+      }
+    }
+
+    const hashMutationFixture = createValidatorFixture()
+    try {
+      const history = hashMutationFixture.evidence.independent_review_history as Array<Record<string, unknown>>
+      const entry = history.find((candidate) => candidate.review === 'A4'
+        && candidate.snapshot === 'mb2_initial_nine_path_unstaged_snapshot')!
+      const binding = entry.snapshot_binding as Record<string, unknown>
+      const hashes = binding.canonical_sha256 as Record<string, string>
+      hashes['lib/server/broker-capture-dispatcher.ts'] = 'f'.repeat(64)
+      hashMutationFixture.rewrite()
+      expect(() => validate({ root: hashMutationFixture.root })).toThrow(/Paritätsmanifest ungültig/)
+    } finally {
+      hashMutationFixture.dispose()
+    }
+  }, 240_000)
 
   it('rejects traversal, absolute, ADS, backslash and case-ambiguous manifest paths', async () => {
     const validate = await loadValidator()
@@ -3995,14 +4239,14 @@ describe('multi-broker parity manifest validator', () => {
           docker_client: '29.7.2',
           docker_client_observation: 'fixture observation',
           postgres_client: 'not_available_on_path',
-          postgres_image: 'not_invoked_in_mb1',
+          postgres_image: 'not_invoked_in_mb2',
           ci_node: '24.18.0',
         }
         fixture.rewrite()
       },
       (fixture) => {
         const ci = fixture.evidence.ci_evidence as Record<string, unknown>
-        ci.evidence_scope = 'current_mb1_ci'
+        ci.evidence_scope = 'current_mb2_ci'
         fixture.rewrite()
       },
       (fixture) => {
@@ -4011,7 +4255,7 @@ describe('multi-broker parity manifest validator', () => {
         fixture.rewrite()
       },
       (fixture) => {
-        const integrated = fixture.evidence.current_mb1_baseline_evidence as Record<string, unknown>
+        const integrated = fixture.evidence.current_mb2_baseline_evidence as Record<string, unknown>
         integrated.tests = 380
         fixture.rewrite()
       },
@@ -4041,9 +4285,9 @@ describe('multi-broker parity manifest validator', () => {
       },
       (fixture) => {
         fixture.evidence.candidate_counts = {
-          test_files: 26,
+          test_files: 27,
           tests: 395,
-          new_contract_test_files: 2,
+          new_contract_test_files: 3,
           new_contract_tests: 15,
           audit_all_vulnerabilities: null,
           audit_production_vulnerabilities: null,
@@ -4214,6 +4458,78 @@ describe('multi-broker parity manifest validator', () => {
       'mb1-remediation7-closure-release-001',
       'mb1-remediation7-closure-build-001',
       'mb1-remediation7-closure-manifest-001',
+      'mb2-dispatcher-closure-targeted-003',
+      'mb2-dispatcher-closure-typecheck-001',
+      'mb2-dispatcher-closure-full-001',
+      'mb2-dispatcher-closure-release-001',
+      'mb2-dispatcher-closure-build-001',
+      'mb2-dispatcher-closure-manifest-001',
+      'mb2-dispatcher-final-targeted-001',
+      'mb2-dispatcher-final-typecheck-001',
+      'mb2-dispatcher-final-full-001',
+      'mb2-dispatcher-final-release-001',
+      'mb2-dispatcher-final-build-001',
+      'mb2-dispatcher-final-manifest-001',
+      'mb2-dispatcher-remediation1-closure-targeted-001',
+      'mb2-dispatcher-remediation1-closure-typecheck-001',
+      'mb2-dispatcher-remediation1-closure-full-001',
+      'mb2-dispatcher-remediation1-closure-release-001',
+      'mb2-dispatcher-remediation1-closure-build-001',
+      'mb2-dispatcher-remediation1-closure-manifest-001',
+      'mb2-dispatcher-remediation1-final-targeted-002',
+      'mb2-dispatcher-remediation1-final-typecheck-001',
+      'mb2-dispatcher-remediation1-final-full-001',
+      'mb2-dispatcher-remediation1-final-release-001',
+      'mb2-dispatcher-remediation1-final-build-001',
+      'mb2-dispatcher-remediation1-final-manifest-001',
+      'mb2-dispatcher-remediation2-closure-targeted-001',
+      'mb2-dispatcher-remediation2-closure-typecheck-001',
+      'mb2-dispatcher-remediation2-closure-full-001',
+      'mb2-dispatcher-remediation2-closure-release-001',
+      'mb2-dispatcher-remediation2-closure-build-001',
+      'mb2-dispatcher-remediation2-closure-manifest-001',
+      'mb2-dispatcher-remediation2-final-targeted-001',
+      'mb2-dispatcher-remediation2-final-typecheck-001',
+      'mb2-dispatcher-remediation2-final-full-001',
+      'mb2-dispatcher-remediation2-final-release-001',
+      'mb2-dispatcher-remediation2-final-build-001',
+      'mb2-dispatcher-remediation2-final-manifest-001',
+      'mb2-dispatcher-remediation3-closure-targeted-001',
+      'mb2-dispatcher-remediation3-closure-typecheck-001',
+      'mb2-dispatcher-remediation3-closure-full-001',
+      'mb2-dispatcher-remediation3-closure-release-001',
+      'mb2-dispatcher-remediation3-closure-build-001',
+      'mb2-dispatcher-remediation3-closure-manifest-001',
+      'mb2-dispatcher-remediation3-final-targeted-001',
+      'mb2-dispatcher-remediation3-final-typecheck-001',
+      'mb2-dispatcher-remediation3-final-full-001',
+      'mb2-dispatcher-remediation3-final-release-001',
+      'mb2-dispatcher-remediation3-final-build-001',
+      'mb2-dispatcher-remediation3-final-manifest-001',
+      'mb2-dispatcher-remediation4-closure-targeted-001',
+      'mb2-dispatcher-remediation4-closure-typecheck-001',
+      'mb2-dispatcher-remediation4-closure-full-001',
+      'mb2-dispatcher-remediation4-closure-release-001',
+      'mb2-dispatcher-remediation4-closure-build-001',
+      'mb2-dispatcher-remediation4-closure-manifest-001',
+      'mb2-dispatcher-remediation4-final-targeted-001',
+      'mb2-dispatcher-remediation4-final-typecheck-001',
+      'mb2-dispatcher-remediation4-final-full-001',
+      'mb2-dispatcher-remediation4-final-release-001',
+      'mb2-dispatcher-remediation4-final-build-001',
+      'mb2-dispatcher-remediation4-final-manifest-001',
+      'mb2-dispatcher-remediation5-closure-targeted-001',
+      'mb2-dispatcher-remediation5-closure-typecheck-001',
+      'mb2-dispatcher-remediation5-closure-full-001',
+      'mb2-dispatcher-remediation5-closure-release-001',
+      'mb2-dispatcher-remediation5-closure-build-001',
+      'mb2-dispatcher-remediation5-closure-manifest-001',
+      'mb2-dispatcher-remediation5-final-targeted-001',
+      'mb2-dispatcher-remediation5-final-typecheck-001',
+      'mb2-dispatcher-remediation5-final-full-001',
+      'mb2-dispatcher-remediation5-final-release-001',
+      'mb2-dispatcher-remediation5-final-build-001',
+      'mb2-dispatcher-remediation5-final-manifest-001',
     ] as const
     const closureAttemptMutations: Array<{
       name: string
@@ -4274,7 +4590,7 @@ describe('multi-broker parity manifest validator', () => {
     try {
       const attempts = currentBootstrapFixture.evidence.candidate_attempts as Array<Record<string, unknown>>
       currentBootstrapFixture.evidence.candidate_attempts = attempts.filter(
-        (attempt) => attempt.attempt_id !== 'mb1-remediation7-closure-manifest-001',
+        (attempt) => attempt.attempt_id !== 'mb2-dispatcher-remediation5-final-manifest-001',
       )
       currentBootstrapFixture.rewrite()
       expect(() => validate({ root: currentBootstrapFixture.root })).toThrow(/Paritätsmanifest ungültig/)
@@ -4296,6 +4612,18 @@ describe('multi-broker parity manifest validator', () => {
       'mb1-remediation4-closure-manifest-001',
       'mb1-remediation5-closure-manifest-001',
       'mb1-remediation6-closure-manifest-001',
+      'mb1-remediation7-closure-manifest-001',
+      'mb2-dispatcher-final-manifest-001',
+      'mb2-dispatcher-remediation1-closure-manifest-001',
+      'mb2-dispatcher-remediation1-final-manifest-001',
+      'mb2-dispatcher-closure-manifest-001',
+      'mb2-dispatcher-remediation2-closure-manifest-001',
+      'mb2-dispatcher-remediation2-final-manifest-001',
+      'mb2-dispatcher-remediation3-closure-manifest-001',
+      'mb2-dispatcher-remediation3-final-manifest-001',
+      'mb2-dispatcher-remediation4-closure-manifest-001',
+      'mb2-dispatcher-remediation4-final-manifest-001',
+      'mb2-dispatcher-remediation5-closure-manifest-001',
     ]) {
       const historicalBootstrapFixture = createValidatorFixture()
       try {
@@ -4312,5 +4640,5 @@ describe('multi-broker parity manifest validator', () => {
         historicalBootstrapFixture.dispose()
       }
     }
-  }, 120_000)
+  }, 240_000)
 })

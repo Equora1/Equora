@@ -17,8 +17,11 @@ const EVIDENCE_PATH = 'docs/gates/EQUORA_v57.61.0_MULTI_BROKER_PARITY_EVIDENCE.j
 
 const REQUIRED_NORMATIVE_PATHS = [
   '.github/workflows/ci.yml',
+  'app/api/internal/broker-capture/route.ts',
   'docs/architecture/EQUORA_v57.61.0_PROVIDER_NEUTRAL_MULTI_BROKER_ARCHITECTURE.md',
   'lib/server/broker-code-registry.ts',
+  'lib/server/broker-capture-dispatcher.ts',
+  'lib/server/broker-capture-runtime.ts',
   'lib/server/broker-core-contracts.ts',
   'lib/server/mexc-central-network-transport.ts',
   'lib/server/mexc-request-contract.ts',
@@ -37,6 +40,7 @@ const REQUIRED_NORMATIVE_PATHS = [
 
 const REQUIRED_PARITY_PATHS = [
   'tests/application-contracts.test.ts',
+  'tests/broker-capture-dispatcher.test.ts',
   'tests/mexc-egress-boundary.test.ts',
   'tests/mexc-central-network-transport.test.ts',
   'tests/mexc-readonly-adapter.test.ts',
@@ -60,17 +64,12 @@ const REQUIRED_PARITY_PATHS = [
 const REQUIRED_CANDIDATE_SCOPE = [
   EVIDENCE_PATH,
   DEFAULT_MANIFEST_PATH,
-  'lib/server/broker-code-registry.ts',
-  'lib/server/broker-core-contracts.ts',
-  'lib/server/mexc-central-network-transport.ts',
-  'lib/server/mexc-request-contract.ts',
-  'lib/server/mexc-transport.ts',
-  'lib/server/providers/mexc-readonly-adapter.ts',
+  'app/api/internal/broker-capture/route.ts',
+  'lib/server/broker-capture-dispatcher.ts',
+  'lib/server/broker-capture-runtime.ts',
   'scripts/validate-multibroker-parity-manifest.mjs',
-  'tests/application-contracts.test.ts',
-  'tests/mexc-central-network-transport.test.ts',
-  'tests/mexc-egress-boundary.test.ts',
-  'tests/mexc-readonly-adapter.test.ts',
+  'tests/broker-capture-dispatcher.test.ts',
+  'tests/broker-capture-route.test.ts',
   'tests/multibroker-core-contracts.test.ts',
 ]
 
@@ -81,17 +80,17 @@ const EXPECTED_TOOLCHAIN = Object.freeze({
   operating_system: 'Microsoft Windows NT 10.0.26100.0',
   docker_client: '29.7.2',
   postgres_client: 'not_available_on_path',
-  postgres_image: 'not_invoked_in_mb1',
+  postgres_image: 'not_invoked_in_mb2',
   ci_node: '24.18.0',
 })
 
 const EXPECTED_COUNTS = Object.freeze({
   baseline_test_files: 23,
   baseline_tests: 380,
-  candidate_test_files: 26,
-  candidate_tests: 433,
-  contract_test_files: 2,
-  contract_tests: 30,
+  candidate_test_files: 27,
+  candidate_tests: 480,
+  contract_test_files: 3,
+  contract_tests: 76,
   baseline_audit_all_vulnerabilities: 0,
   baseline_audit_production_vulnerabilities: 0,
   candidate_audit_all_vulnerabilities: null,
@@ -103,13 +102,122 @@ const EXPECTED_BASELINE_EVIDENCE = Object.freeze({
   historical_scope: 'historical_pre_mb0_repository_baseline',
   historical_commit: '3d88f47c339fa990734308cf9e923d23d4a9cc4f',
   historical_ci_scope: 'historical_pre_mb0_ci',
-  integrated_scope: 'integrated_mb0_tree_inherited_by_mb1',
-  integrated_commit: '19817a96dff114c3bb7a2173d1774880e8e00fbc',
-  integrated_tree: '8df26d7dd4ace9d755640a34381af191b85b58d5',
-  integrated_test_files: 24,
-  integrated_tests: 398,
-  current_ci_status: 'not_requeried_for_mb1',
+  integrated_scope: 'integrated_mb1_tree_inherited_by_mb2',
+  integrated_commit: '76328faac45d221cdbf978eacd10bf518e18a4cb',
+  integrated_tree: '1e9a8bbb5a13b4d32af7650f2366ccea3841a6de',
+  integrated_test_files: 26,
+  integrated_tests: 433,
+  current_ci_status: 'not_requeried_for_mb2_local_block',
 })
+
+const MB1_REMEDIATION7_REVIEW_BINDING = Object.freeze({
+  binding_kind: 'immutable_git_commit_plus_evidence_and_manifest_sha256',
+  commit: '2467959d57ebdc29d63eb8fc691a6d6683070c93',
+  tree: '1e9a8bbb5a13b4d32af7650f2366ccea3841a6de',
+  evidence_sha256: '16ccb4d8de6524d69bbe61d8dca24a119d4f9b153396f2b50b8feb727fd3d62d',
+  manifest_sha256: '96fea1277edaa5365c7b3ed670f3c368e43be84a5190d24f6a9d1f1946276d2d',
+})
+
+const MB2_INITIAL_REVIEW_BINDING = Object.freeze({
+  binding_kind: 'canonical_utf8_lf_sha256_path_set',
+  base_commit: '76328faac45d221cdbf978eacd10bf518e18a4cb',
+  canonical_sha256: Object.freeze({
+    'app/api/internal/broker-capture/route.ts': 'bbb96ed73a856c3c0b9ea55128f818b1b011c6bcd0b2126173db132f83771660',
+    'docs/gates/EQUORA_v57.61.0_MULTI_BROKER_PARITY_EVIDENCE.json': '8fac09c8b4b1aacad476ec5374e98c7e495d38fc8e0c15e11c57a2688eb4a9bd',
+    'docs/gates/EQUORA_v57.61.0_MULTI_BROKER_PARITY_MANIFEST.sha256': '5375a99649e9beb5872cc9301e32ca1de58bd3e19f19538c4de8263fdfa230f0',
+    'scripts/validate-multibroker-parity-manifest.mjs': '06ccd9d9afec31e12cf6cd2260d60ac0a2cc22309fb28487da57d7ef984e6fe4',
+    'tests/broker-capture-route.test.ts': 'ab70e11834f76d092b150fbb25b85a87b0478af72f8ddab2b7c6dcd978790e5c',
+    'tests/multibroker-core-contracts.test.ts': '10255056ad5da57565bd6df1e576b0bb11af8ed5bfc76fd36e71c92da7e2e0f0',
+    'lib/server/broker-capture-dispatcher.ts': 'e5ede3e8165ea13bea830e06c336afc5fb6dac422e962ad2fb75e9bbf2cb2b66',
+    'lib/server/broker-capture-runtime.ts': '9cf6bfda0431629d1f251ac36345e86b665fede5f0b0a81e6f6284ea81fecef1',
+    'tests/broker-capture-dispatcher.test.ts': '483e72b0a02fcf6b9eef97c09014ce22e508f8459378b51d23b1fe9025b56853',
+  }),
+})
+
+const MB2_REMEDIATION1_REVIEW_BINDING = Object.freeze({
+  binding_kind: 'canonical_utf8_lf_sha256_path_set',
+  base_commit: '76328faac45d221cdbf978eacd10bf518e18a4cb',
+  canonical_sha256: Object.freeze({
+    'app/api/internal/broker-capture/route.ts': 'bbb96ed73a856c3c0b9ea55128f818b1b011c6bcd0b2126173db132f83771660',
+    'docs/gates/EQUORA_v57.61.0_MULTI_BROKER_PARITY_EVIDENCE.json': '8abd6d4703d1cd6f598b54bb937668f961fd9e7733edf0111fbb6f91df27b986',
+    'docs/gates/EQUORA_v57.61.0_MULTI_BROKER_PARITY_MANIFEST.sha256': '81a429cae728b4a6f0a198292c229f7d44fc2299a372a36b4c9b6775a1d2c9c3',
+    'scripts/validate-multibroker-parity-manifest.mjs': '3c90a69b255496854233abae72230b027845ef3fbae67d7ce23be66ce0261328',
+    'tests/broker-capture-route.test.ts': '1833a906260dfec7fec816d585d3d4f77db8975c87c6575c020877e69ff61764',
+    'tests/multibroker-core-contracts.test.ts': 'fc68eb84b75bf455d7e280cfc45ea248a4a2cf2040040982fa4f749af5ff92b8',
+    'lib/server/broker-capture-dispatcher.ts': 'a4d3a4086c6bd43d3b8ebc2b78fc588623f7629391b809836be28fa5d8a72282',
+    'lib/server/broker-capture-runtime.ts': '6b6a6744a0300d1aa21427c12228ef752ae6784b0312a424b8db237f59e584fd',
+    'tests/broker-capture-dispatcher.test.ts': '863fa3b0be217441ac5274187777262511218549945c0070f60b12d4a2638da6',
+  }),
+})
+
+const MB2_REMEDIATION2_REVIEW_BINDING = Object.freeze({
+  binding_kind: 'canonical_utf8_lf_sha256_path_set',
+  base_commit: '76328faac45d221cdbf978eacd10bf518e18a4cb',
+  canonical_sha256: Object.freeze({
+    'app/api/internal/broker-capture/route.ts': 'bbb96ed73a856c3c0b9ea55128f818b1b011c6bcd0b2126173db132f83771660',
+    'docs/gates/EQUORA_v57.61.0_MULTI_BROKER_PARITY_EVIDENCE.json': 'bfd9e65f7a4bf2936ffc03b1b0f509cb91c92f3a15d94865466f386d740b4193',
+    'docs/gates/EQUORA_v57.61.0_MULTI_BROKER_PARITY_MANIFEST.sha256': '1d10475fc91f59bf46d7999327de8cd64a5f55b146233aac54790e656ed98c3d',
+    'scripts/validate-multibroker-parity-manifest.mjs': 'a3b045af1c7e426a3a118bdfeb5ebba2dc7a682177d085453fdd6659483eec6d',
+    'tests/broker-capture-route.test.ts': '31d349208d0f830748f69397e00ddc02d78749fee0ac106b47b4d4faa05ae977',
+    'tests/multibroker-core-contracts.test.ts': 'ff8df7fc11776414b1df6a226a6fe0d1e25c558974e23e57d1bcffb6c45000ac',
+    'lib/server/broker-capture-dispatcher.ts': 'acd15c49ab73fc476c611c4e18113269289d5f9bb0660a618bddbc6b78c955e6',
+    'lib/server/broker-capture-runtime.ts': '619344941c111b472e609560e938d913f462ca5f623022669725d4901064bc33',
+    'tests/broker-capture-dispatcher.test.ts': 'c77b37078b0ef18a2e0978f2706f18618c338b50cfe1f85579a2b521ae0e4d7c',
+  }),
+})
+
+const MB2_REMEDIATION3_REVIEW_BINDING = Object.freeze({
+  binding_kind: 'canonical_utf8_lf_sha256_path_set',
+  base_commit: '76328faac45d221cdbf978eacd10bf518e18a4cb',
+  canonical_sha256: Object.freeze({
+    'app/api/internal/broker-capture/route.ts': 'bbb96ed73a856c3c0b9ea55128f818b1b011c6bcd0b2126173db132f83771660',
+    'docs/gates/EQUORA_v57.61.0_MULTI_BROKER_PARITY_EVIDENCE.json': 'f81f49ca6bd1048f96d1df32bdf483256e325029818e634cefaddaa1abbe4117',
+    'docs/gates/EQUORA_v57.61.0_MULTI_BROKER_PARITY_MANIFEST.sha256': '3b69e0e031c70ab5bd64b89ac4880dec90aeccefa529db9e309faa84b318cc22',
+    'scripts/validate-multibroker-parity-manifest.mjs': 'b9ab1cc1e9302b2d44642ffafbbc10832953f5833a41d69447002c1c98d822e6',
+    'tests/broker-capture-route.test.ts': 'ec0dc2e3b84108cd551d9150062c994f2be3a95567aa239a72c502bbf61944bc',
+    'tests/multibroker-core-contracts.test.ts': 'ad2094121e6e7bef6bd45cacd52a465edcce3364747e48f69f468bea0456ae15',
+    'lib/server/broker-capture-dispatcher.ts': '275d0f5ad6e44c4610d0af1be39d8a9c4ab01f48759f9e38009a049b85efe4c3',
+    'lib/server/broker-capture-runtime.ts': '619344941c111b472e609560e938d913f462ca5f623022669725d4901064bc33',
+    'tests/broker-capture-dispatcher.test.ts': 'fa47d1dc643a8f8d35918c53b7bee259f944aa2beef5e496ef726e2821579724',
+  }),
+})
+
+const MB2_REMEDIATION4_REVIEW_BINDING = Object.freeze({
+  binding_kind: 'canonical_utf8_lf_sha256_path_set',
+  base_commit: '76328faac45d221cdbf978eacd10bf518e18a4cb',
+  canonical_sha256: Object.freeze({
+    'app/api/internal/broker-capture/route.ts': 'bbb96ed73a856c3c0b9ea55128f818b1b011c6bcd0b2126173db132f83771660',
+    'docs/gates/EQUORA_v57.61.0_MULTI_BROKER_PARITY_EVIDENCE.json': '2b5970df9e829fe35167092eeb6abae0f4e178a011aa6042bc30cdf1720efbad',
+    'docs/gates/EQUORA_v57.61.0_MULTI_BROKER_PARITY_MANIFEST.sha256': 'd0a5e629c35f6de016233c8463a001ebdd935557874781cacd8e267a1825e428',
+    'scripts/validate-multibroker-parity-manifest.mjs': '77f7643f25050bd5c0137fc242f259998a39456e2ddc9aa4f63c876d2b59b9ab',
+    'tests/broker-capture-route.test.ts': 'bf54a7f566aeae2b68ed352eb5e87c8853a837315fcc99ff273c500a78c89148',
+    'tests/multibroker-core-contracts.test.ts': '3050a0282aff2b9123514aac1f047ec8a0e9b695d8f7686ed78b232137b6fc90',
+    'lib/server/broker-capture-dispatcher.ts': '3ef0fc4cbca16c42dfdd84c9a53064329b107ec9b1ae87b1f36950d532551ba4',
+    'lib/server/broker-capture-runtime.ts': '619344941c111b472e609560e938d913f462ca5f623022669725d4901064bc33',
+    'tests/broker-capture-dispatcher.test.ts': '2503e306bd514b0139317cdcbc5e87ef8e8e49a41b92f046e42a315342a653cb',
+  }),
+})
+
+const REQUIRED_REVIEW_HISTORY_CLOSURE = Object.freeze([
+  Object.freeze({ review: 'A3', snapshot: 'mb1_seventh_remediation_fourteen_path_unstaged_snapshot', status: 'pass', counts: { P0: 0, P1: 0, P2: 0, P3: 0 }, findings: [], snapshotBinding: MB1_REMEDIATION7_REVIEW_BINDING, gateConclusion: 'A3 passed the final MB1 Remediation-7 snapshot; common closure still required the matching A4 and A5 votes.', remediationStatus: 'passed_on_seventh_remediation_snapshot' }),
+  Object.freeze({ review: 'A4', snapshot: 'mb1_seventh_remediation_fourteen_path_unstaged_snapshot', status: 'pass', counts: { P0: 0, P1: 0, P2: 0, P3: 0 }, findings: [], snapshotBinding: MB1_REMEDIATION7_REVIEW_BINDING, gateConclusion: 'A4 passed the final MB1 Remediation-7 snapshot; common closure still required the matching A3 and A5 votes.', remediationStatus: 'passed_on_seventh_remediation_snapshot' }),
+  Object.freeze({ review: 'A5', snapshot: 'mb1_seventh_remediation_fourteen_path_unstaged_snapshot', status: 'pass', counts: { P0: 0, P1: 0, P2: 0, P3: 0 }, findings: [], snapshotBinding: MB1_REMEDIATION7_REVIEW_BINDING, gateConclusion: 'A5 passed the final MB1 Remediation-7 snapshot; matching A3/A4/A5 PASS votes closed MB1 before PR 5.', remediationStatus: 'passed_and_integrated_via_pr5' }),
+  Object.freeze({ review: 'A3', snapshot: 'mb2_initial_nine_path_unstaged_snapshot', status: 'pass', counts: { P0: 0, P1: 0, P2: 0, P3: 0 }, findings: [], snapshotBinding: MB2_INITIAL_REVIEW_BINDING, gateConclusion: 'A3 passed the initial MB2 snapshot; A4 and A5 findings kept MB2 and Staging closed.', remediationStatus: 'first_mb2_remediation_required' }),
+  Object.freeze({ review: 'A4', snapshot: 'mb2_initial_nine_path_unstaged_snapshot', status: 'no_pass', counts: { P0: 0, P1: 0, P2: 3, P3: 1 }, findings: ['A4-MB2-001', 'A4-MB2-002', 'A4-MB2-003', 'A4-MB2-004'], snapshotBinding: MB2_INITIAL_REVIEW_BINDING, gateConclusion: 'A4 NO-PASS blocked MB2 and Staging.', remediationStatus: 'first_mb2_remediation_required' }),
+  Object.freeze({ review: 'A5', snapshot: 'mb2_initial_nine_path_unstaged_snapshot', status: 'no_pass', counts: { P0: 0, P1: 0, P2: 2, P3: 1 }, findings: ['A5-MB2-001', 'A5-MB2-002', 'A5-MB2-003'], snapshotBinding: MB2_INITIAL_REVIEW_BINDING, gateConclusion: 'A5 NO-PASS blocked MB2 and Staging.', remediationStatus: 'first_mb2_remediation_required' }),
+  Object.freeze({ review: 'A3', snapshot: 'mb2_first_remediation_nine_path_unstaged_snapshot', status: 'no_pass', counts: { P0: 0, P1: 0, P2: 1, P3: 0 }, findings: ['A3-MB2-R1-001'], snapshotBinding: MB2_REMEDIATION1_REVIEW_BINDING, gateConclusion: 'A3 NO-PASS blocked MB2 and Staging pending additive review-history closure.', remediationStatus: 'second_mb2_remediation_in_progress_pending_new_hash_bound_rereview' }),
+  Object.freeze({ review: 'A4', snapshot: 'mb2_first_remediation_nine_path_unstaged_snapshot', status: 'no_pass_with_non_blocking_p3', counts: { P0: 0, P1: 0, P2: 1, P3: 1 }, findings: ['A4-MB2-R1-001', 'A4-MB2-R1-002'], snapshotBinding: MB2_REMEDIATION1_REVIEW_BINDING, gateConclusion: 'A4 NO-PASS blocked MB2 and Staging pending effect-boundary authority closure.', remediationStatus: 'second_mb2_remediation_in_progress_pending_new_hash_bound_rereview' }),
+  Object.freeze({ review: 'A5', snapshot: 'mb2_first_remediation_nine_path_unstaged_snapshot', status: 'pass_with_non_blocking_p3', counts: { P0: 0, P1: 0, P2: 0, P3: 1 }, findings: ['A5-MB2-R1-001'], snapshotBinding: MB2_REMEDIATION1_REVIEW_BINDING, gateConclusion: 'A5 passed without P0-P2, but common A3/A4/A5 closure and Staging remained blocked.', remediationStatus: 'second_mb2_remediation_in_progress_pending_new_hash_bound_rereview' }),
+  Object.freeze({ review: 'A3', snapshot: 'mb2_second_remediation_nine_path_unstaged_snapshot', status: 'pass', counts: { P0: 0, P1: 0, P2: 0, P3: 0 }, findings: [], snapshotBinding: MB2_REMEDIATION2_REVIEW_BINDING, gateConclusion: 'A3 passed the second-remediation snapshot; A4 NO-PASS kept MB2 and Staging closed.', remediationStatus: 'third_mb2_remediation_in_progress_pending_new_hash_bound_rereview' }),
+  Object.freeze({ review: 'A4', snapshot: 'mb2_second_remediation_nine_path_unstaged_snapshot', status: 'no_pass_with_non_blocking_p3', counts: { P0: 0, P1: 0, P2: 1, P3: 1 }, findings: ['A4-MB2-R2-001', 'A4-MB2-R2-002'], snapshotBinding: MB2_REMEDIATION2_REVIEW_BINDING, gateConclusion: 'A4 NO-PASS blocked MB2 and Staging pending terminal Effect Authority revocation and promise coupling.', remediationStatus: 'third_mb2_remediation_in_progress_pending_new_hash_bound_rereview' }),
+  Object.freeze({ review: 'A5', snapshot: 'mb2_second_remediation_nine_path_unstaged_snapshot', status: 'pass', counts: { P0: 0, P1: 0, P2: 0, P3: 0 }, findings: [], snapshotBinding: MB2_REMEDIATION2_REVIEW_BINDING, gateConclusion: 'A5 passed, but A4 NO-PASS kept common closure and Staging blocked.', remediationStatus: 'third_mb2_remediation_in_progress_pending_new_hash_bound_rereview' }),
+  Object.freeze({ review: 'A3', snapshot: 'mb2_third_remediation_nine_path_unstaged_snapshot', status: 'pass', counts: { P0: 0, P1: 0, P2: 0, P3: 0 }, findings: [], snapshotBinding: MB2_REMEDIATION3_REVIEW_BINDING, gateConclusion: 'A3 passed the third-remediation snapshot; A4 NO-PASS kept MB2 and Staging closed.', remediationStatus: 'fourth_mb2_remediation_in_progress_pending_new_hash_bound_rereview' }),
+  Object.freeze({ review: 'A4', snapshot: 'mb2_third_remediation_nine_path_unstaged_snapshot', status: 'no_pass_with_non_blocking_p3', counts: { P0: 0, P1: 0, P2: 1, P3: 1 }, findings: ['A4-MB2-R3-001', 'A4-MB2-R3-002'], snapshotBinding: MB2_REMEDIATION3_REVIEW_BINDING, gateConclusion: 'A4 NO-PASS blocked MB2 and Staging pending intrinsic observation of both mismatched Promises and precise Promise-identity claims.', remediationStatus: 'fourth_mb2_remediation_in_progress_pending_new_hash_bound_rereview' }),
+  Object.freeze({ review: 'A5', snapshot: 'mb2_third_remediation_nine_path_unstaged_snapshot', status: 'pass', counts: { P0: 0, P1: 0, P2: 0, P3: 0 }, findings: [], snapshotBinding: MB2_REMEDIATION3_REVIEW_BINDING, gateConclusion: 'A5 passed, but A4 NO-PASS kept common closure and Staging blocked.', remediationStatus: 'fourth_mb2_remediation_in_progress_pending_new_hash_bound_rereview' }),
+  Object.freeze({ review: 'A3', snapshot: 'mb2_fourth_remediation_nine_path_unstaged_snapshot', status: 'pass', counts: { P0: 0, P1: 0, P2: 0, P3: 0 }, findings: [], snapshotBinding: MB2_REMEDIATION4_REVIEW_BINDING, gateConclusion: 'A3 passed the fourth-remediation snapshot; A4 NO-PASS kept MB2 and Staging closed.', remediationStatus: 'fifth_mb2_remediation_in_progress_pending_new_hash_bound_rereview' }),
+  Object.freeze({ review: 'A4', snapshot: 'mb2_fourth_remediation_nine_path_unstaged_snapshot', status: 'no_pass_with_non_blocking_p3', counts: { P0: 0, P1: 0, P2: 1, P3: 1 }, findings: ['A4-MB2-R4-001', 'A4-MB2-R4-002'], snapshotBinding: MB2_REMEDIATION4_REVIEW_BINDING, gateConclusion: 'A4 NO-PASS blocked MB2 and Staging pending a structurally closed ordinary-Promise contract and precise containment claims.', remediationStatus: 'fifth_mb2_remediation_in_progress_pending_new_hash_bound_rereview' }),
+  Object.freeze({ review: 'A5', snapshot: 'mb2_fourth_remediation_nine_path_unstaged_snapshot', status: 'pass', counts: { P0: 0, P1: 0, P2: 0, P3: 0 }, findings: [], snapshotBinding: MB2_REMEDIATION4_REVIEW_BINDING, gateConclusion: 'A5 passed, but A4 NO-PASS kept common closure and Staging blocked.', remediationStatus: 'fifth_mb2_remediation_in_progress_pending_new_hash_bound_rereview' }),
+])
 
 const EXPECTED_GATE_TRANSCRIPT_POLICIES = Object.freeze({
   canonical_gate_transcript_v1: Object.freeze({
@@ -264,9 +372,81 @@ const REQUIRED_GATE_ATTEMPTS = Object.freeze([
   Object.freeze({ collection: 'candidate_attempts', id: 'mb1-remediation7-closure-release-001', command: 'npm.cmd run release:check', result: 'pass', outputBytes: 149, outputSha256: 'bd84e5259443e96ebff13807ed3ce463e1c86252d9167fdbd9850a86d911969a', outputTranscriptPolicy: 'canonical_gate_transcript_v2' }),
   Object.freeze({ collection: 'candidate_attempts', id: 'mb1-remediation7-closure-build-001', command: 'npm.cmd run build', result: 'pass', outputBytes: 2183, outputSha256: '70dc6e49ebfb502b8ce8e8f0fcd3895ec30dab464d4f43a1fc49e0636bf3825c', outputTranscriptPolicy: 'canonical_gate_transcript_v2', resultCounts: { static_pages_generated: 3, static_pages_total: 3 } }),
   Object.freeze({ collection: 'candidate_attempts', id: 'mb1-remediation7-closure-manifest-001', command: 'node scripts/validate-multibroker-parity-manifest.mjs --allow-pending-manifest-attempt', result: 'pass_bootstrap_before_append_only_evidence_rehash', outputBytes: 91, outputSha256: '2daa5f2087db82b4bcd365d23672173731fe5ad834b0bd4482105481b8b5e59e', outputTranscriptPolicy: 'canonical_gate_transcript_v2', resultCounts: { manifest_entries_passed: 35, manifest_entries_total: 35 }, bootstrapManifestAttempt: true }),
+  Object.freeze({ collection: 'candidate_attempts', id: 'mb2-dispatcher-closure-targeted-003', command: 'npm.cmd test -- tests/broker-capture-dispatcher.test.ts tests/broker-capture-route.test.ts tests/multibroker-core-contracts.test.ts tests/mexc-capture-runtime.test.ts', result: 'pass', outputBytes: 386, outputSha256: '3b1980cefe886d44303a97b33cdc7ee9e2fb3a5fa70b058b793f6bccb201cc90', outputTranscriptPolicy: 'canonical_gate_transcript_v2', resultCounts: { test_files_passed: 4, test_files_total: 4, tests_passed: 53, tests_total: 53 } }),
+  Object.freeze({ collection: 'candidate_attempts', id: 'mb2-dispatcher-closure-typecheck-001', command: 'npm.cmd run typecheck', result: 'pass', outputBytes: 63, outputSha256: '8fdcec4087966dd38af8fcd84fa03e08088dd4b0a599f1f3d5dc87a931ea9e17', outputTranscriptPolicy: 'canonical_gate_transcript_v2' }),
+  Object.freeze({ collection: 'candidate_attempts', id: 'mb2-dispatcher-closure-full-001', command: 'npm.cmd test', result: 'pass', outputBytes: 239, outputSha256: 'a6c02f6ae419bad7004963c048280bf53fd3c1c50f9eb2ef65ffc9d21ab55ad1', outputTranscriptPolicy: 'canonical_gate_transcript_v2', resultCounts: { test_files_passed: 27, test_files_total: 27, tests_passed: 441, tests_total: 441 } }),
+  Object.freeze({ collection: 'candidate_attempts', id: 'mb2-dispatcher-closure-release-001', command: 'npm.cmd run release:check', result: 'pass', outputBytes: 149, outputSha256: 'bd84e5259443e96ebff13807ed3ce463e1c86252d9167fdbd9850a86d911969a', outputTranscriptPolicy: 'canonical_gate_transcript_v2' }),
+  Object.freeze({ collection: 'candidate_attempts', id: 'mb2-dispatcher-closure-build-001', command: 'npm.cmd run build', result: 'pass', outputBytes: 2183, outputSha256: '70dc6e49ebfb502b8ce8e8f0fcd3895ec30dab464d4f43a1fc49e0636bf3825c', outputTranscriptPolicy: 'canonical_gate_transcript_v2', resultCounts: { static_pages_generated: 3, static_pages_total: 3 } }),
+  Object.freeze({ collection: 'candidate_attempts', id: 'mb2-dispatcher-closure-manifest-001', command: 'node scripts/validate-multibroker-parity-manifest.mjs --allow-pending-manifest-attempt', result: 'pass_bootstrap_before_append_only_evidence_rehash', outputBytes: 91, outputSha256: 'ed70e94f2b24fbdee05703a0c9dfb76dda5139b0259d6b693cfa77d6e551095a', outputTranscriptPolicy: 'canonical_gate_transcript_v2', resultCounts: { manifest_entries_passed: 39, manifest_entries_total: 39 }, bootstrapManifestAttempt: true }),
+  Object.freeze({ collection: 'candidate_attempts', id: 'mb2-dispatcher-final-targeted-001', command: 'npm.cmd test -- tests/broker-capture-dispatcher.test.ts tests/broker-capture-route.test.ts tests/multibroker-core-contracts.test.ts tests/mexc-capture-runtime.test.ts', result: 'pass', outputBytes: 386, outputSha256: '3b1980cefe886d44303a97b33cdc7ee9e2fb3a5fa70b058b793f6bccb201cc90', outputTranscriptPolicy: 'canonical_gate_transcript_v2', resultCounts: { test_files_passed: 4, test_files_total: 4, tests_passed: 53, tests_total: 53 } }),
+  Object.freeze({ collection: 'candidate_attempts', id: 'mb2-dispatcher-final-typecheck-001', command: 'npm.cmd run typecheck', result: 'pass', outputBytes: 63, outputSha256: '8fdcec4087966dd38af8fcd84fa03e08088dd4b0a599f1f3d5dc87a931ea9e17', outputTranscriptPolicy: 'canonical_gate_transcript_v2' }),
+  Object.freeze({ collection: 'candidate_attempts', id: 'mb2-dispatcher-final-full-001', command: 'npm.cmd test', result: 'pass', outputBytes: 239, outputSha256: 'a6c02f6ae419bad7004963c048280bf53fd3c1c50f9eb2ef65ffc9d21ab55ad1', outputTranscriptPolicy: 'canonical_gate_transcript_v2', resultCounts: { test_files_passed: 27, test_files_total: 27, tests_passed: 441, tests_total: 441 } }),
+  Object.freeze({ collection: 'candidate_attempts', id: 'mb2-dispatcher-final-release-001', command: 'npm.cmd run release:check', result: 'pass', outputBytes: 149, outputSha256: 'bd84e5259443e96ebff13807ed3ce463e1c86252d9167fdbd9850a86d911969a', outputTranscriptPolicy: 'canonical_gate_transcript_v2' }),
+  Object.freeze({ collection: 'candidate_attempts', id: 'mb2-dispatcher-final-build-001', command: 'npm.cmd run build', result: 'pass', outputBytes: 2183, outputSha256: '70dc6e49ebfb502b8ce8e8f0fcd3895ec30dab464d4f43a1fc49e0636bf3825c', outputTranscriptPolicy: 'canonical_gate_transcript_v2', resultCounts: { static_pages_generated: 3, static_pages_total: 3 } }),
+  Object.freeze({ collection: 'candidate_attempts', id: 'mb2-dispatcher-final-manifest-001', command: 'node scripts/validate-multibroker-parity-manifest.mjs --allow-pending-manifest-attempt', result: 'pass_bootstrap_before_append_only_evidence_rehash', outputBytes: 91, outputSha256: 'ed70e94f2b24fbdee05703a0c9dfb76dda5139b0259d6b693cfa77d6e551095a', outputTranscriptPolicy: 'canonical_gate_transcript_v2', resultCounts: { manifest_entries_passed: 39, manifest_entries_total: 39 }, bootstrapManifestAttempt: true }),
+  Object.freeze({ collection: 'candidate_attempts', id: 'mb2-dispatcher-remediation1-closure-targeted-001', command: 'npm.cmd test -- tests/broker-capture-dispatcher.test.ts tests/broker-capture-route.test.ts tests/multibroker-core-contracts.test.ts tests/mexc-capture-runtime.test.ts', result: 'pass', outputBytes: 386, outputSha256: '74705be77ca4744e12739374a5f88e9957521b9c74983fc6041cb1b43d74d735', outputTranscriptPolicy: 'canonical_gate_transcript_v2', resultCounts: { test_files_passed: 4, test_files_total: 4, tests_passed: 76, tests_total: 76 } }),
+  Object.freeze({ collection: 'candidate_attempts', id: 'mb2-dispatcher-remediation1-closure-typecheck-001', command: 'npm.cmd run typecheck', result: 'pass', outputBytes: 63, outputSha256: '8fdcec4087966dd38af8fcd84fa03e08088dd4b0a599f1f3d5dc87a931ea9e17', outputTranscriptPolicy: 'canonical_gate_transcript_v2' }),
+  Object.freeze({ collection: 'candidate_attempts', id: 'mb2-dispatcher-remediation1-closure-full-001', command: 'npm.cmd test', result: 'pass', outputBytes: 239, outputSha256: '7d9da68bee101ec650c0c40aaabb58590a02273678d1f890ec12750b9eb2740e', outputTranscriptPolicy: 'canonical_gate_transcript_v2', resultCounts: { test_files_passed: 27, test_files_total: 27, tests_passed: 464, tests_total: 464 } }),
+  Object.freeze({ collection: 'candidate_attempts', id: 'mb2-dispatcher-remediation1-closure-release-001', command: 'npm.cmd run release:check', result: 'pass', outputBytes: 149, outputSha256: 'bd84e5259443e96ebff13807ed3ce463e1c86252d9167fdbd9850a86d911969a', outputTranscriptPolicy: 'canonical_gate_transcript_v2' }),
+  Object.freeze({ collection: 'candidate_attempts', id: 'mb2-dispatcher-remediation1-closure-build-001', command: 'npm.cmd run build', result: 'pass', outputBytes: 2183, outputSha256: '70dc6e49ebfb502b8ce8e8f0fcd3895ec30dab464d4f43a1fc49e0636bf3825c', outputTranscriptPolicy: 'canonical_gate_transcript_v2', resultCounts: { static_pages_generated: 3, static_pages_total: 3 } }),
+  Object.freeze({ collection: 'candidate_attempts', id: 'mb2-dispatcher-remediation1-closure-manifest-001', command: 'node scripts/validate-multibroker-parity-manifest.mjs --allow-pending-manifest-attempt', result: 'pass_bootstrap_before_append_only_evidence_rehash', outputBytes: 91, outputSha256: 'ed70e94f2b24fbdee05703a0c9dfb76dda5139b0259d6b693cfa77d6e551095a', outputTranscriptPolicy: 'canonical_gate_transcript_v2', resultCounts: { manifest_entries_passed: 39, manifest_entries_total: 39 }, bootstrapManifestAttempt: true }),
+  Object.freeze({ collection: 'candidate_attempts', id: 'mb2-dispatcher-remediation1-final-targeted-002', command: 'npm.cmd test -- tests/broker-capture-dispatcher.test.ts tests/broker-capture-route.test.ts tests/multibroker-core-contracts.test.ts tests/mexc-capture-runtime.test.ts', result: 'pass', outputBytes: 386, outputSha256: '74705be77ca4744e12739374a5f88e9957521b9c74983fc6041cb1b43d74d735', outputTranscriptPolicy: 'canonical_gate_transcript_v2', resultCounts: { test_files_passed: 4, test_files_total: 4, tests_passed: 76, tests_total: 76 } }),
+  Object.freeze({ collection: 'candidate_attempts', id: 'mb2-dispatcher-remediation1-final-typecheck-001', command: 'npm.cmd run typecheck', result: 'pass', outputBytes: 63, outputSha256: '8fdcec4087966dd38af8fcd84fa03e08088dd4b0a599f1f3d5dc87a931ea9e17', outputTranscriptPolicy: 'canonical_gate_transcript_v2' }),
+  Object.freeze({ collection: 'candidate_attempts', id: 'mb2-dispatcher-remediation1-final-full-001', command: 'npm.cmd test', result: 'pass', outputBytes: 239, outputSha256: '7d9da68bee101ec650c0c40aaabb58590a02273678d1f890ec12750b9eb2740e', outputTranscriptPolicy: 'canonical_gate_transcript_v2', resultCounts: { test_files_passed: 27, test_files_total: 27, tests_passed: 464, tests_total: 464 } }),
+  Object.freeze({ collection: 'candidate_attempts', id: 'mb2-dispatcher-remediation1-final-release-001', command: 'npm.cmd run release:check', result: 'pass', outputBytes: 149, outputSha256: 'bd84e5259443e96ebff13807ed3ce463e1c86252d9167fdbd9850a86d911969a', outputTranscriptPolicy: 'canonical_gate_transcript_v2' }),
+  Object.freeze({ collection: 'candidate_attempts', id: 'mb2-dispatcher-remediation1-final-build-001', command: 'npm.cmd run build', result: 'pass', outputBytes: 2183, outputSha256: '70dc6e49ebfb502b8ce8e8f0fcd3895ec30dab464d4f43a1fc49e0636bf3825c', outputTranscriptPolicy: 'canonical_gate_transcript_v2', resultCounts: { static_pages_generated: 3, static_pages_total: 3 } }),
+  Object.freeze({ collection: 'candidate_attempts', id: 'mb2-dispatcher-remediation1-final-manifest-001', command: 'node scripts/validate-multibroker-parity-manifest.mjs --allow-pending-manifest-attempt', result: 'pass_bootstrap_before_append_only_evidence_rehash', outputBytes: 91, outputSha256: 'ed70e94f2b24fbdee05703a0c9dfb76dda5139b0259d6b693cfa77d6e551095a', outputTranscriptPolicy: 'canonical_gate_transcript_v2', resultCounts: { manifest_entries_passed: 39, manifest_entries_total: 39 }, bootstrapManifestAttempt: true }),
+  Object.freeze({ collection: 'candidate_attempts', id: 'mb2-dispatcher-remediation2-closure-targeted-001', command: 'npm.cmd test -- tests/broker-capture-dispatcher.test.ts tests/broker-capture-route.test.ts tests/multibroker-core-contracts.test.ts tests/mexc-capture-runtime.test.ts', result: 'pass', outputBytes: 386, outputSha256: '4ba4c6134afecff9d793f80878fdab3d1a830e40671da61386fb1953385453f6', outputTranscriptPolicy: 'canonical_gate_transcript_v2', resultCounts: { test_files_passed: 4, test_files_total: 4, tests_passed: 83, tests_total: 83 } }),
+  Object.freeze({ collection: 'candidate_attempts', id: 'mb2-dispatcher-remediation2-closure-typecheck-001', command: 'npm.cmd run typecheck', result: 'pass', outputBytes: 63, outputSha256: '8fdcec4087966dd38af8fcd84fa03e08088dd4b0a599f1f3d5dc87a931ea9e17', outputTranscriptPolicy: 'canonical_gate_transcript_v2' }),
+  Object.freeze({ collection: 'candidate_attempts', id: 'mb2-dispatcher-remediation2-closure-full-001', command: 'npm.cmd test', result: 'pass', outputBytes: 239, outputSha256: 'cfa110f098263afbd11df7d6bbb822f32a5fa6562953c54ff6982becb9afdc8c', outputTranscriptPolicy: 'canonical_gate_transcript_v2', resultCounts: { test_files_passed: 27, test_files_total: 27, tests_passed: 471, tests_total: 471 } }),
+  Object.freeze({ collection: 'candidate_attempts', id: 'mb2-dispatcher-remediation2-closure-release-001', command: 'npm.cmd run release:check', result: 'pass', outputBytes: 149, outputSha256: 'bd84e5259443e96ebff13807ed3ce463e1c86252d9167fdbd9850a86d911969a', outputTranscriptPolicy: 'canonical_gate_transcript_v2' }),
+  Object.freeze({ collection: 'candidate_attempts', id: 'mb2-dispatcher-remediation2-closure-build-001', command: 'npm.cmd run build', result: 'pass', outputBytes: 2183, outputSha256: '70dc6e49ebfb502b8ce8e8f0fcd3895ec30dab464d4f43a1fc49e0636bf3825c', outputTranscriptPolicy: 'canonical_gate_transcript_v2', resultCounts: { static_pages_generated: 3, static_pages_total: 3 } }),
+  Object.freeze({ collection: 'candidate_attempts', id: 'mb2-dispatcher-remediation2-closure-manifest-001', command: 'node scripts/validate-multibroker-parity-manifest.mjs --allow-pending-manifest-attempt', result: 'pass_bootstrap_before_append_only_evidence_rehash', outputBytes: 91, outputSha256: 'ed70e94f2b24fbdee05703a0c9dfb76dda5139b0259d6b693cfa77d6e551095a', outputTranscriptPolicy: 'canonical_gate_transcript_v2', resultCounts: { manifest_entries_passed: 39, manifest_entries_total: 39 }, bootstrapManifestAttempt: true }),
+  Object.freeze({ collection: 'candidate_attempts', id: 'mb2-dispatcher-remediation2-final-targeted-001', command: 'npm.cmd test -- tests/broker-capture-dispatcher.test.ts tests/broker-capture-route.test.ts tests/multibroker-core-contracts.test.ts tests/mexc-capture-runtime.test.ts', result: 'pass', outputBytes: 386, outputSha256: '4ba4c6134afecff9d793f80878fdab3d1a830e40671da61386fb1953385453f6', outputTranscriptPolicy: 'canonical_gate_transcript_v2', resultCounts: { test_files_passed: 4, test_files_total: 4, tests_passed: 83, tests_total: 83 } }),
+  Object.freeze({ collection: 'candidate_attempts', id: 'mb2-dispatcher-remediation2-final-typecheck-001', command: 'npm.cmd run typecheck', result: 'pass', outputBytes: 63, outputSha256: '8fdcec4087966dd38af8fcd84fa03e08088dd4b0a599f1f3d5dc87a931ea9e17', outputTranscriptPolicy: 'canonical_gate_transcript_v2' }),
+  Object.freeze({ collection: 'candidate_attempts', id: 'mb2-dispatcher-remediation2-final-full-001', command: 'npm.cmd test', result: 'pass', outputBytes: 239, outputSha256: 'cfa110f098263afbd11df7d6bbb822f32a5fa6562953c54ff6982becb9afdc8c', outputTranscriptPolicy: 'canonical_gate_transcript_v2', resultCounts: { test_files_passed: 27, test_files_total: 27, tests_passed: 471, tests_total: 471 } }),
+  Object.freeze({ collection: 'candidate_attempts', id: 'mb2-dispatcher-remediation2-final-release-001', command: 'npm.cmd run release:check', result: 'pass', outputBytes: 149, outputSha256: 'bd84e5259443e96ebff13807ed3ce463e1c86252d9167fdbd9850a86d911969a', outputTranscriptPolicy: 'canonical_gate_transcript_v2' }),
+  Object.freeze({ collection: 'candidate_attempts', id: 'mb2-dispatcher-remediation2-final-build-001', command: 'npm.cmd run build', result: 'pass', outputBytes: 2183, outputSha256: '70dc6e49ebfb502b8ce8e8f0fcd3895ec30dab464d4f43a1fc49e0636bf3825c', outputTranscriptPolicy: 'canonical_gate_transcript_v2', resultCounts: { static_pages_generated: 3, static_pages_total: 3 } }),
+  Object.freeze({ collection: 'candidate_attempts', id: 'mb2-dispatcher-remediation2-final-manifest-001', command: 'node scripts/validate-multibroker-parity-manifest.mjs --allow-pending-manifest-attempt', result: 'pass_bootstrap_before_append_only_evidence_rehash', outputBytes: 91, outputSha256: 'ed70e94f2b24fbdee05703a0c9dfb76dda5139b0259d6b693cfa77d6e551095a', outputTranscriptPolicy: 'canonical_gate_transcript_v2', resultCounts: { manifest_entries_passed: 39, manifest_entries_total: 39 }, bootstrapManifestAttempt: true }),
+  Object.freeze({ collection: 'candidate_attempts', id: 'mb2-dispatcher-remediation3-closure-targeted-001', command: 'npm.cmd test -- tests/broker-capture-dispatcher.test.ts tests/broker-capture-route.test.ts tests/multibroker-core-contracts.test.ts tests/mexc-capture-runtime.test.ts', result: 'pass', outputBytes: 386, outputSha256: '65077648ac2c08e31a5a16e89c36a938f84a25e9629273e51cf118ed79638bd1', outputTranscriptPolicy: 'canonical_gate_transcript_v2', resultCounts: { test_files_passed: 4, test_files_total: 4, tests_passed: 86, tests_total: 86 } }),
+  Object.freeze({ collection: 'candidate_attempts', id: 'mb2-dispatcher-remediation3-closure-typecheck-001', command: 'npm.cmd run typecheck', result: 'pass', outputBytes: 63, outputSha256: '8fdcec4087966dd38af8fcd84fa03e08088dd4b0a599f1f3d5dc87a931ea9e17', outputTranscriptPolicy: 'canonical_gate_transcript_v2' }),
+  Object.freeze({ collection: 'candidate_attempts', id: 'mb2-dispatcher-remediation3-closure-full-001', command: 'npm.cmd test', result: 'pass', outputBytes: 239, outputSha256: '4071f98840ce873a70e587c1952fb797792fd4ea872150d0d30b3a23df60914c', outputTranscriptPolicy: 'canonical_gate_transcript_v2', resultCounts: { test_files_passed: 27, test_files_total: 27, tests_passed: 474, tests_total: 474 } }),
+  Object.freeze({ collection: 'candidate_attempts', id: 'mb2-dispatcher-remediation3-closure-release-001', command: 'npm.cmd run release:check', result: 'pass', outputBytes: 149, outputSha256: 'bd84e5259443e96ebff13807ed3ce463e1c86252d9167fdbd9850a86d911969a', outputTranscriptPolicy: 'canonical_gate_transcript_v2' }),
+  Object.freeze({ collection: 'candidate_attempts', id: 'mb2-dispatcher-remediation3-closure-build-001', command: 'npm.cmd run build', result: 'pass', outputBytes: 2183, outputSha256: '70dc6e49ebfb502b8ce8e8f0fcd3895ec30dab464d4f43a1fc49e0636bf3825c', outputTranscriptPolicy: 'canonical_gate_transcript_v2', resultCounts: { static_pages_generated: 3, static_pages_total: 3 } }),
+  Object.freeze({ collection: 'candidate_attempts', id: 'mb2-dispatcher-remediation3-closure-manifest-001', command: 'node scripts/validate-multibroker-parity-manifest.mjs --allow-pending-manifest-attempt', result: 'pass_bootstrap_before_append_only_evidence_rehash', outputBytes: 91, outputSha256: 'ed70e94f2b24fbdee05703a0c9dfb76dda5139b0259d6b693cfa77d6e551095a', outputTranscriptPolicy: 'canonical_gate_transcript_v2', resultCounts: { manifest_entries_passed: 39, manifest_entries_total: 39 }, bootstrapManifestAttempt: true }),
+  Object.freeze({ collection: 'candidate_attempts', id: 'mb2-dispatcher-remediation3-final-targeted-001', command: 'npm.cmd test -- tests/broker-capture-dispatcher.test.ts tests/broker-capture-route.test.ts tests/multibroker-core-contracts.test.ts tests/mexc-capture-runtime.test.ts', result: 'pass', outputBytes: 386, outputSha256: '65077648ac2c08e31a5a16e89c36a938f84a25e9629273e51cf118ed79638bd1', outputTranscriptPolicy: 'canonical_gate_transcript_v2', resultCounts: { test_files_passed: 4, test_files_total: 4, tests_passed: 86, tests_total: 86 } }),
+  Object.freeze({ collection: 'candidate_attempts', id: 'mb2-dispatcher-remediation3-final-typecheck-001', command: 'npm.cmd run typecheck', result: 'pass', outputBytes: 63, outputSha256: '8fdcec4087966dd38af8fcd84fa03e08088dd4b0a599f1f3d5dc87a931ea9e17', outputTranscriptPolicy: 'canonical_gate_transcript_v2' }),
+  Object.freeze({ collection: 'candidate_attempts', id: 'mb2-dispatcher-remediation3-final-full-001', command: 'npm.cmd test', result: 'pass', outputBytes: 239, outputSha256: '4071f98840ce873a70e587c1952fb797792fd4ea872150d0d30b3a23df60914c', outputTranscriptPolicy: 'canonical_gate_transcript_v2', resultCounts: { test_files_passed: 27, test_files_total: 27, tests_passed: 474, tests_total: 474 } }),
+  Object.freeze({ collection: 'candidate_attempts', id: 'mb2-dispatcher-remediation3-final-release-001', command: 'npm.cmd run release:check', result: 'pass', outputBytes: 149, outputSha256: 'bd84e5259443e96ebff13807ed3ce463e1c86252d9167fdbd9850a86d911969a', outputTranscriptPolicy: 'canonical_gate_transcript_v2' }),
+  Object.freeze({ collection: 'candidate_attempts', id: 'mb2-dispatcher-remediation3-final-build-001', command: 'npm.cmd run build', result: 'pass', outputBytes: 2183, outputSha256: '70dc6e49ebfb502b8ce8e8f0fcd3895ec30dab464d4f43a1fc49e0636bf3825c', outputTranscriptPolicy: 'canonical_gate_transcript_v2', resultCounts: { static_pages_generated: 3, static_pages_total: 3 } }),
+  Object.freeze({ collection: 'candidate_attempts', id: 'mb2-dispatcher-remediation3-final-manifest-001', command: 'node scripts/validate-multibroker-parity-manifest.mjs --allow-pending-manifest-attempt', result: 'pass_bootstrap_before_append_only_evidence_rehash', outputBytes: 91, outputSha256: 'ed70e94f2b24fbdee05703a0c9dfb76dda5139b0259d6b693cfa77d6e551095a', outputTranscriptPolicy: 'canonical_gate_transcript_v2', resultCounts: { manifest_entries_passed: 39, manifest_entries_total: 39 }, bootstrapManifestAttempt: true }),
+  Object.freeze({ collection: 'candidate_attempts', id: 'mb2-dispatcher-remediation4-closure-targeted-001', command: 'npm.cmd test -- tests/broker-capture-dispatcher.test.ts tests/broker-capture-route.test.ts tests/multibroker-core-contracts.test.ts tests/mexc-capture-runtime.test.ts', result: 'pass', outputBytes: 386, outputSha256: '94522718f443c0e9a49b59f6b845a629d494f166a4524ad67fce4fb8e6382c39', outputTranscriptPolicy: 'canonical_gate_transcript_v2', resultCounts: { test_files_passed: 4, test_files_total: 4, tests_passed: 87, tests_total: 87 } }),
+  Object.freeze({ collection: 'candidate_attempts', id: 'mb2-dispatcher-remediation4-closure-typecheck-001', command: 'npm.cmd run typecheck', result: 'pass', outputBytes: 63, outputSha256: '8fdcec4087966dd38af8fcd84fa03e08088dd4b0a599f1f3d5dc87a931ea9e17', outputTranscriptPolicy: 'canonical_gate_transcript_v2' }),
+  Object.freeze({ collection: 'candidate_attempts', id: 'mb2-dispatcher-remediation4-closure-full-001', command: 'npm.cmd test', result: 'pass', outputBytes: 239, outputSha256: '7060407516420c6eb6c10b3b6dddfa1b89e6a3bb0d9756de525ddbf7281731dc', outputTranscriptPolicy: 'canonical_gate_transcript_v2', resultCounts: { test_files_passed: 27, test_files_total: 27, tests_passed: 475, tests_total: 475 } }),
+  Object.freeze({ collection: 'candidate_attempts', id: 'mb2-dispatcher-remediation4-closure-release-001', command: 'npm.cmd run release:check', result: 'pass', outputBytes: 149, outputSha256: 'bd84e5259443e96ebff13807ed3ce463e1c86252d9167fdbd9850a86d911969a', outputTranscriptPolicy: 'canonical_gate_transcript_v2' }),
+  Object.freeze({ collection: 'candidate_attempts', id: 'mb2-dispatcher-remediation4-closure-build-001', command: 'npm.cmd run build', result: 'pass', outputBytes: 2183, outputSha256: '70dc6e49ebfb502b8ce8e8f0fcd3895ec30dab464d4f43a1fc49e0636bf3825c', outputTranscriptPolicy: 'canonical_gate_transcript_v2', resultCounts: { static_pages_generated: 3, static_pages_total: 3 } }),
+  Object.freeze({ collection: 'candidate_attempts', id: 'mb2-dispatcher-remediation4-closure-manifest-001', command: 'node scripts/validate-multibroker-parity-manifest.mjs --allow-pending-manifest-attempt', result: 'pass_bootstrap_before_append_only_evidence_rehash', outputBytes: 91, outputSha256: 'ed70e94f2b24fbdee05703a0c9dfb76dda5139b0259d6b693cfa77d6e551095a', outputTranscriptPolicy: 'canonical_gate_transcript_v2', resultCounts: { manifest_entries_passed: 39, manifest_entries_total: 39 }, bootstrapManifestAttempt: true }),
+  Object.freeze({ collection: 'candidate_attempts', id: 'mb2-dispatcher-remediation4-final-targeted-001', command: 'npm.cmd test -- tests/broker-capture-dispatcher.test.ts tests/broker-capture-route.test.ts tests/multibroker-core-contracts.test.ts tests/mexc-capture-runtime.test.ts', result: 'pass', outputBytes: 386, outputSha256: '94522718f443c0e9a49b59f6b845a629d494f166a4524ad67fce4fb8e6382c39', outputTranscriptPolicy: 'canonical_gate_transcript_v2', resultCounts: { test_files_passed: 4, test_files_total: 4, tests_passed: 87, tests_total: 87 } }),
+  Object.freeze({ collection: 'candidate_attempts', id: 'mb2-dispatcher-remediation4-final-typecheck-001', command: 'npm.cmd run typecheck', result: 'pass', outputBytes: 63, outputSha256: '8fdcec4087966dd38af8fcd84fa03e08088dd4b0a599f1f3d5dc87a931ea9e17', outputTranscriptPolicy: 'canonical_gate_transcript_v2' }),
+  Object.freeze({ collection: 'candidate_attempts', id: 'mb2-dispatcher-remediation4-final-full-001', command: 'npm.cmd test', result: 'pass', outputBytes: 239, outputSha256: '7060407516420c6eb6c10b3b6dddfa1b89e6a3bb0d9756de525ddbf7281731dc', outputTranscriptPolicy: 'canonical_gate_transcript_v2', resultCounts: { test_files_passed: 27, test_files_total: 27, tests_passed: 475, tests_total: 475 } }),
+  Object.freeze({ collection: 'candidate_attempts', id: 'mb2-dispatcher-remediation4-final-release-001', command: 'npm.cmd run release:check', result: 'pass', outputBytes: 149, outputSha256: 'bd84e5259443e96ebff13807ed3ce463e1c86252d9167fdbd9850a86d911969a', outputTranscriptPolicy: 'canonical_gate_transcript_v2' }),
+  Object.freeze({ collection: 'candidate_attempts', id: 'mb2-dispatcher-remediation4-final-build-001', command: 'npm.cmd run build', result: 'pass', outputBytes: 2183, outputSha256: '70dc6e49ebfb502b8ce8e8f0fcd3895ec30dab464d4f43a1fc49e0636bf3825c', outputTranscriptPolicy: 'canonical_gate_transcript_v2', resultCounts: { static_pages_generated: 3, static_pages_total: 3 } }),
+  Object.freeze({ collection: 'candidate_attempts', id: 'mb2-dispatcher-remediation4-final-manifest-001', command: 'node scripts/validate-multibroker-parity-manifest.mjs --allow-pending-manifest-attempt', result: 'pass_bootstrap_before_append_only_evidence_rehash', outputBytes: 91, outputSha256: 'ed70e94f2b24fbdee05703a0c9dfb76dda5139b0259d6b693cfa77d6e551095a', outputTranscriptPolicy: 'canonical_gate_transcript_v2', resultCounts: { manifest_entries_passed: 39, manifest_entries_total: 39 }, bootstrapManifestAttempt: true }),
+  Object.freeze({ collection: 'candidate_attempts', id: 'mb2-dispatcher-remediation5-closure-targeted-001', command: 'npm.cmd test -- tests/broker-capture-dispatcher.test.ts tests/broker-capture-route.test.ts tests/multibroker-core-contracts.test.ts tests/mexc-capture-runtime.test.ts', result: 'pass', outputBytes: 386, outputSha256: '8ecda1e963357d93d72669b536ccab8f2ad42edee729a713514957d67a4477f1', outputTranscriptPolicy: 'canonical_gate_transcript_v2', resultCounts: { test_files_passed: 4, test_files_total: 4, tests_passed: 92, tests_total: 92 } }),
+  Object.freeze({ collection: 'candidate_attempts', id: 'mb2-dispatcher-remediation5-closure-typecheck-001', command: 'npm.cmd run typecheck', result: 'pass', outputBytes: 63, outputSha256: '8fdcec4087966dd38af8fcd84fa03e08088dd4b0a599f1f3d5dc87a931ea9e17', outputTranscriptPolicy: 'canonical_gate_transcript_v2' }),
+  Object.freeze({ collection: 'candidate_attempts', id: 'mb2-dispatcher-remediation5-closure-full-001', command: 'npm.cmd test', result: 'pass', outputBytes: 239, outputSha256: 'ccf508d7079892d1cd04ed18bbd4474092d3c2d16ae1424dfb209bd7ee6d2bf8', outputTranscriptPolicy: 'canonical_gate_transcript_v2', resultCounts: { test_files_passed: 27, test_files_total: 27, tests_passed: 480, tests_total: 480 } }),
+  Object.freeze({ collection: 'candidate_attempts', id: 'mb2-dispatcher-remediation5-closure-release-001', command: 'npm.cmd run release:check', result: 'pass', outputBytes: 149, outputSha256: 'bd84e5259443e96ebff13807ed3ce463e1c86252d9167fdbd9850a86d911969a', outputTranscriptPolicy: 'canonical_gate_transcript_v2' }),
+  Object.freeze({ collection: 'candidate_attempts', id: 'mb2-dispatcher-remediation5-closure-build-001', command: 'npm.cmd run build', result: 'pass', outputBytes: 2183, outputSha256: '70dc6e49ebfb502b8ce8e8f0fcd3895ec30dab464d4f43a1fc49e0636bf3825c', outputTranscriptPolicy: 'canonical_gate_transcript_v2', resultCounts: { static_pages_generated: 3, static_pages_total: 3 } }),
+  Object.freeze({ collection: 'candidate_attempts', id: 'mb2-dispatcher-remediation5-closure-manifest-001', command: 'node scripts/validate-multibroker-parity-manifest.mjs --allow-pending-manifest-attempt', result: 'pass_bootstrap_before_append_only_evidence_rehash', outputBytes: 91, outputSha256: 'ed70e94f2b24fbdee05703a0c9dfb76dda5139b0259d6b693cfa77d6e551095a', outputTranscriptPolicy: 'canonical_gate_transcript_v2', resultCounts: { manifest_entries_passed: 39, manifest_entries_total: 39 }, bootstrapManifestAttempt: true }),
+  Object.freeze({ collection: 'candidate_attempts', id: 'mb2-dispatcher-remediation5-final-targeted-001', command: 'npm.cmd test -- tests/broker-capture-dispatcher.test.ts tests/broker-capture-route.test.ts tests/multibroker-core-contracts.test.ts tests/mexc-capture-runtime.test.ts', result: 'pass', outputBytes: 386, outputSha256: '8ecda1e963357d93d72669b536ccab8f2ad42edee729a713514957d67a4477f1', outputTranscriptPolicy: 'canonical_gate_transcript_v2', resultCounts: { test_files_passed: 4, test_files_total: 4, tests_passed: 92, tests_total: 92 } }),
+  Object.freeze({ collection: 'candidate_attempts', id: 'mb2-dispatcher-remediation5-final-typecheck-001', command: 'npm.cmd run typecheck', result: 'pass', outputBytes: 63, outputSha256: '8fdcec4087966dd38af8fcd84fa03e08088dd4b0a599f1f3d5dc87a931ea9e17', outputTranscriptPolicy: 'canonical_gate_transcript_v2' }),
+  Object.freeze({ collection: 'candidate_attempts', id: 'mb2-dispatcher-remediation5-final-full-001', command: 'npm.cmd test', result: 'pass', outputBytes: 239, outputSha256: 'ccf508d7079892d1cd04ed18bbd4474092d3c2d16ae1424dfb209bd7ee6d2bf8', outputTranscriptPolicy: 'canonical_gate_transcript_v2', resultCounts: { test_files_passed: 27, test_files_total: 27, tests_passed: 480, tests_total: 480 } }),
+  Object.freeze({ collection: 'candidate_attempts', id: 'mb2-dispatcher-remediation5-final-release-001', command: 'npm.cmd run release:check', result: 'pass', outputBytes: 149, outputSha256: 'bd84e5259443e96ebff13807ed3ce463e1c86252d9167fdbd9850a86d911969a', outputTranscriptPolicy: 'canonical_gate_transcript_v2' }),
+  Object.freeze({ collection: 'candidate_attempts', id: 'mb2-dispatcher-remediation5-final-build-001', command: 'npm.cmd run build', result: 'pass', outputBytes: 2183, outputSha256: '70dc6e49ebfb502b8ce8e8f0fcd3895ec30dab464d4f43a1fc49e0636bf3825c', outputTranscriptPolicy: 'canonical_gate_transcript_v2', resultCounts: { static_pages_generated: 3, static_pages_total: 3 } }),
+  Object.freeze({ collection: 'candidate_attempts', id: 'mb2-dispatcher-remediation5-final-manifest-001', command: 'node scripts/validate-multibroker-parity-manifest.mjs --allow-pending-manifest-attempt', result: 'pass_bootstrap_before_append_only_evidence_rehash', outputBytes: 91, outputSha256: 'ed70e94f2b24fbdee05703a0c9dfb76dda5139b0259d6b693cfa77d6e551095a', outputTranscriptPolicy: 'canonical_gate_transcript_v2', resultCounts: { manifest_entries_passed: 39, manifest_entries_total: 39 }, bootstrapManifestAttempt: true }),
 ])
 
-const CURRENT_PENDING_BOOTSTRAP_ATTEMPT_ID = 'mb1-remediation7-closure-manifest-001'
+const CURRENT_PENDING_BOOTSTRAP_ATTEMPT_ID = 'mb2-dispatcher-remediation5-final-manifest-001'
 
 export class ManifestValidationError extends Error {
   constructor(message) {
@@ -540,6 +720,29 @@ function exactJsonValue(actual, expected) {
   return canonicalJson(actual) === canonicalJson(expected)
 }
 
+function validateReviewHistoryClosure(evidence) {
+  const history = evidence.independent_review_history
+  if (!Array.isArray(history)) fail('Evidence enthält keine unabhängige Review-Historie')
+  for (const required of REQUIRED_REVIEW_HISTORY_CLOSURE) {
+    const matches = history.filter((entry) => entry?.review === required.review
+      && entry?.snapshot === required.snapshot)
+    if (matches.length !== 1) {
+      fail(`Review-Closure fehlt oder ist nicht eindeutig: ${required.review}/${required.snapshot}`)
+    }
+    const entry = matches[0]
+    if (entry.status !== required.status
+      || !exactJsonValue(entry.counts, required.counts)
+      || !exactJsonValue(entry.findings, required.findings)
+      || !exactJsonValue(entry.snapshot_binding, required.snapshotBinding)
+      || entry.gate_conclusion !== required.gateConclusion
+      || entry.remediation_status !== required.remediationStatus
+      || typeof entry.finding_summary !== 'string'
+      || !entry.finding_summary) {
+      fail(`Review-Closure weicht vom exakten Snapshotpin ab: ${required.review}/${required.snapshot}`)
+    }
+  }
+}
+
 function validateAttemptCollections(evidence, allowPendingManifestAttempt) {
   const attemptsByCollection = new Map()
   const allIds = new Set()
@@ -629,7 +832,7 @@ function validateEvidence(reader, entries, manifestPath, allowPendingManifestAtt
   }
   if (evidence.schema_version !== 'equora_multi_broker_parity_evidence_v1') fail('unerwartete Evidence-Schemaversion')
   if (evidence.evidence_format_version !== 1) fail('unerwartete Evidence-Formatversion')
-  if (evidence.phase !== 'MB1') fail('unerwartete Evidence-Phase')
+  if (evidence.phase !== 'MB2') fail('unerwartete Evidence-Phase')
   if (!isIsoInstant(evidence.generated_at_utc)) fail('Evidence besitzt keinen kanonischen UTC-Erzeugungszeitpunkt')
   if (evidence.canonical_hash_policy?.manifest_entry_prefix !== 'lf:') fail('Evidence und Manifest verwenden nicht dieselbe Kanonisierung')
   if (evidence.canonical_hash_policy?.manifest_path !== manifestPath) fail('Evidence bindet einen anderen Manifestpfad')
@@ -649,7 +852,7 @@ function validateEvidence(reader, entries, manifestPath, allowPendingManifestAtt
   }
 
   const baselineCounts = evidence.expected_baseline_counts
-  const currentBaseline = evidence.current_mb1_baseline_evidence
+  const currentBaseline = evidence.current_mb2_baseline_evidence
   const candidateCounts = evidence.candidate_counts
   if (evidence.ci_evidence?.evidence_scope !== EXPECTED_BASELINE_EVIDENCE.historical_ci_scope
     || evidence.ci_evidence?.commit !== EXPECTED_BASELINE_EVIDENCE.historical_commit
@@ -677,6 +880,7 @@ function validateEvidence(reader, entries, manifestPath, allowPendingManifestAtt
   if (!exactJsonValue(evidence.gate_transcript_policies, EXPECTED_GATE_TRANSCRIPT_POLICIES)) {
     fail('Evidence-Transcript-Policy weicht vom exakten kanonischen Vertrag ab')
   }
+  validateReviewHistoryClosure(evidence)
   const latestAttemptEndTicks = validateAttemptCollections(evidence, allowPendingManifestAttempt)
   const generatedAtTicks = parseIsoInstantTicks(evidence.generated_at_utc)
   if (generatedAtTicks === null || (latestAttemptEndTicks !== null && generatedAtTicks < latestAttemptEndTicks)) {

@@ -1,14 +1,14 @@
 {
   "schema_version": "equora_multi_broker_parity_evidence_v1",
   "evidence_format_version": 1,
-  "phase": "MB1",
-  "phase_status": "mb1_seventh_remediation_manifest_bound_independent_review_pending",
-  "generated_at_utc": "2026-08-17T21:04:28.3272712Z",
+  "phase": "MB2",
+  "phase_status": "mb2_dispatcher_remediation5_manifest_bound_independent_review_pending",
+  "generated_at_utc": "2026-08-20T20:08:10.7170848Z",
   "snapshot": {
-    "baseline_commit": "19817a96dff114c3bb7a2173d1774880e8e00fbc",
-    "baseline_tree": "8df26d7dd4ace9d755640a34381af191b85b58d5",
+    "baseline_commit": "76328faac45d221cdbf978eacd10bf518e18a4cb",
+    "baseline_tree": "1e9a8bbb5a13b4d32af7650f2366ccea3841a6de",
     "branch_baseline": "origin/main",
-    "working_branch": "codex/multibroker-mb1-v57.61.0",
+    "working_branch": "codex/multibroker-mb2-v57.61.0",
     "baseline_ahead": 0,
     "baseline_behind": 0,
     "baseline_worktree_tracked_changes": 0,
@@ -22,16 +22,16 @@
     "docker_client": "29.7.2",
     "docker_client_observation": "Version output succeeded; Docker reported that its user config file was inaccessible in the sandbox.",
     "postgres_client": "not_available_on_path",
-    "postgres_image": "not_invoked_in_mb1",
+    "postgres_image": "not_invoked_in_mb2",
     "ci_node": "24.18.0"
   },
   "authority": {
     "allowed_local_scope": [
-      "MB1 additive evidence and canonical SHA-256 manifest rebind",
-      "provider-neutral request planning, fixed code registry, MEXC read-only adapter facade and signed-read central transport port without new product control-flow invocation or deployment activation",
-      "dependency, compatibility, purpose-separation and fail-closed contract tests",
+      "MB2 additive evidence and canonical SHA-256 manifest rebind",
+      "provider-neutral fixed capture-dispatcher seam and composition root replacing the route's direct MEXC runtime import without enabling another provider",
+      "dispatcher registry, caller-selection rejection, ambiguous-authority and route-boundary contract tests",
       "local typecheck, targeted tests, full tests, release check, build and manifest validation",
-      "conditional staging after one common A3/A4/A5 PASS snapshot, followed by staged rereview, and conditional commit, push and Draft pull request only after the second common PASS"
+      "independent A3/A4/A5 review of one frozen unstaged snapshot before any later staging decision"
     ],
     "explicitly_not_authorized": [
       "MEXC or other broker requests",
@@ -46,7 +46,7 @@
     "runtime_requirement": "EQUORA_MEXC_RUNTIME_MODE=off remains mandatory",
     "provider_observation": "not_performed",
     "database_evidence": "not_performed",
-    "production_evidence": "not_created_by_mb1"
+    "production_evidence": "not_created_by_mb2"
   },
   "canonical_hash_policy": {
     "algorithm": "sha256",
@@ -56,7 +56,7 @@
     "line_endings": "CRLF and lone CR are canonicalized to LF before byte count and hashing",
     "final_newline": "preserved exactly",
     "manifest_entry_prefix": "lf:",
-    "manifest_entry_count": 35,
+    "manifest_entry_count": 39,
     "validator": "scripts/validate-multibroker-parity-manifest.mjs"
   },
   "gate_transcript_policies": {
@@ -5624,6 +5624,1543 @@
       "stdout_stderr_utf8_bytes": 91,
       "stdout_stderr_sha256": "2daa5f2087db82b4bcd365d23672173731fe5ad834b0bd4482105481b8b5e59e",
       "rehash_contract": "This attempt is append-only evidence of the pre-attempt 35/35 seventh-remediation validation under the one-current-attempt bootstrap exception. generated_at_utc is set to this attempt end, the Manifest Evidence entry is rebound, and a terminal validation without the bootstrap flag is executed only as a separate local observation because embedding that terminal run would change the Evidence hash again."
+    },
+    {
+      "attempt_id": "mb2-dispatcher-closure-targeted-001",
+      "command": "npm.cmd test -- tests/broker-capture-dispatcher.test.ts tests/broker-capture-route.test.ts tests/multibroker-core-contracts.test.ts tests/mexc-capture-runtime.test.ts",
+      "started_at_utc": "2026-08-19T19:19:33.9929268Z",
+      "ended_at_utc": "2026-08-19T19:21:44.6943030Z",
+      "exit_code": 1,
+      "result": "fail_stale_fixture_manifest_count_expectation",
+      "result_counts": {
+        "test_files_passed": 3,
+        "test_files_total": 4,
+        "tests_passed": 52,
+        "tests_total": 53
+      },
+      "output_transcript_policy": "canonical_gate_transcript_v2",
+      "stdout_stderr_utf8_bytes": 1339,
+      "stdout_stderr_sha256": "963e8f24b1db00a9a8f8fac4ad2f0700e144d19e742837478b4afdcc6e5507c2",
+      "remediation": "The validator fixture already produced the intended expanded 39-entry closure, but its title and exact expected return value still asserted the historical 35-entry count. Both expectations were updated to 39 without weakening path or hash validation.",
+      "claim_boundary": "This failed attempt is append-only diagnostic evidence and supports no PASS claim."
+    },
+    {
+      "attempt_id": "mb2-dispatcher-closure-targeted-002",
+      "command": "npm.cmd test -- tests/broker-capture-dispatcher.test.ts tests/broker-capture-route.test.ts tests/multibroker-core-contracts.test.ts tests/mexc-capture-runtime.test.ts",
+      "started_at_utc": "2026-08-19T19:22:39.5202996Z",
+      "ended_at_utc": "2026-08-19T19:24:51.0263763Z",
+      "exit_code": 1,
+      "result": "fail_validator_negative_matrix_timeout",
+      "result_counts": {
+        "test_files_passed": 3,
+        "test_files_total": 4,
+        "tests_passed": 52,
+        "tests_total": 53
+      },
+      "output_transcript_policy": "canonical_gate_transcript_v2",
+      "stdout_stderr_utf8_bytes": 1338,
+      "stdout_stderr_sha256": "1f9168465e8a409372cd39faa9629b10f367633087aa9029af31bc753c5f2793",
+      "remediation": "The expanded 39-entry fixture increased the existing negative closure matrix beyond its historical 120-second per-test budget. The semantic assertions were unchanged and the explicit budget was raised to 240 seconds.",
+      "claim_boundary": "This failed attempt is append-only diagnostic evidence and supports no PASS claim."
+    },
+    {
+      "attempt_id": "mb2-dispatcher-closure-targeted-003",
+      "command": "npm.cmd test -- tests/broker-capture-dispatcher.test.ts tests/broker-capture-route.test.ts tests/multibroker-core-contracts.test.ts tests/mexc-capture-runtime.test.ts",
+      "started_at_utc": "2026-08-19T19:25:31.8949886Z",
+      "ended_at_utc": "2026-08-19T19:27:29.1558139Z",
+      "exit_code": 0,
+      "result": "pass",
+      "result_counts": {
+        "test_files_passed": 4,
+        "test_files_total": 4,
+        "tests_passed": 53,
+        "tests_total": 53
+      },
+      "output_transcript_policy": "canonical_gate_transcript_v2",
+      "stdout_stderr_utf8_bytes": 386,
+      "stdout_stderr_sha256": "3b1980cefe886d44303a97b33cdc7ee9e2fb3a5fa70b058b793f6bccb201cc90"
+    },
+    {
+      "attempt_id": "mb2-dispatcher-closure-typecheck-001",
+      "command": "npm.cmd run typecheck",
+      "started_at_utc": "2026-08-19T19:27:46.5677622Z",
+      "ended_at_utc": "2026-08-19T19:27:51.3248874Z",
+      "exit_code": 0,
+      "result": "pass",
+      "output_transcript_policy": "canonical_gate_transcript_v2",
+      "stdout_stderr_utf8_bytes": 63,
+      "stdout_stderr_sha256": "8fdcec4087966dd38af8fcd84fa03e08088dd4b0a599f1f3d5dc87a931ea9e17"
+    },
+    {
+      "attempt_id": "mb2-dispatcher-closure-full-001",
+      "command": "npm.cmd test",
+      "started_at_utc": "2026-08-19T19:28:04.9323490Z",
+      "ended_at_utc": "2026-08-19T19:30:06.7114419Z",
+      "exit_code": 0,
+      "result": "pass",
+      "result_counts": {
+        "test_files_passed": 27,
+        "test_files_total": 27,
+        "tests_passed": 441,
+        "tests_total": 441
+      },
+      "output_transcript_policy": "canonical_gate_transcript_v2",
+      "stdout_stderr_utf8_bytes": 239,
+      "stdout_stderr_sha256": "a6c02f6ae419bad7004963c048280bf53fd3c1c50f9eb2ef65ffc9d21ab55ad1"
+    },
+    {
+      "attempt_id": "mb2-dispatcher-closure-release-001",
+      "command": "npm.cmd run release:check",
+      "started_at_utc": "2026-08-19T19:30:16.9662272Z",
+      "ended_at_utc": "2026-08-19T19:30:18.1735103Z",
+      "exit_code": 0,
+      "result": "pass",
+      "output_transcript_policy": "canonical_gate_transcript_v2",
+      "stdout_stderr_utf8_bytes": 149,
+      "stdout_stderr_sha256": "bd84e5259443e96ebff13807ed3ce463e1c86252d9167fdbd9850a86d911969a"
+    },
+    {
+      "attempt_id": "mb2-dispatcher-closure-build-001",
+      "command": "npm.cmd run build",
+      "started_at_utc": "2026-08-19T19:30:30.5351479Z",
+      "ended_at_utc": "2026-08-19T19:31:00.0631219Z",
+      "exit_code": 0,
+      "result": "pass",
+      "result_counts": {
+        "static_pages_generated": 3,
+        "static_pages_total": 3
+      },
+      "output_transcript_policy": "canonical_gate_transcript_v2",
+      "stdout_stderr_utf8_bytes": 2183,
+      "stdout_stderr_sha256": "70dc6e49ebfb502b8ce8e8f0fcd3895ec30dab464d4f43a1fc49e0636bf3825c"
+    },
+    {
+      "attempt_id": "mb2-dispatcher-closure-manifest-001",
+      "command": "node scripts/validate-multibroker-parity-manifest.mjs --allow-pending-manifest-attempt",
+      "started_at_utc": "2026-08-19T19:34:40.3589157Z",
+      "ended_at_utc": "2026-08-19T19:34:40.4989069Z",
+      "exit_code": 0,
+      "result": "pass_bootstrap_before_append_only_evidence_rehash",
+      "result_counts": {
+        "manifest_entries_passed": 39,
+        "manifest_entries_total": 39
+      },
+      "output_transcript_policy": "canonical_gate_transcript_v2",
+      "stdout_stderr_utf8_bytes": 91,
+      "stdout_stderr_sha256": "ed70e94f2b24fbdee05703a0c9dfb76dda5139b0259d6b693cfa77d6e551095a",
+      "rehash_contract": "This attempt is append-only Evidence of the pre-attempt 39/39 MB2 closure bootstrap under the one-current-attempt exception. The final pinned Gate series follows on the already pinned validator/test source."
+    },
+    {
+      "attempt_id": "mb2-dispatcher-final-targeted-001",
+      "command": "npm.cmd test -- tests/broker-capture-dispatcher.test.ts tests/broker-capture-route.test.ts tests/multibroker-core-contracts.test.ts tests/mexc-capture-runtime.test.ts",
+      "started_at_utc": "2026-08-19T19:36:50.0076084Z",
+      "ended_at_utc": "2026-08-19T19:38:53.3620399Z",
+      "exit_code": 0,
+      "result": "pass",
+      "result_counts": {
+        "test_files_passed": 4,
+        "test_files_total": 4,
+        "tests_passed": 53,
+        "tests_total": 53
+      },
+      "output_transcript_policy": "canonical_gate_transcript_v2",
+      "stdout_stderr_utf8_bytes": 386,
+      "stdout_stderr_sha256": "3b1980cefe886d44303a97b33cdc7ee9e2fb3a5fa70b058b793f6bccb201cc90"
+    },
+    {
+      "attempt_id": "mb2-dispatcher-final-typecheck-001",
+      "command": "npm.cmd run typecheck",
+      "started_at_utc": "2026-08-19T19:39:02.7306788Z",
+      "ended_at_utc": "2026-08-19T19:39:06.1338134Z",
+      "exit_code": 0,
+      "result": "pass",
+      "output_transcript_policy": "canonical_gate_transcript_v2",
+      "stdout_stderr_utf8_bytes": 63,
+      "stdout_stderr_sha256": "8fdcec4087966dd38af8fcd84fa03e08088dd4b0a599f1f3d5dc87a931ea9e17"
+    },
+    {
+      "attempt_id": "mb2-dispatcher-final-full-001",
+      "command": "npm.cmd test",
+      "started_at_utc": "2026-08-19T19:39:16.9216023Z",
+      "ended_at_utc": "2026-08-19T19:41:35.7599995Z",
+      "exit_code": 0,
+      "result": "pass",
+      "result_counts": {
+        "test_files_passed": 27,
+        "test_files_total": 27,
+        "tests_passed": 441,
+        "tests_total": 441
+      },
+      "output_transcript_policy": "canonical_gate_transcript_v2",
+      "stdout_stderr_utf8_bytes": 239,
+      "stdout_stderr_sha256": "a6c02f6ae419bad7004963c048280bf53fd3c1c50f9eb2ef65ffc9d21ab55ad1"
+    },
+    {
+      "attempt_id": "mb2-dispatcher-final-release-001",
+      "command": "npm.cmd run release:check",
+      "started_at_utc": "2026-08-19T19:41:45.1656180Z",
+      "ended_at_utc": "2026-08-19T19:41:46.2507085Z",
+      "exit_code": 0,
+      "result": "pass",
+      "output_transcript_policy": "canonical_gate_transcript_v2",
+      "stdout_stderr_utf8_bytes": 149,
+      "stdout_stderr_sha256": "bd84e5259443e96ebff13807ed3ce463e1c86252d9167fdbd9850a86d911969a"
+    },
+    {
+      "attempt_id": "mb2-dispatcher-final-build-001",
+      "command": "npm.cmd run build",
+      "started_at_utc": "2026-08-19T19:41:56.1271965Z",
+      "ended_at_utc": "2026-08-19T19:42:26.1860349Z",
+      "exit_code": 0,
+      "result": "pass",
+      "result_counts": {
+        "static_pages_generated": 3,
+        "static_pages_total": 3
+      },
+      "output_transcript_policy": "canonical_gate_transcript_v2",
+      "stdout_stderr_utf8_bytes": 2183,
+      "stdout_stderr_sha256": "70dc6e49ebfb502b8ce8e8f0fcd3895ec30dab464d4f43a1fc49e0636bf3825c"
+    },
+    {
+      "attempt_id": "mb2-dispatcher-final-manifest-001",
+      "command": "node scripts/validate-multibroker-parity-manifest.mjs --allow-pending-manifest-attempt",
+      "started_at_utc": "2026-08-19T19:44:51.1124687Z",
+      "ended_at_utc": "2026-08-19T19:44:51.2663039Z",
+      "exit_code": 0,
+      "result": "pass_bootstrap_before_append_only_evidence_rehash",
+      "result_counts": {
+        "manifest_entries_passed": 39,
+        "manifest_entries_total": 39
+      },
+      "output_transcript_policy": "canonical_gate_transcript_v2",
+      "stdout_stderr_utf8_bytes": 91,
+      "stdout_stderr_sha256": "ed70e94f2b24fbdee05703a0c9dfb76dda5139b0259d6b693cfa77d6e551095a",
+      "rehash_contract": "This attempt is append-only Evidence of the pre-attempt 39/39 final MB2 bootstrap under the one-current-attempt exception. generated_at_utc equals this attempt end, the Manifest Evidence entry is rebound, and terminal validation without the exception is a separate local observation because embedding it would change the Evidence hash again."
+    },
+    {
+      "attempt_id": "mb2-dispatcher-remediation1-dev-typecheck-001",
+      "command": "npm.cmd run typecheck",
+      "started_at_utc": null,
+      "ended_at_utc": null,
+      "exit_code": 0,
+      "result": "development_pass_not_gate_evidence",
+      "output_transcript_policy": null,
+      "stdout_stderr_utf8_bytes": null,
+      "stdout_stderr_sha256": null,
+      "evidence_loss_reason": "The initial post-edit typecheck was executed directly for rapid feedback. Exact UTC boundaries and a canonical transcript were not captured; it supports no Gate claim."
+    },
+    {
+      "attempt_id": "mb2-dispatcher-remediation1-dev-direct-tests-001",
+      "command": "npm.cmd test -- tests/broker-capture-dispatcher.test.ts tests/broker-capture-route.test.ts",
+      "started_at_utc": null,
+      "ended_at_utc": null,
+      "exit_code": 0,
+      "result": "development_pass_not_gate_evidence",
+      "result_counts": {
+        "test_files_passed": 2,
+        "test_files_total": 2,
+        "tests_passed": 39,
+        "tests_total": 39
+      },
+      "output_transcript_policy": null,
+      "stdout_stderr_utf8_bytes": null,
+      "stdout_stderr_sha256": null,
+      "evidence_loss_reason": "The focused development run was executed without the canonical Evidence wrapper. Exact UTC boundaries and canonical transcript bytes were not retained; it supports no Gate claim."
+    },
+    {
+      "attempt_id": "mb2-dispatcher-remediation1-dev-targeted-lost-001",
+      "command": "npm.cmd test -- tests/broker-capture-dispatcher.test.ts tests/broker-capture-route.test.ts tests/multibroker-core-contracts.test.ts tests/mexc-capture-runtime.test.ts",
+      "started_at_utc": null,
+      "ended_at_utc": null,
+      "exit_code": null,
+      "result": "development_result_not_retrieved_not_gate_evidence",
+      "output_transcript_policy": null,
+      "stdout_stderr_utf8_bytes": null,
+      "stdout_stderr_sha256": null,
+      "evidence_loss_reason": "The first long targeted process was launched through a transient orchestration cell whose final process status and complete transcript were not retained. No completion or PASS is inferred."
+    },
+    {
+      "attempt_id": "mb2-dispatcher-remediation1-dev-targeted-001",
+      "command": "npm.cmd test -- tests/broker-capture-dispatcher.test.ts tests/broker-capture-route.test.ts tests/multibroker-core-contracts.test.ts tests/mexc-capture-runtime.test.ts",
+      "started_at_utc": null,
+      "ended_at_utc": null,
+      "exit_code": 1,
+      "result": "development_failure_new_reflect_ownkeys_path_not_yet_narrowly_allowlisted",
+      "result_counts": {
+        "test_files_passed": 3,
+        "test_files_total": 4,
+        "tests_passed": 75,
+        "tests_total": 76
+      },
+      "output_transcript_policy": null,
+      "stdout_stderr_utf8_bytes": null,
+      "stdout_stderr_sha256": null,
+      "evidence_loss_reason": "The failing development run was not captured by the canonical Evidence wrapper. The complete failure text was reviewed locally, but exact UTC boundaries and transcript bytes were not retained.",
+      "remediation": "The product-boundary scanner now permits only direct Reflect.ownKeys calls in the exact dispatcher path in addition to the existing contract-core path. Reflect.get remains rejected in that same dispatcher path and the aggregate product-tree expectation remains closed."
+    },
+    {
+      "attempt_id": "mb2-dispatcher-remediation1-dev-focused-boundary-001",
+      "command": "npm.cmd test -- tests/multibroker-core-contracts.test.ts -t keeps the adapter non-sending and the central egress as the only generic send owner",
+      "started_at_utc": null,
+      "ended_at_utc": null,
+      "exit_code": 0,
+      "result": "development_pass_not_gate_evidence",
+      "result_counts": {
+        "test_files_passed": 1,
+        "test_files_total": 1,
+        "tests_passed": 1,
+        "tests_total": 1
+      },
+      "output_transcript_policy": null,
+      "stdout_stderr_utf8_bytes": null,
+      "stdout_stderr_sha256": null,
+      "evidence_loss_reason": "The narrow boundary-regression rerun was executed without the canonical Evidence wrapper. Exact UTC boundaries and canonical transcript bytes were not retained; it supports no Gate claim."
+    },
+    {
+      "attempt_id": "mb2-dispatcher-remediation1-dev-full-001",
+      "command": "npm.cmd test",
+      "started_at_utc": null,
+      "ended_at_utc": null,
+      "exit_code": 0,
+      "result": "development_pass_not_gate_evidence",
+      "result_counts": {
+        "test_files_passed": 27,
+        "test_files_total": 27,
+        "tests_passed": 464,
+        "tests_total": 464
+      },
+      "output_transcript_policy": null,
+      "stdout_stderr_utf8_bytes": null,
+      "stdout_stderr_sha256": null,
+      "evidence_loss_reason": "The count-calibration full run was not executed through the canonical Evidence wrapper. Exact UTC boundaries and canonical transcript bytes were not retained; it supports no Gate claim."
+    },
+    {
+      "attempt_id": "mb2-dispatcher-remediation1-dev-typecheck-002",
+      "command": "npm.cmd run typecheck",
+      "started_at_utc": null,
+      "ended_at_utc": null,
+      "exit_code": 0,
+      "result": "development_transcript_calibration_not_gate_evidence",
+      "output_transcript_policy": null,
+      "stdout_stderr_utf8_bytes": null,
+      "stdout_stderr_sha256": null,
+      "evidence_loss_reason": "This run calibrated canonical transcript bytes but did not capture exact UTC boundaries as one atomic wrapper record. A later complete closure attempt is authoritative."
+    },
+    {
+      "attempt_id": "mb2-dispatcher-remediation1-closure-targeted-001",
+      "command": "npm.cmd test -- tests/broker-capture-dispatcher.test.ts tests/broker-capture-route.test.ts tests/multibroker-core-contracts.test.ts tests/mexc-capture-runtime.test.ts",
+      "started_at_utc": "2026-08-20T15:28:14.2549000Z",
+      "ended_at_utc": "2026-08-20T15:30:19.4567010Z",
+      "exit_code": 0,
+      "result": "pass",
+      "result_counts": {
+        "test_files_passed": 4,
+        "test_files_total": 4,
+        "tests_passed": 76,
+        "tests_total": 76
+      },
+      "output_transcript_policy": "canonical_gate_transcript_v2",
+      "stdout_stderr_utf8_bytes": 386,
+      "stdout_stderr_sha256": "74705be77ca4744e12739374a5f88e9957521b9c74983fc6041cb1b43d74d735"
+    },
+    {
+      "attempt_id": "mb2-dispatcher-remediation1-closure-full-001",
+      "command": "npm.cmd test",
+      "started_at_utc": "2026-08-20T15:30:30.9056449Z",
+      "ended_at_utc": "2026-08-20T15:32:42.4608525Z",
+      "exit_code": 0,
+      "result": "pass",
+      "result_counts": {
+        "test_files_passed": 27,
+        "test_files_total": 27,
+        "tests_passed": 464,
+        "tests_total": 464
+      },
+      "output_transcript_policy": "canonical_gate_transcript_v2",
+      "stdout_stderr_utf8_bytes": 239,
+      "stdout_stderr_sha256": "7d9da68bee101ec650c0c40aaabb58590a02273678d1f890ec12750b9eb2740e"
+    },
+    {
+      "attempt_id": "mb2-dispatcher-remediation1-closure-typecheck-001",
+      "command": "npm.cmd run typecheck",
+      "started_at_utc": "2026-08-20T15:32:55.9396079Z",
+      "ended_at_utc": "2026-08-20T15:32:59.4769677Z",
+      "exit_code": 0,
+      "result": "pass",
+      "output_transcript_policy": "canonical_gate_transcript_v2",
+      "stdout_stderr_utf8_bytes": 63,
+      "stdout_stderr_sha256": "8fdcec4087966dd38af8fcd84fa03e08088dd4b0a599f1f3d5dc87a931ea9e17"
+    },
+    {
+      "attempt_id": "mb2-dispatcher-remediation1-closure-release-001",
+      "command": "npm.cmd run release:check",
+      "started_at_utc": "2026-08-20T15:33:01.1557338Z",
+      "ended_at_utc": "2026-08-20T15:33:02.1386088Z",
+      "exit_code": 0,
+      "result": "pass",
+      "output_transcript_policy": "canonical_gate_transcript_v2",
+      "stdout_stderr_utf8_bytes": 149,
+      "stdout_stderr_sha256": "bd84e5259443e96ebff13807ed3ce463e1c86252d9167fdbd9850a86d911969a"
+    },
+    {
+      "attempt_id": "mb2-dispatcher-remediation1-closure-build-001",
+      "command": "npm.cmd run build",
+      "started_at_utc": "2026-08-20T15:33:15.7579551Z",
+      "ended_at_utc": "2026-08-20T15:34:01.9003805Z",
+      "exit_code": 0,
+      "result": "pass",
+      "result_counts": {
+        "static_pages_generated": 3,
+        "static_pages_total": 3
+      },
+      "output_transcript_policy": "canonical_gate_transcript_v2",
+      "stdout_stderr_utf8_bytes": 2183,
+      "stdout_stderr_sha256": "70dc6e49ebfb502b8ce8e8f0fcd3895ec30dab464d4f43a1fc49e0636bf3825c"
+    },
+    {
+      "attempt_id": "mb2-dispatcher-remediation1-closure-manifest-001",
+      "command": "node scripts/validate-multibroker-parity-manifest.mjs --allow-pending-manifest-attempt",
+      "started_at_utc": "2026-08-20T15:39:42.3964125Z",
+      "ended_at_utc": "2026-08-20T15:39:42.5734634Z",
+      "exit_code": 0,
+      "result": "pass_bootstrap_before_append_only_evidence_rehash",
+      "result_counts": {
+        "manifest_entries_passed": 39,
+        "manifest_entries_total": 39
+      },
+      "output_transcript_policy": "canonical_gate_transcript_v2",
+      "stdout_stderr_utf8_bytes": 91,
+      "stdout_stderr_sha256": "ed70e94f2b24fbdee05703a0c9dfb76dda5139b0259d6b693cfa77d6e551095a",
+      "rehash_contract": "This attempt is append-only Evidence of the pre-attempt 39/39 first-remediation bootstrap under the one-current-attempt exception. The final pinned Gate series follows on the already pinned validator and contract-test source."
+    },
+    {
+      "attempt_id": "mb2-dispatcher-remediation1-final-targeted-001",
+      "command": "npm.cmd test -- tests/broker-capture-dispatcher.test.ts tests/broker-capture-route.test.ts tests/multibroker-core-contracts.test.ts tests/mexc-capture-runtime.test.ts",
+      "started_at_utc": "2026-08-20T15:41:49.6577086Z",
+      "ended_at_utc": "2026-08-20T15:44:10.5993995Z",
+      "exit_code": 1,
+      "result": "fail_stale_current_bootstrap_fixture_attempt_id",
+      "result_counts": {
+        "test_files_passed": 3,
+        "test_files_total": 4,
+        "tests_passed": 75,
+        "tests_total": 76
+      },
+      "output_transcript_policy": "canonical_gate_transcript_v2",
+      "stdout_stderr_utf8_bytes": 1473,
+      "stdout_stderr_sha256": "26aa25d5af8369570d9c19f5f39f37cf96d6a372a7de14998d73be848f0371cc",
+      "remediation": "The pending-bootstrap negative fixture still removed the historical mb2-dispatcher-final-manifest-001 instead of the new remediation1 final Manifest attempt. It now removes only mb2-dispatcher-remediation1-final-manifest-001, while the historical MB2 final and remediation1 closure Manifest attempts are explicitly tested as mandatory even in pending mode.",
+      "claim_boundary": "This failed attempt is append-only diagnostic Evidence and supports no PASS claim."
+    },
+    {
+      "attempt_id": "mb2-dispatcher-remediation1-dev-core-diagnostic-001",
+      "command": "npm.cmd test -- tests/multibroker-core-contracts.test.ts",
+      "started_at_utc": null,
+      "ended_at_utc": null,
+      "exit_code": 1,
+      "result": "development_failure_confirmed_stale_current_bootstrap_fixture_attempt_id",
+      "result_counts": {
+        "test_files_passed": 0,
+        "test_files_total": 1,
+        "tests_passed": 21,
+        "tests_total": 22
+      },
+      "output_transcript_policy": null,
+      "stdout_stderr_utf8_bytes": null,
+      "stdout_stderr_sha256": null,
+      "evidence_loss_reason": "The isolated diagnostic run was executed without the canonical Evidence wrapper. Exact UTC boundaries and canonical transcript bytes were not retained; it supports no Gate claim.",
+      "remediation": "The isolated failure confirmed the exact stale pending-bootstrap fixture ID before the additive fixture correction."
+    },
+    {
+      "attempt_id": "mb2-dispatcher-remediation1-final-targeted-002",
+      "command": "npm.cmd test -- tests/broker-capture-dispatcher.test.ts tests/broker-capture-route.test.ts tests/multibroker-core-contracts.test.ts tests/mexc-capture-runtime.test.ts",
+      "started_at_utc": "2026-08-20T15:47:29.1626952Z",
+      "ended_at_utc": "2026-08-20T15:49:32.0383335Z",
+      "exit_code": 0,
+      "result": "pass",
+      "result_counts": {
+        "test_files_passed": 4,
+        "test_files_total": 4,
+        "tests_passed": 76,
+        "tests_total": 76
+      },
+      "output_transcript_policy": "canonical_gate_transcript_v2",
+      "stdout_stderr_utf8_bytes": 386,
+      "stdout_stderr_sha256": "74705be77ca4744e12739374a5f88e9957521b9c74983fc6041cb1b43d74d735"
+    },
+    {
+      "attempt_id": "mb2-dispatcher-remediation1-final-typecheck-001",
+      "command": "npm.cmd run typecheck",
+      "started_at_utc": "2026-08-20T15:49:43.1445434Z",
+      "ended_at_utc": "2026-08-20T15:49:47.0654797Z",
+      "exit_code": 0,
+      "result": "pass",
+      "output_transcript_policy": "canonical_gate_transcript_v2",
+      "stdout_stderr_utf8_bytes": 63,
+      "stdout_stderr_sha256": "8fdcec4087966dd38af8fcd84fa03e08088dd4b0a599f1f3d5dc87a931ea9e17"
+    },
+    {
+      "attempt_id": "mb2-dispatcher-remediation1-final-full-001",
+      "command": "npm.cmd test",
+      "started_at_utc": "2026-08-20T15:49:58.1958312Z",
+      "ended_at_utc": "2026-08-20T15:52:10.8594056Z",
+      "exit_code": 0,
+      "result": "pass",
+      "result_counts": {
+        "test_files_passed": 27,
+        "test_files_total": 27,
+        "tests_passed": 464,
+        "tests_total": 464
+      },
+      "output_transcript_policy": "canonical_gate_transcript_v2",
+      "stdout_stderr_utf8_bytes": 239,
+      "stdout_stderr_sha256": "7d9da68bee101ec650c0c40aaabb58590a02273678d1f890ec12750b9eb2740e"
+    },
+    {
+      "attempt_id": "mb2-dispatcher-remediation1-final-release-001",
+      "command": "npm.cmd run release:check",
+      "started_at_utc": "2026-08-20T15:52:24.5657588Z",
+      "ended_at_utc": "2026-08-20T15:52:25.8724218Z",
+      "exit_code": 0,
+      "result": "pass",
+      "output_transcript_policy": "canonical_gate_transcript_v2",
+      "stdout_stderr_utf8_bytes": 149,
+      "stdout_stderr_sha256": "bd84e5259443e96ebff13807ed3ce463e1c86252d9167fdbd9850a86d911969a"
+    },
+    {
+      "attempt_id": "mb2-dispatcher-remediation1-final-build-001",
+      "command": "npm.cmd run build",
+      "started_at_utc": "2026-08-20T15:52:36.3143078Z",
+      "ended_at_utc": "2026-08-20T15:53:08.6902472Z",
+      "exit_code": 0,
+      "result": "pass",
+      "result_counts": {
+        "static_pages_generated": 3,
+        "static_pages_total": 3
+      },
+      "output_transcript_policy": "canonical_gate_transcript_v2",
+      "stdout_stderr_utf8_bytes": 2183,
+      "stdout_stderr_sha256": "70dc6e49ebfb502b8ce8e8f0fcd3895ec30dab464d4f43a1fc49e0636bf3825c"
+    },
+    {
+      "attempt_id": "mb2-dispatcher-remediation1-final-manifest-001",
+      "command": "node scripts/validate-multibroker-parity-manifest.mjs --allow-pending-manifest-attempt",
+      "started_at_utc": "2026-08-20T15:56:42.9541346Z",
+      "ended_at_utc": "2026-08-20T15:56:43.1169638Z",
+      "exit_code": 0,
+      "result": "pass_bootstrap_before_append_only_evidence_rehash",
+      "result_counts": {
+        "manifest_entries_passed": 39,
+        "manifest_entries_total": 39
+      },
+      "output_transcript_policy": "canonical_gate_transcript_v2",
+      "stdout_stderr_utf8_bytes": 91,
+      "stdout_stderr_sha256": "ed70e94f2b24fbdee05703a0c9dfb76dda5139b0259d6b693cfa77d6e551095a",
+      "rehash_contract": "This attempt is append-only Evidence of the pre-attempt 39/39 final first-remediation bootstrap under the one-current-attempt exception. generated_at_utc equals this attempt end, the Manifest Evidence entry is rebound, and terminal validation without the exception is a separate local observation because embedding that terminal run would change the Evidence hash again."
+    },
+    {
+      "attempt_id": "mb2-dispatcher-remediation2-dev-dispatcher-001",
+      "command": "npm.cmd test -- tests/broker-capture-dispatcher.test.ts",
+      "started_at_utc": null,
+      "ended_at_utc": null,
+      "exit_code": 0,
+      "result": "development_pass_not_gate_evidence",
+      "result_counts": {
+        "test_files_passed": 1,
+        "test_files_total": 1,
+        "tests_passed": 34,
+        "tests_total": 34
+      },
+      "output_transcript_policy": null,
+      "stdout_stderr_utf8_bytes": null,
+      "stdout_stderr_sha256": null,
+      "evidence_loss_reason": "The local development command was executed without the canonical transcript wrapper; exact UTC boundaries, canonical bytes and transcript SHA-256 were not captured and this attempt supports no Gate claim."
+    },
+    {
+      "attempt_id": "mb2-dispatcher-remediation2-dev-typecheck-001",
+      "command": "npm.cmd run typecheck",
+      "started_at_utc": null,
+      "ended_at_utc": null,
+      "exit_code": 1,
+      "result": "development_failure_not_gate_evidence",
+      "output_transcript_policy": null,
+      "stdout_stderr_utf8_bytes": null,
+      "stdout_stderr_sha256": null,
+      "evidence_loss_reason": "The unwrapped development typecheck exposed stale test fixtures after the v3 authority contract change. Exact UTC boundaries and canonical transcript evidence were not captured; the failure remains append-only and supports no PASS claim."
+    },
+    {
+      "attempt_id": "mb2-dispatcher-remediation2-dev-typecheck-002",
+      "command": "npm.cmd run typecheck",
+      "started_at_utc": null,
+      "ended_at_utc": null,
+      "exit_code": 0,
+      "result": "development_pass_not_gate_evidence",
+      "output_transcript_policy": null,
+      "stdout_stderr_utf8_bytes": null,
+      "stdout_stderr_sha256": null,
+      "evidence_loss_reason": "The corrected development typecheck passed without the canonical transcript wrapper; exact UTC boundaries, canonical bytes and transcript SHA-256 were not captured and this attempt supports no Gate claim."
+    },
+    {
+      "attempt_id": "mb2-dispatcher-remediation2-dev-route-dispatcher-001",
+      "command": "npm.cmd test -- tests/broker-capture-dispatcher.test.ts tests/broker-capture-route.test.ts",
+      "started_at_utc": null,
+      "ended_at_utc": null,
+      "exit_code": 0,
+      "result": "development_pass_not_gate_evidence",
+      "result_counts": {
+        "test_files_passed": 2,
+        "test_files_total": 2,
+        "tests_passed": 43,
+        "tests_total": 43
+      },
+      "output_transcript_policy": null,
+      "stdout_stderr_utf8_bytes": null,
+      "stdout_stderr_sha256": null,
+      "evidence_loss_reason": "The local development command was executed without the canonical transcript wrapper; exact UTC boundaries, canonical bytes and transcript SHA-256 were not captured and this attempt supports no Gate claim."
+    },
+    {
+      "attempt_id": "mb2-dispatcher-remediation2-dev-targeted-001",
+      "command": "npm.cmd test -- tests/broker-capture-dispatcher.test.ts tests/broker-capture-route.test.ts tests/multibroker-core-contracts.test.ts",
+      "started_at_utc": null,
+      "ended_at_utc": null,
+      "exit_code": 1,
+      "result": "development_failure_not_gate_evidence",
+      "output_transcript_policy": null,
+      "stdout_stderr_utf8_bytes": null,
+      "stdout_stderr_sha256": null,
+      "evidence_loss_reason": "The unwrapped development run exposed one credential-digest test whose mutation occurred after the digest read. The run was stopped after the observed failure; exact complete counts, UTC boundaries and canonical transcript evidence were not captured and no PASS is inferred."
+    },
+    {
+      "attempt_id": "mb2-dispatcher-remediation2-dev-credential-diagnostic-001",
+      "command": "npm.cmd test -- tests/broker-capture-dispatcher.test.ts -t credential configuration drifts --reporter=verbose",
+      "started_at_utc": null,
+      "ended_at_utc": null,
+      "exit_code": 1,
+      "result": "development_failure_not_gate_evidence",
+      "result_counts": {
+        "test_files_failed": 1,
+        "test_files_total": 1,
+        "tests_failed": 1,
+        "tests_total": 1
+      },
+      "output_transcript_policy": null,
+      "stdout_stderr_utf8_bytes": null,
+      "stdout_stderr_sha256": null,
+      "evidence_loss_reason": "The focused diagnostic was intentionally unwrapped and confirmed that the test mutated credential configuration after the boundary digest snapshot. Exact UTC boundaries and canonical transcript evidence were not captured; the failure supports only the recorded remediation diagnosis."
+    },
+    {
+      "attempt_id": "mb2-dispatcher-remediation2-dev-credential-focused-001",
+      "command": "npm.cmd test -- tests/broker-capture-dispatcher.test.ts -t credential configuration drifts --reporter=dot",
+      "started_at_utc": null,
+      "ended_at_utc": null,
+      "exit_code": 0,
+      "result": "development_pass_not_gate_evidence",
+      "result_counts": {
+        "test_files_passed": 1,
+        "test_files_total": 1,
+        "tests_passed": 1,
+        "tests_total": 1
+      },
+      "output_transcript_policy": null,
+      "stdout_stderr_utf8_bytes": null,
+      "stdout_stderr_sha256": null,
+      "evidence_loss_reason": "The corrected focused development test passed without the canonical transcript wrapper; exact UTC boundaries, canonical bytes and transcript SHA-256 were not captured and this attempt supports no Gate claim."
+    },
+    {
+      "attempt_id": "mb2-dispatcher-remediation2-dev-core-validator-001",
+      "command": "npm.cmd test -- tests/multibroker-core-contracts.test.ts --reporter=dot",
+      "started_at_utc": null,
+      "ended_at_utc": null,
+      "exit_code": 0,
+      "result": "development_pass_not_gate_evidence",
+      "result_counts": {
+        "test_files_passed": 1,
+        "test_files_total": 1,
+        "tests_passed": 23,
+        "tests_total": 23
+      },
+      "output_transcript_policy": null,
+      "stdout_stderr_utf8_bytes": null,
+      "stdout_stderr_sha256": null,
+      "evidence_loss_reason": "The validator development test passed without the canonical transcript wrapper; exact UTC boundaries, canonical bytes and transcript SHA-256 were not captured and this attempt supports no Gate claim."
+    },
+    {
+      "attempt_id": "mb2-dispatcher-remediation2-dev-evidence-json-001",
+      "command": "node -e \"JSON.parse(require('fs').readFileSync('docs/gates/EQUORA_v57.61.0_MULTI_BROKER_PARITY_EVIDENCE.json','utf8')); console.log('evidence-json-ok')\"",
+      "started_at_utc": null,
+      "ended_at_utc": null,
+      "exit_code": 1,
+      "result": "development_failure_missing_json_property_separator_not_gate_evidence",
+      "output_transcript_policy": null,
+      "stdout_stderr_utf8_bytes": null,
+      "stdout_stderr_sha256": null,
+      "evidence_loss_reason": "The compound developer command was not run through the canonical Evidence wrapper. Exact UTC boundaries and complete transcript bytes were not retained. The parser identified the missing comma before product_control_flow_invocation_changed; the local JSON was corrected immediately and this attempt supports no Gate claim."
+    },
+    {
+      "attempt_id": "mb2-dispatcher-remediation2-dev-postclaim-typecheck-001",
+      "command": "npm.cmd run typecheck",
+      "started_at_utc": null,
+      "ended_at_utc": null,
+      "exit_code": 0,
+      "result": "development_pass_not_gate_evidence",
+      "output_transcript_policy": null,
+      "stdout_stderr_utf8_bytes": null,
+      "stdout_stderr_sha256": null,
+      "evidence_loss_reason": "This TypeScript check was the second component of the unwrapped compound developer command. Its PASS was visible, but exact UTC boundaries and canonical transcript evidence were not captured; it supports no Gate claim."
+    },
+    {
+      "attempt_id": "mb2-dispatcher-remediation2-calibration-typecheck-001",
+      "command": "npm.cmd run typecheck",
+      "started_at_utc": "2026-08-20T17:18:24.3945327Z",
+      "ended_at_utc": "2026-08-20T17:18:27.5227469Z",
+      "exit_code": 0,
+      "result": "transcript_calibration_pass_not_gate_evidence",
+      "output_transcript_policy": "canonical_gate_transcript_v2",
+      "stdout_stderr_utf8_bytes": 63,
+      "stdout_stderr_sha256": "8fdcec4087966dd38af8fcd84fa03e08088dd4b0a599f1f3d5dc87a931ea9e17",
+      "claim_boundary": "This run calibrated the v2 wrapper after the claim edit and is retained as a non-Gate observation. Only the ordered closure and final series support the second-remediation Gate claims."
+    },
+    {
+      "attempt_id": "mb2-dispatcher-remediation2-closure-targeted-001",
+      "command": "npm.cmd test -- tests/broker-capture-dispatcher.test.ts tests/broker-capture-route.test.ts tests/multibroker-core-contracts.test.ts tests/mexc-capture-runtime.test.ts",
+      "started_at_utc": "2026-08-20T17:18:42.3022143Z",
+      "ended_at_utc": "2026-08-20T17:20:55.6607620Z",
+      "exit_code": 0,
+      "result": "pass",
+      "result_counts": {
+        "test_files_passed": 4,
+        "test_files_total": 4,
+        "tests_passed": 83,
+        "tests_total": 83
+      },
+      "output_transcript_policy": "canonical_gate_transcript_v2",
+      "stdout_stderr_utf8_bytes": 386,
+      "stdout_stderr_sha256": "4ba4c6134afecff9d793f80878fdab3d1a830e40671da61386fb1953385453f6"
+    },
+    {
+      "attempt_id": "mb2-dispatcher-remediation2-closure-typecheck-001",
+      "command": "npm.cmd run typecheck",
+      "started_at_utc": "2026-08-20T17:21:05.8322440Z",
+      "ended_at_utc": "2026-08-20T17:21:08.9400889Z",
+      "exit_code": 0,
+      "result": "pass",
+      "output_transcript_policy": "canonical_gate_transcript_v2",
+      "stdout_stderr_utf8_bytes": 63,
+      "stdout_stderr_sha256": "8fdcec4087966dd38af8fcd84fa03e08088dd4b0a599f1f3d5dc87a931ea9e17"
+    },
+    {
+      "attempt_id": "mb2-dispatcher-remediation2-closure-full-001",
+      "command": "npm.cmd test",
+      "started_at_utc": "2026-08-20T17:21:25.4003392Z",
+      "ended_at_utc": "2026-08-20T17:23:38.5990556Z",
+      "exit_code": 0,
+      "result": "pass",
+      "result_counts": {
+        "test_files_passed": 27,
+        "test_files_total": 27,
+        "tests_passed": 471,
+        "tests_total": 471
+      },
+      "output_transcript_policy": "canonical_gate_transcript_v2",
+      "stdout_stderr_utf8_bytes": 239,
+      "stdout_stderr_sha256": "cfa110f098263afbd11df7d6bbb822f32a5fa6562953c54ff6982becb9afdc8c"
+    },
+    {
+      "attempt_id": "mb2-dispatcher-remediation2-closure-release-001",
+      "command": "npm.cmd run release:check",
+      "started_at_utc": "2026-08-20T17:23:48.1786341Z",
+      "ended_at_utc": "2026-08-20T17:23:49.1823922Z",
+      "exit_code": 0,
+      "result": "pass",
+      "output_transcript_policy": "canonical_gate_transcript_v2",
+      "stdout_stderr_utf8_bytes": 149,
+      "stdout_stderr_sha256": "bd84e5259443e96ebff13807ed3ce463e1c86252d9167fdbd9850a86d911969a"
+    },
+    {
+      "attempt_id": "mb2-dispatcher-remediation2-closure-build-001",
+      "command": "npm.cmd run build",
+      "started_at_utc": "2026-08-20T17:23:59.4042817Z",
+      "ended_at_utc": "2026-08-20T17:24:31.1209402Z",
+      "exit_code": 0,
+      "result": "pass",
+      "result_counts": {
+        "static_pages_generated": 3,
+        "static_pages_total": 3
+      },
+      "output_transcript_policy": "canonical_gate_transcript_v2",
+      "stdout_stderr_utf8_bytes": 2183,
+      "stdout_stderr_sha256": "70dc6e49ebfb502b8ce8e8f0fcd3895ec30dab464d4f43a1fc49e0636bf3825c"
+    },
+    {
+      "attempt_id": "mb2-dispatcher-remediation2-closure-manifest-chronology-001",
+      "command": "node scripts/validate-multibroker-parity-manifest.mjs --allow-pending-manifest-attempt",
+      "started_at_utc": "2026-08-20T17:29:31.1707667Z",
+      "ended_at_utc": "2026-08-20T17:29:31.3748327Z",
+      "exit_code": 1,
+      "result": "fail_generated_at_before_embedded_attempt_end",
+      "output_transcript_policy": "canonical_gate_transcript_v2",
+      "stdout_stderr_utf8_bytes": 1291,
+      "stdout_stderr_sha256": "5116fc994aaf9642abde0d7a76a1a40c4bf9b0a0100b2662ea3bcb4200f205ff",
+      "remediation": "generated_at_utc is advanced losslessly to this failed attempt end before the repeated bootstrap. The failure remains append-only and supports no Manifest PASS claim.",
+      "claim_boundary": "This validator rejection proves only that the chronology guard worked; it is not a successful Manifest attempt."
+    },
+    {
+      "attempt_id": "mb2-dispatcher-remediation2-closure-manifest-001",
+      "command": "node scripts/validate-multibroker-parity-manifest.mjs --allow-pending-manifest-attempt",
+      "started_at_utc": "2026-08-20T17:30:34.3404188Z",
+      "ended_at_utc": "2026-08-20T17:30:34.5248836Z",
+      "exit_code": 0,
+      "result": "pass_bootstrap_before_append_only_evidence_rehash",
+      "result_counts": {
+        "manifest_entries_passed": 39,
+        "manifest_entries_total": 39
+      },
+      "output_transcript_policy": "canonical_gate_transcript_v2",
+      "stdout_stderr_utf8_bytes": 91,
+      "stdout_stderr_sha256": "ed70e94f2b24fbdee05703a0c9dfb76dda5139b0259d6b693cfa77d6e551095a",
+      "rehash_contract": "This append-only attempt binds the pre-attempt 39/39 second-remediation closure bootstrap under the one-current-attempt exception. The Evidence and Manifest are rebound before the final fully pinned Gate series."
+    },
+    {
+      "attempt_id": "mb2-dispatcher-remediation2-final-targeted-001",
+      "command": "npm.cmd test -- tests/broker-capture-dispatcher.test.ts tests/broker-capture-route.test.ts tests/multibroker-core-contracts.test.ts tests/mexc-capture-runtime.test.ts",
+      "started_at_utc": "2026-08-20T17:32:21.9923995Z",
+      "ended_at_utc": "2026-08-20T17:35:09.8843216Z",
+      "exit_code": 0,
+      "result": "pass",
+      "result_counts": {
+        "test_files_passed": 4,
+        "test_files_total": 4,
+        "tests_passed": 83,
+        "tests_total": 83
+      },
+      "output_transcript_policy": "canonical_gate_transcript_v2",
+      "stdout_stderr_utf8_bytes": 386,
+      "stdout_stderr_sha256": "4ba4c6134afecff9d793f80878fdab3d1a830e40671da61386fb1953385453f6"
+    },
+    {
+      "attempt_id": "mb2-dispatcher-remediation2-final-typecheck-001",
+      "command": "npm.cmd run typecheck",
+      "started_at_utc": "2026-08-20T17:35:19.6579592Z",
+      "ended_at_utc": "2026-08-20T17:35:23.3913739Z",
+      "exit_code": 0,
+      "result": "pass",
+      "output_transcript_policy": "canonical_gate_transcript_v2",
+      "stdout_stderr_utf8_bytes": 63,
+      "stdout_stderr_sha256": "8fdcec4087966dd38af8fcd84fa03e08088dd4b0a599f1f3d5dc87a931ea9e17"
+    },
+    {
+      "attempt_id": "mb2-dispatcher-remediation2-final-full-001",
+      "command": "npm.cmd test",
+      "started_at_utc": "2026-08-20T17:35:33.7773889Z",
+      "ended_at_utc": "2026-08-20T17:38:23.1549364Z",
+      "exit_code": 0,
+      "result": "pass",
+      "result_counts": {
+        "test_files_passed": 27,
+        "test_files_total": 27,
+        "tests_passed": 471,
+        "tests_total": 471
+      },
+      "output_transcript_policy": "canonical_gate_transcript_v2",
+      "stdout_stderr_utf8_bytes": 239,
+      "stdout_stderr_sha256": "cfa110f098263afbd11df7d6bbb822f32a5fa6562953c54ff6982becb9afdc8c"
+    },
+    {
+      "attempt_id": "mb2-dispatcher-remediation2-final-release-001",
+      "command": "npm.cmd run release:check",
+      "started_at_utc": "2026-08-20T17:38:33.4163521Z",
+      "ended_at_utc": "2026-08-20T17:38:34.3854876Z",
+      "exit_code": 0,
+      "result": "pass",
+      "output_transcript_policy": "canonical_gate_transcript_v2",
+      "stdout_stderr_utf8_bytes": 149,
+      "stdout_stderr_sha256": "bd84e5259443e96ebff13807ed3ce463e1c86252d9167fdbd9850a86d911969a"
+    },
+    {
+      "attempt_id": "mb2-dispatcher-remediation2-final-build-001",
+      "command": "npm.cmd run build",
+      "started_at_utc": "2026-08-20T17:38:45.6505647Z",
+      "ended_at_utc": "2026-08-20T17:39:15.5156471Z",
+      "exit_code": 0,
+      "result": "pass",
+      "result_counts": {
+        "static_pages_generated": 3,
+        "static_pages_total": 3
+      },
+      "output_transcript_policy": "canonical_gate_transcript_v2",
+      "stdout_stderr_utf8_bytes": 2183,
+      "stdout_stderr_sha256": "70dc6e49ebfb502b8ce8e8f0fcd3895ec30dab464d4f43a1fc49e0636bf3825c"
+    },
+    {
+      "attempt_id": "mb2-dispatcher-remediation2-final-manifest-001",
+      "command": "node scripts/validate-multibroker-parity-manifest.mjs --allow-pending-manifest-attempt",
+      "started_at_utc": "2026-08-20T17:41:03.6423743Z",
+      "ended_at_utc": "2026-08-20T17:41:03.8415357Z",
+      "exit_code": 0,
+      "result": "pass_bootstrap_before_append_only_evidence_rehash",
+      "result_counts": {
+        "manifest_entries_passed": 39,
+        "manifest_entries_total": 39
+      },
+      "output_transcript_policy": "canonical_gate_transcript_v2",
+      "stdout_stderr_utf8_bytes": 91,
+      "stdout_stderr_sha256": "ed70e94f2b24fbdee05703a0c9dfb76dda5139b0259d6b693cfa77d6e551095a",
+      "rehash_contract": "This append-only attempt binds the pre-attempt 39/39 final second-remediation bootstrap under the one-current-attempt exception. The Evidence entry in the Manifest is rebound afterward; terminal no-exception validation is deliberately a separate local observation rather than recursively embedded Evidence."
+    },
+    {
+      "attempt_id": "mb2-dispatcher-remediation3-dev-dispatcher-route-001",
+      "command": "npm.cmd test -- tests/broker-capture-dispatcher.test.ts tests/broker-capture-route.test.ts",
+      "started_at_utc": null,
+      "ended_at_utc": null,
+      "exit_code": 0,
+      "result": "development_pass_not_gate_evidence",
+      "result_counts": {
+        "test_files_passed": 2,
+        "test_files_total": 2,
+        "tests_passed": 48,
+        "tests_total": 48
+      },
+      "output_transcript_policy": null,
+      "stdout_stderr_utf8_bytes": null,
+      "stdout_stderr_sha256": null,
+      "evidence_loss_reason": "The focused third-remediation development run passed without the canonical Evidence wrapper. Exact UTC boundaries and canonical transcript evidence were not captured; it supports no Gate claim."
+    },
+    {
+      "attempt_id": "mb2-dispatcher-remediation3-dev-typecheck-001",
+      "command": "npm.cmd run typecheck",
+      "started_at_utc": null,
+      "ended_at_utc": null,
+      "exit_code": 0,
+      "result": "development_pass_not_gate_evidence",
+      "output_transcript_policy": null,
+      "stdout_stderr_utf8_bytes": null,
+      "stdout_stderr_sha256": null,
+      "evidence_loss_reason": "The third-remediation development TypeScript check passed without the canonical Evidence wrapper. Exact UTC boundaries and canonical transcript evidence were not captured; it supports no Gate claim."
+    },
+    {
+      "attempt_id": "mb2-dispatcher-remediation3-dev-targeted-001",
+      "command": "npm.cmd test -- tests/broker-capture-dispatcher.test.ts tests/broker-capture-route.test.ts tests/multibroker-core-contracts.test.ts tests/mexc-capture-runtime.test.ts",
+      "started_at_utc": null,
+      "ended_at_utc": null,
+      "exit_code": 0,
+      "result": "development_pass_not_gate_evidence",
+      "result_counts": {
+        "test_files_passed": 4,
+        "test_files_total": 4,
+        "tests_passed": 86,
+        "tests_total": 86
+      },
+      "output_transcript_policy": null,
+      "stdout_stderr_utf8_bytes": null,
+      "stdout_stderr_sha256": null,
+      "evidence_loss_reason": "The full four-file third-remediation development target passed without the canonical Evidence wrapper. Exact UTC boundaries and canonical transcript evidence were not captured; it supports no Gate claim."
+    },
+    {
+      "attempt_id": "mb2-dispatcher-remediation3-closure-targeted-001",
+      "command": "npm.cmd test -- tests/broker-capture-dispatcher.test.ts tests/broker-capture-route.test.ts tests/multibroker-core-contracts.test.ts tests/mexc-capture-runtime.test.ts",
+      "started_at_utc": "2026-08-20T18:05:29.0231187Z",
+      "ended_at_utc": "2026-08-20T18:08:17.9184959Z",
+      "exit_code": 0,
+      "result": "pass",
+      "result_counts": {
+        "test_files_passed": 4,
+        "test_files_total": 4,
+        "tests_passed": 86,
+        "tests_total": 86
+      },
+      "output_transcript_policy": "canonical_gate_transcript_v2",
+      "stdout_stderr_utf8_bytes": 386,
+      "stdout_stderr_sha256": "65077648ac2c08e31a5a16e89c36a938f84a25e9629273e51cf118ed79638bd1"
+    },
+    {
+      "attempt_id": "mb2-dispatcher-remediation3-closure-typecheck-001",
+      "command": "npm.cmd run typecheck",
+      "started_at_utc": "2026-08-20T18:08:28.0516145Z",
+      "ended_at_utc": "2026-08-20T18:08:31.8679801Z",
+      "exit_code": 0,
+      "result": "pass",
+      "output_transcript_policy": "canonical_gate_transcript_v2",
+      "stdout_stderr_utf8_bytes": 63,
+      "stdout_stderr_sha256": "8fdcec4087966dd38af8fcd84fa03e08088dd4b0a599f1f3d5dc87a931ea9e17"
+    },
+    {
+      "attempt_id": "mb2-dispatcher-remediation3-closure-full-001",
+      "command": "npm.cmd test",
+      "started_at_utc": "2026-08-20T18:08:41.3414688Z",
+      "ended_at_utc": "2026-08-20T18:11:31.5479345Z",
+      "exit_code": 0,
+      "result": "pass",
+      "result_counts": {
+        "test_files_passed": 27,
+        "test_files_total": 27,
+        "tests_passed": 474,
+        "tests_total": 474
+      },
+      "output_transcript_policy": "canonical_gate_transcript_v2",
+      "stdout_stderr_utf8_bytes": 239,
+      "stdout_stderr_sha256": "4071f98840ce873a70e587c1952fb797792fd4ea872150d0d30b3a23df60914c"
+    },
+    {
+      "attempt_id": "mb2-dispatcher-remediation3-closure-release-001",
+      "command": "npm.cmd run release:check",
+      "started_at_utc": "2026-08-20T18:11:41.7720157Z",
+      "ended_at_utc": "2026-08-20T18:11:42.7631032Z",
+      "exit_code": 0,
+      "result": "pass",
+      "output_transcript_policy": "canonical_gate_transcript_v2",
+      "stdout_stderr_utf8_bytes": 149,
+      "stdout_stderr_sha256": "bd84e5259443e96ebff13807ed3ce463e1c86252d9167fdbd9850a86d911969a"
+    },
+    {
+      "attempt_id": "mb2-dispatcher-remediation3-closure-build-001",
+      "command": "npm.cmd run build",
+      "started_at_utc": "2026-08-20T18:11:52.0210866Z",
+      "ended_at_utc": "2026-08-20T18:12:23.5905511Z",
+      "exit_code": 0,
+      "result": "pass",
+      "result_counts": {
+        "static_pages_generated": 3,
+        "static_pages_total": 3
+      },
+      "output_transcript_policy": "canonical_gate_transcript_v2",
+      "stdout_stderr_utf8_bytes": 2183,
+      "stdout_stderr_sha256": "70dc6e49ebfb502b8ce8e8f0fcd3895ec30dab464d4f43a1fc49e0636bf3825c"
+    },
+    {
+      "attempt_id": "mb2-dispatcher-remediation3-closure-manifest-000",
+      "command": "node scripts/validate-multibroker-parity-manifest.mjs --allow-pending-manifest-attempt",
+      "started_at_utc": "2026-08-20T18:16:44.1809297Z",
+      "ended_at_utc": "2026-08-20T18:16:44.3841539Z",
+      "exit_code": 1,
+      "result": "fail_chronology_pre_rebind",
+      "output_transcript_policy": "canonical_gate_transcript_v2",
+      "stdout_stderr_utf8_bytes": 1291,
+      "stdout_stderr_sha256": "2083ed0eb56c0e7cd202faecc7992d8273aeb7ed305a3e966c07c9c69d6f9e57",
+      "claim_boundary": "This retained failure found that generated_at_utc still reflected the preceding remediation snapshot. It supports no Manifest PASS claim and was corrected by advancing generated_at_utc to this attempt end before the next bootstrap."
+    },
+    {
+      "attempt_id": "mb2-dispatcher-remediation3-closure-manifest-001",
+      "command": "node scripts/validate-multibroker-parity-manifest.mjs --allow-pending-manifest-attempt",
+      "started_at_utc": "2026-08-20T18:17:38.6465551Z",
+      "ended_at_utc": "2026-08-20T18:17:38.8321237Z",
+      "exit_code": 0,
+      "result": "pass_bootstrap_before_append_only_evidence_rehash",
+      "result_counts": {
+        "manifest_entries_passed": 39,
+        "manifest_entries_total": 39
+      },
+      "output_transcript_policy": "canonical_gate_transcript_v2",
+      "stdout_stderr_utf8_bytes": 91,
+      "stdout_stderr_sha256": "ed70e94f2b24fbdee05703a0c9dfb76dda5139b0259d6b693cfa77d6e551095a",
+      "rehash_contract": "This append-only attempt binds the pre-attempt 39/39 third-remediation closure bootstrap under the one-current-attempt exception. The Evidence entry in the Manifest is rebound afterward; terminal no-exception validation is deliberately a separate local observation rather than recursively embedded Evidence."
+    },
+    {
+      "attempt_id": "mb2-dispatcher-remediation3-final-targeted-001",
+      "command": "npm.cmd test -- tests/broker-capture-dispatcher.test.ts tests/broker-capture-route.test.ts tests/multibroker-core-contracts.test.ts tests/mexc-capture-runtime.test.ts",
+      "started_at_utc": "2026-08-20T18:19:40.6273532Z",
+      "ended_at_utc": "2026-08-20T18:22:39.0400752Z",
+      "exit_code": 0,
+      "result": "pass",
+      "result_counts": {
+        "test_files_passed": 4,
+        "test_files_total": 4,
+        "tests_passed": 86,
+        "tests_total": 86
+      },
+      "output_transcript_policy": "canonical_gate_transcript_v2",
+      "stdout_stderr_utf8_bytes": 386,
+      "stdout_stderr_sha256": "65077648ac2c08e31a5a16e89c36a938f84a25e9629273e51cf118ed79638bd1"
+    },
+    {
+      "attempt_id": "mb2-dispatcher-remediation3-final-typecheck-001",
+      "command": "npm.cmd run typecheck",
+      "started_at_utc": "2026-08-20T18:22:48.3485327Z",
+      "ended_at_utc": "2026-08-20T18:22:52.1274497Z",
+      "exit_code": 0,
+      "result": "pass",
+      "output_transcript_policy": "canonical_gate_transcript_v2",
+      "stdout_stderr_utf8_bytes": 63,
+      "stdout_stderr_sha256": "8fdcec4087966dd38af8fcd84fa03e08088dd4b0a599f1f3d5dc87a931ea9e17"
+    },
+    {
+      "attempt_id": "mb2-dispatcher-remediation3-final-full-001",
+      "command": "npm.cmd test",
+      "started_at_utc": "2026-08-20T18:23:01.6445488Z",
+      "ended_at_utc": "2026-08-20T18:26:01.4957240Z",
+      "exit_code": 0,
+      "result": "pass",
+      "result_counts": {
+        "test_files_passed": 27,
+        "test_files_total": 27,
+        "tests_passed": 474,
+        "tests_total": 474
+      },
+      "output_transcript_policy": "canonical_gate_transcript_v2",
+      "stdout_stderr_utf8_bytes": 239,
+      "stdout_stderr_sha256": "4071f98840ce873a70e587c1952fb797792fd4ea872150d0d30b3a23df60914c"
+    },
+    {
+      "attempt_id": "mb2-dispatcher-remediation3-final-release-001",
+      "command": "npm.cmd run release:check",
+      "started_at_utc": "2026-08-20T18:26:10.2554658Z",
+      "ended_at_utc": "2026-08-20T18:26:11.2921529Z",
+      "exit_code": 0,
+      "result": "pass",
+      "output_transcript_policy": "canonical_gate_transcript_v2",
+      "stdout_stderr_utf8_bytes": 149,
+      "stdout_stderr_sha256": "bd84e5259443e96ebff13807ed3ce463e1c86252d9167fdbd9850a86d911969a"
+    },
+    {
+      "attempt_id": "mb2-dispatcher-remediation3-final-build-001",
+      "command": "npm.cmd run build",
+      "started_at_utc": "2026-08-20T18:26:22.8868136Z",
+      "ended_at_utc": "2026-08-20T18:26:53.0208504Z",
+      "exit_code": 0,
+      "result": "pass",
+      "result_counts": {
+        "static_pages_generated": 3,
+        "static_pages_total": 3
+      },
+      "output_transcript_policy": "canonical_gate_transcript_v2",
+      "stdout_stderr_utf8_bytes": 2183,
+      "stdout_stderr_sha256": "70dc6e49ebfb502b8ce8e8f0fcd3895ec30dab464d4f43a1fc49e0636bf3825c"
+    },
+    {
+      "attempt_id": "mb2-dispatcher-remediation3-final-manifest-001",
+      "command": "node scripts/validate-multibroker-parity-manifest.mjs --allow-pending-manifest-attempt",
+      "started_at_utc": "2026-08-20T18:30:00.4977553Z",
+      "ended_at_utc": "2026-08-20T18:30:00.6986299Z",
+      "exit_code": 0,
+      "result": "pass_bootstrap_before_append_only_evidence_rehash",
+      "result_counts": {
+        "manifest_entries_passed": 39,
+        "manifest_entries_total": 39
+      },
+      "output_transcript_policy": "canonical_gate_transcript_v2",
+      "stdout_stderr_utf8_bytes": 91,
+      "stdout_stderr_sha256": "ed70e94f2b24fbdee05703a0c9dfb76dda5139b0259d6b693cfa77d6e551095a",
+      "rehash_contract": "This append-only attempt binds the pre-attempt 39/39 third-remediation final bootstrap under the one-current-attempt exception. The Evidence entry in the Manifest is rebound afterward; terminal no-exception validation is deliberately a separate local observation rather than recursively embedded Evidence."
+    },
+    {
+      "attempt_id": "mb2-dispatcher-remediation4-dev-dispatcher-001",
+      "command": "npm.cmd test -- tests/broker-capture-dispatcher.test.ts",
+      "started_at_utc": null,
+      "ended_at_utc": null,
+      "exit_code": 0,
+      "result": "development_pass_not_gate_evidence",
+      "result_counts": {
+        "test_files_passed": 1,
+        "test_files_total": 1,
+        "tests_passed": 41,
+        "tests_total": 41
+      },
+      "output_transcript_policy": null,
+      "stdout_stderr_utf8_bytes": null,
+      "stdout_stderr_sha256": null,
+      "evidence_loss_reason": "The focused fourth-remediation development run passed without the canonical Evidence wrapper. Exact UTC boundaries and canonical transcript evidence were not captured; it supports no Gate claim."
+    },
+    {
+      "attempt_id": "mb2-dispatcher-remediation4-dev-typecheck-001",
+      "command": "npm.cmd run typecheck",
+      "started_at_utc": null,
+      "ended_at_utc": null,
+      "exit_code": 0,
+      "result": "development_pass_not_gate_evidence",
+      "output_transcript_policy": null,
+      "stdout_stderr_utf8_bytes": null,
+      "stdout_stderr_sha256": null,
+      "evidence_loss_reason": "The fourth-remediation development TypeScript check passed without the canonical Evidence wrapper. Exact UTC boundaries and canonical transcript evidence were not captured; it supports no Gate claim."
+    },
+    {
+      "attempt_id": "mb2-dispatcher-remediation4-closure-targeted-001",
+      "command": "npm.cmd test -- tests/broker-capture-dispatcher.test.ts tests/broker-capture-route.test.ts tests/multibroker-core-contracts.test.ts tests/mexc-capture-runtime.test.ts",
+      "started_at_utc": "2026-08-20T18:49:59.7201008Z",
+      "ended_at_utc": "2026-08-20T18:53:07.9909797Z",
+      "exit_code": 0,
+      "result": "pass",
+      "result_counts": {
+        "test_files_passed": 4,
+        "test_files_total": 4,
+        "tests_passed": 87,
+        "tests_total": 87
+      },
+      "output_transcript_policy": "canonical_gate_transcript_v2",
+      "stdout_stderr_utf8_bytes": 386,
+      "stdout_stderr_sha256": "94522718f443c0e9a49b59f6b845a629d494f166a4524ad67fce4fb8e6382c39"
+    },
+    {
+      "attempt_id": "mb2-dispatcher-remediation4-calibration-typecheck-notice-001",
+      "command": "npm.cmd run typecheck",
+      "started_at_utc": "2026-08-20T18:53:35.3866826Z",
+      "ended_at_utc": "2026-08-20T18:53:38.4042286Z",
+      "exit_code": 0,
+      "result": "calibration_pass_not_gate_evidence",
+      "output_transcript_policy": null,
+      "stdout_stderr_utf8_bytes": 272,
+      "stdout_stderr_sha256": "859c6371e48ae9c9a5dd396943de7eb97d62b71b9512a68dd3736367eb258b4f",
+      "claim_boundary": "The physical transcript included the optional npm CLI update-notice block. The run is retained append-only as calibration and supports no Gate claim; the following notifier-disabled run is the closure Typecheck evidence."
+    },
+    {
+      "attempt_id": "mb2-dispatcher-remediation4-closure-typecheck-001",
+      "command": "npm.cmd run typecheck",
+      "started_at_utc": "2026-08-20T18:53:57.6649458Z",
+      "ended_at_utc": "2026-08-20T18:54:00.3040284Z",
+      "exit_code": 0,
+      "result": "pass",
+      "output_transcript_policy": "canonical_gate_transcript_v2",
+      "stdout_stderr_utf8_bytes": 63,
+      "stdout_stderr_sha256": "8fdcec4087966dd38af8fcd84fa03e08088dd4b0a599f1f3d5dc87a931ea9e17"
+    },
+    {
+      "attempt_id": "mb2-dispatcher-remediation4-closure-full-001",
+      "command": "npm.cmd test",
+      "started_at_utc": "2026-08-20T18:54:13.0678126Z",
+      "ended_at_utc": "2026-08-20T18:57:22.6960543Z",
+      "exit_code": 0,
+      "result": "pass",
+      "result_counts": {
+        "test_files_passed": 27,
+        "test_files_total": 27,
+        "tests_passed": 475,
+        "tests_total": 475
+      },
+      "output_transcript_policy": "canonical_gate_transcript_v2",
+      "stdout_stderr_utf8_bytes": 239,
+      "stdout_stderr_sha256": "7060407516420c6eb6c10b3b6dddfa1b89e6a3bb0d9756de525ddbf7281731dc"
+    },
+    {
+      "attempt_id": "mb2-dispatcher-remediation4-closure-release-001",
+      "command": "npm.cmd run release:check",
+      "started_at_utc": "2026-08-20T18:57:30.8002256Z",
+      "ended_at_utc": "2026-08-20T18:57:31.3632551Z",
+      "exit_code": 0,
+      "result": "pass",
+      "output_transcript_policy": "canonical_gate_transcript_v2",
+      "stdout_stderr_utf8_bytes": 149,
+      "stdout_stderr_sha256": "bd84e5259443e96ebff13807ed3ce463e1c86252d9167fdbd9850a86d911969a"
+    },
+    {
+      "attempt_id": "mb2-dispatcher-remediation4-closure-build-001",
+      "command": "npm.cmd run build",
+      "started_at_utc": "2026-08-20T18:57:49.7483665Z",
+      "ended_at_utc": "2026-08-20T18:58:20.8633080Z",
+      "exit_code": 0,
+      "result": "pass",
+      "result_counts": {
+        "static_pages_generated": 3,
+        "static_pages_total": 3
+      },
+      "output_transcript_policy": "canonical_gate_transcript_v2",
+      "stdout_stderr_utf8_bytes": 2183,
+      "stdout_stderr_sha256": "70dc6e49ebfb502b8ce8e8f0fcd3895ec30dab464d4f43a1fc49e0636bf3825c"
+    },
+    {
+      "attempt_id": "mb2-dispatcher-remediation4-closure-manifest-001",
+      "command": "node scripts/validate-multibroker-parity-manifest.mjs --allow-pending-manifest-attempt",
+      "started_at_utc": "2026-08-20T19:02:37.8508282Z",
+      "ended_at_utc": "2026-08-20T19:02:37.9977696Z",
+      "exit_code": 0,
+      "result": "pass_bootstrap_before_append_only_evidence_rehash",
+      "result_counts": {
+        "manifest_entries_passed": 39,
+        "manifest_entries_total": 39
+      },
+      "output_transcript_policy": "canonical_gate_transcript_v2",
+      "stdout_stderr_utf8_bytes": 91,
+      "stdout_stderr_sha256": "ed70e94f2b24fbdee05703a0c9dfb76dda5139b0259d6b693cfa77d6e551095a",
+      "rehash_contract": "This append-only attempt binds the pre-attempt 39/39 fourth-remediation closure bootstrap under the one-current-attempt exception. generated_at_utc equals this attempt end, the Manifest Evidence entry is rebound afterward, and terminal no-exception validation is deliberately a separate local observation rather than recursively embedded Evidence."
+    },
+    {
+      "attempt_id": "mb2-dispatcher-remediation4-final-targeted-001",
+      "command": "npm.cmd test -- tests/broker-capture-dispatcher.test.ts tests/broker-capture-route.test.ts tests/multibroker-core-contracts.test.ts tests/mexc-capture-runtime.test.ts",
+      "started_at_utc": "2026-08-20T19:03:43.4059949Z",
+      "ended_at_utc": "2026-08-20T19:07:01.9978454Z",
+      "exit_code": 0,
+      "result": "pass",
+      "result_counts": {
+        "test_files_passed": 4,
+        "test_files_total": 4,
+        "tests_passed": 87,
+        "tests_total": 87
+      },
+      "output_transcript_policy": "canonical_gate_transcript_v2",
+      "stdout_stderr_utf8_bytes": 386,
+      "stdout_stderr_sha256": "94522718f443c0e9a49b59f6b845a629d494f166a4524ad67fce4fb8e6382c39"
+    },
+    {
+      "attempt_id": "mb2-dispatcher-remediation4-final-typecheck-001",
+      "command": "npm.cmd run typecheck",
+      "started_at_utc": "2026-08-20T19:07:09.8060389Z",
+      "ended_at_utc": "2026-08-20T19:07:13.1421969Z",
+      "exit_code": 0,
+      "result": "pass",
+      "output_transcript_policy": "canonical_gate_transcript_v2",
+      "stdout_stderr_utf8_bytes": 63,
+      "stdout_stderr_sha256": "8fdcec4087966dd38af8fcd84fa03e08088dd4b0a599f1f3d5dc87a931ea9e17"
+    },
+    {
+      "attempt_id": "mb2-dispatcher-remediation4-final-full-001",
+      "command": "npm.cmd test",
+      "started_at_utc": "2026-08-20T19:07:22.0594386Z",
+      "ended_at_utc": "2026-08-20T19:10:40.1494056Z",
+      "exit_code": 0,
+      "result": "pass",
+      "result_counts": {
+        "test_files_passed": 27,
+        "test_files_total": 27,
+        "tests_passed": 475,
+        "tests_total": 475
+      },
+      "output_transcript_policy": "canonical_gate_transcript_v2",
+      "stdout_stderr_utf8_bytes": 239,
+      "stdout_stderr_sha256": "7060407516420c6eb6c10b3b6dddfa1b89e6a3bb0d9756de525ddbf7281731dc"
+    },
+    {
+      "attempt_id": "mb2-dispatcher-remediation4-final-release-001",
+      "command": "npm.cmd run release:check",
+      "started_at_utc": "2026-08-20T19:10:48.8450308Z",
+      "ended_at_utc": "2026-08-20T19:10:49.4042409Z",
+      "exit_code": 0,
+      "result": "pass",
+      "output_transcript_policy": "canonical_gate_transcript_v2",
+      "stdout_stderr_utf8_bytes": 149,
+      "stdout_stderr_sha256": "bd84e5259443e96ebff13807ed3ce463e1c86252d9167fdbd9850a86d911969a"
+    },
+    {
+      "attempt_id": "mb2-dispatcher-remediation4-final-build-001",
+      "command": "npm.cmd run build",
+      "started_at_utc": "2026-08-20T19:10:57.3083304Z",
+      "ended_at_utc": "2026-08-20T19:11:26.5524042Z",
+      "exit_code": 0,
+      "result": "pass",
+      "result_counts": {
+        "static_pages_generated": 3,
+        "static_pages_total": 3
+      },
+      "output_transcript_policy": "canonical_gate_transcript_v2",
+      "stdout_stderr_utf8_bytes": 2183,
+      "stdout_stderr_sha256": "70dc6e49ebfb502b8ce8e8f0fcd3895ec30dab464d4f43a1fc49e0636bf3825c"
+    },
+    {
+      "attempt_id": "mb2-dispatcher-remediation4-final-manifest-001",
+      "command": "node scripts/validate-multibroker-parity-manifest.mjs --allow-pending-manifest-attempt",
+      "started_at_utc": "2026-08-20T19:14:12.2350787Z",
+      "ended_at_utc": "2026-08-20T19:14:12.3863879Z",
+      "exit_code": 0,
+      "result": "pass_bootstrap_before_append_only_evidence_rehash",
+      "result_counts": {
+        "manifest_entries_passed": 39,
+        "manifest_entries_total": 39
+      },
+      "output_transcript_policy": "canonical_gate_transcript_v2",
+      "stdout_stderr_utf8_bytes": 91,
+      "stdout_stderr_sha256": "ed70e94f2b24fbdee05703a0c9dfb76dda5139b0259d6b693cfa77d6e551095a",
+      "rehash_contract": "This append-only attempt binds the pre-attempt 39/39 fourth-remediation final bootstrap under the one-current-attempt exception. generated_at_utc equals this attempt end, the Manifest Evidence entry is rebound afterward, and terminal no-exception validation is deliberately a separate local observation rather than recursively embedded Evidence."
+    },
+    {
+      "attempt_id": "mb2-dispatcher-remediation5-dev-dispatcher-001",
+      "command": "npm.cmd test -- tests/broker-capture-dispatcher.test.ts",
+      "started_at_utc": null,
+      "ended_at_utc": null,
+      "exit_code": 0,
+      "result": "development_pass_not_gate_evidence",
+      "result_counts": { "test_files_passed": 1, "test_files_total": 1, "tests_passed": 46, "tests_total": 46 },
+      "output_transcript_policy": null,
+      "stdout_stderr_utf8_bytes": null,
+      "stdout_stderr_sha256": null,
+      "evidence_loss_reason": "The focused fifth-remediation development run passed without the canonical Evidence wrapper. Exact UTC boundaries and canonical transcript evidence were not captured; it supports no Gate claim."
+    },
+    {
+      "attempt_id": "mb2-dispatcher-remediation5-dev-typecheck-001",
+      "command": "npm.cmd run typecheck",
+      "started_at_utc": null,
+      "ended_at_utc": null,
+      "exit_code": 1,
+      "result": "development_fail_not_gate_evidence",
+      "result_counts": { "typescript_errors": 2 },
+      "output_transcript_policy": null,
+      "stdout_stderr_utf8_bytes": null,
+      "stdout_stderr_sha256": null,
+      "evidence_loss_reason": "The first fifth-remediation TypeScript development run found two possibly-undefined speciesDescriptor accesses. It ran without the canonical Evidence wrapper; exact UTC boundaries and transcript evidence were not captured and it supports no PASS claim.",
+      "remediation": "The boolean closure check now establishes speciesDescriptor !== undefined before reading its getter, setter and value fields."
+    },
+    {
+      "attempt_id": "mb2-dispatcher-remediation5-dev-typecheck-002",
+      "command": "npm.cmd run typecheck",
+      "started_at_utc": null,
+      "ended_at_utc": null,
+      "exit_code": 0,
+      "result": "development_pass_not_gate_evidence",
+      "output_transcript_policy": null,
+      "stdout_stderr_utf8_bytes": null,
+      "stdout_stderr_sha256": null,
+      "evidence_loss_reason": "The corrected fifth-remediation TypeScript development run passed without the canonical Evidence wrapper. Exact UTC boundaries and canonical transcript evidence were not captured; it supports no Gate claim."
+    },
+    {
+      "attempt_id": "mb2-dispatcher-remediation5-closure-targeted-001",
+      "command": "npm.cmd test -- tests/broker-capture-dispatcher.test.ts tests/broker-capture-route.test.ts tests/multibroker-core-contracts.test.ts tests/mexc-capture-runtime.test.ts",
+      "started_at_utc": "2026-08-20T19:29:29.0340304Z",
+      "ended_at_utc": "2026-08-20T19:32:56.3130936Z",
+      "exit_code": 0,
+      "result": "pass",
+      "result_counts": { "test_files_passed": 4, "test_files_total": 4, "tests_passed": 92, "tests_total": 92 },
+      "output_transcript_policy": "canonical_gate_transcript_v2",
+      "stdout_stderr_utf8_bytes": 386,
+      "stdout_stderr_sha256": "8ecda1e963357d93d72669b536ccab8f2ad42edee729a713514957d67a4477f1"
+    },
+    {
+      "attempt_id": "mb2-dispatcher-remediation5-closure-typecheck-001",
+      "command": "npm.cmd run typecheck",
+      "started_at_utc": "2026-08-20T19:33:04.8871419Z",
+      "ended_at_utc": "2026-08-20T19:33:08.1866880Z",
+      "exit_code": 0,
+      "result": "pass",
+      "output_transcript_policy": "canonical_gate_transcript_v2",
+      "stdout_stderr_utf8_bytes": 63,
+      "stdout_stderr_sha256": "8fdcec4087966dd38af8fcd84fa03e08088dd4b0a599f1f3d5dc87a931ea9e17"
+    },
+    {
+      "attempt_id": "mb2-dispatcher-remediation5-closure-full-001",
+      "command": "npm.cmd test",
+      "started_at_utc": "2026-08-20T19:33:16.8121199Z",
+      "ended_at_utc": "2026-08-20T19:36:45.6760888Z",
+      "exit_code": 0,
+      "result": "pass",
+      "result_counts": { "test_files_passed": 27, "test_files_total": 27, "tests_passed": 480, "tests_total": 480 },
+      "output_transcript_policy": "canonical_gate_transcript_v2",
+      "stdout_stderr_utf8_bytes": 239,
+      "stdout_stderr_sha256": "ccf508d7079892d1cd04ed18bbd4474092d3c2d16ae1424dfb209bd7ee6d2bf8"
+    },
+    {
+      "attempt_id": "mb2-dispatcher-remediation5-closure-release-001",
+      "command": "npm.cmd run release:check",
+      "started_at_utc": "2026-08-20T19:36:53.5800133Z",
+      "ended_at_utc": "2026-08-20T19:36:54.1600004Z",
+      "exit_code": 0,
+      "result": "pass",
+      "output_transcript_policy": "canonical_gate_transcript_v2",
+      "stdout_stderr_utf8_bytes": 149,
+      "stdout_stderr_sha256": "bd84e5259443e96ebff13807ed3ce463e1c86252d9167fdbd9850a86d911969a"
+    },
+    {
+      "attempt_id": "mb2-dispatcher-remediation5-closure-build-001",
+      "command": "npm.cmd run build",
+      "started_at_utc": "2026-08-20T19:37:04.1225880Z",
+      "ended_at_utc": "2026-08-20T19:37:35.6716745Z",
+      "exit_code": 0,
+      "result": "pass",
+      "result_counts": { "static_pages_generated": 3, "static_pages_total": 3 },
+      "output_transcript_policy": "canonical_gate_transcript_v2",
+      "stdout_stderr_utf8_bytes": 2183,
+      "stdout_stderr_sha256": "70dc6e49ebfb502b8ce8e8f0fcd3895ec30dab464d4f43a1fc49e0636bf3825c"
+    },
+    {
+      "attempt_id": "mb2-dispatcher-remediation5-closure-manifest-001",
+      "command": "node scripts/validate-multibroker-parity-manifest.mjs --allow-pending-manifest-attempt",
+      "started_at_utc": "2026-08-20T19:45:27.5426458Z",
+      "ended_at_utc": "2026-08-20T19:45:27.6935133Z",
+      "exit_code": 0,
+      "result": "pass_bootstrap_before_append_only_evidence_rehash",
+      "result_counts": { "manifest_entries_passed": 39, "manifest_entries_total": 39 },
+      "output_transcript_policy": "canonical_gate_transcript_v2",
+      "stdout_stderr_utf8_bytes": 91,
+      "stdout_stderr_sha256": "ed70e94f2b24fbdee05703a0c9dfb76dda5139b0259d6b693cfa77d6e551095a",
+      "rehash_contract": "This append-only attempt binds the pre-attempt 39/39 fifth-remediation closure bootstrap under the one-current-attempt exception. generated_at_utc equals this attempt end, the Manifest Evidence entry is rebound afterward, and terminal no-exception validation is deliberately a separate local observation rather than recursively embedded Evidence."
+    },
+    {
+      "attempt_id": "mb2-dispatcher-remediation5-wrapper-mismeasurement-targeted-001",
+      "command": "npm.cmd test -- tests/broker-capture-dispatcher.test.ts tests/broker-capture-route.test.ts tests/multibroker-core-contracts.test.ts tests/mexc-capture-runtime.test.ts",
+      "started_at_utc": "2026-08-20T19:47:02.2347711Z",
+      "ended_at_utc": "2026-08-20T19:50:43.2597615Z",
+      "exit_code": 0,
+      "result": "pass_wrapper_measurement_nonconforming_not_gate_claim",
+      "result_counts": { "test_files_passed": 4, "test_files_total": 4, "tests_passed": 92, "tests_total": 92 },
+      "stdout_stderr_utf8_bytes": 597,
+      "stdout_stderr_sha256": "ff407189042f2553ea938654cd925e955acec5c6e3de0613609a85b87b5a3b4a",
+      "transcript_measurement_boundary": "The first final targeted wrapper retained the optional npm CLI update-notice block, so its 597-byte transcript does not conform to canonical_gate_transcript_v2 and is not used as Gate evidence."
+    },
+    {
+      "attempt_id": "mb2-dispatcher-remediation5-wrapper-mismeasurement-targeted-002",
+      "command": "npm.cmd test -- tests/broker-capture-dispatcher.test.ts tests/broker-capture-route.test.ts tests/multibroker-core-contracts.test.ts tests/mexc-capture-runtime.test.ts",
+      "started_at_utc": "2026-08-20T19:51:19.3792748Z",
+      "ended_at_utc": "2026-08-20T19:55:02.0301549Z",
+      "exit_code": 0,
+      "result": "pass_wrapper_measurement_nonconforming_not_gate_claim",
+      "result_counts": { "test_files_passed": 4, "test_files_total": 4, "tests_passed": 92, "tests_total": 92 },
+      "stdout_stderr_utf8_bytes": 388,
+      "stdout_stderr_sha256": "eb0fbe7768ad8af115f590424ff95991b1d0541c9ff73663d4c67517a72df21c",
+      "transcript_measurement_boundary": "The second final targeted wrapper removed the npm notice but retained one additional space in each Vitest Start and Duration replacement. This 388-byte measurement does not conform to canonical_gate_transcript_v2 and is not used as Gate evidence."
+    },
+    {
+      "attempt_id": "mb2-dispatcher-remediation5-final-targeted-001",
+      "command": "npm.cmd test -- tests/broker-capture-dispatcher.test.ts tests/broker-capture-route.test.ts tests/multibroker-core-contracts.test.ts tests/mexc-capture-runtime.test.ts",
+      "started_at_utc": "2026-08-20T19:55:48.0566338Z",
+      "ended_at_utc": "2026-08-20T19:59:30.4662353Z",
+      "exit_code": 0,
+      "result": "pass",
+      "result_counts": { "test_files_passed": 4, "test_files_total": 4, "tests_passed": 92, "tests_total": 92 },
+      "output_transcript_policy": "canonical_gate_transcript_v2",
+      "stdout_stderr_utf8_bytes": 386,
+      "stdout_stderr_sha256": "8ecda1e963357d93d72669b536ccab8f2ad42edee729a713514957d67a4477f1"
+    },
+    {
+      "attempt_id": "mb2-dispatcher-remediation5-final-typecheck-001",
+      "command": "npm.cmd run typecheck",
+      "started_at_utc": "2026-08-20T19:59:41.1945892Z",
+      "ended_at_utc": "2026-08-20T19:59:45.0310227Z",
+      "exit_code": 0,
+      "result": "pass",
+      "output_transcript_policy": "canonical_gate_transcript_v2",
+      "stdout_stderr_utf8_bytes": 63,
+      "stdout_stderr_sha256": "8fdcec4087966dd38af8fcd84fa03e08088dd4b0a599f1f3d5dc87a931ea9e17"
+    },
+    {
+      "attempt_id": "mb2-dispatcher-remediation5-final-full-001",
+      "command": "npm.cmd test",
+      "started_at_utc": "2026-08-20T19:59:55.3781941Z",
+      "ended_at_utc": "2026-08-20T20:03:44.3364268Z",
+      "exit_code": 0,
+      "result": "pass",
+      "result_counts": { "test_files_passed": 27, "test_files_total": 27, "tests_passed": 480, "tests_total": 480 },
+      "output_transcript_policy": "canonical_gate_transcript_v2",
+      "stdout_stderr_utf8_bytes": 239,
+      "stdout_stderr_sha256": "ccf508d7079892d1cd04ed18bbd4474092d3c2d16ae1424dfb209bd7ee6d2bf8"
+    },
+    {
+      "attempt_id": "mb2-dispatcher-remediation5-final-release-001",
+      "command": "npm.cmd run release:check",
+      "started_at_utc": "2026-08-20T20:03:53.4070056Z",
+      "ended_at_utc": "2026-08-20T20:03:54.3982909Z",
+      "exit_code": 0,
+      "result": "pass",
+      "output_transcript_policy": "canonical_gate_transcript_v2",
+      "stdout_stderr_utf8_bytes": 149,
+      "stdout_stderr_sha256": "bd84e5259443e96ebff13807ed3ce463e1c86252d9167fdbd9850a86d911969a"
+    },
+    {
+      "attempt_id": "mb2-dispatcher-remediation5-final-build-001",
+      "command": "npm.cmd run build",
+      "started_at_utc": "2026-08-20T20:04:05.6899954Z",
+      "ended_at_utc": "2026-08-20T20:04:36.0952741Z",
+      "exit_code": 0,
+      "result": "pass",
+      "result_counts": { "static_pages_generated": 3, "static_pages_total": 3 },
+      "output_transcript_policy": "canonical_gate_transcript_v2",
+      "stdout_stderr_utf8_bytes": 2183,
+      "stdout_stderr_sha256": "70dc6e49ebfb502b8ce8e8f0fcd3895ec30dab464d4f43a1fc49e0636bf3825c"
+    },
+    {
+      "attempt_id": "mb2-dispatcher-remediation5-final-manifest-001",
+      "command": "node scripts/validate-multibroker-parity-manifest.mjs --allow-pending-manifest-attempt",
+      "started_at_utc": "2026-08-20T20:08:10.5514874Z",
+      "ended_at_utc": "2026-08-20T20:08:10.7170848Z",
+      "exit_code": 0,
+      "result": "pass_bootstrap_before_append_only_evidence_rehash",
+      "result_counts": { "manifest_entries_passed": 39, "manifest_entries_total": 39 },
+      "output_transcript_policy": "canonical_gate_transcript_v2",
+      "stdout_stderr_utf8_bytes": 91,
+      "stdout_stderr_sha256": "ed70e94f2b24fbdee05703a0c9dfb76dda5139b0259d6b693cfa77d6e551095a",
+      "rehash_contract": "This append-only attempt binds the pre-attempt 39/39 fifth-remediation final bootstrap under the one-current-attempt exception. generated_at_utc equals this attempt end, the Manifest Evidence entry is rebound afterward, and terminal no-exception validation is deliberately a separate local observation rather than recursively embedded Evidence."
     }
   ],
   "remediation_development_observations": [
@@ -6391,6 +7928,529 @@
       "findings": [],
       "finding_summary": "The lossless chronology, financial grains, Capture/Probe separation, query/page/checkpoint provenance and downstream non-authorities passed without A5 findings.",
       "remediation_status": "passed_on_sixth_remediation_snapshot"
+    },
+    {
+      "review": "A3",
+      "snapshot": "mb1_seventh_remediation_fourteen_path_unstaged_snapshot",
+      "status": "pass",
+      "counts": {
+        "P0": 0,
+        "P1": 0,
+        "P2": 0,
+        "P3": 0
+      },
+      "findings": [],
+      "finding_summary": "The final MB1 Remediation-7 Git scope, append-only Evidence, exact Gate pins, 100-nanosecond chronology and 35/35 Manifest closure passed without A3 findings.",
+      "snapshot_binding": {
+        "binding_kind": "immutable_git_commit_plus_evidence_and_manifest_sha256",
+        "commit": "2467959d57ebdc29d63eb8fc691a6d6683070c93",
+        "tree": "1e9a8bbb5a13b4d32af7650f2366ccea3841a6de",
+        "evidence_sha256": "16ccb4d8de6524d69bbe61d8dca24a119d4f9b153396f2b50b8feb727fd3d62d",
+        "manifest_sha256": "96fea1277edaa5365c7b3ed670f3c368e43be84a5190d24f6a9d1f1946276d2d"
+      },
+      "gate_conclusion": "A3 passed the final MB1 Remediation-7 snapshot; common closure still required the matching A4 and A5 votes.",
+      "remediation_status": "passed_on_seventh_remediation_snapshot"
+    },
+    {
+      "review": "A4",
+      "snapshot": "mb1_seventh_remediation_fourteen_path_unstaged_snapshot",
+      "status": "pass",
+      "counts": {
+        "P0": 0,
+        "P1": 0,
+        "P2": 0,
+        "P3": 0
+      },
+      "findings": [],
+      "finding_summary": "The full current Authority Tuple was independently re-read, rehashed and atomically consumed at the transport fence; generation and epoch drift, replay, TOCTOU and credential zeroization checks passed without A4 findings.",
+      "snapshot_binding": {
+        "binding_kind": "immutable_git_commit_plus_evidence_and_manifest_sha256",
+        "commit": "2467959d57ebdc29d63eb8fc691a6d6683070c93",
+        "tree": "1e9a8bbb5a13b4d32af7650f2366ccea3841a6de",
+        "evidence_sha256": "16ccb4d8de6524d69bbe61d8dca24a119d4f9b153396f2b50b8feb727fd3d62d",
+        "manifest_sha256": "96fea1277edaa5365c7b3ed670f3c368e43be84a5190d24f6a9d1f1946276d2d"
+      },
+      "gate_conclusion": "A4 passed the final MB1 Remediation-7 snapshot; common closure still required the matching A3 and A5 votes.",
+      "remediation_status": "passed_on_seventh_remediation_snapshot"
+    },
+    {
+      "review": "A5",
+      "snapshot": "mb1_seventh_remediation_fourteen_path_unstaged_snapshot",
+      "status": "pass",
+      "counts": {
+        "P0": 0,
+        "P1": 0,
+        "P2": 0,
+        "P3": 0
+      },
+      "findings": [],
+      "finding_summary": "Financial grains, Capture and Probe separation, complete Authority Tuple drift handling, query/page/checkpoint provenance and downstream non-authorities passed without A5 findings.",
+      "snapshot_binding": {
+        "binding_kind": "immutable_git_commit_plus_evidence_and_manifest_sha256",
+        "commit": "2467959d57ebdc29d63eb8fc691a6d6683070c93",
+        "tree": "1e9a8bbb5a13b4d32af7650f2366ccea3841a6de",
+        "evidence_sha256": "16ccb4d8de6524d69bbe61d8dca24a119d4f9b153396f2b50b8feb727fd3d62d",
+        "manifest_sha256": "96fea1277edaa5365c7b3ed670f3c368e43be84a5190d24f6a9d1f1946276d2d"
+      },
+      "gate_conclusion": "A5 passed the final MB1 Remediation-7 snapshot; matching A3/A4/A5 PASS votes closed MB1 before PR 5.",
+      "remediation_status": "passed_and_integrated_via_pr5"
+    },
+    {
+      "review": "A3",
+      "snapshot": "mb2_initial_nine_path_unstaged_snapshot",
+      "status": "pass",
+      "counts": {
+        "P0": 0,
+        "P1": 0,
+        "P2": 0,
+        "P3": 0
+      },
+      "findings": [],
+      "finding_summary": "The initial MB2 nine-path scope, append-only Evidence, exact Gate pins, chronology and 39/39 Manifest closure passed without A3 findings.",
+      "snapshot_binding": {
+        "binding_kind": "canonical_utf8_lf_sha256_path_set",
+        "base_commit": "76328faac45d221cdbf978eacd10bf518e18a4cb",
+        "canonical_sha256": {
+          "app/api/internal/broker-capture/route.ts": "bbb96ed73a856c3c0b9ea55128f818b1b011c6bcd0b2126173db132f83771660",
+          "docs/gates/EQUORA_v57.61.0_MULTI_BROKER_PARITY_EVIDENCE.json": "8fac09c8b4b1aacad476ec5374e98c7e495d38fc8e0c15e11c57a2688eb4a9bd",
+          "docs/gates/EQUORA_v57.61.0_MULTI_BROKER_PARITY_MANIFEST.sha256": "5375a99649e9beb5872cc9301e32ca1de58bd3e19f19538c4de8263fdfa230f0",
+          "scripts/validate-multibroker-parity-manifest.mjs": "06ccd9d9afec31e12cf6cd2260d60ac0a2cc22309fb28487da57d7ef984e6fe4",
+          "tests/broker-capture-route.test.ts": "ab70e11834f76d092b150fbb25b85a87b0478af72f8ddab2b7c6dcd978790e5c",
+          "tests/multibroker-core-contracts.test.ts": "10255056ad5da57565bd6df1e576b0bb11af8ed5bfc76fd36e71c92da7e2e0f0",
+          "lib/server/broker-capture-dispatcher.ts": "e5ede3e8165ea13bea830e06c336afc5fb6dac422e962ad2fb75e9bbf2cb2b66",
+          "lib/server/broker-capture-runtime.ts": "9cf6bfda0431629d1f251ac36345e86b665fede5f0b0a81e6f6284ea81fecef1",
+          "tests/broker-capture-dispatcher.test.ts": "483e72b0a02fcf6b9eef97c09014ce22e508f8459378b51d23b1fe9025b56853"
+        }
+      },
+      "gate_conclusion": "A3 passed the initial MB2 snapshot; A4 and A5 findings kept MB2 and Staging closed.",
+      "remediation_status": "first_mb2_remediation_required"
+    },
+    {
+      "review": "A4",
+      "snapshot": "mb2_initial_nine_path_unstaged_snapshot",
+      "status": "no_pass",
+      "counts": {
+        "P0": 0,
+        "P1": 0,
+        "P2": 3,
+        "P3": 1
+      },
+      "findings": [
+        "A4-MB2-001",
+        "A4-MB2-002",
+        "A4-MB2-003",
+        "A4-MB2-004"
+      ],
+      "finding_summary": "Caller-owned registry Array methods bypassed closure, provider-result accessors enabled TOCTOU, provider selection lacked effect-boundary authority revalidation and the MEXC runtime-behavior claim was too strong.",
+      "snapshot_binding": {
+        "binding_kind": "canonical_utf8_lf_sha256_path_set",
+        "base_commit": "76328faac45d221cdbf978eacd10bf518e18a4cb",
+        "canonical_sha256": {
+          "app/api/internal/broker-capture/route.ts": "bbb96ed73a856c3c0b9ea55128f818b1b011c6bcd0b2126173db132f83771660",
+          "docs/gates/EQUORA_v57.61.0_MULTI_BROKER_PARITY_EVIDENCE.json": "8fac09c8b4b1aacad476ec5374e98c7e495d38fc8e0c15e11c57a2688eb4a9bd",
+          "docs/gates/EQUORA_v57.61.0_MULTI_BROKER_PARITY_MANIFEST.sha256": "5375a99649e9beb5872cc9301e32ca1de58bd3e19f19538c4de8263fdfa230f0",
+          "scripts/validate-multibroker-parity-manifest.mjs": "06ccd9d9afec31e12cf6cd2260d60ac0a2cc22309fb28487da57d7ef984e6fe4",
+          "tests/broker-capture-route.test.ts": "ab70e11834f76d092b150fbb25b85a87b0478af72f8ddab2b7c6dcd978790e5c",
+          "tests/multibroker-core-contracts.test.ts": "10255056ad5da57565bd6df1e576b0bb11af8ed5bfc76fd36e71c92da7e2e0f0",
+          "lib/server/broker-capture-dispatcher.ts": "e5ede3e8165ea13bea830e06c336afc5fb6dac422e962ad2fb75e9bbf2cb2b66",
+          "lib/server/broker-capture-runtime.ts": "9cf6bfda0431629d1f251ac36345e86b665fede5f0b0a81e6f6284ea81fecef1",
+          "tests/broker-capture-dispatcher.test.ts": "483e72b0a02fcf6b9eef97c09014ce22e508f8459378b51d23b1fe9025b56853"
+        }
+      },
+      "gate_conclusion": "A4 NO-PASS blocked MB2 and Staging.",
+      "remediation_status": "first_mb2_remediation_required"
+    },
+    {
+      "review": "A5",
+      "snapshot": "mb2_initial_nine_path_unstaged_snapshot",
+      "status": "no_pass",
+      "counts": {
+        "P0": 0,
+        "P1": 0,
+        "P2": 2,
+        "P3": 1
+      },
+      "findings": [
+        "A5-MB2-001",
+        "A5-MB2-002",
+        "A5-MB2-003"
+      ],
+      "finding_summary": "Lowercase MEXC failure codes were rejected, provider-result status invariants were incomplete and the corresponding parity claims were too strong.",
+      "snapshot_binding": {
+        "binding_kind": "canonical_utf8_lf_sha256_path_set",
+        "base_commit": "76328faac45d221cdbf978eacd10bf518e18a4cb",
+        "canonical_sha256": {
+          "app/api/internal/broker-capture/route.ts": "bbb96ed73a856c3c0b9ea55128f818b1b011c6bcd0b2126173db132f83771660",
+          "docs/gates/EQUORA_v57.61.0_MULTI_BROKER_PARITY_EVIDENCE.json": "8fac09c8b4b1aacad476ec5374e98c7e495d38fc8e0c15e11c57a2688eb4a9bd",
+          "docs/gates/EQUORA_v57.61.0_MULTI_BROKER_PARITY_MANIFEST.sha256": "5375a99649e9beb5872cc9301e32ca1de58bd3e19f19538c4de8263fdfa230f0",
+          "scripts/validate-multibroker-parity-manifest.mjs": "06ccd9d9afec31e12cf6cd2260d60ac0a2cc22309fb28487da57d7ef984e6fe4",
+          "tests/broker-capture-route.test.ts": "ab70e11834f76d092b150fbb25b85a87b0478af72f8ddab2b7c6dcd978790e5c",
+          "tests/multibroker-core-contracts.test.ts": "10255056ad5da57565bd6df1e576b0bb11af8ed5bfc76fd36e71c92da7e2e0f0",
+          "lib/server/broker-capture-dispatcher.ts": "e5ede3e8165ea13bea830e06c336afc5fb6dac422e962ad2fb75e9bbf2cb2b66",
+          "lib/server/broker-capture-runtime.ts": "9cf6bfda0431629d1f251ac36345e86b665fede5f0b0a81e6f6284ea81fecef1",
+          "tests/broker-capture-dispatcher.test.ts": "483e72b0a02fcf6b9eef97c09014ce22e508f8459378b51d23b1fe9025b56853"
+        }
+      },
+      "gate_conclusion": "A5 NO-PASS blocked MB2 and Staging.",
+      "remediation_status": "first_mb2_remediation_required"
+    },
+    {
+      "review": "A3",
+      "snapshot": "mb2_first_remediation_nine_path_unstaged_snapshot",
+      "status": "no_pass",
+      "counts": {
+        "P0": 0,
+        "P1": 0,
+        "P2": 1,
+        "P3": 0
+      },
+      "findings": [
+        "A3-MB2-R1-001"
+      ],
+      "finding_summary": "The local Gates and 39/39 Manifest closure were consistent, but the hash-bound independent-review history omitted the final MB1 Remediation-7 closure and the initial MB2 A3/A4/A5 records.",
+      "snapshot_binding": {
+        "binding_kind": "canonical_utf8_lf_sha256_path_set",
+        "base_commit": "76328faac45d221cdbf978eacd10bf518e18a4cb",
+        "canonical_sha256": {
+          "app/api/internal/broker-capture/route.ts": "bbb96ed73a856c3c0b9ea55128f818b1b011c6bcd0b2126173db132f83771660",
+          "docs/gates/EQUORA_v57.61.0_MULTI_BROKER_PARITY_EVIDENCE.json": "8abd6d4703d1cd6f598b54bb937668f961fd9e7733edf0111fbb6f91df27b986",
+          "docs/gates/EQUORA_v57.61.0_MULTI_BROKER_PARITY_MANIFEST.sha256": "81a429cae728b4a6f0a198292c229f7d44fc2299a372a36b4c9b6775a1d2c9c3",
+          "scripts/validate-multibroker-parity-manifest.mjs": "3c90a69b255496854233abae72230b027845ef3fbae67d7ce23be66ce0261328",
+          "tests/broker-capture-route.test.ts": "1833a906260dfec7fec816d585d3d4f77db8975c87c6575c020877e69ff61764",
+          "tests/multibroker-core-contracts.test.ts": "fc68eb84b75bf455d7e280cfc45ea248a4a2cf2040040982fa4f749af5ff92b8",
+          "lib/server/broker-capture-dispatcher.ts": "a4d3a4086c6bd43d3b8ebc2b78fc588623f7629391b809836be28fa5d8a72282",
+          "lib/server/broker-capture-runtime.ts": "6b6a6744a0300d1aa21427c12228ef752ae6784b0312a424b8db237f59e584fd",
+          "tests/broker-capture-dispatcher.test.ts": "863fa3b0be217441ac5274187777262511218549945c0070f60b12d4a2638da6"
+        }
+      },
+      "gate_conclusion": "A3 NO-PASS blocked MB2 and Staging pending additive review-history closure.",
+      "remediation_status": "second_mb2_remediation_in_progress_pending_new_hash_bound_rereview"
+    },
+    {
+      "review": "A4",
+      "snapshot": "mb2_first_remediation_nine_path_unstaged_snapshot",
+      "status": "no_pass_with_non_blocking_p3",
+      "counts": {
+        "P0": 0,
+        "P1": 0,
+        "P2": 1,
+        "P3": 1
+      },
+      "findings": [
+        "A4-MB2-R1-001",
+        "A4-MB2-R1-002"
+      ],
+      "finding_summary": "Registry and result closure passed, but the internal dispatch token ended before the actual provider effect boundary and categorical pseudo-generations did not close ABA or readiness-preserving configuration and credential drift; the Evidence overclaimed full generation-bound closure.",
+      "snapshot_binding": {
+        "binding_kind": "canonical_utf8_lf_sha256_path_set",
+        "base_commit": "76328faac45d221cdbf978eacd10bf518e18a4cb",
+        "canonical_sha256": {
+          "app/api/internal/broker-capture/route.ts": "bbb96ed73a856c3c0b9ea55128f818b1b011c6bcd0b2126173db132f83771660",
+          "docs/gates/EQUORA_v57.61.0_MULTI_BROKER_PARITY_EVIDENCE.json": "8abd6d4703d1cd6f598b54bb937668f961fd9e7733edf0111fbb6f91df27b986",
+          "docs/gates/EQUORA_v57.61.0_MULTI_BROKER_PARITY_MANIFEST.sha256": "81a429cae728b4a6f0a198292c229f7d44fc2299a372a36b4c9b6775a1d2c9c3",
+          "scripts/validate-multibroker-parity-manifest.mjs": "3c90a69b255496854233abae72230b027845ef3fbae67d7ce23be66ce0261328",
+          "tests/broker-capture-route.test.ts": "1833a906260dfec7fec816d585d3d4f77db8975c87c6575c020877e69ff61764",
+          "tests/multibroker-core-contracts.test.ts": "fc68eb84b75bf455d7e280cfc45ea248a4a2cf2040040982fa4f749af5ff92b8",
+          "lib/server/broker-capture-dispatcher.ts": "a4d3a4086c6bd43d3b8ebc2b78fc588623f7629391b809836be28fa5d8a72282",
+          "lib/server/broker-capture-runtime.ts": "6b6a6744a0300d1aa21427c12228ef752ae6784b0312a424b8db237f59e584fd",
+          "tests/broker-capture-dispatcher.test.ts": "863fa3b0be217441ac5274187777262511218549945c0070f60b12d4a2638da6"
+        }
+      },
+      "gate_conclusion": "A4 NO-PASS blocked MB2 and Staging pending effect-boundary authority closure.",
+      "remediation_status": "second_mb2_remediation_in_progress_pending_new_hash_bound_rereview"
+    },
+    {
+      "review": "A5",
+      "snapshot": "mb2_first_remediation_nine_path_unstaged_snapshot",
+      "status": "pass_with_non_blocking_p3",
+      "counts": {
+        "P0": 0,
+        "P1": 0,
+        "P2": 0,
+        "P3": 1
+      },
+      "findings": [
+        "A5-MB2-R1-001"
+      ],
+      "finding_summary": "All initial A5 findings were closed; the remaining non-blocking P3 requested a test of the actual fixed MEXC composition root and complete registered failure-code set.",
+      "snapshot_binding": {
+        "binding_kind": "canonical_utf8_lf_sha256_path_set",
+        "base_commit": "76328faac45d221cdbf978eacd10bf518e18a4cb",
+        "canonical_sha256": {
+          "app/api/internal/broker-capture/route.ts": "bbb96ed73a856c3c0b9ea55128f818b1b011c6bcd0b2126173db132f83771660",
+          "docs/gates/EQUORA_v57.61.0_MULTI_BROKER_PARITY_EVIDENCE.json": "8abd6d4703d1cd6f598b54bb937668f961fd9e7733edf0111fbb6f91df27b986",
+          "docs/gates/EQUORA_v57.61.0_MULTI_BROKER_PARITY_MANIFEST.sha256": "81a429cae728b4a6f0a198292c229f7d44fc2299a372a36b4c9b6775a1d2c9c3",
+          "scripts/validate-multibroker-parity-manifest.mjs": "3c90a69b255496854233abae72230b027845ef3fbae67d7ce23be66ce0261328",
+          "tests/broker-capture-route.test.ts": "1833a906260dfec7fec816d585d3d4f77db8975c87c6575c020877e69ff61764",
+          "tests/multibroker-core-contracts.test.ts": "fc68eb84b75bf455d7e280cfc45ea248a4a2cf2040040982fa4f749af5ff92b8",
+          "lib/server/broker-capture-dispatcher.ts": "a4d3a4086c6bd43d3b8ebc2b78fc588623f7629391b809836be28fa5d8a72282",
+          "lib/server/broker-capture-runtime.ts": "6b6a6744a0300d1aa21427c12228ef752ae6784b0312a424b8db237f59e584fd",
+          "tests/broker-capture-dispatcher.test.ts": "863fa3b0be217441ac5274187777262511218549945c0070f60b12d4a2638da6"
+        }
+      },
+      "gate_conclusion": "A5 passed without P0-P2, but common A3/A4/A5 closure and Staging remained blocked.",
+      "remediation_status": "second_mb2_remediation_in_progress_pending_new_hash_bound_rereview"
+    },
+    {
+      "review": "A3",
+      "snapshot": "mb2_second_remediation_nine_path_unstaged_snapshot",
+      "status": "pass",
+      "counts": {
+        "P0": 0,
+        "P1": 0,
+        "P2": 0,
+        "P3": 0
+      },
+      "findings": [],
+      "finding_summary": "Scope, append-only Evidence, complete review-history pins, attempt chronology, exact Gate pins and 39/39 Manifest closure passed without A3 findings.",
+      "snapshot_binding": {
+        "binding_kind": "canonical_utf8_lf_sha256_path_set",
+        "base_commit": "76328faac45d221cdbf978eacd10bf518e18a4cb",
+        "canonical_sha256": {
+          "app/api/internal/broker-capture/route.ts": "bbb96ed73a856c3c0b9ea55128f818b1b011c6bcd0b2126173db132f83771660",
+          "docs/gates/EQUORA_v57.61.0_MULTI_BROKER_PARITY_EVIDENCE.json": "bfd9e65f7a4bf2936ffc03b1b0f509cb91c92f3a15d94865466f386d740b4193",
+          "docs/gates/EQUORA_v57.61.0_MULTI_BROKER_PARITY_MANIFEST.sha256": "1d10475fc91f59bf46d7999327de8cd64a5f55b146233aac54790e656ed98c3d",
+          "scripts/validate-multibroker-parity-manifest.mjs": "a3b045af1c7e426a3a118bdfeb5ebba2dc7a682177d085453fdd6659483eec6d",
+          "tests/broker-capture-route.test.ts": "31d349208d0f830748f69397e00ddc02d78749fee0ac106b47b4d4faa05ae977",
+          "tests/multibroker-core-contracts.test.ts": "ff8df7fc11776414b1df6a226a6fe0d1e25c558974e23e57d1bcffb6c45000ac",
+          "lib/server/broker-capture-dispatcher.ts": "acd15c49ab73fc476c611c4e18113269289d5f9bb0660a618bddbc6b78c955e6",
+          "lib/server/broker-capture-runtime.ts": "619344941c111b472e609560e938d913f462ca5f623022669725d4901064bc33",
+          "tests/broker-capture-dispatcher.test.ts": "c77b37078b0ef18a2e0978f2706f18618c338b50cfe1f85579a2b521ae0e4d7c"
+        }
+      },
+      "gate_conclusion": "A3 passed the second-remediation snapshot; A4 NO-PASS kept MB2 and Staging closed.",
+      "remediation_status": "third_mb2_remediation_in_progress_pending_new_hash_bound_rereview"
+    },
+    {
+      "review": "A4",
+      "snapshot": "mb2_second_remediation_nine_path_unstaged_snapshot",
+      "status": "no_pass_with_non_blocking_p3",
+      "counts": {
+        "P0": 0,
+        "P1": 0,
+        "P2": 1,
+        "P3": 1
+      },
+      "findings": [
+        "A4-MB2-R2-001",
+        "A4-MB2-R2-002"
+      ],
+      "finding_summary": "The real MEXC effect boundary and authority revalidation passed, but a failed or omitted Effect Authority consumption did not terminally revoke the capability; a retained authority could retry after a later ABA. Single-use claims were therefore too broad.",
+      "snapshot_binding": {
+        "binding_kind": "canonical_utf8_lf_sha256_path_set",
+        "base_commit": "76328faac45d221cdbf978eacd10bf518e18a4cb",
+        "canonical_sha256": {
+          "app/api/internal/broker-capture/route.ts": "bbb96ed73a856c3c0b9ea55128f818b1b011c6bcd0b2126173db132f83771660",
+          "docs/gates/EQUORA_v57.61.0_MULTI_BROKER_PARITY_EVIDENCE.json": "bfd9e65f7a4bf2936ffc03b1b0f509cb91c92f3a15d94865466f386d740b4193",
+          "docs/gates/EQUORA_v57.61.0_MULTI_BROKER_PARITY_MANIFEST.sha256": "1d10475fc91f59bf46d7999327de8cd64a5f55b146233aac54790e656ed98c3d",
+          "scripts/validate-multibroker-parity-manifest.mjs": "a3b045af1c7e426a3a118bdfeb5ebba2dc7a682177d085453fdd6659483eec6d",
+          "tests/broker-capture-route.test.ts": "31d349208d0f830748f69397e00ddc02d78749fee0ac106b47b4d4faa05ae977",
+          "tests/multibroker-core-contracts.test.ts": "ff8df7fc11776414b1df6a226a6fe0d1e25c558974e23e57d1bcffb6c45000ac",
+          "lib/server/broker-capture-dispatcher.ts": "acd15c49ab73fc476c611c4e18113269289d5f9bb0660a618bddbc6b78c955e6",
+          "lib/server/broker-capture-runtime.ts": "619344941c111b472e609560e938d913f462ca5f623022669725d4901064bc33",
+          "tests/broker-capture-dispatcher.test.ts": "c77b37078b0ef18a2e0978f2706f18618c338b50cfe1f85579a2b521ae0e4d7c"
+        }
+      },
+      "gate_conclusion": "A4 NO-PASS blocked MB2 and Staging pending terminal Effect Authority revocation and promise coupling.",
+      "remediation_status": "third_mb2_remediation_in_progress_pending_new_hash_bound_rereview"
+    },
+    {
+      "review": "A5",
+      "snapshot": "mb2_second_remediation_nine_path_unstaged_snapshot",
+      "status": "pass",
+      "counts": {
+        "P0": 0,
+        "P1": 0,
+        "P2": 0,
+        "P3": 0
+      },
+      "findings": [],
+      "finding_summary": "Failure-code parity, closed provider-result semantics, fixed MEXC composition, financial grains and downstream non-authorities passed without A5 findings.",
+      "snapshot_binding": {
+        "binding_kind": "canonical_utf8_lf_sha256_path_set",
+        "base_commit": "76328faac45d221cdbf978eacd10bf518e18a4cb",
+        "canonical_sha256": {
+          "app/api/internal/broker-capture/route.ts": "bbb96ed73a856c3c0b9ea55128f818b1b011c6bcd0b2126173db132f83771660",
+          "docs/gates/EQUORA_v57.61.0_MULTI_BROKER_PARITY_EVIDENCE.json": "bfd9e65f7a4bf2936ffc03b1b0f509cb91c92f3a15d94865466f386d740b4193",
+          "docs/gates/EQUORA_v57.61.0_MULTI_BROKER_PARITY_MANIFEST.sha256": "1d10475fc91f59bf46d7999327de8cd64a5f55b146233aac54790e656ed98c3d",
+          "scripts/validate-multibroker-parity-manifest.mjs": "a3b045af1c7e426a3a118bdfeb5ebba2dc7a682177d085453fdd6659483eec6d",
+          "tests/broker-capture-route.test.ts": "31d349208d0f830748f69397e00ddc02d78749fee0ac106b47b4d4faa05ae977",
+          "tests/multibroker-core-contracts.test.ts": "ff8df7fc11776414b1df6a226a6fe0d1e25c558974e23e57d1bcffb6c45000ac",
+          "lib/server/broker-capture-dispatcher.ts": "acd15c49ab73fc476c611c4e18113269289d5f9bb0660a618bddbc6b78c955e6",
+          "lib/server/broker-capture-runtime.ts": "619344941c111b472e609560e938d913f462ca5f623022669725d4901064bc33",
+          "tests/broker-capture-dispatcher.test.ts": "c77b37078b0ef18a2e0978f2706f18618c338b50cfe1f85579a2b521ae0e4d7c"
+        }
+      },
+      "gate_conclusion": "A5 passed, but A4 NO-PASS kept common closure and Staging blocked.",
+      "remediation_status": "third_mb2_remediation_in_progress_pending_new_hash_bound_rereview"
+    },
+    {
+      "review": "A3",
+      "snapshot": "mb2_third_remediation_nine_path_unstaged_snapshot",
+      "status": "pass",
+      "counts": {
+        "P0": 0,
+        "P1": 0,
+        "P2": 0,
+        "P3": 0
+      },
+      "findings": [],
+      "finding_summary": "Scope, append-only Evidence, Remediation-2 review closure, chronology, exact Gate pins, bootstrap boundary and 39/39 Manifest closure passed without A3 findings.",
+      "snapshot_binding": {
+        "binding_kind": "canonical_utf8_lf_sha256_path_set",
+        "base_commit": "76328faac45d221cdbf978eacd10bf518e18a4cb",
+        "canonical_sha256": {
+          "app/api/internal/broker-capture/route.ts": "bbb96ed73a856c3c0b9ea55128f818b1b011c6bcd0b2126173db132f83771660",
+          "docs/gates/EQUORA_v57.61.0_MULTI_BROKER_PARITY_EVIDENCE.json": "f81f49ca6bd1048f96d1df32bdf483256e325029818e634cefaddaa1abbe4117",
+          "docs/gates/EQUORA_v57.61.0_MULTI_BROKER_PARITY_MANIFEST.sha256": "3b69e0e031c70ab5bd64b89ac4880dec90aeccefa529db9e309faa84b318cc22",
+          "scripts/validate-multibroker-parity-manifest.mjs": "b9ab1cc1e9302b2d44642ffafbbc10832953f5833a41d69447002c1c98d822e6",
+          "tests/broker-capture-route.test.ts": "ec0dc2e3b84108cd551d9150062c994f2be3a95567aa239a72c502bbf61944bc",
+          "tests/multibroker-core-contracts.test.ts": "ad2094121e6e7bef6bd45cacd52a465edcce3364747e48f69f468bea0456ae15",
+          "lib/server/broker-capture-dispatcher.ts": "275d0f5ad6e44c4610d0af1be39d8a9c4ab01f48759f9e38009a049b85efe4c3",
+          "lib/server/broker-capture-runtime.ts": "619344941c111b472e609560e938d913f462ca5f623022669725d4901064bc33",
+          "tests/broker-capture-dispatcher.test.ts": "fa47d1dc643a8f8d35918c53b7bee259f944aa2beef5e496ef726e2821579724"
+        }
+      },
+      "gate_conclusion": "A3 passed the third-remediation snapshot; A4 NO-PASS kept MB2 and Staging closed.",
+      "remediation_status": "fourth_mb2_remediation_in_progress_pending_new_hash_bound_rereview"
+    },
+    {
+      "review": "A4",
+      "snapshot": "mb2_third_remediation_nine_path_unstaged_snapshot",
+      "status": "no_pass_with_non_blocking_p3",
+      "counts": {
+        "P0": 0,
+        "P1": 0,
+        "P2": 1,
+        "P3": 1
+      },
+      "findings": [
+        "A4-MB2-R3-001",
+        "A4-MB2-R3-002"
+      ],
+      "finding_summary": "Terminal Authority revocation and Promise identity coupling passed, but detached mismatch observed only the returned provider Promise and could leave a rejecting authorized effect Promise unhandled; exact native Promise wording was also stronger than the implementation.",
+      "snapshot_binding": {
+        "binding_kind": "canonical_utf8_lf_sha256_path_set",
+        "base_commit": "76328faac45d221cdbf978eacd10bf518e18a4cb",
+        "canonical_sha256": {
+          "app/api/internal/broker-capture/route.ts": "bbb96ed73a856c3c0b9ea55128f818b1b011c6bcd0b2126173db132f83771660",
+          "docs/gates/EQUORA_v57.61.0_MULTI_BROKER_PARITY_EVIDENCE.json": "f81f49ca6bd1048f96d1df32bdf483256e325029818e634cefaddaa1abbe4117",
+          "docs/gates/EQUORA_v57.61.0_MULTI_BROKER_PARITY_MANIFEST.sha256": "3b69e0e031c70ab5bd64b89ac4880dec90aeccefa529db9e309faa84b318cc22",
+          "scripts/validate-multibroker-parity-manifest.mjs": "b9ab1cc1e9302b2d44642ffafbbc10832953f5833a41d69447002c1c98d822e6",
+          "tests/broker-capture-route.test.ts": "ec0dc2e3b84108cd551d9150062c994f2be3a95567aa239a72c502bbf61944bc",
+          "tests/multibroker-core-contracts.test.ts": "ad2094121e6e7bef6bd45cacd52a465edcce3364747e48f69f468bea0456ae15",
+          "lib/server/broker-capture-dispatcher.ts": "275d0f5ad6e44c4610d0af1be39d8a9c4ab01f48759f9e38009a049b85efe4c3",
+          "lib/server/broker-capture-runtime.ts": "619344941c111b472e609560e938d913f462ca5f623022669725d4901064bc33",
+          "tests/broker-capture-dispatcher.test.ts": "fa47d1dc643a8f8d35918c53b7bee259f944aa2beef5e496ef726e2821579724"
+        }
+      },
+      "gate_conclusion": "A4 NO-PASS blocked MB2 and Staging pending intrinsic observation of both mismatched Promises and precise Promise-identity claims.",
+      "remediation_status": "fourth_mb2_remediation_in_progress_pending_new_hash_bound_rereview"
+    },
+    {
+      "review": "A5",
+      "snapshot": "mb2_third_remediation_nine_path_unstaged_snapshot",
+      "status": "pass",
+      "counts": {
+        "P0": 0,
+        "P1": 0,
+        "P2": 0,
+        "P3": 0
+      },
+      "findings": [],
+      "finding_summary": "Failure-code and status parity, fixed MEXC composition, financial grains, terminal Authority states, Promise coupling and downstream non-authorities passed without A5 findings.",
+      "snapshot_binding": {
+        "binding_kind": "canonical_utf8_lf_sha256_path_set",
+        "base_commit": "76328faac45d221cdbf978eacd10bf518e18a4cb",
+        "canonical_sha256": {
+          "app/api/internal/broker-capture/route.ts": "bbb96ed73a856c3c0b9ea55128f818b1b011c6bcd0b2126173db132f83771660",
+          "docs/gates/EQUORA_v57.61.0_MULTI_BROKER_PARITY_EVIDENCE.json": "f81f49ca6bd1048f96d1df32bdf483256e325029818e634cefaddaa1abbe4117",
+          "docs/gates/EQUORA_v57.61.0_MULTI_BROKER_PARITY_MANIFEST.sha256": "3b69e0e031c70ab5bd64b89ac4880dec90aeccefa529db9e309faa84b318cc22",
+          "scripts/validate-multibroker-parity-manifest.mjs": "b9ab1cc1e9302b2d44642ffafbbc10832953f5833a41d69447002c1c98d822e6",
+          "tests/broker-capture-route.test.ts": "ec0dc2e3b84108cd551d9150062c994f2be3a95567aa239a72c502bbf61944bc",
+          "tests/multibroker-core-contracts.test.ts": "ad2094121e6e7bef6bd45cacd52a465edcce3364747e48f69f468bea0456ae15",
+          "lib/server/broker-capture-dispatcher.ts": "275d0f5ad6e44c4610d0af1be39d8a9c4ab01f48759f9e38009a049b85efe4c3",
+          "lib/server/broker-capture-runtime.ts": "619344941c111b472e609560e938d913f462ca5f623022669725d4901064bc33",
+          "tests/broker-capture-dispatcher.test.ts": "fa47d1dc643a8f8d35918c53b7bee259f944aa2beef5e496ef726e2821579724"
+        }
+      },
+      "gate_conclusion": "A5 passed, but A4 NO-PASS kept common closure and Staging blocked.",
+      "remediation_status": "fourth_mb2_remediation_in_progress_pending_new_hash_bound_rereview"
+    },
+    {
+      "review": "A3",
+      "snapshot": "mb2_fourth_remediation_nine_path_unstaged_snapshot",
+      "status": "pass",
+      "counts": { "P0": 0, "P1": 0, "P2": 0, "P3": 0 },
+      "findings": [],
+      "finding_summary": "Append-only history, all fourth-remediation Gate pins, 100-ns chronology, Manifest closure, claims, Git scope and final rehash passed without A3 findings.",
+      "snapshot_binding": {
+        "binding_kind": "canonical_utf8_lf_sha256_path_set",
+        "base_commit": "76328faac45d221cdbf978eacd10bf518e18a4cb",
+        "canonical_sha256": {
+          "app/api/internal/broker-capture/route.ts": "bbb96ed73a856c3c0b9ea55128f818b1b011c6bcd0b2126173db132f83771660",
+          "docs/gates/EQUORA_v57.61.0_MULTI_BROKER_PARITY_EVIDENCE.json": "2b5970df9e829fe35167092eeb6abae0f4e178a011aa6042bc30cdf1720efbad",
+          "docs/gates/EQUORA_v57.61.0_MULTI_BROKER_PARITY_MANIFEST.sha256": "d0a5e629c35f6de016233c8463a001ebdd935557874781cacd8e267a1825e428",
+          "scripts/validate-multibroker-parity-manifest.mjs": "77f7643f25050bd5c0137fc242f259998a39456e2ddc9aa4f63c876d2b59b9ab",
+          "tests/broker-capture-route.test.ts": "bf54a7f566aeae2b68ed352eb5e87c8853a837315fcc99ff273c500a78c89148",
+          "tests/multibroker-core-contracts.test.ts": "3050a0282aff2b9123514aac1f047ec8a0e9b695d8f7686ed78b232137b6fc90",
+          "lib/server/broker-capture-dispatcher.ts": "3ef0fc4cbca16c42dfdd84c9a53064329b107ec9b1ae87b1f36950d532551ba4",
+          "lib/server/broker-capture-runtime.ts": "619344941c111b472e609560e938d913f462ca5f623022669725d4901064bc33",
+          "tests/broker-capture-dispatcher.test.ts": "2503e306bd514b0139317cdcbc5e87ef8e8e49a41b92f046e42a315342a653cb"
+        }
+      },
+      "gate_conclusion": "A3 passed the fourth-remediation snapshot; A4 NO-PASS kept MB2 and Staging closed.",
+      "remediation_status": "fifth_mb2_remediation_in_progress_pending_new_hash_bound_rereview"
+    },
+    {
+      "review": "A4",
+      "snapshot": "mb2_fourth_remediation_nine_path_unstaged_snapshot",
+      "status": "no_pass_with_non_blocking_p3",
+      "counts": { "P0": 0, "P1": 0, "P2": 1, "P3": 1 },
+      "findings": ["A4-MB2-R4-001", "A4-MB2-R4-002"],
+      "finding_summary": "The ordinary same-realm Promise mismatch was observed, but constructor, species, subclass and Proxy shapes could make Promise.prototype.then throw before handler installation; the general two-Promise containment claim was therefore too broad.",
+      "snapshot_binding": {
+        "binding_kind": "canonical_utf8_lf_sha256_path_set",
+        "base_commit": "76328faac45d221cdbf978eacd10bf518e18a4cb",
+        "canonical_sha256": {
+          "app/api/internal/broker-capture/route.ts": "bbb96ed73a856c3c0b9ea55128f818b1b011c6bcd0b2126173db132f83771660",
+          "docs/gates/EQUORA_v57.61.0_MULTI_BROKER_PARITY_EVIDENCE.json": "2b5970df9e829fe35167092eeb6abae0f4e178a011aa6042bc30cdf1720efbad",
+          "docs/gates/EQUORA_v57.61.0_MULTI_BROKER_PARITY_MANIFEST.sha256": "d0a5e629c35f6de016233c8463a001ebdd935557874781cacd8e267a1825e428",
+          "scripts/validate-multibroker-parity-manifest.mjs": "77f7643f25050bd5c0137fc242f259998a39456e2ddc9aa4f63c876d2b59b9ab",
+          "tests/broker-capture-route.test.ts": "bf54a7f566aeae2b68ed352eb5e87c8853a837315fcc99ff273c500a78c89148",
+          "tests/multibroker-core-contracts.test.ts": "3050a0282aff2b9123514aac1f047ec8a0e9b695d8f7686ed78b232137b6fc90",
+          "lib/server/broker-capture-dispatcher.ts": "3ef0fc4cbca16c42dfdd84c9a53064329b107ec9b1ae87b1f36950d532551ba4",
+          "lib/server/broker-capture-runtime.ts": "619344941c111b472e609560e938d913f462ca5f623022669725d4901064bc33",
+          "tests/broker-capture-dispatcher.test.ts": "2503e306bd514b0139317cdcbc5e87ef8e8e49a41b92f046e42a315342a653cb"
+        }
+      },
+      "gate_conclusion": "A4 NO-PASS blocked MB2 and Staging pending a structurally closed ordinary-Promise contract and precise containment claims.",
+      "remediation_status": "fifth_mb2_remediation_in_progress_pending_new_hash_bound_rereview"
+    },
+    {
+      "review": "A5",
+      "snapshot": "mb2_fourth_remediation_nine_path_unstaged_snapshot",
+      "status": "pass",
+      "counts": { "P0": 0, "P1": 0, "P2": 0, "P3": 0 },
+      "findings": [],
+      "finding_summary": "Failure and status parity, fixed MEXC composition, financial grains, Effect Authority v3, Promise-object coupling and downstream non-authorities passed without A5 findings.",
+      "snapshot_binding": {
+        "binding_kind": "canonical_utf8_lf_sha256_path_set",
+        "base_commit": "76328faac45d221cdbf978eacd10bf518e18a4cb",
+        "canonical_sha256": {
+          "app/api/internal/broker-capture/route.ts": "bbb96ed73a856c3c0b9ea55128f818b1b011c6bcd0b2126173db132f83771660",
+          "docs/gates/EQUORA_v57.61.0_MULTI_BROKER_PARITY_EVIDENCE.json": "2b5970df9e829fe35167092eeb6abae0f4e178a011aa6042bc30cdf1720efbad",
+          "docs/gates/EQUORA_v57.61.0_MULTI_BROKER_PARITY_MANIFEST.sha256": "d0a5e629c35f6de016233c8463a001ebdd935557874781cacd8e267a1825e428",
+          "scripts/validate-multibroker-parity-manifest.mjs": "77f7643f25050bd5c0137fc242f259998a39456e2ddc9aa4f63c876d2b59b9ab",
+          "tests/broker-capture-route.test.ts": "bf54a7f566aeae2b68ed352eb5e87c8853a837315fcc99ff273c500a78c89148",
+          "tests/multibroker-core-contracts.test.ts": "3050a0282aff2b9123514aac1f047ec8a0e9b695d8f7686ed78b232137b6fc90",
+          "lib/server/broker-capture-dispatcher.ts": "3ef0fc4cbca16c42dfdd84c9a53064329b107ec9b1ae87b1f36950d532551ba4",
+          "lib/server/broker-capture-runtime.ts": "619344941c111b472e609560e938d913f462ca5f623022669725d4901064bc33",
+          "tests/broker-capture-dispatcher.test.ts": "2503e306bd514b0139317cdcbc5e87ef8e8e49a41b92f046e42a315342a653cb"
+        }
+      },
+      "gate_conclusion": "A5 passed, but A4 NO-PASS kept common closure and Staging blocked.",
+      "remediation_status": "fifth_mb2_remediation_in_progress_pending_new_hash_bound_rereview"
     }
   ],
   "claim_corrections": [
@@ -6438,6 +8498,36 @@
       "supersedes": "The MB1 authority, current candidate and runtime_changed_scope wording that described the new MB1 modules as entirely unwired from product runtime.",
       "correction": "No new Product Control-Flow invocation or Deployment activation is introduced. The existing MEXC transport module is locally compatibility-refactored and imports the new contract, request and adapter runtime values, so the source dependency graph changed; live provider parity and runtime behavior are not proven.",
       "reason": "Activation, source dependency and observed runtime behavior are separate claims and must not be collapsed into the word unwired."
+    },
+    {
+      "supersedes": "The initial MB2 implementation_summary and test_boundary wording that broadly described structurally unsafe registries and contradictory provider results as rejected.",
+      "correction": "The first independent MB2 review found caller-owned Array-method bypass, result-accessor TOCTOU, incomplete status invariants and missing runtime-authority revalidation. Remediation 1 closes these locally with dense frozen own-data registry snapshots, exact result descriptors copied once, a closed status matrix and a full generation-bound authority-set revalidation immediately before provider invocation. Finding closure still requires the next common A3/A4/A5 review.",
+      "reason": "The earlier synthetic tests did not cover the full adversarial container, accessor, status or authority-drift space and therefore did not support the broader claim."
+    },
+    {
+      "supersedes": "claims.mexc_product_runtime_behavior_changed=false and any reading that the MB2 dispatcher preserves all observable MEXC failure or race behavior.",
+      "correction": "The intended steady-state MEXC domain outcome shapes remain the compatibility target, but unchanged runtime behavior is not proven. The dispatcher now adds observable fail-closed registry, status, failure-code and authority-drift semantics; no live execution, broker request or Production observation occurred.",
+      "reason": "Product Control-Flow source changed and the first independent review identified a real static lowercase failure-code divergence plus incomplete race semantics. Runtime off bounds exposure but does not prove behavioral identity."
+    },
+    {
+      "supersedes": "The Remediation-1 wording full generation-bound authority-set revalidation immediately before provider invocation and any reading that categorical activation/environment values reached the actual provider effect boundary.",
+      "correction": "Remediation 1 only proved a twice-read categorical provider-set snapshot before runner invocation. Remediation 2 replaces that claim with an opaque single-use Effect Authority: the fixed provider runner must invoke its effect through the authority, which re-reads the complete provider set and synchronously consumes the authority immediately before entering the MEXC runtime. The concrete MEXC composition additionally binds a positive deployment-controlled runtime-authority epoch, an internal digest over runtime, deployment, Supabase, broker-secret and identity-key configuration, and an in-process monotonic epoch/digest sequence. This remains a local source contract and synthetic test result; no distributed authority store, live credential, broker request, database effect or Production behavior is proven.",
+      "reason": "A4-MB2-R1-001 found that the earlier token ended before the effect owner and that boolean or categorical pseudo-generations could not close ABA or readiness-preserving configuration and credential drift."
+    },
+    {
+      "supersedes": "The Remediation-2 private single-use Effect Authority wording and the negative_contract_evidence claim that unconsumed authority plus replay were fully closed.",
+      "correction": "The second-remediation authority prevented replay only after successful consumption and rejected a provider result that returned before consumption. It did not terminally revoke a failed or omitted consume attempt. Remediation 3 introduces an issued/consuming/consumed/revoked state machine, revokes before every unconsumed exit, deletes both private WeakMap bindings at dispatcher completion and requires the provider runner to return the exact Promise created by the authorized effect invocation.",
+      "reason": "A4-MB2-R2-001 found that an authority retained by a faulty future provider could retry after a failed revalidation and later provider-set ABA; A4-MB2-R2-002 found the earlier single-use claim too broad."
+    },
+    {
+      "supersedes": "The Remediation-3 exact native Promise wording and any reading that detached mismatch safely observed only the provider-returned Promise.",
+      "correction": "Remediation 4 requires identity with the exact same Promise object produced by the authorized effect invocation; it does not claim native-Promise structural closure against subclasses, proxies or own properties. On mismatch the dispatcher uses the captured intrinsic Promise then function to install rejection observers on both the provider-returned Promise and the different already-started authorized effect Promise before rejecting the dispatch.",
+      "reason": "A4-MB2-R3-001 found a potential unhandled rejection from the detached authorized effect Promise, and A4-MB2-R3-002 found that exact native Promise was stronger than instanceof plus object identity."
+    },
+    {
+      "supersedes": "The Remediation-4 wording that the captured Promise then intrinsic generally installs rejection observers on both distinct Promise objects and any unqualified containment claim over all instanceof Promise values.",
+      "correction": "Remediation 5 narrows the accepted effect and runner result to ordinary same-realm Promise objects: Node must identify the value as a Promise, it must not be a Proxy, its prototype must be the captured Promise.prototype, it must have no own string or symbol keys, and the captured constructor/species environment must remain unchanged. The authority becomes consumed only after this closure check and an intrinsic rejection observer is installed on the accepted effect Promise. Promise subclasses, proxies and own constructor, then or catch properties fail closed. A structurally unsafe Promise already created by arbitrary provider code cannot be guaranteed containable without executing provider-controlled hooks and remains outside the trusted fixed-registration contract.",
+      "reason": "A4-MB2-R4-001 showed that SpeciesConstructor or Promise brand evaluation can throw before Promise.prototype.then installs a reaction; A4-MB2-R4-002 found the corresponding general observer claim too broad."
     }
   ],
   "ci_evidence": {
@@ -6460,21 +8550,22 @@
     "audit_all_vulnerabilities": 0,
     "audit_production_vulnerabilities": 0
   },
-  "current_mb1_baseline_evidence": {
-    "evidence_scope": "integrated_mb0_tree_inherited_by_mb1",
-    "commit": "19817a96dff114c3bb7a2173d1774880e8e00fbc",
-    "tree": "8df26d7dd4ace9d755640a34381af191b85b58d5",
-    "source": "hash-bound MB0 RR10 and PR4 local gate/review evidence inherited unchanged by the MB1 branch baseline",
-    "test_files": 24,
-    "tests": 398,
-    "current_ci_status": "not_requeried_for_mb1",
-    "claim_boundary": "This is the integrated local MB0 baseline for MB1 comparison. No current MB1 GitHub CI run is claimed and no external action is authorized."
-  },
-  "candidate_counts": {
+  "current_mb2_baseline_evidence": {
+    "evidence_scope": "integrated_mb1_tree_inherited_by_mb2",
+    "commit": "76328faac45d221cdbf978eacd10bf518e18a4cb",
+    "tree": "1e9a8bbb5a13b4d32af7650f2366ccea3841a6de",
+    "source": "The fresh local MB2 branch starts at origin/main after PR5 integration; its tree is byte-identical to the reviewed MB1 feature tree. This local MB2 block did not requery GitHub CI or Vercel.",
     "test_files": 26,
     "tests": 433,
-    "new_contract_test_files": 2,
-    "new_contract_tests": 30,
+    "current_ci_status": "not_requeried_for_mb2_local_block",
+    "claim_boundary": "This is the integrated MB1 repository baseline for local MB2 comparison. It does not import live CI, Preview or Production observations into the MB2 hash-bound local Evidence and authorizes no external action."
+  },
+  "candidate_counts": {
+    "test_files": 27,
+    "tests": 480,
+    "new_contract_test_files": 3,
+    "new_contract_tests": 76,
+    "new_contract_test_definition": "Files absent from the historical pre-MB1 baseline: the two MB1 contract files with 30 tests plus tests/broker-capture-dispatcher.test.ts with 46 MB2 tests after the fifth independent-review remediation. Review-history validator tests remain in the pre-existing tests/multibroker-core-contracts.test.ts file and therefore increase the full-suite count but not this wholly-new-file count.",
     "audit_all_vulnerabilities": null,
     "audit_production_vulnerabilities": null,
     "audit_status": "not_run_no_external_advisory_api_authorization"
@@ -6482,21 +8573,17 @@
   "candidate_scope": [
     "docs/gates/EQUORA_v57.61.0_MULTI_BROKER_PARITY_EVIDENCE.json",
     "docs/gates/EQUORA_v57.61.0_MULTI_BROKER_PARITY_MANIFEST.sha256",
-    "lib/server/broker-code-registry.ts",
-    "lib/server/broker-core-contracts.ts",
-    "lib/server/mexc-central-network-transport.ts",
-    "lib/server/mexc-request-contract.ts",
-    "lib/server/mexc-transport.ts",
-    "lib/server/providers/mexc-readonly-adapter.ts",
+    "app/api/internal/broker-capture/route.ts",
+    "lib/server/broker-capture-dispatcher.ts",
+    "lib/server/broker-capture-runtime.ts",
     "scripts/validate-multibroker-parity-manifest.mjs",
-    "tests/application-contracts.test.ts",
-    "tests/mexc-central-network-transport.test.ts",
-    "tests/mexc-egress-boundary.test.ts",
-    "tests/mexc-readonly-adapter.test.ts",
+    "tests/broker-capture-dispatcher.test.ts",
+    "tests/broker-capture-route.test.ts",
     "tests/multibroker-core-contracts.test.ts"
   ],
   "parity_matrix": [
     "tests/application-contracts.test.ts",
+    "tests/broker-capture-dispatcher.test.ts",
     "tests/mexc-egress-boundary.test.ts",
     "tests/mexc-central-network-transport.test.ts",
     "tests/mexc-readonly-adapter.test.ts",
@@ -6517,6 +8604,11 @@
     "tests/sql-contracts.test.ts"
   ],
   "normative_inputs": [
+    {
+      "path": "app/api/internal/broker-capture/route.ts",
+      "canonical_utf8_bytes": 2347,
+      "sha256": "bbb96ed73a856c3c0b9ea55128f818b1b011c6bcd0b2126173db132f83771660"
+    },
     {
       "path": "docs/architecture/EQUORA_v57.61.0_PROVIDER_NEUTRAL_MULTI_BROKER_ARCHITECTURE.md",
       "canonical_utf8_bytes": 85129,
@@ -6556,6 +8648,11 @@
       "path": "tests/application-contracts.test.ts",
       "canonical_utf8_bytes": 11286,
       "sha256": "b8cb178684b72c3db0f8c824baca2ed869e68e8114aa74938e08beb0e2470382"
+    },
+    {
+      "path": "tests/broker-capture-dispatcher.test.ts",
+      "canonical_utf8_bytes": 28864,
+      "sha256": "bc6cce9e5e20391c7fbe153f27b40428a14a78ac2a6191d895cec62c3cdab5f3"
     },
     {
       "path": "tests/mexc-egress-boundary.test.ts",
@@ -6609,8 +8706,8 @@
     },
     {
       "path": "tests/broker-capture-route.test.ts",
-      "canonical_utf8_bytes": 3513,
-      "sha256": "5fe01ce298635de52498cb852f494ed8a53f96a24fd004d9a6118959395bc86f"
+      "canonical_utf8_bytes": 5202,
+      "sha256": "6c8b4d8a817a9e3365e4ad771afc5b636748b1c6ec102c687a20d23418b365fd"
     },
     {
       "path": "tests/broker-runtime-control.test.ts",
@@ -6644,18 +8741,28 @@
     },
     {
       "path": "scripts/validate-multibroker-parity-manifest.mjs",
-      "canonical_utf8_bytes": 80400,
-      "sha256": "654f0e013a9bcd6bc326ef204930289669d81f91288d12277ddcb86162281182"
+      "canonical_utf8_bytes": 125925,
+      "sha256": "edde99cf648cb43d97061a06b83a8f628068ee218d637c399d08c6f8783b6b06"
     },
     {
       "path": "tests/multibroker-core-contracts.test.ts",
-      "canonical_utf8_bytes": 225862,
-      "sha256": "27068f6afa3445c888f77298a53af132886efe22f7d015cfc20184c3ff26f47f"
+      "canonical_utf8_bytes": 257225,
+      "sha256": "7197eb34a2ec0cd0635e8b95de78722c04982979e3a219c19481ae1fee589d51"
     },
     {
       "path": "lib/server/broker-code-registry.ts",
       "canonical_utf8_bytes": 1249,
       "sha256": "f028bb4d90834ea747ebe3605257193bd1d456a608808fe393f8e4da5c94e002"
+    },
+    {
+      "path": "lib/server/broker-capture-dispatcher.ts",
+      "canonical_utf8_bytes": 22242,
+      "sha256": "350509693ce7d817ed68376941ea9e9f29ec276d419313d501d4fe9a10f08221"
+    },
+    {
+      "path": "lib/server/broker-capture-runtime.ts",
+      "canonical_utf8_bytes": 5458,
+      "sha256": "619344941c111b472e609560e938d913f462ca5f623022669725d4901064bc33"
     },
     {
       "path": "lib/server/mexc-central-network-transport.ts",
@@ -6851,6 +8958,93 @@
       "claim_boundary": "The exact Remediation-7 final closure runs and bootstrap Manifest validation passed locally and the Evidence entry is rebound, but independent A3/A4/A5 review remains mandatory before staging. The abstract port contract and synthetic Source-of-Truth harness do not prove a deployed distributed implementation or authorize Broker, Credential, Capture, Database, Production or Import actions."
     }
   ],
+  "current_mb2_observations": [
+    {
+      "finding_id": "MB2-CANDIDATE-001",
+      "severity": "informational",
+      "status": "local_dispatcher_candidate_not_yet_independently_reviewed",
+      "implementation_summary": "The internal Capture route now imports a provider-neutral broker-capture runtime composition root instead of the MEXC cycle directly. A fixed, frozen registration set selects the only active provider without caller-supplied provider input, rejects duplicate or structurally unsafe registrations, fails closed on ambiguous active runtime authority and validates the provider result before returning it to the route.",
+      "provider_boundary": "The composition root currently registers only the existing MEXC runtime with its pinned provider-contract and adapter versions. No second provider, runtime-mode change, scheduler enrollment, credential read, network request or Capture execution was introduced by this local block.",
+      "remaining_mb2_debt": "The existing Claim, Authority, Failure and Page-Commit persistence contracts remain partly MEXC-specific. Their provider-neutral database and checkpoint delta belongs to MB3 and is not silently generalized in this route-level seam. Therefore mb2_gate remains not_yet_passed until independent review determines whether this candidate is a sufficient bounded MB2 increment.",
+      "test_boundary": "Eight new synthetic dispatcher tests cover inert runtime-off behavior, a single fixed active provider, caller-provider rejection, ambiguous activation, environment-not-ready handling, registry hardening, contradictory results and the provider-neutral route/source boundary. Synthetic tests prove neither live provider behavior nor distributed persistence."
+    },
+    {
+      "finding_id": "MB2-DEV-001",
+      "severity": "informational",
+      "status": "remediated_before_hash_bound_mb2_gates",
+      "result": "The first local TypeScript check rejected the provider runner result union because the existing MEXC runtime may return disabled after the dispatcher's activation observation.",
+      "remediation": "The provider-neutral result contract now includes disabled and validates its inert shape, preserving the MEXC runtime's later fail-closed mode recheck instead of weakening or bypassing it.",
+      "claim_boundary": "The earlier targeted, typecheck, full-suite, release and build development runs were not captured by the canonical evidence wrapper. They are not used as final hash-bound MB2 Gate evidence; only the later closure attempts may support the local Gate claims."
+    },
+    {
+      "finding_id": "MB2-REM-001",
+      "severity": "informational",
+      "status": "final_local_remediation_gates_and_manifest_bound_independent_rereview_required",
+      "source_reviews": [
+        "A4-MB2-001",
+        "A4-MB2-002",
+        "A4-MB2-003",
+        "A4-MB2-004",
+        "A5-MB2-001",
+        "A5-MB2-002",
+        "A5-MB2-003"
+      ],
+      "implementation_summary": "The dispatcher snapshots only frozen, dense, exact own-data registry arrays through internal index loops; each registration supplies a frozen exact failure-code allowlist and a complete version-pinned runtime-authority observation. A private single-use dispatch authority binds the whole provider set, activation and environment generations, activation states and environment readiness, then synchronously rereads and compares the complete set immediately before invoking the selected provider. Provider results are copied once from exact own enumerable data descriptors and validated against a closed status matrix.",
+      "failure_and_result_boundary": "The MEXC composition root allowlists existing lowercase transport failures, uppercase scope-budget failure and checkpoint reasons. Real rate_limited flows through Dispatcher and Route as HTTP 200 with ok=false and capture_domain_failed; unregistered or malformed codes fail closed. Captured requires committed pages with a WorkUnit or the existing finalization-only null/zero/true form; failed and released require a WorkUnit and cannot claim finalization; disabled and idle remain inert.",
+      "negative_contract_evidence": "The 31 dispatcher tests include caller-owned map/filter, sparse/accessor/symbol registry arrays, unsafe registrations and failure-code arrays, accessor/hidden/symbol provider results with an unevaluated secret sentinel, ten contradictory result forms, four activation/environment/generation/late-second-provider drift cases, and a narrow Reflect.ownKeys product-boundary exception with Reflect.get still rejected. Provider execution remains zero in every drift case.",
+      "claim_boundary": "These are local source contracts and synthetic tests. The current fixed composition root still registers only MEXC; no second provider, broker request, credential read, network effect, persistence effect, Capture, Cron, Import, Supabase or Production action was performed. Runtime mode remains off and independent A3/A4/A5 closure on the final rebound hash set remains mandatory."
+    },
+    {
+      "finding_id": "MB2-REM-002",
+      "severity": "informational",
+      "status": "second_local_remediation_final_manifest_bound_independent_rereview_pending",
+      "source_reviews": [
+        "A3-MB2-R1-001",
+        "A4-MB2-R1-001",
+        "A4-MB2-R1-002",
+        "A5-MB2-R1-001"
+      ],
+      "implementation_summary": "The dispatcher contract is v3. It issues a private single-use Effect Authority bound to the complete provider set, selected provider, runtime-authority epoch and runtime-configuration digest. A provider result is rejected unless that authority was consumed. Consumption re-reads and compares the complete provider set and invokes the supplied provider effect synchronously in the same JavaScript turn. The fixed MEXC composition root can enter runMexcCaptureCycle only through this Effect Authority.",
+      "authority_revision_boundary": "Active MEXC Capture now requires a positive deployment-controlled EQUORA_MEXC_RUNTIME_AUTHORITY_EPOCH. The authority digest length-prefixes runtime mode, epoch, Supabase configuration, broker secret-key configuration, broker identity-key configuration and deployment identity before hashing. Within one process an epoch regression, or a digest change under the same epoch, permanently invalidates the active authority sequence. Exact-value ABA must advance the externally controlled epoch; no distributed epoch source is implemented or claimed in this local MB2 seam.",
+      "negative_contract_evidence": "Synthetic tests reject selected-provider epoch ABA, second-provider epoch ABA, readiness loss, readiness-preserving configuration or credential digest drift, post-selection drift, an unconsumed authority and replay. The actual fixed MEXC composition root is loaded with a mocked MEXC effect: epoch drift and credential-configuration drift both produce zero provider-effect calls, while rate_limited, SCOPE_BUDGET_EXHAUSTED and cursor_progress_violation pass through the exact 36-code registration. Review-record deletion, P2-count mutation and snapshot-hash mutation are rejected by the validator fixture.",
+      "review_history_boundary": "The previously retained 46 review records remain unchanged. Three MB1 Remediation-7 closure records, three initial MB2 records and three MB2 Remediation-1 records are appended with immutable commit/Evidence/Manifest or complete canonical nine-path SHA-256 bindings. Validator and negative contract tests pin review role, snapshot, status, P0-P3 counts, finding IDs, binding, gate conclusion and remediation status.",
+      "claim_boundary": "No live Runtime, Credential, Broker, Network, Capture, Persistence, Cron, Import, Supabase or Production action was performed. Runtime mode remains off; mb2_gate remains not_yet_passed until full local Gates, Evidence/Manifest rebind and a new common A3/A4/A5 review pass on one unchanged snapshot."
+    },
+    {
+      "finding_id": "MB2-REM-003",
+      "severity": "informational",
+      "status": "third_local_remediation_manifest_bound_independent_review_pending",
+      "source_reviews": [
+        "A4-MB2-R2-001",
+        "A4-MB2-R2-002"
+      ],
+      "implementation_summary": "The Dispatcher and Registration contracts advance to v4 and Effect Authority to v2. Each private authority follows an issued, consuming, consumed or revoked state. A consume attempt moves to consuming before any revalidation; every failed or omitted attempt becomes revoked, and dispatcher completion deletes both token and authority WeakMap bindings. The selected runner must return the exact native Promise produced by the authorized effect invocation; detached or parallel provider-result Promises are rejected.",
+      "negative_contract_evidence": "Table-driven tests retain an unconsumed authority across both provider return and provider throw, then require every late invocation to fail with zero late effects. A failed provider-set revalidation is followed by an explicit A-to-B-to-A retry and still produces zero provider and late effects. Successful consumption permits exactly one effect and rejects later replay after dispatcher cleanup. A runner that starts an authorized effect but returns a detached result Promise is rejected rather than accepted as the provider result.",
+      "claim_boundary": "This is a local provider-neutral contract over the fixed MEXC composition root. It does not make an untrusted provider implementation safe from arbitrary code execution, does not prove a distributed epoch source, and authorizes no Runtime, Credential, Broker, Network, Capture, Persistence, Cron, Import, Supabase or Production action. Runtime mode remains off and mb2_gate remains not_yet_passed pending common rereview."
+    },
+    {
+      "finding_id": "MB2-REM-004",
+      "severity": "informational",
+      "status": "fourth_local_remediation_manifest_bound_independent_review_pending",
+      "source_reviews": [
+        "A4-MB2-R3-001",
+        "A4-MB2-R3-002"
+      ],
+      "implementation_summary": "Dispatcher and Registration contracts advance to v5 and Effect Authority to v3. Promise coupling is stated as identity with the exact same Promise object, not structural native-Promise closure. The module captures Promise.prototype.then once and uses that intrinsic to attach rejection observers to both different Promises before rejecting a detached provider result.",
+      "negative_contract_evidence": "A new test starts an authorized effect that returns a rejecting Promise with an own catch trap, then returns a detached provider-result Promise. Dispatch rejects, the own catch trap is not invoked, the authorized rejection is observed through the captured intrinsic, and retained late use remains terminally rejected with zero late effects.",
+      "claim_boundary": "This mismatch containment does not undo an already-started authorized effect and does not make arbitrary provider code safe. It prevents an unhandled rejection from the different authorized Promise while the fixed MEXC root continues to return the exact same effect Promise object. Runtime remains off and no Credential, Broker, Network, Capture, Persistence, Cron, Import, Supabase or Production action is authorized or performed."
+    },
+    {
+      "finding_id": "MB2-REM-005",
+      "severity": "informational",
+      "status": "fifth_local_remediation_manifest_bound_independent_review_pending",
+      "source_reviews": ["A4-MB2-R4-001", "A4-MB2-R4-002"],
+      "implementation_summary": "Dispatcher and Registration contracts advance to v6 and Effect Authority to v4. The effect boundary checks an unchanged captured Promise constructor/species environment and accepts only an ordinary same-realm Node-recognized Promise that is not proxied, has the captured Promise.prototype and has no own string or symbol keys. It installs an intrinsic rejection observer before setting the Authority state to consumed. Provider-return coupling requires the same structurally closed Promise object.",
+      "negative_contract_evidence": "Five table-driven cases reject a pending effect Promise with an own constructor accessor, own then property, own catch property, Promise subclass or Promise Proxy. Each effect is invoked once but the Authority never becomes consumed and the dispatcher returns dispatch_authority_invalidated. The existing rejecting ordinary effect plus detached ordinary result case remains observed and terminally rejects late Authority use.",
+      "gate_evidence": "Closure and final series each report targeted 4/4 files and 92/92 tests, Typecheck PASS, full 27/27 files and 480/480 tests, Release Contract PASS, Build 3/3 and a 39/39 Manifest bootstrap. Two intervening targeted PASS runs remain explicit non-Gate wrapper measurements because their transcripts did not conform to canonical_gate_transcript_v2.",
+      "claim_boundary": "The fixed MEXC runner returns the exact accepted ordinary Promise. This contract does not claim that arbitrary provider code or an already-created structurally unsafe rejecting Promise can always be contained without invoking provider-controlled hooks. Runtime remains off and no external effect is authorized or performed."
+    }
+  ],
   "historical_pre_mb0_observations": [
     {
       "source_artifact_sha256": "8d8e206255d80718585584c54c9f39c76b502c486fc6b9f58f1fd32f41a4b4ce",
@@ -6867,18 +9061,21 @@
   ],
   "claims": {
     "baseline_local_gates": "pass, subject to the explicitly recorded incomplete wrapper attempt",
-    "contract_candidate_local_gates": "The initial through sixth-remediation hash-bound Gate attempts remain append-only historical Evidence, ending with sixth-remediation targeted 240/240 and full 429/429. Seventh-remediation final targeted 244/244, typecheck, full 433/433, release check and build 3/3 closure attempts passed under canonical_gate_transcript_v2; the 35/35 bootstrap Manifest attempt is embedded and the Evidence entry is rebound.",
-    "remediation_audit_refresh": "not_run_for_mb1; no authorization was provided to transmit current dependency metadata to the external npm Advisory API. Historical MB0 audit attempts remain visible and are not represented as current MB1 audit evidence.",
-    "manifest_validation": "The fourth- through sixth-remediation bootstrap Manifest attempts remain append-only historical Evidence. The seventh-remediation bootstrap passed 35/35 under the one-current-attempt exception and is embedded; generated_at_utc equals its end time and the Manifest Evidence entry is rebound. The terminal no-exception validation is a separate local observation because embedding it would change the Evidence hash again.",
+    "contract_candidate_local_gates": "The MB0, MB1 and first four MB2 remediation Gate series remain append-only historical Evidence. The fifth-remediation closure and final series each report targeted 4 files/92 tests, Typecheck, full 27 files/480 tests, Release Contract and Build 3/3. Two intervening targeted runs passed 92/92 but remain explicit non-Gate wrapper measurements. Independent A3/A4/A5 review on the final frozen hash set remains mandatory before Staging.",
+    "remediation_audit_refresh": "not_run_for_mb2; this local block has no authorization to transmit current dependency metadata to the external npm Advisory API. Historical MB0 attempts and later GitHub-CI observations are not represented as current local MB2 audit Evidence.",
+    "manifest_validation": "The fifth-remediation closure and final Manifest bootstraps each passed 39/39 under their one-current-attempt exception and are embedded append-only. Evidence and Manifest are rebound after the final attempt. The terminal no-exception 39/39 validation is a separate local observation because embedding it would change the Evidence hash again.",
     "mb0_gate": "passed_and_integrated_via_pr4",
-    "mb1_gate": "not_yet_passed",
-    "independent_reviews": "MB0 completed with final A3/A4/A5 PASS and PR #4 integration. The sixth-remediation unstaged snapshot received A3 PASS, A4 NO-PASS with A4-MB1-R6-001 P2 and A5 PASS. Seventh-remediation requires final local Gates, Manifest rebind and a new common A3/A4/A5 review before staging.",
+    "mb1_gate": "passed_and_integrated_via_pr5",
+    "mb2_gate": "not_yet_passed",
+    "independent_reviews": "MB0 and MB1 were integrated after their respective independent review workflows. Review history binds the initial MB2 and Remediation-1 through Remediation-4 A3/A4/A5 snapshots. Remediation 4 returned A3 PASS, A4 NO-PASS with one P2 and one P3, and A5 PASS. Remediation 5 local Gates and Manifest are bound; MB2 and Staging remain NO-GO until a common A3/A4/A5 PASS on this unchanged final snapshot.",
     "second_provider_operational": false,
-    "mexc_product_runtime_behavior_changed": false,
-    "mexc_contract_source_changed": true,
+    "mexc_steady_state_domain_intent_changed": false,
+    "mexc_runtime_behavior_unchanged": "not_proven",
+    "mexc_product_runtime_control_flow_source_changed": true,
+    "mexc_contract_source_changed": false,
     "runtime_changed": true,
-    "runtime_changed_scope": "No new Product Control-Flow invocation or Deployment activation is introduced. The existing MEXC transport module is locally compatibility-refactored and its source dependency graph imports new contract, request and adapter runtime values. Live provider parity and Production runtime behavior are not proven.",
-    "product_control_flow_invocation_changed": false,
+    "runtime_changed_scope": "The existing internal Capture route invokes the provider-neutral composition root, which currently delegates only to MEXC. Dispatcher v6 issues a private terminal Effect Authority v4 and requires the selected runner to return the exact same structurally closed ordinary same-realm Promise object created when that authority synchronously revalidates the provider set and enters runMexcCaptureCycle. The accepted Promise has the captured prototype, no own keys, no Proxy wrapper and an unchanged captured constructor/species environment; the intrinsic rejection observer is installed before Authority consumption. Failed, omitted, unsafe, detached and replay attempts become terminally unusable, and private bindings are deleted at dispatcher completion. The selected provider remains bound to an externally controlled monotonic epoch plus length-prefixed runtime-configuration digest. This changes Product Control-Flow source plus registry, result, failure and race semantics. Runtime mode remains off and no request was executed; arbitrary provider-code containment, live credential behavior, distributed epoch correctness, provider responses, deployment and persistence remain unproven.",
+    "product_control_flow_invocation_changed": true,
     "source_dependency_graph_changed": true,
     "sql_changed": false,
     "ui_changed": false,
