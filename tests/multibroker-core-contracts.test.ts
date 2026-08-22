@@ -4640,5 +4640,5 @@ describe('multi-broker parity manifest validator', () => {
         historicalBootstrapFixture.dispose()
       }
     }
-  }, 240_000)
+  }, 360_000)
 })

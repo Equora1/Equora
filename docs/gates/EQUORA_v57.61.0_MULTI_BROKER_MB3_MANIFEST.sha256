@@ -1,0 +1,15 @@
+lf:77aa3a3c4fb93a533c453861da25c1c60d8a896f956002048b4acbd4db902457  15787  docs/architecture/EQUORA_v57.61.0_MULTI_BROKER_MB3_IMPLEMENTATION_CONTRACT.md
+lf:e9a589d319991a636569746869cea469b05aaa7c5aae72e108e1f53644a1383f  232256  docs/gates/EQUORA_v57.61.0_MULTI_BROKER_MB3_EVIDENCE.json
+lf:ffa66a0cda7beecc8e23b89a6fefb09c866df9e34935e5260b8d2d08c3b67482  31554  lib/server/broker-multibroker-persistence.ts
+lf:02ee4626c92bace297c7fafbb0bcabacb2b96e90e12fe7e56d30e5abebac21cf  41382  scripts/validate-multibroker-mb3-manifest.mjs
+lf:0cb5d1de674e43155a7d1c09f5ecba8534a29a6b801759a7fa7cd143bba69c8f  124329  supabase/schema-patch-v57.61.0-multibroker-mb3.sql
+lf:2f6ad40b63ff77087a6059aae1bd4ff00c0e9e42512e7e79d1acb75309f9f3d1  257225  tests/multibroker-core-contracts.test.ts
+lf:a06c46c39afc823d789cb7858b028e374c2396b09006674c30ad09ab4a7cfc8e  36286  tests/multibroker-persistence-contracts.test.ts
+lf:a45733b4b8b741b219a59e4f54bd812e81ac6f3ddff399f5d74387b0bfdf9137  9436  tests/sql/multibroker-mb3-test-lib.ps1
+lf:7deebfa0b000430c04180675e7acc872baebfabf85f0bfe3d93408c5c54352be  24885  tests/sql/multibroker-mb3.integration.sql
+lf:52943e85a7cf7a282a492d06dc03ccb84d7126acb6546cb9fd88a4a4eac9f2d4  1587  tests/sql/run-multibroker-mb3-compatibility.ps1
+lf:882b4f8bf017b50f0fd7eeb7518208683df8b3797f0aed7e3110459871dd4d57  43142  tests/sql/run-multibroker-mb3-concurrency.ps1
+lf:e6b4405f815404a3769a891b9d284ef688e90d6435d7f4fbf16f14f7d8fb3507  10001  tests/sql/run-multibroker-mb3-drift.ps1
+lf:ed2c3330534ddad635c4fd3dea360f25a2328c5a7d26277a314564d2b733584f  902  tests/sql/run-multibroker-mb3-fresh.ps1
+lf:d726d3bbf78f7d52e42b394a951471389d6523456766a3966b6748e73f7d0d66  1269  tests/sql/run-multibroker-mb3-partial-failure.ps1
+lf:91ec4a3aa57fb4d29d78a9b391ed251b2b1399cd29b9b096c16a68ec87a67883  1620  tests/sql/run-multibroker-mb3-upgrade.ps1
