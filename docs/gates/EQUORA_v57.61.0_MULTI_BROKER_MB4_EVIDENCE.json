@@ -1,0 +1,398 @@
+{
+  "schema_version": "equora_mb4_evidence_v15",
+  "phase": "MB4",
+  "phase_status": "local_review_gates_passed",
+  "mb4_gate": "passed",
+  "generated_at_utc": "2026-08-24T22:09:13.628Z",
+  "baseline": {
+    "head": "4f6bcc77d1843f1e05e26faf085c19c3e1f40f16",
+    "origin_main": "4f6bcc77d1843f1e05e26faf085c19c3e1f40f16",
+    "branch": "codex/multibroker-mb4-v57.61.0",
+    "fresh_branch_from_origin_main": true,
+    "old_squash_merged_branch_reused": false
+  },
+  "claims": {
+    "scope": "Local provider-neutral MB4 connection UI, client-safe connection projection and hash-bound regression evidence only.",
+    "built_provider_count": 1,
+    "built_provider_codes": [
+      "mexc"
+    ],
+    "second_provider_built": false,
+    "dynamic_provider_loader_built": false,
+    "generic_ui_receives_credentials": false,
+    "generic_ui_builds_sendable_broker_requests": false,
+    "raw_provider_errors_cross_rsc_boundary": false,
+    "technical_read_attestation_permission_identity_coverage_separate": true,
+    "normal_ui_actions_unknown_provider_environment_status_display_only": true,
+    "legacy_last_sync_used_as_capture_evidence": false,
+    "capture_evidence_source": "broker_capture_runs.sync_activation_id -> broker_sync_activations.connection_account_id -> broker_connection_accounts.connection_id; latest completed/partial completed_at across all activation chunks per connection",
+    "automatic_capture_added": false,
+    "automatic_import_added": false,
+    "local_review_fixture_production_enabled": false,
+    "visual_modernization_in_scope": false,
+    "local_gate_meaning": "Local mechanics and independent review only; no staging, release, deployment, database or broker authorization."
+  },
+  "authority_boundaries": {
+    "runtime_mode": "off",
+    "production_write_authorized": false,
+    "supabase_action_authorized": false,
+    "mexc_or_broker_request_authorized": false,
+    "credential_action_authorized": false,
+    "cron_action_authorized": false,
+    "capture_action_authorized": false,
+    "import_action_authorized": false,
+    "git_staging_authorized": false,
+    "git_commit_authorized": false,
+    "git_push_authorized": false,
+    "pull_request_authorized": false,
+    "merge_authorized": false,
+    "deployment_authorized": false,
+    "branch_deletion_authorized": false
+  },
+  "candidate_scope": [
+    "components/broker-sync/broker-connection-panel.tsx",
+    "components/broker-sync/broker-sync-hub.tsx",
+    "components/broker-sync/mexc-connection-panel.tsx",
+    "components/broker-sync/providers/mexc-connection-setup.tsx",
+    "components/layout/app-shell.tsx",
+    "docs/architecture/EQUORA_v57.61.0_MULTI_BROKER_MB4_IMPLEMENTATION_CONTRACT.md",
+    "docs/gates/EQUORA_v57.61.0_MULTI_BROKER_MB4_BROWSER_ARTIFACT.json",
+    "docs/gates/EQUORA_v57.61.0_MULTI_BROKER_MB4_EVIDENCE.json",
+    "docs/gates/EQUORA_v57.61.0_MULTI_BROKER_MB4_GATE_ARTIFACT.json",
+    "docs/gates/EQUORA_v57.61.0_MULTI_BROKER_MB4_MANIFEST.sha256",
+    "lib/server/broker-connection-view.ts",
+    "lib/server/broker-sync-review-fixture.ts",
+    "lib/server/broker-sync.ts",
+    "lib/types/broker-sync.ts",
+    "scripts/multibroker-mb4-validation-lib.mjs",
+    "scripts/run-multibroker-mb4-gates.mjs",
+    "scripts/validate-multibroker-mb4-manifest.mjs",
+    "tests/application-contracts.test.ts",
+    "tests/broker-connection-view.test.ts",
+    "tests/multibroker-mb4-validator.test.mjs"
+  ],
+  "manifest_contract": {
+    "path": "docs/gates/EQUORA_v57.61.0_MULTI_BROKER_MB4_MANIFEST.sha256",
+    "canonicalization": "Strict UTF-8 without BOM; CRLF and CR normalized to LF before SHA-256 and byte-count calculation; stable regular files only; symlinks and junctions rejected.",
+    "entry_count": 18,
+    "excluded_paths": [
+      "docs/gates/EQUORA_v57.61.0_MULTI_BROKER_MB4_MANIFEST.sha256",
+      "components/broker-sync/mexc-connection-panel.tsx"
+    ]
+  },
+  "browser_qa": {
+    "status": "pass_with_telemetry_disabled_bound_screenshots_and_mobile_shell_observation",
+    "artifact_path": "docs/gates/EQUORA_v57.61.0_MULTI_BROKER_MB4_BROWSER_ARTIFACT.json",
+    "artifact_schema": "equora_mb4_browser_artifact_v3",
+    "artifact_canonical_sha256": "52661bec731e714126c16b989bf53b18d2356152ad68d7eae6651389039ab45f",
+    "artifact_canonical_bytes": 245907
+  },
+  "gate_evidence": {
+    "status": "all_five_local_gates_passed_with_bound_entrypoints_and_declared_external_toolchain_trust",
+    "artifact_path": "docs/gates/EQUORA_v57.61.0_MULTI_BROKER_MB4_GATE_ARTIFACT.json",
+    "artifact_schema": "equora_mb4_gate_artifact_v3",
+    "artifact_canonical_sha256": "d5ac3bddf125d48b1ab7659205195fdee0aa4df47a53386aa1f1d53fecc7e494",
+    "artifact_canonical_bytes": 14709,
+    "attempt_count": 5
+  },
+  "local_audit": {
+    "status": "not_run_no_external_advisory_call",
+    "reason": "No concrete approval in this block to transmit dependency metadata to the external npm Advisory API."
+  },
+  "known_limits": [
+    "Only MEXC is built; provider neutrality is an architectural UI boundary, not evidence of a second working provider.",
+    "Legacy permission flags provide bounded read observations and are not a global technical permission audit.",
+    "A user read-only attestation is not provider-side proof of all account permissions.",
+    "An observed completed or partial capture timestamp proves neither complete history nor import readiness.",
+    "The existing MEXC server actions, runtime control, transports, credential store and database schema remain outside the MB4 implementation scope.",
+    "Visual modernization in Equora black and gold remains a separate later track.",
+    "The gate artifact binds Node, immediate JavaScript gate entrypoints, Git-Core and package-lock.json metadata; installed transitive node_modules bytes and operating-system libraries remain declared external local-machine trust anchors.",
+    "The local Browser network boundary is based on the bound environment and reviewer-observed origins, not an immutable complete server-start and request-log transcript.",
+    "The offline template secret scanner conservatively accumulates every static quasi containing letters or digits; benign alphanumeric labels can therefore trigger the local gate once the combined material reaches 24 characters, and this scanner is not semantic proof of secret absence."
+  ],
+  "independent_review": {
+    "required_reviewers": [
+      "A3",
+      "A4",
+      "A5"
+    ],
+    "initial_snapshot_result": "no_pass_with_open_p2_findings",
+    "initial_review_ids": [
+      "A3",
+      "A4",
+      "A5"
+    ],
+    "prior_remediation_snapshot_result": "no_pass_with_four_open_p2_findings",
+    "prior_remediation_manifest_sha256": "0fc0d3dd2889c3b03e943d5fb3a9a6271aaacdb68d2a12fad579fff3d1e85578",
+    "prior_remediation_review_ids": [
+      "A3",
+      "A4",
+      "A5"
+    ],
+    "latest_no_pass_snapshot_result": "no_pass_with_two_open_p2_findings",
+    "latest_no_pass_manifest_sha256": "4cd3811d960dff8fb5b4fefa6e3dd8d2a7d01270eeaa3be62059f8c41e074593",
+    "latest_no_pass_review_ids": [
+      "A3:pass",
+      "A4:no-pass",
+      "A5:pass"
+    ],
+    "fourth_remediation_snapshot_result": "no_pass_with_one_open_p2_finding",
+    "fourth_remediation_manifest_sha256": "8de29258c85a058cccd22f5f0d097070f14e0d534739c8ea3e1ad63de453975a",
+    "fourth_remediation_review_ids": [
+      "A3:pass",
+      "A4:no-pass",
+      "A5:pass"
+    ],
+    "fifth_remediation_snapshot_result": "no_pass_with_two_open_p2_findings",
+    "fifth_remediation_manifest_sha256": "2a6d53989f4baf97b648793c66d2c70379d0fdc6e92638c1ae1b2ee82b300a67",
+    "fifth_remediation_review_ids": [
+      "A3:no-pass",
+      "A4:no-pass",
+      "A5:pass"
+    ],
+    "sixth_remediation_snapshot_result": "no_pass_with_one_open_p2_finding",
+    "sixth_remediation_manifest_sha256": "f469c24da5aabbe40d184189781a1cae9d5e9ecb3b9d9c2a4e23b1753b731fdf",
+    "sixth_remediation_review_ids": [
+      "A3:pass",
+      "A4:no-pass",
+      "A5:pass"
+    ],
+    "seventh_remediation_snapshot_result": "no_pass_with_one_open_p2_finding",
+    "seventh_remediation_manifest_sha256": "25b1107ba0614e6ce658a17a9c1be297896876b656a8b327d0ec9199393e883d",
+    "seventh_remediation_review_ids": [
+      "A3:pass",
+      "A4:no-pass",
+      "A5:pass"
+    ],
+    "eighth_remediation_snapshot_result": "no_pass_with_two_open_p2_findings",
+    "eighth_remediation_manifest_sha256": "a9f015686df07a893b55096ed1ec277802fecfc2d4dd9a58c3ca5011721dd451",
+    "eighth_remediation_review_ids": [
+      "A3:pass",
+      "A4:no-pass",
+      "A5:pass"
+    ],
+    "ninth_remediation_snapshot_result": "no_pass_with_two_open_p2_findings",
+    "ninth_remediation_manifest_sha256": "ccb022ac20b4714bc0d3b2296864bfe2da7dc0d4e8e2094de62374cf2e6dfe2b",
+    "ninth_remediation_review_ids": [
+      "A3:no-pass",
+      "A4:no-pass",
+      "A5:pass"
+    ],
+    "tenth_remediation_snapshot_result": "no_pass_with_one_open_p2_finding",
+    "tenth_remediation_manifest_sha256": "b43e3d172fb47ed55b806ffe84678ff7017adcfc8caf5b6ca495d7b090025b66",
+    "tenth_remediation_review_ids": [
+      "A3:no-pass",
+      "A4:no-pass",
+      "A5:pass"
+    ],
+    "eleventh_remediation_snapshot_result": "no_pass_with_one_open_p2_finding",
+    "eleventh_remediation_manifest_sha256": "b11c716c1003af1640264dbc357e1008b0f3a66656fc5861255ad25a0dcb653f",
+    "eleventh_remediation_review_ids": [
+      "A3:pass",
+      "A4:no-pass",
+      "A5:pass"
+    ],
+    "twelfth_remediation_snapshot_result": "no_pass_with_one_open_p2_finding",
+    "twelfth_remediation_manifest_sha256": "7858366a1fd394103f6cbd5662e4097cc1d0f878ccc27db3ad38c7b1b103460d",
+    "twelfth_remediation_review_ids": [
+      "A3:no-pass",
+      "A4:pass",
+      "A5:pass"
+    ],
+    "remediation_reviews_completed": [
+      "A3:pass",
+      "A4:pass",
+      "A5:pass"
+    ],
+    "snapshot_rule": "All remediation reviewers must use the same eighteen manifest input hashes plus the explicit deleted path.",
+    "pass_condition": "All three independent reviews complete on the same snapshot with no open P0, P1 or P2 findings."
+  },
+  "remediation_history": [
+    {
+      "remediation_id": "mb4-remediation-2026-08-23-01",
+      "source_findings": [
+        "capture_provenance",
+        "gate_transcript_binding",
+        "browser_evidence",
+        "security_claim_separation",
+        "stable_strict_utf8_validation",
+        "closed_evidence_schema",
+        "offline_secret_detection",
+        "unknown_state_actions",
+        "required_readonly_attestation",
+        "scoped_logging_claim"
+      ],
+      "status": "local_remediation_and_five_main_gates_passed",
+      "claim_boundary": "No external, Production, Supabase, MEXC/Broker, credential, Cron, Capture, Import or Git write authority."
+    },
+    {
+      "remediation_id": "mb4-remediation-2026-08-23-02",
+      "source_findings": [
+        "immutable_capture_provenance",
+        "per_connection_history_query",
+        "normal_ui_claim_boundary",
+        "extended_offline_secret_detection",
+        "execution_environment_and_toolchain_binding",
+        "runtime_status_separation",
+        "reproducible_bound_browser_evidence",
+        "small_text_contrast",
+        "terminal_control_rejection",
+        "single_provider_noop_claim"
+      ],
+      "status": "local_followup_remediation_and_five_main_gates_passed",
+      "claim_boundary": "No external, Production, Supabase, MEXC/Broker, credential, Cron, Capture, Import or Git write authority."
+    },
+    {
+      "remediation_id": "mb4-remediation-2026-08-23-03",
+      "source_findings": [
+        "historical_relation_counted_keyset_pagination",
+        "capture_query_concurrency_bound",
+        "git_single_trust_root",
+        "next_dev_telemetry_boundary",
+        "evidence_generation_chronology",
+        "jpeg_structure_and_dimensions",
+        "bounded_browser_replay_claim",
+        "mobile_shell_debt_retained",
+        "workspace_scoped_git_safe_directory",
+        "shared_canonical_hash_generation",
+        "separate_viewport_and_jpeg_dimensions",
+        "local_diagnostic_and_font_fallback_observations",
+        "dom_snapshot_post_serialization_binding",
+        "static_contract_token_rebound_to_concurrency_shape",
+        "minimal_git_eol_policy"
+      ],
+      "status": "local_third_remediation_and_five_main_gates_passed",
+      "claim_boundary": "No external, Production, Supabase, MEXC/Broker, credential, Cron, Capture, Import or Git write authority."
+    },
+    {
+      "remediation_id": "mb4-remediation-2026-08-23-04",
+      "source_findings": [
+        "structured_project_specific_offline_secret_detection",
+        "direct_node_gate_entrypoints_without_npm_launcher",
+        "git_core_binary_identity",
+        "declared_external_toolchain_trust_anchors",
+        "raw_process_output_strict_utf8_and_bom_rejection",
+        "latest_no_pass_review_history"
+      ],
+      "status": "local_fourth_remediation_and_five_main_gates_passed",
+      "claim_boundary": "Immediate entrypoints and Git-Core are bound; transitive node_modules and operating-system libraries are declared external trust anchors. No external, Production, Supabase, MEXC/Broker, credential, Cron, Capture, Import or Git write authority."
+    },
+    {
+      "remediation_id": "mb4-remediation-2026-08-23-05",
+      "source_findings": [
+        "sensitive_json_container_context_inheritance",
+        "hardcoded_assignment_fallback_detection",
+        "full_rhs_reference_exception_boundary",
+        "fourth_remediation_no_pass_review_history"
+      ],
+      "status": "local_fifth_remediation_and_five_main_gates_passed",
+      "claim_boundary": "Sensitive JSON container descendants and hardcoded RHS fallbacks are scanned fail-closed. No external, Production, Supabase, MEXC/Broker, credential, Cron, Capture, Import or Git write authority."
+    },
+    {
+      "remediation_id": "mb4-remediation-2026-08-23-06",
+      "source_findings": [
+        "contract_evidence_review_history_coherence",
+        "multiline_rhs_continuation_detection",
+        "compound_secret_assignment_detection",
+        "fifth_remediation_no_pass_review_history"
+      ],
+      "status": "local_sixth_remediation_and_five_main_gates_passed",
+      "claim_boundary": "Append-only review history is contract-bound to Evidence; multiline and compound hardcoded secret fallbacks are scanned fail-closed. No external, Production, Supabase, MEXC/Broker, credential, Cron, Capture, Import or Git write authority."
+    },
+    {
+      "remediation_id": "mb4-remediation-2026-08-24-07",
+      "source_findings": [
+        "multiline_block_comment_rhs_lexing",
+        "comment_content_false_positive_exclusion",
+        "comment_aware_operator_state_preservation",
+        "sixth_remediation_no_pass_review_history"
+      ],
+      "status": "local_seventh_remediation_and_five_main_gates_passed",
+      "claim_boundary": "The bounded RHS lexer preserves operator and nesting state across line and block comments while excluding comment content from secret values. No external, Production, Supabase, MEXC/Broker, credential, Cron, Capture, Import or Git write authority."
+    },
+    {
+      "remediation_id": "mb4-remediation-2026-08-24-08",
+      "source_findings": [
+        "template_quasi_interpolation_lexing",
+        "multiple_runtime_interpolation_false_positive",
+        "nested_template_resource_bounding",
+        "seventh_remediation_no_pass_review_history"
+      ],
+      "status": "local_eighth_remediation_and_five_main_gates_passed",
+      "claim_boundary": "Template static quasis and recursively bounded interpolations are scanned separately so exclusively runtime-referential interpolations remain benign while hard static material and fallbacks fail closed. No external, Production, Supabase, MEXC/Broker, credential, Cron, Capture, Import or Git write authority."
+    },
+    {
+      "remediation_id": "mb4-remediation-2026-08-24-09",
+      "source_findings": [
+        "template_quasi_boundary_semantics",
+        "formatted_hard_template_literal_false_negative",
+        "separator_only_template_false_positive",
+        "expression_budget_boundary_regressions",
+        "eighth_remediation_no_pass_review_history"
+      ],
+      "status": "local_ninth_remediation_and_five_main_gates_passed",
+      "claim_boundary": "Template quasi boundaries are preserved: punctuation-only and short textual separators are not accumulated, formatted hard quasis use the full candidate, and shorter credential-bearing fragments can be combined within the resource budget. No external, Production, Supabase, MEXC/Broker, credential, Cron, Capture, Import or Git write authority."
+    },
+    {
+      "remediation_id": "mb4-remediation-2026-08-24-10",
+      "source_findings": [
+        "deterministic_template_static_material_policy",
+        "alphabetic_split_hard_literal_detection",
+        "alphanumeric_label_conservative_fail_closed_policy",
+        "template_scanner_claim_narrowing",
+        "ninth_remediation_no_pass_review_history"
+      ],
+      "status": "local_tenth_remediation_and_five_main_gates_passed",
+      "claim_boundary": "Only punctuation-only template quasis are excluded as separators; every static quasi containing letters or digits is accumulated verbatim and checked at the 24-character threshold. Benign alphanumeric labels may therefore fail the local gate, and the scanner is not semantic proof of secret absence. No external, Production, Supabase, MEXC/Broker, credential, Cron, Capture, Import or Git write authority."
+    },
+    {
+      "remediation_id": "mb4-remediation-2026-08-24-11",
+      "source_findings": [
+        "template_quasi_verbatim_whitespace_preservation",
+        "string_template_whitespace_boundary_consistency",
+        "whitespace_and_punctuation_only_separator_regressions",
+        "tenth_remediation_no_pass_review_history"
+      ],
+      "status": "local_eleventh_remediation_and_five_main_gates_passed",
+      "claim_boundary": "Static template quasis containing letters or digits retain their original internal boundary whitespace before the combined candidate is outer-trimmed and checked at the 24-character threshold; whitespace-only and punctuation-only quasis remain excluded. Benign alphanumeric labels may still fail conservatively, and the scanner is not semantic proof of secret absence. No external, Production, Supabase, MEXC/Broker, credential, Cron, Capture, Import or Git write authority."
+    },
+    {
+      "remediation_id": "mb4-remediation-2026-08-24-12",
+      "source_findings": [
+        "untracked_candidate_diff_check_gap",
+        "staged_contract_trailing_whitespace",
+        "manifest_input_trailing_whitespace_validation",
+        "pre_commit_staging_reverted_without_commit"
+      ],
+      "status": "local_twelfth_remediation_and_five_main_gates_passed",
+      "claim_boundary": "Every manifest input is checked directly for trailing spaces and tabs, including untracked candidate files that Git diff --check does not inspect before staging. The original staged preflight was reverted without commit. No external, Production, Supabase, MEXC/Broker, credential, Cron, Capture, Import or Git write authority."
+    },
+    {
+      "remediation_id": "mb4-remediation-2026-08-24-13",
+      "source_findings": [
+        "source_control_trailing_whitespace_bypass",
+        "alternate_unicode_line_separator_bypass",
+        "embedded_bom_and_bidi_control_rejection",
+        "eleventh_remediation_no_pass_review_history"
+      ],
+      "status": "local_thirteenth_remediation_and_five_main_gates_passed",
+      "claim_boundary": "Every manifest input rejects Unicode control and format characters plus non-ASCII line, paragraph and space separators before trailing-whitespace and secret scanning; only ordinary SPACE, TAB and LF remain allowed from those categories. No external, Production, Supabase, MEXC/Broker, credential, Cron, Capture, Import or Git write authority."
+    },
+    {
+      "remediation_id": "mb4-remediation-2026-08-24-14",
+      "source_findings": [
+        "post_canonicalization_source_control_claim_boundary",
+        "crlf_and_bare_cr_normalization_claim",
+        "twelfth_remediation_no_pass_review_history"
+      ],
+      "status": "local_fourteenth_remediation_and_five_main_gates_passed",
+      "claim_boundary": "After the declared CRLF and bare-CR to LF canonicalization, every manifest input rejects all remaining Unicode Cc, Cf, Zl and Zp characters plus non-ASCII Zs before trailing-whitespace and secret scanning; ordinary SPACE, TAB and LF remain allowed. No external, Production, Supabase, MEXC/Broker, credential, Cron, Capture, Import or Git write authority."
+    }
+  ],
+  "hard_gates_remaining": [
+    "Separate authorization before git staging or commit.",
+    "Separate authorization before push or pull-request creation.",
+    "Separate authorization before Ready-for-Review, merge or deployment.",
+    "Separate authorization before any Production, Supabase, MEXC/Broker, credential, Cron, Capture or Import action."
+  ]
+}

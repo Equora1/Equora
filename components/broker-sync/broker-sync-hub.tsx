@@ -1,6 +1,6 @@
 import { AppIcon } from '@/components/ui/app-icon'
 import { FuturisticCard } from '@/components/ui/futuristic-card'
-import { MexcConnectionPanel } from '@/components/broker-sync/mexc-connection-panel'
+import { BrokerConnectionPanel } from '@/components/broker-sync/broker-connection-panel'
 import type { BrokerSyncSnapshot } from '@/lib/server/broker-sync'
 import type { BrokerCaptureRunSummary, BrokerPreviewItem } from '@/lib/types/broker-sync'
 
@@ -12,9 +12,12 @@ const workflow = [
 ] as const
 
 export function BrokerSyncHub({ snapshot }: { snapshot: BrokerSyncSnapshot }) {
-  const activeReadOnlyConnection = snapshot.connections.some((connection) =>
+  const userAttestedReadOnlyConnection = snapshot.connections.some((connection) =>
     connection.status === 'ready'
-      && connection.permissions?.includes('read_only_user_attested'),
+      && connection.readOnlyAttestation === 'user_confirmed',
+  )
+  const limitedTechnicalReadObserved = snapshot.connections.some((connection) =>
+    connection.technicalReadResult === 'legacy_read_observed',
   )
   return (
     <div className="space-y-5 xl:space-y-6">
@@ -31,18 +34,19 @@ export function BrokerSyncHub({ snapshot }: { snapshot: BrokerSyncSnapshot }) {
               </div>
             </div>
             <p className="mt-5 max-w-2xl text-sm leading-7 text-white/58 sm:text-base">
-              Verbinde MEXC mit einem Schlüssel, der ausschließlich lesen darf. Equora zeigt dir zuerst, welche Orders
-              und Ausführungen gefunden wurden. Es wird nichts gehandelt und noch nichts automatisch importiert.
+              Verwalte unterstützte Broker über eine gemeinsame Connectionübersicht. Providerfelder bleiben getrennt,
+              und Equora zeigt gefundene Daten nur als begrenzte Vorschau. Es wird nichts gehandelt oder automatisch importiert.
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
             <StatusPill label="v57.61.0" tone="gold" />
             <StatusPill
-              label={activeReadOnlyConnection
-                ? 'Read-only Verbindung aktiv'
-                : snapshot.connectorReady ? 'Server vorbereitet' : 'Runtime aus'}
-              tone={activeReadOnlyConnection || snapshot.connectorReady ? 'quiet' : 'warning'}
+              label={snapshot.runtimeEnabled ? `Runtime ${snapshot.runtimeMode}` : 'Runtime aus'}
+              tone={snapshot.runtimeEnabled ? 'quiet' : 'warning'}
             />
+            {userAttestedReadOnlyConnection ? (
+              <StatusPill label="Nutzer bestätigt: Read-only-Key" tone="quiet" />
+            ) : null}
           </div>
         </div>
       </FuturisticCard>
@@ -55,19 +59,30 @@ export function BrokerSyncHub({ snapshot }: { snapshot: BrokerSyncSnapshot }) {
 
       <div className="grid gap-5 xl:grid-cols-[1.05fr_0.95fr]">
         <FuturisticCard className="p-6">
-          <SectionHeading eyebrow="Sicherheitsgrenze" title="Equora darf lesen, sonst nichts" />
-          <div className="mt-5 grid gap-3 sm:grid-cols-3">
+          <SectionHeading eyebrow="Sicherheitsgrenze" title="App-Funktionen und Providerrechte getrennt" />
+          <div className="mt-5 grid gap-3">
             <PermissionCard
-              title="Daten lesen"
-              description="Orders, Ausführungen, Gebühren und Ergebnisse abrufen."
-              state={activeReadOnlyConnection ? 'Read-only bestätigt' : 'Nicht freigegeben'}
+              title="Equora-Lesefunktion"
+              description="Equora besitzt ausschließlich fest benannte GET-only-Lesepfade. Runtime und Nutzerfreigabe bleiben eigene Gates."
+              state={limitedTechnicalReadObserved ? 'Begrenzter Leseabruf beobachtet' : 'Nicht technisch beobachtet'}
             />
-            <PermissionCard title="Trades ausführen" description="Keine Order öffnen, ändern oder schließen." state="Nicht vorhanden" />
-            <PermissionCard title="Geld bewegen" description="Keine Auszahlung und kein interner Transfer." state="Nicht vorhanden" />
+            <PermissionCard
+              title="Trading in Equora"
+              description="Equora implementiert keine Funktion zum Öffnen, Ändern oder Schließen von Orders."
+              state="In der App nicht implementiert"
+            />
+            <PermissionCard
+              title="Provider-Schreibrechte"
+              description="Eine Nutzerbestätigung ersetzt keine vollständige technische Rechteübersicht des Providers."
+              state={userAttestedReadOnlyConnection
+                ? 'Laut Nutzer deaktiviert; nicht vollständig verifiziert'
+                : 'Nicht vollständig technisch verifiziert'}
+            />
           </div>
-          <p className="mt-5 rounded-2xl border border-white/8 bg-white/[0.025] p-4 text-sm leading-6 text-white/48">
+          <p className="mt-5 rounded-2xl border border-white/8 bg-white/[0.025] p-4 text-sm leading-6 text-white/60">
             API-Schlüssel und Secret werden verschlüsselt in einem eigenen, serverseitigen Zugangsspeicher abgelegt.
-            Nach dem Speichern werden sie nicht wieder an den Browser übertragen und erscheinen nicht in Protokollen.
+            Nach dem Speichern werden sie nicht wieder an den Browser übertragen. Equora schreibt sie nicht bewusst in
+            Client-Logs, URLs oder Browser-Storage; externe Provider- und Plattform-Logs sind durch dieses UI-Gate nicht vollständig auditiert.
           </p>
         </FuturisticCard>
 
@@ -78,9 +93,11 @@ export function BrokerSyncHub({ snapshot }: { snapshot: BrokerSyncSnapshot }) {
             <ReadinessRow label="Verschlüsselter Zugang" value={snapshot.secureStoreReady ? 'Bereit' : 'Patches v57.60 + v57.60.1 nötig'} />
             <ReadinessRow
               label="Serverseitiger Verbindungscheck"
-              value={snapshot.connectorReady
-                ? 'Umgebung vorbereitet; Rollout wird beim Start geprüft'
-                : 'Runtime/Umgebung prüfen'}
+              value={!snapshot.runtimeEnabled
+                ? 'Runtime deaktiviert'
+                : snapshot.connectorReady
+                  ? 'Voraussetzungen vorhanden; Start prüft erneut'
+                  : 'Runtime aktiv; Voraussetzungen fehlen'}
             />
             <ReadinessRow label="Automatisch ins Journal übernehmen" value="Noch ausgeschaltet" />
           </div>
@@ -88,7 +105,7 @@ export function BrokerSyncHub({ snapshot }: { snapshot: BrokerSyncSnapshot }) {
       </div>
 
       <FuturisticCard className="p-5 sm:p-6">
-        <MexcConnectionPanel
+        <BrokerConnectionPanel
           connections={snapshot.connections}
           connectorReady={snapshot.connectorReady}
           secureStoreReady={snapshot.secureStoreReady}
@@ -97,13 +114,13 @@ export function BrokerSyncHub({ snapshot }: { snapshot: BrokerSyncSnapshot }) {
 
       <FuturisticCard className="p-6">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-          <SectionHeading eyebrow="Datenvorschau" title="Zuletzt bei MEXC gefunden" />
-          <span className="text-xs text-white/35">{snapshot.preview.length} Einträge</span>
+          <SectionHeading eyebrow="Datenvorschau" title="Zuletzt bei Brokern gefunden" />
+          <span className="text-xs text-white/60">{snapshot.preview.length} Einträge</span>
         </div>
         <div className="mt-5">
           {snapshot.preview.length ? (
             <div className="overflow-hidden rounded-2xl border border-white/8">
-              <div className="hidden grid-cols-[0.7fr_1fr_1fr_0.8fr_0.8fr_1fr] gap-3 border-b border-white/8 bg-white/[0.025] px-4 py-3 text-[10px] uppercase tracking-[0.14em] text-white/35 md:grid">
+              <div className="hidden grid-cols-[0.7fr_1fr_1fr_0.8fr_0.8fr_1fr] gap-3 border-b border-white/8 bg-white/[0.025] px-4 py-3 text-[10px] uppercase tracking-[0.14em] text-white/60 md:grid">
                 <span>Art</span>
                 <span>Markt</span>
                 <span>Richtung</span>
@@ -118,7 +135,7 @@ export function BrokerSyncHub({ snapshot }: { snapshot: BrokerSyncSnapshot }) {
           ) : (
             <div className="rounded-2xl border border-dashed border-white/12 px-6 py-9 text-center">
               <p className="text-sm font-medium text-white">Noch keine Datenvorschau vorhanden.</p>
-              <p className="mx-auto mt-2 max-w-xl text-xs leading-5 text-white/40">
+              <p className="mx-auto mt-2 max-w-xl text-xs leading-5 text-white/60">
                 Erst nach einem ausdrücklich freigegebenen Capturelauf erscheinen hier die zuletzt erfassten
                 Brokerbeobachtungen. Der GET-only Verbindungsprobe speichert keine Rohdaten; Capture-Daten sind noch keine
                 Journal-Trades.
@@ -138,7 +155,7 @@ export function BrokerSyncHub({ snapshot }: { snapshot: BrokerSyncSnapshot }) {
                   {number}
                 </span>
                 <p className="mt-4 text-sm font-medium text-white">{title}</p>
-                <p className="mt-2 text-xs leading-5 text-white/42">{description}</p>
+                <p className="mt-2 text-xs leading-5 text-white/60">{description}</p>
               </div>
             ))}
           </div>
@@ -152,8 +169,8 @@ export function BrokerSyncHub({ snapshot }: { snapshot: BrokerSyncSnapshot }) {
                 {snapshot.recentRuns.map((run) => <RunCard key={run.id} run={run} />)}
               </div>
             ) : (
-              <div className="rounded-2xl border border-white/8 bg-white/[0.02] p-5 text-sm leading-6 text-white/42">
-                Noch kein Capturelauf vorhanden. Nach einer eigenen Capturefreigabe erscheint hier, wie viele Datensätze
+              <div className="rounded-2xl border border-white/8 bg-white/[0.02] p-5 text-sm leading-6 text-white/60">
+                In den verfügbaren Laufdaten wurde kein Capturelauf beobachtet. Nach einer eigenen Capturefreigabe erscheint hier, wie viele Datensätze
                 beobachtet und wie viele bereits bekannt waren.
               </div>
             )}
@@ -182,14 +199,14 @@ function StatusPill({ label, tone }: { label: string; tone: 'gold' | 'quiet' | '
   return <span className={`rounded-full border px-3 py-1.5 text-[10px] uppercase tracking-[0.16em] ${className}`}>{label}</span>
 }
 
-function PermissionCard({ title, description, state }: { title: string; description: string; state: 'Read-only bestätigt' | 'Nicht freigegeben' | 'Nicht vorhanden' }) {
+function PermissionCard({ title, description, state }: { title: string; description: string; state: string }) {
   return (
     <div className="rounded-2xl border border-white/8 bg-white/[0.022] p-4">
-      <div className="flex items-center justify-between gap-3">
+      <div className="flex flex-col items-start gap-2">
         <p className="text-sm font-medium text-white">{title}</p>
-        <span className={`text-[10px] uppercase tracking-[0.14em] ${state === 'Read-only bestätigt' ? 'text-emerald-300/75' : state === 'Nicht freigegeben' ? 'text-[#f0a855]' : 'text-white/35'}`}>{state}</span>
+        <span className="text-left text-[10px] uppercase tracking-[0.14em] text-white/60">{state}</span>
       </div>
-      <p className="mt-3 text-xs leading-5 text-white/42">{description}</p>
+      <p className="mt-3 text-xs leading-5 text-white/60">{description}</p>
     </div>
   )
 }
@@ -206,28 +223,28 @@ function ReadinessRow({ label, value }: { label: string; value: string }) {
 function PreviewRow({ item }: { item: BrokerPreviewItem }) {
   return (
     <div className="grid gap-3 px-4 py-4 text-xs md:grid-cols-[0.7fr_1fr_1fr_0.8fr_0.8fr_1fr] md:items-center">
-      <span className="w-fit rounded-full border border-white/9 bg-white/[0.03] px-2.5 py-1 text-[10px] uppercase tracking-[0.12em] text-white/48">
+      <span className="w-fit rounded-full border border-white/9 bg-white/[0.03] px-2.5 py-1 text-[10px] uppercase tracking-[0.12em] text-white/60">
         {item.kind === 'execution' ? 'Ausführung' : 'Order'}
       </span>
       <div>
-        <span className="text-white/35 md:hidden">Markt · </span>
+        <span className="text-white/60 md:hidden">Markt · </span>
         <span className="font-medium text-white/78">{item.symbol}</span>
       </div>
       <div>
-        <span className="text-white/35 md:hidden">Richtung · </span>
+        <span className="text-white/60 md:hidden">Richtung · </span>
         <span className="text-white/58">{item.direction}</span>
       </div>
       <div>
-        <span className="text-white/35 md:hidden">Preis · </span>
+        <span className="text-white/60 md:hidden">Preis · </span>
         <span className="text-white/58">{formatNumber(item.price)}</span>
       </div>
       <div>
-        <span className="text-white/35 md:hidden">Ergebnis · </span>
+        <span className="text-white/60 md:hidden">Ergebnis · </span>
         <span className="text-white/58">{formatSignedNumber(item.profit)}</span>
       </div>
       <div>
-        <span className="text-white/35 md:hidden">Zeit · </span>
-        <span className="text-white/45">{formatDate(item.occurredAt)}</span>
+        <span className="text-white/60 md:hidden">Zeit · </span>
+        <span className="text-white/60">{formatDate(item.occurredAt)}</span>
       </div>
     </div>
   )
@@ -238,9 +255,9 @@ function RunCard({ run }: { run: BrokerCaptureRunSummary }) {
     <div className="rounded-2xl border border-white/8 bg-white/[0.02] p-4">
       <div className="flex items-center justify-between gap-3">
         <span className="text-sm font-medium text-white">{runStatus(run.status)}</span>
-        <span className="text-[10px] uppercase tracking-[0.14em] text-white/35">{formatDate(run.created_at)}</span>
+        <span className="text-[10px] uppercase tracking-[0.14em] text-white/60">{formatDate(run.created_at)}</span>
       </div>
-      <p className="mt-3 text-xs leading-5 text-white/42">
+      <p className="mt-3 text-xs leading-5 text-white/60">
         Beobachtet {run.observed_event_count} · neu gespeichert {run.inserted_raw_event_count}
         {' '}· wiederholt {run.repeated_observation_count} · Fehler {run.failed_request_count}
       </p>

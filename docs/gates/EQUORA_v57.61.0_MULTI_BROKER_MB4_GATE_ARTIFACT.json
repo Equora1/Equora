@@ -1,0 +1,270 @@
+{
+  "schema_version": "equora_mb4_gate_artifact_v3",
+  "generated_at_utc": "2026-08-24T22:01:12.615Z",
+  "input_snapshot": [
+    {
+      "path": "components/broker-sync/broker-connection-panel.tsx",
+      "canonical_sha256": "fdde1cf1c4e8c003dad3f62c193cbb1d388e7fa4eab89eab6163b16007258c8f",
+      "canonical_bytes": 13235
+    },
+    {
+      "path": "components/broker-sync/broker-sync-hub.tsx",
+      "canonical_sha256": "b4d02baffc0478a471688946fcf68eb24fb98aaefab99733f035fe5c9afe76b3",
+      "canonical_bytes": 14228
+    },
+    {
+      "path": "components/broker-sync/providers/mexc-connection-setup.tsx",
+      "canonical_sha256": "07852b391a1bd8ade493db845376aec4c8dfcf2bbd9d26cae3891fc99886588a",
+      "canonical_bytes": 8129
+    },
+    {
+      "path": "components/layout/app-shell.tsx",
+      "canonical_sha256": "a9a459cc16f74f7d1666a018f2684eedae4d95843a4f07458c0f9cd698c9ea2a",
+      "canonical_bytes": 1660
+    },
+    {
+      "path": "docs/architecture/EQUORA_v57.61.0_MULTI_BROKER_MB4_IMPLEMENTATION_CONTRACT.md",
+      "canonical_sha256": "8c2b80a9bbdaf434a6b5de4c1009854cfee15c322d2d835b10b97a6b8d75707c",
+      "canonical_bytes": 26411
+    },
+    {
+      "path": "docs/gates/EQUORA_v57.61.0_MULTI_BROKER_MB4_BROWSER_ARTIFACT.json",
+      "canonical_sha256": "52661bec731e714126c16b989bf53b18d2356152ad68d7eae6651389039ab45f",
+      "canonical_bytes": 245907
+    },
+    {
+      "path": "lib/server/broker-connection-view.ts",
+      "canonical_sha256": "f69f4696bb7aac157b3e44ea449510f7e689caa9b22682b35407bcdcd58e624c",
+      "canonical_bytes": 7926
+    },
+    {
+      "path": "lib/server/broker-sync-review-fixture.ts",
+      "canonical_sha256": "72edd4d8e6ce5a47e46183c238de04065f8dcb3fd839a8ab0e0b890137978c22",
+      "canonical_bytes": 2388
+    },
+    {
+      "path": "lib/server/broker-sync.ts",
+      "canonical_sha256": "68ee867d9fed5a31befb640ee101a35982dd5e4ee9cfb69dbf5e33ba6b8d3c47",
+      "canonical_bytes": 13843
+    },
+    {
+      "path": "lib/types/broker-sync.ts",
+      "canonical_sha256": "34e97da4602716016b1e986538f518f65c974fe209b2408d9f8a424a65752b9a",
+      "canonical_bytes": 2890
+    },
+    {
+      "path": "scripts/multibroker-mb4-validation-lib.mjs",
+      "canonical_sha256": "d8dd6fe7839d502b906965861063b39b343a75aa0bd2a4e65e31fe4f39fbf820",
+      "canonical_bytes": 41407
+    },
+    {
+      "path": "scripts/run-multibroker-mb4-gates.mjs",
+      "canonical_sha256": "a419099dc502faf7e4223477a7198ca792487c8c9e12bb39ca2f7ecb66ea5159",
+      "canonical_bytes": 15576
+    },
+    {
+      "path": "scripts/validate-multibroker-mb4-manifest.mjs",
+      "canonical_sha256": "7411729c62f52daf1ba056969c5a85fbee56f560361ce1b7abf4df91bac0af6b",
+      "canonical_bytes": 58796
+    },
+    {
+      "path": "tests/application-contracts.test.ts",
+      "canonical_sha256": "4fe168b52e78190cf3f1f0c57435c9a30cf2830359e6078d0f550f47752cba69",
+      "canonical_bytes": 15878
+    },
+    {
+      "path": "tests/broker-connection-view.test.ts",
+      "canonical_sha256": "dec0928156f3fe7ef5ca6a6c7b2726895956aae228a18244b9b27c153ea1b32c",
+      "canonical_bytes": 8366
+    },
+    {
+      "path": "tests/multibroker-mb4-validator.test.mjs",
+      "canonical_sha256": "b2b8fa4fde89680e6bab9919f1a864bad3c791024275a2e97af93d7c66701067",
+      "canonical_bytes": 28428
+    }
+  ],
+  "execution_environment": {
+    "platform": "win32",
+    "arch": "x64",
+    "node_version": "v24.18.0",
+    "node_executable_sha256": "9a4eb5f1c29c6a2e93852ead46b999e284a6a5ca8bab4d4e241d587d025a52de",
+    "node_executable_bytes": 92534088,
+    "gate_invocation": "direct Node execution of the four recorded JavaScript entrypoints; npm launcher not used",
+    "gate_entrypoints": [
+      {
+        "gates": [
+          "targeted",
+          "full_test"
+        ],
+        "identity": "<repo>/node_modules/vitest/dist/cli.js",
+        "sha256": "2aa6bcb906e952ee722fe631dd34c9f87d28e4244716197156c6274d17f28aac",
+        "bytes": 284
+      },
+      {
+        "gates": [
+          "typecheck"
+        ],
+        "identity": "<repo>/node_modules/typescript/lib/tsc.js",
+        "sha256": "2cffde0b8c6760dfb0b5b0382bbb7e00ba6a8b2d981b9205b256a700a481d983",
+        "bytes": 267
+      },
+      {
+        "gates": [
+          "release_check"
+        ],
+        "identity": "<repo>/scripts/release-check.mjs",
+        "sha256": "6c76bde0d2b784941825ed6b62179355dcf7b319460098b8dc68c70df72b0c38",
+        "bytes": 9162
+      },
+      {
+        "gates": [
+          "build"
+        ],
+        "identity": "<repo>/node_modules/next/dist/bin/next",
+        "sha256": "61d7bcb7154af037129929201244ec69dec9c7cbb6fa16a3f68132415721ee30",
+        "bytes": 13452
+      }
+    ],
+    "git_version": "git version 2.53.0.windows.2",
+    "git_core_identity": "<git-core-dir>/git.exe",
+    "git_core_sha256": "c39b1b4f7a57935bbeadf246dc2466316619453a6a9da77c4a9c6bd6d8fb21d3",
+    "git_core_bytes": 4344192,
+    "git_builtin_commands": [
+      "--version",
+      "diff",
+      "ls-files",
+      "rev-parse"
+    ],
+    "package_lock_sha256": "d08d3ee672f629edf4a04ac42176a6987978ad96befc675af87a3dbc5075c2c0",
+    "package_lock_bytes": 126295,
+    "toolchain_binding_scope": "Node executable, immediate JavaScript gate entrypoint files, Git-Core binary and package-lock.json resolution metadata are hash-bound; no transitive closure claim.",
+    "external_toolchain_trust_anchors": [
+      "Installed transitive node_modules implementation files are external local-machine trust anchors; package-lock.json metadata does not prove their installed bytes.",
+      "Operating-system libraries loaded by Node and Git-Core are external local-machine trust anchors.",
+      "Git helper files outside the bound Git-Core binary are not claimed; MB4 validator Git use is restricted to built-in rev-parse, diff and ls-files commands plus --version."
+    ],
+    "environment_policy": "minimal_allowlist_v2_direct_node_entrypoints_reject_influence_variables",
+    "inherited_variable_names": [
+      "APPDATA",
+      "HOMEDRIVE",
+      "HOMEPATH",
+      "LOCALAPPDATA",
+      "NUMBER_OF_PROCESSORS",
+      "OS",
+      "PATHEXT",
+      "PROCESSOR_ARCHITECTURE",
+      "ProgramData",
+      "SystemRoot",
+      "TEMP",
+      "TMP",
+      "USERPROFILE",
+      "windir"
+    ],
+    "inherited_environment_sha256": "35dfeef6c999c159e7167d1e1aead695fca157b8ca1fd48ef9fa7287116bb432",
+    "forced_variables": {
+      "CI": "1",
+      "EQUORA_MEXC_RUNTIME_MODE": "off",
+      "LANG": "C.UTF-8",
+      "LC_ALL": "C.UTF-8",
+      "NEXT_TELEMETRY_DISABLED": "1",
+      "NO_COLOR": "1",
+      "NO_UPDATE_NOTIFIER": "1",
+      "PATH": "<node-dir>;<git-core-dir>;C:/WINDOWS/System32;C:/WINDOWS",
+      "TERM": "dumb",
+      "TZ": "UTC",
+      "ComSpec": "C:/WINDOWS/System32/cmd.exe"
+    },
+    "rejected_influence_variables": [],
+    "loaded_dotenv_files": []
+  },
+  "transcript_policy": {
+    "encoding": "UTF-8 without BOM",
+    "raw_output_validation": "stdout and stderr captured as bytes; invalid UTF-8 and UTF-8 BOM rejected before text canonicalization",
+    "line_endings": "LF with exactly one terminal LF",
+    "terminal_controls": "reject all C0/C1/CSI/OSC controls except TAB, LF and normalized CR",
+    "npm_notices_removed": false,
+    "workspace_path_replacement": "<repo>"
+  },
+  "attempts": [
+    {
+      "attempt_id": "mb4-remediation14-targeted-001",
+      "gate": "targeted",
+      "command": "node <repo>/node_modules/vitest/dist/cli.js run tests/application-contracts.test.ts tests/broker-connection-view.test.ts tests/multibroker-mb4-validator.test.mjs tests/broker-runtime-control.test.ts tests/mexc-egress-boundary.test.ts tests/mexc-readonly-probe.test.ts --reporter=dot",
+      "started_at_utc": "2026-08-24T21:56:20.234Z",
+      "finished_at_utc": "2026-08-24T21:56:23.650Z",
+      "exit_code": 0,
+      "result": "pass",
+      "canonical_transcript": "RUN  v4.1.10 <repo>\n\n················································································································································\n\n Test Files  6 passed (6)\n      Tests  144 passed (144)\n   Start at  21:56:20\n   Duration  2.61s (transform 891ms, setup 0ms, import 1.71s, tests 2.61s, environment 1ms)\n",
+      "transcript_canonical_bytes": 481,
+      "transcript_canonical_sha256": "638f046b5c4e9c4b5221e785d6fa3097889877101d74ab81c8eecef87b818fbd",
+      "result_counts": {
+        "test_files_passed": 6,
+        "test_files_total": 6,
+        "tests_passed": 144,
+        "tests_total": 144
+      }
+    },
+    {
+      "attempt_id": "mb4-remediation14-typecheck-001",
+      "gate": "typecheck",
+      "command": "node <repo>/node_modules/typescript/lib/tsc.js --noEmit",
+      "started_at_utc": "2026-08-24T21:56:23.768Z",
+      "finished_at_utc": "2026-08-24T21:56:26.357Z",
+      "exit_code": 0,
+      "result": "pass",
+      "canonical_transcript": "\n",
+      "transcript_canonical_bytes": 1,
+      "transcript_canonical_sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+      "result_counts": {}
+    },
+    {
+      "attempt_id": "mb4-remediation14-full-001",
+      "gate": "full_test",
+      "command": "node <repo>/node_modules/vitest/dist/cli.js run --reporter=dot --maxWorkers=1",
+      "started_at_utc": "2026-08-24T21:56:26.454Z",
+      "finished_at_utc": "2026-08-24T22:00:42.237Z",
+      "exit_code": 0,
+      "result": "pass",
+      "canonical_transcript": "RUN  v4.1.10 <repo>\n\n················································································································································································································································································································································································································································································································································································································································\n\n Test Files  30 passed (30)\n      Tests  624 passed (624)\n   Start at  21:56:27\n   Duration  254.95s (transform 1.48s, setup 0ms, import 3.25s, tests 246.79s, environment 3ms)\n",
+      "transcript_canonical_bytes": 1447,
+      "transcript_canonical_sha256": "91a59d3b916bbf141fc07fa3934b5538851e471c16c7630453bab060bb6ab3f3",
+      "result_counts": {
+        "test_files_passed": 30,
+        "test_files_total": 30,
+        "tests_passed": 624,
+        "tests_total": 624
+      }
+    },
+    {
+      "attempt_id": "mb4-remediation14-release-001",
+      "gate": "release_check",
+      "command": "node <repo>/scripts/release-check.mjs",
+      "started_at_utc": "2026-08-24T22:00:42.354Z",
+      "finished_at_utc": "2026-08-24T22:00:42.523Z",
+      "exit_code": 0,
+      "result": "pass",
+      "canonical_transcript": "Release-Check erfolgreich: v57.61.0 erfüllt die Produkt-Gates.\n",
+      "transcript_canonical_bytes": 64,
+      "transcript_canonical_sha256": "325758a23214ab5e794d34a3373a10428be368b40e9370f2c634d4a5d5ada39d",
+      "result_counts": {}
+    },
+    {
+      "attempt_id": "mb4-remediation14-build-001",
+      "gate": "build",
+      "command": "node <repo>/node_modules/next/dist/bin/next build",
+      "started_at_utc": "2026-08-24T22:00:42.630Z",
+      "finished_at_utc": "2026-08-24T22:01:12.559Z",
+      "exit_code": 0,
+      "result": "pass",
+      "canonical_transcript": "▲ Next.js 15.5.21\n   - Experiments (use with caution):\n     · cpus: 1\n\n   Creating an optimized production build ...\n ✓ Compiled successfully in 3.9s\n   Linting and checking validity of types ...\n   Collecting page data ...\n   Generating static pages (0/3) ...\n ✓ Generating static pages (3/3)\n   Finalizing page optimization ...\n   Collecting build traces ...\n\nRoute (app)                                 Size  First Load JS\n┌ ƒ /                                      184 B         103 kB\n├ ○ /_not-found                            997 B         104 kB\n├ ƒ /api/internal/broker-capture           184 B         103 kB\n├ ƒ /api/maintenance/media-cleanup         184 B         103 kB\n├ ƒ /api/performance                       184 B         103 kB\n├ ƒ /api/sidebar-overview                  184 B         103 kB\n├ ƒ /broker-sync                         4.81 kB         115 kB\n├ ƒ /cost-profiles                       5.88 kB         124 kB\n├ ƒ /daily-note                          3.19 kB         130 kB\n├ ƒ /dashboard                             180 B         110 kB\n├ ƒ /kalender                             8.8 kB         132 kB\n├ ƒ /login                                 184 B         103 kB\n├ ƒ /logout                                184 B         103 kB\n├ ƒ /performance                         2.56 kB         105 kB\n├ ƒ /review                              10.9 kB         138 kB\n├ ƒ /review-sessions                     6.22 kB         124 kB\n├ ƒ /setups                              18.7 kB         202 kB\n├ ƒ /share                                6.3 kB         130 kB\n├ ƒ /statistik                           13.7 kB         137 kB\n└ ƒ /trades                              53.8 kB         235 kB\n+ First Load JS shared by all             103 kB\n  ├ chunks/1255-612df69cb02f2021.js      46.3 kB\n  ├ chunks/4bd1b696-f785427dddbba9fb.js  54.2 kB\n  └ other shared chunks (total)          2.06 kB\n\n\nƒ Middleware                             81.9 kB\n\n○  (Static)   prerendered as static content\nƒ  (Dynamic)  server-rendered on demand\n",
+      "transcript_canonical_bytes": 2116,
+      "transcript_canonical_sha256": "93fd1bdc8d9f34ea53b6ef21362576f3ef0f362ccc1da6683f5dccfd003a53e8",
+      "result_counts": {
+        "static_pages_passed": 3,
+        "static_pages_total": 3,
+        "broker_sync_route_size": "4.81 kB",
+        "broker_sync_first_load_js": "115 kB"
+      }
+    }
+  ]
+}
