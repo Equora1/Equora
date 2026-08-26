@@ -12,6 +12,7 @@ const workflow = [
 ] as const
 
 export function BrokerSyncHub({ snapshot }: { snapshot: BrokerSyncSnapshot }) {
+  const fullSnapshotAvailable = snapshot.readScope === 'full_snapshot'
   const userAttestedReadOnlyConnection = snapshot.connections.some((connection) =>
     connection.status === 'ready'
       && connection.readOnlyAttestation === 'user_confirmed',
@@ -89,15 +90,20 @@ export function BrokerSyncHub({ snapshot }: { snapshot: BrokerSyncSnapshot }) {
         <FuturisticCard className="p-6">
           <SectionHeading eyebrow="Bereitschaft" title="Was schon funktioniert" />
           <div className="mt-5 space-y-3">
-            <ReadinessRow label="Broker-Bereich" value={snapshot.schemaReady ? 'Bereit' : 'Grundlage fehlt'} />
-            <ReadinessRow label="Verschlüsselter Zugang" value={snapshot.secureStoreReady ? 'Bereit' : 'Patches v57.60 + v57.60.1 nötig'} />
+            <ReadinessRow label="Broker-Bereich" value={schemaStateLabel(snapshot.schemaState)} />
+            <ReadinessRow
+              label="Verschlüsselter Zugang"
+              value={dependencyStateLabel(snapshot.secureStoreState)}
+            />
             <ReadinessRow
               label="Serverseitiger Verbindungscheck"
               value={!snapshot.runtimeEnabled
                 ? 'Runtime deaktiviert'
-                : snapshot.connectorReady
+                : snapshot.connectorState === 'ready'
                   ? 'Voraussetzungen vorhanden; Start prüft erneut'
-                  : 'Runtime aktiv; Voraussetzungen fehlen'}
+                  : snapshot.connectorState === 'not_read'
+                    ? 'Status nicht lesbar; Setupformular nicht verfügbar'
+                    : 'Runtime aktiv; Voraussetzungen fehlen'}
             />
             <ReadinessRow label="Automatisch ins Journal übernehmen" value="Noch ausgeschaltet" />
           </div>
@@ -107,8 +113,8 @@ export function BrokerSyncHub({ snapshot }: { snapshot: BrokerSyncSnapshot }) {
       <FuturisticCard className="p-5 sm:p-6">
         <BrokerConnectionPanel
           connections={snapshot.connections}
-          connectorReady={snapshot.connectorReady}
-          secureStoreReady={snapshot.secureStoreReady}
+          connectorState={snapshot.connectorState}
+          secureStoreState={snapshot.secureStoreState}
         />
       </FuturisticCard>
 
@@ -131,6 +137,14 @@ export function BrokerSyncHub({ snapshot }: { snapshot: BrokerSyncSnapshot }) {
               <div className="divide-y divide-white/6">
                 {snapshot.preview.map((item) => <PreviewRow key={item.id} item={item} />)}
               </div>
+            </div>
+          ) : !fullSnapshotAvailable ? (
+            <div className="rounded-2xl border border-dashed border-white/12 px-6 py-9 text-center">
+              <p className="text-sm font-medium text-white">Detailevidenz ist über diesen Read-Pfad nicht verfügbar.</p>
+              <p className="mx-auto mt-2 max-w-xl text-xs leading-5 text-white/60">
+                Die Connectionübersicht umgeht keine geschlossenen Tabellenrechte. Fehlende Vorschauzeilen werden deshalb
+                nicht als fehlende Brokerdaten interpretiert.
+              </p>
             </div>
           ) : (
             <div className="rounded-2xl border border-dashed border-white/12 px-6 py-9 text-center">
@@ -167,6 +181,10 @@ export function BrokerSyncHub({ snapshot }: { snapshot: BrokerSyncSnapshot }) {
             {snapshot.recentRuns.length ? (
               <div className="space-y-3">
                 {snapshot.recentRuns.map((run) => <RunCard key={run.id} run={run} />)}
+              </div>
+            ) : !fullSnapshotAvailable ? (
+              <div className="rounded-2xl border border-white/8 bg-white/[0.02] p-5 text-sm leading-6 text-white/60">
+                Captureläufe sind über diesen begrenzten Read-Pfad nicht sichtbar. Der Zustand bleibt deshalb unbekannt und wird nicht als leer ausgegeben.
               </div>
             ) : (
               <div className="rounded-2xl border border-white/8 bg-white/[0.02] p-5 text-sm leading-6 text-white/60">
@@ -218,6 +236,18 @@ function ReadinessRow({ label, value }: { label: string; value: string }) {
       <span className="text-xs font-medium text-white/82">{value}</span>
     </div>
   )
+}
+
+function schemaStateLabel(state: BrokerSyncSnapshot['schemaState']) {
+  if (state === 'ready') return 'Bereit'
+  if (state === 'missing') return 'Grundlage fehlt'
+  return 'Status nicht lesbar'
+}
+
+function dependencyStateLabel(state: BrokerSyncSnapshot['secureStoreState']) {
+  if (state === 'ready') return 'Bereit'
+  if (state === 'not_ready') return 'Nicht verfügbar'
+  return 'Status nicht lesbar; Setupformular nicht verfügbar'
 }
 
 function PreviewRow({ item }: { item: BrokerPreviewItem }) {

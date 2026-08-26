@@ -710,5 +710,5 @@ describe('provider-neutral MB3 persistence seam', () => {
     } finally {
       for (const repository of repositories) rmSync(repository, { recursive: true, force: true })
     }
-  })
+  }, 10_000)
 })

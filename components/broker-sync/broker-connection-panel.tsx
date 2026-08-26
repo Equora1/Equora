@@ -7,6 +7,7 @@ import {
   removeBrokerConnection,
 } from '@/app/actions/broker-sync'
 import { MexcConnectionSetup } from '@/components/broker-sync/providers/mexc-connection-setup'
+import type { BrokerDependencyState } from '@/lib/server/broker-sync'
 import {
   BROKER_PROVIDER_PRESENTATIONS,
   canShowBrokerConnectionActions,
@@ -22,12 +23,12 @@ type Feedback = Readonly<{
 
 export function BrokerConnectionPanel({
   connections,
-  connectorReady,
-  secureStoreReady,
+  connectorState,
+  secureStoreState,
 }: {
   connections: readonly BrokerConnectionSummary[]
-  connectorReady: boolean
-  secureStoreReady: boolean
+  connectorState: BrokerDependencyState
+  secureStoreState: BrokerDependencyState
 }) {
   const router = useRouter()
   const [selectedProviderCode, setSelectedProviderCode] = useState<BrokerProviderUiCode>('mexc')
@@ -109,7 +110,7 @@ export function BrokerConnectionPanel({
 
       <div id="provider-setup-panel" className="grid gap-5 xl:grid-cols-[1.05fr_0.95fr]">
         {selectedProvider?.setupComponent === 'mexc_readonly_setup_v1' ? (
-          <MexcConnectionSetup connectorReady={connectorReady} secureStoreReady={secureStoreReady} />
+          <MexcConnectionSetup connectorState={connectorState} secureStoreState={secureStoreState} />
         ) : (
           <section className="rounded-3xl border border-white/8 bg-white/[0.02] p-5 sm:p-6">
             <h3 className="text-xl font-semibold text-white">Kein Setup verfügbar</h3>

@@ -40,6 +40,17 @@ export type CompleteKeysetRead<T> = Readonly<{
   pageCount: number
 }>
 
+type BrokerReadError = Readonly<{
+  code?: string | null
+}>
+
+const MISSING_BROKER_SCHEMA_CODES = new Set([
+  '42P01', // PostgreSQL undefined_table
+  '42703', // PostgreSQL undefined_column
+  'PGRST204', // PostgREST column missing from the schema cache
+  'PGRST205', // PostgREST table missing from the schema cache
+])
+
 const NO_CAPTURE_OBSERVED = Object.freeze({
   state: 'not_observed',
   lastCaptureAt: null,
@@ -51,6 +62,11 @@ const LEGACY_TECHNICAL_READ_FLAGS = new Set([
   'historical_orders_read_observed',
   'historical_executions_read_observed',
 ])
+
+export function isMissingBrokerSchemaError(error?: BrokerReadError | null) {
+  const code = error?.code?.trim().toUpperCase() ?? ''
+  return MISSING_BROKER_SCHEMA_CODES.has(code)
+}
 
 function keysetFailure<T>(message: string, code: string, pageCount: number): CompleteKeysetRead<T> {
   return Object.freeze({
