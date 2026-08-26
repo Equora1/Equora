@@ -140,17 +140,25 @@ describe('v57.60.1 application safety contracts', () => {
     expect(runtime).toContain('hasSupabaseServerEnv() && hasBrokerSecretKey() && hasBrokerIdentityKey()')
   })
 
-  it('starts the independent secure-store readiness query with the broker snapshot reads', () => {
+  it('keeps broker snapshot source reads limited to the connection summary relation', () => {
     const brokerSync = source('lib/server/broker-sync.ts')
-    const promiseStart = brokerSync.indexOf('const secureStoreResponsePromise =')
-    const awaitStart = brokerSync.indexOf('] = await Promise.all([')
 
-    expect(promiseStart).toBeGreaterThanOrEqual(0)
-    expect(awaitStart).toBeGreaterThan(promiseStart)
-    expect(brokerSync).toMatch(/secureStoreResponsePromise,\s*\]\)/)
-    expect(brokerSync).toContain(
-      'const secureStoreReady = serverAvailable && !secureStoreResponse.error',
-    )
+    expect(brokerSync).toContain(".from('broker_connections')")
+    for (const closedRelation of [
+      'broker_credentials',
+      'broker_connection_accounts',
+      'broker_sync_activations',
+      'broker_capture_runs',
+      'broker_capture_raw_events',
+    ]) {
+      expect(brokerSync).not.toContain(`.from('${closedRelation}')`)
+    }
+    expect(brokerSync).toContain("readScope: 'connection_summary_only'")
+    expect(brokerSync).toContain("{ state: 'unavailable', lastCaptureAt: null }")
+    expect(brokerSync).toContain("schemaState: 'ready'")
+    expect(brokerSync).toContain("secureStoreState: 'not_read'")
+    expect(brokerSync).toContain("connectorState: 'not_read'")
+    expect(brokerSync).not.toContain("'sync_mode'")
   })
 
   it('validates key versions before decode and clears secret buffers on every encryption exit', () => {
@@ -192,11 +200,6 @@ describe('v57.60.1 application safety contracts', () => {
     const brokerTypes = source('lib/types/broker-sync.ts')
     const hub = source('components/broker-sync/broker-sync-hub.tsx')
     const appShell = source('components/layout/app-shell.tsx')
-    const captureEvidenceQuery = brokerSync.slice(
-      brokerSync.indexOf('const activationIdChunks ='),
-      brokerSync.indexOf('const captureEvidenceError ='),
-    )
-
     const refreshAction = actions.slice(
       actions.indexOf('export async function refreshMexcPreview'),
       actions.indexOf('export async function removeBrokerConnection'),
@@ -246,32 +249,34 @@ describe('v57.60.1 application safety contracts', () => {
     expect(hub).not.toContain('Equora darf lesen, sonst nichts')
     expect(hub).not.toContain('erscheinen nicht in Protokollen')
     expect(hub).toContain('snapshot.runtimeEnabled')
+    expect(hub).toContain("snapshot.readScope === 'full_snapshot'")
+    expect(hub).toContain('Status nicht lesbar; Setupformular nicht verfügbar')
+    expect(hub).not.toContain('Status nicht lesbar; Aktionen gesperrt')
+    expect(hub).toContain('nicht als fehlende Brokerdaten interpretiert')
+    expect(hub).toContain('wird nicht als leer ausgegeben')
+    expect(hub).not.toContain('Patches v57.60 + v57.60.1 nötig')
     expect(hub).toContain('Runtime deaktiviert')
-    expect(hub).not.toContain("snapshot.connectorReady ? 'MEXC bereit'")
-    expect(hub).not.toContain("snapshot.connectorReady ? 'Freigegeben'")
+    expect(hub).not.toContain('snapshot.schemaReady')
+    expect(hub).not.toContain('snapshot.connectorReady')
+    expect(hub).not.toContain('snapshot.secureStoreReady')
+    expect(mexcSetup).toContain("connectorState === 'not_read'")
+    expect(mexcSetup).toContain('Das Setupformular dieser Ansicht ist deshalb nicht verfügbar')
+    expect(mexcSetup).not.toContain('Neues Setup bleibt gesperrt')
+    expect(mexcSetup).not.toContain('Die serverseitige Secure-Store-Grundlage ist nicht verfügbar')
     expect(reviewFixture).toContain("nodeEnv !== 'development'")
     expect(reviewFixture).toContain("fixtureFlag !== LOCAL_REVIEW_FLAG")
-    expect(reviewFixture).toContain('connectorReady: false')
+    expect(reviewFixture).toContain("connectorState: 'not_ready'")
+    expect(reviewFixture).toContain("secureStoreState: 'not_ready'")
     expect(reviewFixture).toContain('runtimeEnabled: false')
     expect(reviewFixture).toContain("runtimeMode: 'off'")
     expect(reviewFixture).not.toMatch(/apiKey|secretKey|credential_reference/u)
     expect(appShell).toContain('grid min-w-0 gap-5')
     expect(appShell).toContain('aside className="min-w-0')
-    expect(brokerSync).toContain(".from('broker_sync_activations')")
-    expect(brokerSync).toContain(".select('id,connection_account_id,broker_account_id', { count: 'exact' })")
-    expect(brokerSync).toContain(".select('id,connection_id,broker_account_id,status,valid_to', { count: 'exact' })")
-    expect(brokerSync).toContain(".order('id', { ascending: true })")
-    expect(brokerSync).toContain("query = query.gt('id', afterId)")
-    expect(brokerSync).toContain('readAllCountedKeysetPages')
-    expect(brokerSync).toContain('historicalAccountById.get(activation.connection_account_id)')
-    expect(captureEvidenceQuery).toContain(".in('sync_activation_id', activationIdChunk)")
-    expect(captureEvidenceQuery).toContain(".in('status', ['completed', 'partial'])")
-    expect(captureEvidenceQuery).toContain(".order('completed_at', { ascending: false })")
-    expect(captureEvidenceQuery).toContain('.limit(1)')
-    expect(captureEvidenceQuery).not.toContain('.limit(5)')
-    expect(captureEvidenceQuery).toContain('mapWithConcurrency')
-    expect(captureEvidenceQuery).toContain('CAPTURE_EVIDENCE_QUERY_CONCURRENCY')
+    expect(brokerSync).toContain(".from('broker_connections')")
+    expect(brokerSync).not.toMatch(/\.from\('broker_(?:credentials|connection_accounts|sync_activations|capture_runs|capture_raw_events)'\)/u)
     expect(brokerSync).toContain("state: 'unavailable'")
+    expect(brokerSync).toContain('Diese Ansicht startet keinen Capturelauf')
+    expect(brokerSync).not.toContain('Connector und Capture bleiben fail-closed gesperrt')
     expect(actions).toContain('ein secret-freies Setup-Intent kann als Auditspur bestehen bleiben')
     expect(actions).not.toContain('kein halbfertiger Setup-Stand akzeptiert')
   })

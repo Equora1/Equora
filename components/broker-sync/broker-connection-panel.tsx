@@ -7,6 +7,7 @@ import {
   removeBrokerConnection,
 } from '@/app/actions/broker-sync'
 import { MexcConnectionSetup } from '@/components/broker-sync/providers/mexc-connection-setup'
+import type { BrokerDependencyState, BrokerSchemaState } from '@/lib/server/broker-sync'
 import {
   BROKER_PROVIDER_PRESENTATIONS,
   canShowBrokerConnectionActions,
@@ -22,12 +23,14 @@ type Feedback = Readonly<{
 
 export function BrokerConnectionPanel({
   connections,
-  connectorReady,
-  secureStoreReady,
+  schemaState,
+  connectorState,
+  secureStoreState,
 }: {
   connections: readonly BrokerConnectionSummary[]
-  connectorReady: boolean
-  secureStoreReady: boolean
+  schemaState: BrokerSchemaState
+  connectorState: BrokerDependencyState
+  secureStoreState: BrokerDependencyState
 }) {
   const router = useRouter()
   const [selectedProviderCode, setSelectedProviderCode] = useState<BrokerProviderUiCode>('mexc')
@@ -35,6 +38,7 @@ export function BrokerConnectionPanel({
   const [activeConnectionId, setActiveConnectionId] = useState<string | null>(null)
   const [feedback, setFeedback] = useState<Feedback>(null)
   const selectedProvider = findBrokerProviderPresentation(selectedProviderCode)
+  const connectionListReadable = schemaState === 'ready'
 
   function refreshConnection(connectionId: string) {
     setFeedback(null)
@@ -109,7 +113,7 @@ export function BrokerConnectionPanel({
 
       <div id="provider-setup-panel" className="grid gap-5 xl:grid-cols-[1.05fr_0.95fr]">
         {selectedProvider?.setupComponent === 'mexc_readonly_setup_v1' ? (
-          <MexcConnectionSetup connectorReady={connectorReady} secureStoreReady={secureStoreReady} />
+          <MexcConnectionSetup connectorState={connectorState} secureStoreState={secureStoreState} />
         ) : (
           <section className="rounded-3xl border border-white/8 bg-white/[0.02] p-5 sm:p-6">
             <h3 className="text-xl font-semibold text-white">Kein Setup verfügbar</h3>
@@ -124,13 +128,19 @@ export function BrokerConnectionPanel({
           <div className="flex items-end justify-between gap-4">
             <div>
               <p className="eq-display text-[0.58rem] text-[#b09a7a]">Connectionübersicht</p>
-              <h3 id="connection-overview-title" className="mt-2 text-xl font-semibold text-white">Gespeicherte Verbindungen</h3>
+              <h3 id="connection-overview-title" className="mt-2 text-xl font-semibold text-white">Gelesene Verbindungen</h3>
             </div>
-            <span className="text-xs text-white/60">{connections.length}</span>
+            <span className="text-xs text-white/60">
+              {connectionListReadable
+                ? `${connections.length} gelesen`
+                : schemaState === 'missing'
+                  ? 'Schema nicht verfügbar'
+                  : 'Status nicht lesbar'}
+            </span>
           </div>
 
           <div className="mt-5 space-y-3">
-            {connections.length ? connections.map((connection) => (
+            {connectionListReadable && connections.length ? connections.map((connection) => (
               <ConnectionCard
                 key={connection.id}
                 connection={connection}
@@ -139,11 +149,22 @@ export function BrokerConnectionPanel({
                 onRefresh={refreshConnection}
                 onRemove={removeConnection}
               />
-            )) : (
+            )) : connectionListReadable ? (
               <div className="rounded-2xl border border-dashed border-white/12 px-5 py-8 text-center">
-                <p className="text-sm font-medium text-white">Noch kein Broker verbunden.</p>
+                <p className="text-sm font-medium text-white">Im gelesenen Connectionbestand ist kein Broker verbunden.</p>
                 <p className="mt-2 text-xs leading-5 text-white/60">
                   Wähle einen gebauten Provider und nutze ausschließlich dessen getrennte Setupfelder.
+                </p>
+              </div>
+            ) : (
+              <div className="rounded-2xl border border-dashed border-white/12 px-5 py-8 text-center">
+                <p className="text-sm font-medium text-white">
+                  {schemaState === 'missing'
+                    ? 'Connectionübersicht nicht verfügbar.'
+                    : 'Connectionübersicht derzeit nicht lesbar.'}
+                </p>
+                <p className="mt-2 text-xs leading-5 text-white/60">
+                  Der gespeicherte Verbindungsbestand bleibt unbekannt. Leere Daten werden nicht als fehlende Brokerverbindung interpretiert.
                 </p>
               </div>
             )}

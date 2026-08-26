@@ -3,6 +3,7 @@
 import { useState, useTransition, type ChangeEvent, type FormEvent } from 'react'
 import { useRouter } from 'next/navigation'
 import { connectMexcBroker } from '@/app/actions/broker-sync'
+import type { BrokerDependencyState } from '@/lib/server/broker-sync'
 
 type Feedback = Readonly<{
   tone: 'success' | 'error'
@@ -10,11 +11,11 @@ type Feedback = Readonly<{
 }> | null
 
 export function MexcConnectionSetup({
-  connectorReady,
-  secureStoreReady,
+  connectorState,
+  secureStoreState,
 }: {
-  connectorReady: boolean
-  secureStoreReady: boolean
+  connectorState: BrokerDependencyState
+  secureStoreState: BrokerDependencyState
 }) {
   const router = useRouter()
   const [isPending, startTransition] = useTransition()
@@ -48,7 +49,7 @@ export function MexcConnectionSetup({
     })
   }
 
-  const disabled = isPending || !connectorReady
+  const disabled = isPending || connectorState !== 'ready'
 
   return (
     <section aria-labelledby="mexc-setup-title" className="rounded-3xl border border-white/8 bg-white/[0.02] p-5 sm:p-6">
@@ -61,11 +62,13 @@ export function MexcConnectionSetup({
         </p>
       </div>
 
-      {!connectorReady ? (
+      {connectorState !== 'ready' ? (
         <div role="status" className="mt-5 rounded-2xl border border-[#e5a14d]/20 bg-[#e5a14d]/8 px-4 py-3 text-sm leading-6 text-[#efc98f]">
-          {secureStoreReady
-            ? 'Der MEXC-Connector ist in der Serverumgebung deaktiviert. Es werden keine Brokerrequests ausgeführt.'
-            : 'Die serverseitige Secure-Store-Grundlage ist nicht verfügbar. Es werden keine Credentials übertragen.'}
+          {connectorState === 'not_read'
+            ? 'Der Status von Secure Store und Connectorvoraussetzungen wurde über diesen begrenzten Read-Pfad nicht gelesen. Das Setupformular dieser Ansicht ist deshalb nicht verfügbar.'
+            : secureStoreState === 'ready'
+              ? 'Der MEXC-Connector ist in der Serverumgebung deaktiviert. Es werden keine Brokerrequests ausgeführt.'
+              : 'Die serverseitige Secure-Store-Grundlage ist nachweislich nicht verfügbar. Es werden keine Credentials übertragen.'}
         </div>
       ) : null}
 

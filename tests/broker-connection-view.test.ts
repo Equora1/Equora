@@ -1,8 +1,17 @@
+import { createElement } from 'react'
+import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it, vi } from 'vitest'
 
 vi.mock('server-only', () => ({}))
+vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh: vi.fn() }) }))
+vi.mock('@/app/actions/broker-sync', () => ({
+  connectMexcBroker: vi.fn(),
+  refreshMexcPreview: vi.fn(),
+  removeBrokerConnection: vi.fn(),
+}))
 
 import {
+  isMissingBrokerSchemaError,
   latestCaptureByConnection,
   mapWithConcurrency,
   projectBrokerConnectionSummary,
@@ -14,6 +23,8 @@ import {
   findBrokerProviderPresentation,
 } from '../lib/types/broker-sync'
 import { getLocalMb4ReviewSnapshot } from '../lib/server/broker-sync-review-fixture'
+import { BrokerSyncHub } from '../components/broker-sync/broker-sync-hub'
+import type { BrokerSyncSnapshot } from '../lib/server/broker-sync'
 
 const BASE_ROW = {
   id: '10000000-0000-4000-8000-000000000001',
@@ -26,6 +37,23 @@ const BASE_ROW = {
 }
 
 describe('provider-neutral broker connection view', () => {
+  it('classifies only explicit PostgreSQL or PostgREST schema codes as missing schema', () => {
+    for (const code of ['42P01', '42703', 'PGRST204', 'PGRST205', ' pgrst205 ']) {
+      expect(isMissingBrokerSchemaError({ code })).toBe(true)
+    }
+
+    expect(isMissingBrokerSchemaError({
+      code: '42501',
+      message: 'permission denied for table broker_connection_accounts',
+    } as never)).toBe(false)
+    expect(isMissingBrokerSchemaError({
+      code: 'PGRST301',
+      message: 'broker_capture_runs is not readable',
+    } as never)).toBe(false)
+    expect(isMissingBrokerSchemaError({})).toBe(false)
+    expect(isMissingBrokerSchemaError(null)).toBe(false)
+  })
+
   it('projects a client-safe summary without tenant, credential or raw error material', () => {
     const summary = projectBrokerConnectionSummary({
       ...BASE_ROW,
@@ -193,10 +221,123 @@ describe('provider-neutral broker connection view', () => {
 
     const snapshot = getLocalMb4ReviewSnapshot({ nodeEnv: 'development', fixtureFlag: 'local_only' })
     expect(snapshot).not.toBeNull()
-    expect(snapshot?.connectorReady).toBe(false)
+    expect(snapshot?.schemaState).toBe('ready')
+    expect(snapshot?.secureStoreState).toBe('not_ready')
+    expect(snapshot?.connectorState).toBe('not_ready')
     expect(snapshot?.runtimeEnabled).toBe(false)
     expect(snapshot?.runtimeMode).toBe('off')
+    expect(snapshot?.readScope).toBe('full_snapshot')
     expect(snapshot?.connections).toHaveLength(3)
     expect(JSON.stringify(snapshot)).not.toMatch(/apiKey|secretKey|credential_reference/u)
+  })
+
+  it('renders summary-only unknowns without blocking existing connection actions or inventing missing foundations', () => {
+    const snapshot: BrokerSyncSnapshot = {
+      connections: [projectBrokerConnectionSummary(BASE_ROW, false, { state: 'unavailable', lastCaptureAt: null })],
+      recentRuns: [],
+      preview: [],
+      schemaState: 'ready',
+      secureStoreState: 'not_read',
+      connectorState: 'not_read',
+      runtimeEnabled: true,
+      runtimeMode: 'capture',
+      runtimeGate: 'g1_deployment_controlled',
+      readScope: 'connection_summary_only',
+      source: 'supabase',
+      notice: 'Diese Ansicht startet keinen Capturelauf.',
+    }
+
+    const html = renderToStaticMarkup(createElement(BrokerSyncHub, { snapshot }))
+
+    expect(html).toContain('Status nicht lesbar; Setupformular nicht verfügbar')
+    expect(html).toContain('wurde über diesen begrenzten Read-Pfad nicht gelesen')
+    expect(html).toContain('Ansicht aktualisieren')
+    expect(html).toContain('Verbindung widerrufen')
+    expect(html).toContain('Detailevidenz ist über diesen Read-Pfad nicht verfügbar')
+    expect(html).toContain('Detailevidenz nicht gelesen')
+    expect(html).not.toContain('0 Einträge')
+    expect(html).not.toContain('Grundlage fehlt')
+    expect(html).not.toContain('Voraussetzungen fehlen')
+    expect(html).not.toContain('Secure-Store-Grundlage ist nicht verfügbar')
+    expect(html).not.toContain('Aktionen gesperrt')
+    expect(html).not.toContain('Neues Setup bleibt gesperrt')
+    expect(html).not.toContain('Connector und Capture bleiben fail-closed gesperrt')
+  })
+
+  it('renders a transient schema read failure as unknown instead of missing', () => {
+    const snapshot: BrokerSyncSnapshot = {
+      connections: [],
+      recentRuns: [],
+      preview: [],
+      schemaState: 'unknown',
+      secureStoreState: 'not_read',
+      connectorState: 'not_read',
+      runtimeEnabled: false,
+      runtimeMode: 'off',
+      runtimeGate: 'g1_deployment_controlled',
+      readScope: 'connection_summary_only',
+      source: 'supabase',
+      notice: 'Die Broker-Verbindungsübersicht konnte gerade nicht gelesen werden.',
+    }
+
+    const html = renderToStaticMarkup(createElement(BrokerSyncHub, { snapshot }))
+
+    expect(html).toContain('Status nicht lesbar')
+    expect(html).toContain('Connectionübersicht derzeit nicht lesbar')
+    expect(html).toContain('Der gespeicherte Verbindungsbestand bleibt unbekannt')
+    expect(html).not.toContain('Grundlage fehlt')
+    expect(html).not.toContain('Noch kein Broker verbunden')
+    expect(html).not.toContain('0 gelesen')
+    expect(html).not.toContain('0 Einträge')
+  })
+
+  it('renders a missing connection schema without claiming an empty connection list', () => {
+    const snapshot: BrokerSyncSnapshot = {
+      connections: [],
+      recentRuns: [],
+      preview: [],
+      schemaState: 'missing',
+      secureStoreState: 'not_read',
+      connectorState: 'not_read',
+      runtimeEnabled: false,
+      runtimeMode: 'off',
+      runtimeGate: 'g1_deployment_controlled',
+      readScope: 'connection_summary_only',
+      source: 'supabase',
+      notice: 'Die erforderliche Broker-Grundlage fehlt im aktiven Datenbankvertrag.',
+    }
+
+    const html = renderToStaticMarkup(createElement(BrokerSyncHub, { snapshot }))
+
+    expect(html).toContain('Schema nicht verfügbar')
+    expect(html).toContain('Connectionübersicht nicht verfügbar')
+    expect(html).toContain('Der gespeicherte Verbindungsbestand bleibt unbekannt')
+    expect(html).not.toContain('Noch kein Broker verbunden')
+    expect(html).not.toContain('0 gelesen')
+    expect(html).not.toContain('0 Einträge')
+  })
+
+  it('shows a zero connection count only after a successful empty connection read', () => {
+    const snapshot: BrokerSyncSnapshot = {
+      connections: [],
+      recentRuns: [],
+      preview: [],
+      schemaState: 'ready',
+      secureStoreState: 'not_read',
+      connectorState: 'not_read',
+      runtimeEnabled: false,
+      runtimeMode: 'off',
+      runtimeGate: 'g1_deployment_controlled',
+      readScope: 'connection_summary_only',
+      source: 'supabase',
+      notice: 'Die Connectionübersicht ist lesbar.',
+    }
+
+    const html = renderToStaticMarkup(createElement(BrokerSyncHub, { snapshot }))
+
+    expect(html).toContain('0 gelesen')
+    expect(html).toContain('Im gelesenen Connectionbestand ist kein Broker verbunden')
+    expect(html).not.toContain('Connectionübersicht derzeit nicht lesbar')
+    expect(html).not.toContain('Noch kein Broker verbunden')
   })
 })
