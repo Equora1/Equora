@@ -41,7 +41,6 @@ const CONNECTION_SELECT = [
   'status',
   'permissions',
   'last_error',
-  'created_at',
 ].join(',')
 
 function emptySnapshot(overrides: Partial<BrokerSyncSnapshot> = {}): BrokerSyncSnapshot {
@@ -91,7 +90,12 @@ export async function getBrokerSyncSnapshotServer(userId?: string | null): Promi
 
     let resolvedUserId = scopedUserId
     if (!resolvedUserId) {
-      const { data: { user } } = await supabase.auth.getUser()
+      const { data: { user }, error: authError } = await supabase.auth.getUser()
+      if (authError) {
+        return emptySnapshot({
+          notice: 'Die Anmeldung konnte gerade nicht geprüft werden. Der gespeicherte Verbindungsbestand bleibt unbekannt.',
+        })
+      }
       resolvedUserId = user?.id ?? null
     }
     if (!resolvedUserId) {

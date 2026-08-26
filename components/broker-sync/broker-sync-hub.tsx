@@ -90,7 +90,7 @@ export function BrokerSyncHub({ snapshot }: { snapshot: BrokerSyncSnapshot }) {
         <FuturisticCard className="p-6">
           <SectionHeading eyebrow="Bereitschaft" title="Was schon funktioniert" />
           <div className="mt-5 space-y-3">
-            <ReadinessRow label="Broker-Bereich" value={schemaStateLabel(snapshot.schemaState)} />
+            <ReadinessRow label="Connectionübersicht" value={schemaStateLabel(snapshot.schemaState)} />
             <ReadinessRow
               label="Verschlüsselter Zugang"
               value={dependencyStateLabel(snapshot.secureStoreState)}
@@ -113,6 +113,7 @@ export function BrokerSyncHub({ snapshot }: { snapshot: BrokerSyncSnapshot }) {
       <FuturisticCard className="p-5 sm:p-6">
         <BrokerConnectionPanel
           connections={snapshot.connections}
+          schemaState={snapshot.schemaState}
           connectorState={snapshot.connectorState}
           secureStoreState={snapshot.secureStoreState}
         />
@@ -121,10 +122,12 @@ export function BrokerSyncHub({ snapshot }: { snapshot: BrokerSyncSnapshot }) {
       <FuturisticCard className="p-6">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
           <SectionHeading eyebrow="Datenvorschau" title="Zuletzt bei Brokern gefunden" />
-          <span className="text-xs text-white/60">{snapshot.preview.length} Einträge</span>
+          <span className="text-xs text-white/60">
+            {fullSnapshotAvailable ? `${snapshot.preview.length} Einträge` : 'Detailevidenz nicht gelesen'}
+          </span>
         </div>
         <div className="mt-5">
-          {snapshot.preview.length ? (
+          {fullSnapshotAvailable && snapshot.preview.length ? (
             <div className="overflow-hidden rounded-2xl border border-white/8">
               <div className="hidden grid-cols-[0.7fr_1fr_1fr_0.8fr_0.8fr_1fr] gap-3 border-b border-white/8 bg-white/[0.025] px-4 py-3 text-[10px] uppercase tracking-[0.14em] text-white/60 md:grid">
                 <span>Art</span>
@@ -239,8 +242,8 @@ function ReadinessRow({ label, value }: { label: string; value: string }) {
 }
 
 function schemaStateLabel(state: BrokerSyncSnapshot['schemaState']) {
-  if (state === 'ready') return 'Bereit'
-  if (state === 'missing') return 'Grundlage fehlt'
+  if (state === 'ready') return 'Lesbar'
+  if (state === 'missing') return 'Schema nicht verfügbar'
   return 'Status nicht lesbar'
 }
 

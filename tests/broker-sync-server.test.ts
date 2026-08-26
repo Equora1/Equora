@@ -33,7 +33,13 @@ import { getBrokerSyncSnapshotServer } from '../lib/server/broker-sync'
 type QueryError = Readonly<{ code?: string; message: string }> | null
 type QueryResponse = Readonly<{ data: readonly Record<string, unknown>[] | null; error: QueryError }>
 
-function mockSupabase(response: QueryResponse, userId: string | null = null) {
+const CONNECTION_SELECT = 'id,provider,account_label,environment,status,permissions,last_error'
+
+function mockSupabase(
+  response: QueryResponse,
+  userId: string | null = null,
+  authError: QueryError = null,
+) {
   const query = {
     select(_columns: string) {
       return query
@@ -49,7 +55,7 @@ function mockSupabase(response: QueryResponse, userId: string | null = null) {
   const eq = vi.spyOn(query, 'eq')
   const order = vi.spyOn(query, 'order')
   const from = vi.fn((_relation: string) => query)
-  const getUser = vi.fn(async () => ({ data: { user: userId ? { id: userId } : null }, error: null }))
+  const getUser = vi.fn(async () => ({ data: { user: userId ? { id: userId } : null }, error: authError }))
 
   return { client: { from, auth: { getUser } }, query: { select, eq, order }, from, getUser }
 }
@@ -83,7 +89,7 @@ describe('broker sync server snapshot', () => {
     expect(supabase.from).toHaveBeenCalledOnce()
     expect(supabase.from).toHaveBeenCalledWith('broker_connections')
     expect(supabase.query.eq).toHaveBeenCalledWith('user_id', 'user-1')
-    expect(supabase.query.select).toHaveBeenCalledWith(expect.not.stringContaining('sync_mode'))
+    expect(supabase.query.select).toHaveBeenCalledWith(CONNECTION_SELECT)
     expect(snapshot).toMatchObject({
       schemaState: 'ready',
       secureStoreState: 'not_read',
@@ -171,6 +177,25 @@ describe('broker sync server snapshot', () => {
     expect(anonymous.from).not.toHaveBeenCalled()
     expect(anonymousSnapshot.schemaState).toBe('unknown')
     expect(anonymousSnapshot.notice).toContain('Bitte anmelden')
+  })
+
+  it('keeps an auth read failure distinct from an anonymous session and does not query', async () => {
+    mocks.hasServerEnv.mockReturnValue(false)
+    const authFailure = mockSupabase(
+      { data: [CONNECTION], error: null },
+      null,
+      { code: 'AUTH_TIMEOUT', message: 'auth transport secret must not cross' },
+    )
+    mocks.createAuthClient.mockResolvedValue(authFailure.client)
+
+    const snapshot = await getBrokerSyncSnapshotServer()
+
+    expect(authFailure.getUser).toHaveBeenCalledOnce()
+    expect(authFailure.from).not.toHaveBeenCalled()
+    expect(snapshot.schemaState).toBe('unknown')
+    expect(snapshot.notice).toContain('Anmeldung konnte gerade nicht geprüft werden')
+    expect(snapshot.notice).not.toContain('Bitte anmelden')
+    expect(JSON.stringify(snapshot)).not.toContain('auth transport secret')
   })
 
   it('describes active runtime without claiming that the separate capture authority is blocked', async () => {
