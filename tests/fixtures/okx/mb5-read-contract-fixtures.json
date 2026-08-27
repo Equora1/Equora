@@ -1,0 +1,1803 @@
+{
+  "schema_version": "equora_mb5_okx_synthetic_fixtures_v1",
+  "provider_code": "okx",
+  "provider_contract_version": "okx-swap-read-contract/2026-08-27-mb5.6",
+  "fixture_class": "synthetic_from_official_schema",
+  "contains_real_provider_data": false,
+  "contains_real_account_identifiers": false,
+  "contains_credentials": false,
+  "authorizes_provider_request": false,
+  "positive_cases": [
+    {
+      "case_id": "positive_account_config_main_net",
+      "capability_id": "okx_account_config_v1",
+      "synthetic": true,
+      "authority": {
+        "authorized_egress_ip_set": ["192.0.2.10"],
+        "authorized_egress_ip_set_sha256": "6d99cbd08fc6c99cdb2d942a4cbb097c6b54496bbbc3ffd6351b145508dd2935"
+      },
+      "response": {
+        "http_status": 200,
+        "body": {
+          "code": "0",
+          "msg": "",
+          "data": [
+            {
+              "uid": "700000001",
+              "mainUid": "700000001",
+              "acctLv": "2",
+              "posMode": "net_mode",
+              "perm": "read_only",
+              "ip": "192.0.2.10"
+            }
+          ]
+        }
+      },
+      "expected": {
+        "account_class": "main",
+        "position_mode": "net_mode",
+        "identity_source_field": "uid",
+        "permission_status": "provider_reported_read_only_observed",
+        "ip_allowlist_status": "provider_reported_exact_authorized_egress_match",
+        "authorized_egress_ip_set_sha256": "6d99cbd08fc6c99cdb2d942a4cbb097c6b54496bbbc3ffd6351b145508dd2935",
+        "raw_identity_must_not_persist": true,
+        "raw_ip_must_not_persist": true
+      }
+    },
+    {
+      "case_id": "positive_account_config_subaccount_long_short",
+      "capability_id": "okx_account_config_v1",
+      "synthetic": true,
+      "authority": {
+        "authorized_egress_ip_set": ["2001:db8::10"],
+        "authorized_egress_ip_set_sha256": "3c7170530be6a1024048cda084b07341590bc4acd0f70fc793e29d97d7a8d04d"
+      },
+      "response": {
+        "http_status": 200,
+        "body": {
+          "code": "0",
+          "msg": "",
+          "data": [
+            {
+              "uid": "700000002",
+              "mainUid": "700000001",
+              "acctLv": "2",
+              "posMode": "long_short_mode",
+              "perm": "read_only",
+              "ip": "2001:db8::10"
+            }
+          ]
+        }
+      },
+      "expected": {
+        "account_class": "subaccount",
+        "position_mode": "long_short_mode",
+        "identity_source_field": "uid",
+        "permission_status": "provider_reported_read_only_observed",
+        "ip_allowlist_status": "provider_reported_exact_authorized_egress_match",
+        "authorized_egress_ip_set_sha256": "3c7170530be6a1024048cda084b07341590bc4acd0f70fc793e29d97d7a8d04d",
+        "raw_identity_must_not_persist": true,
+        "raw_ip_must_not_persist": true
+      }
+    },
+    {
+      "case_id": "positive_usdt_linear_swap_instrument",
+      "capability_id": "okx_account_instruments_swap_v1",
+      "synthetic": true,
+      "response": {
+        "http_status": 200,
+        "body": {
+          "code": "0",
+          "msg": "",
+          "data": [
+            {
+              "instId": "AAA-USDT-SWAP",
+              "instType": "SWAP",
+              "instFamily": "AAA-USDT",
+              "settleCcy": "USDT",
+              "ctType": "linear",
+              "ctVal": "0.01",
+              "ctMult": "10",
+              "ctValCcy": "AAA",
+              "lotSz": "1",
+              "tickSz": "0.1",
+              "state": "live"
+            }
+          ]
+        }
+      },
+      "expected": {
+        "eligible_instrument_ids": ["AAA-USDT-SWAP"],
+        "eligible_instrument_count": 1,
+        "filtered_out_record_count": 0,
+        "instrument_contracts": [
+          {
+            "instId": "AAA-USDT-SWAP",
+            "eligible_for_selected_contract_class": true,
+            "size_unit": "contracts",
+            "base_quantity_for_size_3": "0.3",
+            "settlement_currency": "USDT"
+          }
+        ]
+      }
+    },
+    {
+      "case_id": "positive_multiple_eligible_and_filtered_swap_instruments",
+      "capability_id": "okx_account_instruments_swap_v1",
+      "synthetic": true,
+      "response": {
+        "http_status": 200,
+        "body": {
+          "code": "0",
+          "msg": "",
+          "data": [
+            {
+              "instId": "AAA-USDT-SWAP",
+              "instType": "SWAP",
+              "instFamily": "AAA-USDT",
+              "settleCcy": "USDT",
+              "ctType": "linear",
+              "ctVal": "0.01",
+              "ctMult": "10",
+              "ctValCcy": "AAA",
+              "lotSz": "1",
+              "tickSz": "0.1",
+              "state": "live"
+            },
+            {
+              "instId": "BBB-USDT-SWAP",
+              "instType": "SWAP",
+              "instFamily": "BBB-USDT",
+              "settleCcy": "USDT",
+              "ctType": "linear",
+              "ctVal": "0.1",
+              "ctMult": "2",
+              "ctValCcy": "BBB",
+              "lotSz": "0.1",
+              "tickSz": "0.01",
+              "state": "live"
+            },
+            {
+              "instId": "CCC-USDT-SWAP",
+              "instType": "SWAP",
+              "instFamily": "CCC-USDT",
+              "settleCcy": "USDT",
+              "ctType": "inverse",
+              "ctVal": "1",
+              "ctMult": "1",
+              "ctValCcy": "CCC",
+              "lotSz": "1",
+              "tickSz": "0.1",
+              "state": "live"
+            }
+          ]
+        }
+      },
+      "expected": {
+        "eligible_instrument_ids": ["AAA-USDT-SWAP", "BBB-USDT-SWAP"],
+        "eligible_instrument_count": 2,
+        "filtered_out_record_count": 1,
+        "instrument_contracts": [
+          {
+            "instId": "AAA-USDT-SWAP",
+            "eligible_for_selected_contract_class": true,
+            "size_unit": "contracts",
+            "base_quantity_for_size_3": "0.3",
+            "settlement_currency": "USDT"
+          },
+          {
+            "instId": "BBB-USDT-SWAP",
+            "eligible_for_selected_contract_class": true,
+            "size_unit": "contracts",
+            "base_quantity_for_size_3": "0.6",
+            "settlement_currency": "USDT"
+          }
+        ]
+      }
+    },
+    {
+      "case_id": "positive_orders_same_order_grain",
+      "capability_id": "okx_orders_archive_swap_v1",
+      "synthetic": true,
+      "response": {
+        "http_status": 200,
+        "body": {
+          "code": "0",
+          "msg": "",
+          "data": [
+            {
+              "instId": "AAA-USDT-SWAP",
+              "instType": "SWAP",
+              "ordId": "810000001",
+              "state": "filled",
+              "side": "buy",
+              "posSide": "net",
+              "sz": "3",
+              "accFillSz": "3",
+              "avgPx": "100.5",
+              "cTime": "1787652000000",
+              "uTime": "1787652002000"
+            }
+          ]
+        }
+      },
+      "expected": {
+        "order_grain": "810000001",
+        "retention_scope": "completed_orders_last_3_months",
+        "zero_fill_canceled_orders_in_archive": false,
+        "complete_account_history_claim": false
+      }
+    },
+    {
+      "case_id": "positive_two_partial_fills_same_order_and_time",
+      "capability_id": "okx_fills_history_swap_v1",
+      "synthetic": true,
+      "request_context": {
+        "window_start_ms": "1787047202000",
+        "window_end_ms": "1787652002000",
+        "response_record_limit": 10
+      },
+      "response": {
+        "http_status": 200,
+        "body": {
+          "code": "0",
+          "msg": "",
+          "data": [
+            {
+              "instId": "AAA-USDT-SWAP",
+              "instType": "SWAP",
+              "tradeId": "820000002",
+              "billId": "825000002",
+              "ordId": "810000001",
+              "side": "buy",
+              "posSide": "net",
+              "fillSz": "2",
+              "fillPx": "100.6",
+              "fee": "-0.02012",
+              "feeCcy": "USDT",
+              "fillPnl": "0",
+              "fillTime": "1787652001000",
+              "ts": "1787652001100"
+            },
+            {
+              "instId": "AAA-USDT-SWAP",
+              "instType": "SWAP",
+              "tradeId": "820000001",
+              "billId": "825000001",
+              "ordId": "810000001",
+              "side": "buy",
+              "posSide": "net",
+              "fillSz": "1",
+              "fillPx": "100.3",
+              "fee": "-0.01003",
+              "feeCcy": "USDT",
+              "fillPnl": "0",
+              "fillTime": "1787652001000",
+              "ts": "1787652001050"
+            }
+          ]
+        }
+      },
+      "expected": {
+        "execution_grains": [
+          "820000002",
+          "820000001"
+        ],
+        "order_grain_count": 1,
+        "execution_grain_count": 2,
+        "pagination_cursors": [
+          "825000002",
+          "825000001"
+        ],
+        "filter_clock": "ts",
+        "event_time_field": "fillTime",
+        "same_timestamp_records_remain_distinct": true,
+        "fee_currency": "USDT"
+      }
+    },
+    {
+      "case_id": "positive_fills_across_two_eligible_instruments",
+      "capability_id": "okx_fills_history_swap_v1",
+      "synthetic": true,
+      "request_context": {
+        "window_start_ms": "1787047202000",
+        "window_end_ms": "1787652002000",
+        "response_record_limit": 10
+      },
+      "response": {
+        "http_status": 200,
+        "body": {
+          "code": "0",
+          "msg": "",
+          "data": [
+            {
+              "instId": "AAA-USDT-SWAP",
+              "instType": "SWAP",
+              "tradeId": "820000011",
+              "billId": "825000011",
+              "ordId": "810000011",
+              "side": "buy",
+              "posSide": "net",
+              "fillSz": "1",
+              "fillPx": "100.6",
+              "fee": "-0.01006",
+              "feeCcy": "USDT",
+              "fillPnl": "0",
+              "fillTime": "1787652001000",
+              "ts": "1787652001100"
+            },
+            {
+              "instId": "BBB-USDT-SWAP",
+              "instType": "SWAP",
+              "tradeId": "820000012",
+              "billId": "825000012",
+              "ordId": "810000012",
+              "side": "sell",
+              "posSide": "net",
+              "fillSz": "2",
+              "fillPx": "50.3",
+              "fee": "-0.01006",
+              "feeCcy": "USDT",
+              "fillPnl": "0.2",
+              "fillTime": "1787652001200",
+              "ts": "1787652001250"
+            }
+          ]
+        }
+      },
+      "expected": {
+        "execution_grains": ["820000011", "820000012"],
+        "order_grain_count": 2,
+        "execution_grain_count": 2,
+        "pagination_cursors": ["825000011", "825000012"],
+        "filter_clock": "ts",
+        "event_time_field": "fillTime",
+        "same_timestamp_records_remain_distinct": false,
+        "fee_currency": "USDT"
+      }
+    },
+    {
+      "case_id": "positive_position_net_mode",
+      "capability_id": "okx_positions_history_swap_v1",
+      "synthetic": true,
+      "account_position_mode": "net_mode",
+      "response": {
+        "http_status": 200,
+        "body": {
+          "code": "0",
+          "msg": "",
+          "data": [
+            {
+              "instId": "AAA-USDT-SWAP",
+              "instType": "SWAP",
+              "posId": "830000001",
+              "posSide": "net",
+              "direction": "short",
+              "mgnMode": "cross",
+              "type": "1",
+              "openMaxPos": "2",
+              "closeTotalPos": "2",
+              "openAvgPx": "101.2",
+              "closeAvgPx": "99.8",
+              "realizedPnl": "0.028",
+              "pnl": "0.033",
+              "fee": "-0.004",
+              "fundingFee": "-0.001",
+              "liqPenalty": "0",
+              "settledPnl": "",
+              "ccy": "USDT",
+              "cTime": "1787651000000",
+              "uTime": "1787653000000"
+            }
+          ]
+        }
+      },
+      "expected": {
+        "position_grain": "830000001",
+        "observation_grain": "830000001:1787653000000",
+        "direction": "short_from_explicit_direction",
+        "contract_quantities": {
+          "openMaxPos": "2",
+          "closeTotalPos": "2"
+        },
+        "realized_pnl_formula_valid": true,
+        "pnl_fee_funding_penalty_and_settlement_remain_separate": true
+      }
+    },
+    {
+      "case_id": "positive_positions_long_short_mode",
+      "capability_id": "okx_positions_history_swap_v1",
+      "synthetic": true,
+      "account_position_mode": "long_short_mode",
+      "response": {
+        "http_status": 200,
+        "body": {
+          "code": "0",
+          "msg": "",
+          "data": [
+            {
+              "instId": "AAA-USDT-SWAP",
+              "instType": "SWAP",
+              "posId": "830000002",
+              "posSide": "long",
+              "direction": "long",
+              "mgnMode": "cross",
+              "type": "1",
+              "openMaxPos": "2",
+              "closeTotalPos": "2",
+              "openAvgPx": "99.5",
+              "closeAvgPx": "100.1",
+              "realizedPnl": "0.01",
+              "pnl": "0.012",
+              "fee": "-0.002",
+              "fundingFee": "0",
+              "liqPenalty": "0",
+              "settledPnl": "",
+              "ccy": "USDT",
+              "cTime": "1787651000000",
+              "uTime": "1787653000000"
+            },
+            {
+              "instId": "AAA-USDT-SWAP",
+              "instType": "SWAP",
+              "posId": "830000003",
+              "posSide": "short",
+              "direction": "short",
+              "mgnMode": "cross",
+              "type": "1",
+              "openMaxPos": "1",
+              "closeTotalPos": "1",
+              "openAvgPx": "101.0",
+              "closeAvgPx": "99.0",
+              "realizedPnl": "-0.02",
+              "pnl": "-0.02",
+              "fee": "-0.001",
+              "fundingFee": "0.001",
+              "liqPenalty": "0",
+              "settledPnl": "",
+              "ccy": "USDT",
+              "cTime": "1787651000000",
+              "uTime": "1787653000000"
+            }
+          ]
+        }
+      },
+      "expected": {
+        "position_grains": [
+          "830000002",
+          "830000003"
+        ],
+        "observation_grains": [
+          "830000002:1787653000000",
+          "830000003:1787653000000"
+        ],
+        "realized_pnl_formulas_valid": true,
+        "long_and_short_must_not_net": true
+      }
+    },
+    {
+      "case_id": "positive_funding_and_fee_bills_separate",
+      "capability_id": "okx_bills_archive_swap_v1",
+      "synthetic": true,
+      "response": {
+        "http_status": 200,
+        "body": {
+          "code": "0",
+          "msg": "",
+          "data": [
+            {
+              "billId": "840000002",
+              "instId": "AAA-USDT-SWAP",
+              "instType": "SWAP",
+              "type": "8",
+              "subType": "173",
+              "balChg": "0.015",
+              "fee": "0",
+              "ccy": "USDT",
+              "ts": "1787654000000"
+            },
+            {
+              "billId": "840000001",
+              "instId": "AAA-USDT-SWAP",
+              "instType": "SWAP",
+              "type": "2",
+              "subType": "2",
+              "balChg": "-0.004",
+              "fee": "-0.004",
+              "ccy": "USDT",
+              "ts": "1787652001000"
+            }
+          ]
+        }
+      },
+      "expected": {
+        "bill_grains": [
+          "840000002",
+          "840000001"
+        ],
+        "mapping_status": "blocked_until_versioned_official_enum_matrix",
+        "must_not_double_count_position_funding": true,
+        "currency": "USDT"
+      }
+    },
+    {
+      "case_id": "positive_successful_empty_fills_page",
+      "capability_id": "okx_fills_history_swap_v1",
+      "synthetic": true,
+      "request_context": {
+        "window_start_ms": "1787047202000",
+        "window_end_ms": "1787652002000",
+        "response_record_limit": 10
+      },
+      "response": {
+        "http_status": 200,
+        "body": {
+          "code": "0",
+          "msg": "",
+          "data": []
+        }
+      },
+      "expected": {
+        "exact_request_scope_empty": true,
+        "complete_account_history_claim": false,
+        "permission_completeness_claim": false
+      }
+    }
+  ],
+  "negative_cases": [
+    {
+      "case_id": "negative_nonzero_provider_code",
+      "synthetic": true,
+      "mutation": "response_code_nonzero",
+      "input": {
+        "http_status": 200,
+        "body": {
+          "code": "50113",
+          "msg": "synthetic authentication rejection",
+          "data": []
+        }
+      },
+      "expected_error": "provider_error_not_empty_success"
+    },
+    {
+      "case_id": "negative_response_data_not_array",
+      "synthetic": true,
+      "mutation": "response_shape",
+      "input": {
+        "http_status": 200,
+        "body": {
+          "code": "0",
+          "msg": "",
+          "data": {}
+        }
+      },
+      "expected_error": "provider_response_contract_rejected"
+    },
+    {
+      "case_id": "negative_wrong_region_host",
+      "synthetic": true,
+      "mutation": "origin_pin",
+      "input": {
+        "method": "GET",
+        "https_origin": "https://openapi.okx.com",
+        "path": "/api/v5/account/config"
+      },
+      "expected_error": "provider_origin_pin_mismatch"
+    },
+    {
+      "case_id": "negative_post_method",
+      "synthetic": true,
+      "mutation": "method_pin",
+      "input": {
+        "method": "POST",
+        "https_origin": "https://eea.okx.com",
+        "path": "/api/v5/account/bills-history-archive"
+      },
+      "expected_error": "provider_method_forbidden"
+    },
+    {
+      "case_id": "negative_demo_header_missing",
+      "synthetic": true,
+      "mutation": "environment_pin",
+      "input": {
+        "environment": "demo",
+        "headers": {}
+      },
+      "expected_error": "provider_demo_header_missing"
+    },
+    {
+      "case_id": "negative_live_environment_substitution",
+      "synthetic": true,
+      "mutation": "environment_pin",
+      "input": {
+        "environment": "live",
+        "headers": {
+          "x-simulated-trading": "1"
+        }
+      },
+      "expected_error": "provider_environment_pin_mismatch"
+    },
+    {
+      "case_id": "negative_consumed_permit_replay",
+      "synthetic": true,
+      "mutation": "permit_replay",
+      "input": {
+        "permit_consumption_count": 2
+      },
+      "expected_error": "single_use_permit_replayed"
+    },
+    {
+      "case_id": "negative_request_budget_exceeded",
+      "synthetic": true,
+      "mutation": "request_budget",
+      "input": {
+        "attempted_requests": 4
+      },
+      "expected_error": "probe_request_budget_exceeded"
+    },
+    {
+      "case_id": "negative_response_budget_exceeded",
+      "synthetic": true,
+      "mutation": "response_budget",
+      "input": {
+        "total_response_bytes": 1048577
+      },
+      "expected_error": "probe_response_budget_exceeded"
+    },
+    {
+      "case_id": "negative_request_timeout",
+      "synthetic": true,
+      "mutation": "timeout",
+      "input": {
+        "request_duration_ms": 4001
+      },
+      "expected_error": "provider_request_timeout"
+    },
+    {
+      "case_id": "negative_probe_deadline",
+      "synthetic": true,
+      "mutation": "deadline",
+      "input": {
+        "probe_duration_ms": 15001
+      },
+      "expected_error": "probe_deadline_exceeded"
+    },
+    {
+      "case_id": "negative_partial_probe_apply",
+      "synthetic": true,
+      "mutation": "partial_success",
+      "input": {
+        "successful_request_ids": [
+          "probe_account_config",
+          "probe_account_instruments"
+        ],
+        "failed_request_ids": [
+          "probe_fills_history"
+        ],
+        "apply_requested": true
+      },
+      "expected_error": "partial_probe_apply_forbidden"
+    },
+    {
+      "case_id": "negative_apply_identity_missing",
+      "synthetic": true,
+      "mutation": "apply_identity",
+      "input": {
+        "identity_digest": "",
+        "apply_requested": true
+      },
+      "expected_error": "account_identity_not_observed"
+    },
+    {
+      "case_id": "negative_account_uid_missing",
+      "synthetic": true,
+      "mutation": "identity_shape",
+      "input": {
+        "uid": "",
+        "mainUid": "700000001"
+      },
+      "expected_error": "account_identity_not_observed"
+    },
+    {
+      "case_id": "negative_unknown_position_mode",
+      "synthetic": true,
+      "mutation": "unknown_enum",
+      "input": {
+        "posMode": "synthetic_unknown_mode",
+        "posSide": "net"
+      },
+      "expected_error": "provider_enum_unknown"
+    },
+    {
+      "case_id": "negative_long_short_position_side_net",
+      "synthetic": true,
+      "mutation": "position_mode_side_conflict",
+      "input": {
+        "posMode": "long_short_mode",
+        "posSide": "net",
+        "posId": "830000004"
+      },
+      "expected_error": "provider_position_semantics_rejected"
+    },
+    {
+      "case_id": "negative_invalid_decimal",
+      "synthetic": true,
+      "mutation": "decimal",
+      "input": {
+        "fillSz": "NaN",
+        "tradeId": "820000003"
+      },
+      "expected_error": "provider_decimal_rejected"
+    },
+    {
+      "case_id": "negative_execution_id_missing",
+      "synthetic": true,
+      "mutation": "stable_id",
+      "input": {
+        "tradeId": "",
+        "ordId": "810000001"
+      },
+      "expected_error": "provider_event_identity_blocked"
+    },
+    {
+      "case_id": "negative_execution_order_link_missing",
+      "synthetic": true,
+      "mutation": "order_link",
+      "input": {
+        "tradeId": "820000004",
+        "ordId": ""
+      },
+      "expected_error": "provider_order_link_blocked_initial_profile"
+    },
+    {
+      "case_id": "negative_instrument_wrong_settlement",
+      "synthetic": true,
+      "mutation": "contract_class",
+      "input": {
+        "instId": "AAA-USDC-SWAP",
+        "instType": "SWAP",
+        "settleCcy": "USDC",
+        "ctType": "linear"
+      },
+      "expected_error": "provider_contract_class_out_of_scope"
+    },
+    {
+      "case_id": "negative_instrument_contract_value_missing",
+      "synthetic": true,
+      "mutation": "unit_metadata",
+      "input": {
+        "instId": "AAA-USDT-SWAP",
+        "ctVal": "",
+        "ctValCcy": "AAA"
+      },
+      "expected_error": "provider_quantity_semantics_blocked"
+    },
+    {
+      "case_id": "negative_bill_unknown_subtype",
+      "synthetic": true,
+      "mutation": "bill_enum",
+      "input": {
+        "billId": "840000003",
+        "type": "999",
+        "subType": "999",
+        "ccy": "USDT"
+      },
+      "expected_error": "provider_financial_event_mapping_blocked"
+    },
+    {
+      "case_id": "negative_repeated_cursor_page",
+      "synthetic": true,
+      "mutation": "pagination_replay",
+      "input": {
+        "previous_cursor": "820000001",
+        "next_cursor": "820000001",
+        "page_digest_repeated": true
+      },
+      "expected_error": "provider_pagination_progress_blocked"
+    },
+    {
+      "case_id": "negative_mixed_cursor_directions",
+      "synthetic": true,
+      "mutation": "pagination_direction",
+      "input": {
+        "after": "820000001",
+        "before": "820000002"
+      },
+      "expected_error": "provider_pagination_direction_rejected"
+    },
+    {
+      "case_id": "negative_probe_window_over_seven_days",
+      "synthetic": true,
+      "mutation": "window_budget",
+      "input": {
+        "window_duration_ms": 604800001
+      },
+      "expected_error": "provider_probe_window_rejected"
+    },
+    {
+      "case_id": "negative_history_window_outside_retention",
+      "synthetic": true,
+      "mutation": "retention",
+      "input": {
+        "window_status": "older_than_documented_three_month_horizon"
+      },
+      "expected_error": "provider_retention_scope_rejected"
+    },
+    {
+      "case_id": "negative_permission_trade",
+      "synthetic": true,
+      "mutation": "permission_tokens",
+      "input": { "perm": "read_only,trade" },
+      "expected_error": "provider_permission_scope_rejected"
+    },
+    {
+      "case_id": "negative_permission_withdraw",
+      "synthetic": true,
+      "mutation": "permission_tokens",
+      "input": { "perm": "read_only,withdraw" },
+      "expected_error": "provider_permission_scope_rejected"
+    },
+    {
+      "case_id": "negative_permission_trade_withdraw",
+      "synthetic": true,
+      "mutation": "permission_tokens",
+      "input": { "perm": "read_only,trade,withdraw" },
+      "expected_error": "provider_permission_scope_rejected"
+    },
+    {
+      "case_id": "negative_permission_empty",
+      "synthetic": true,
+      "mutation": "permission_tokens",
+      "input": { "perm": "" },
+      "expected_error": "provider_permission_scope_rejected"
+    },
+    {
+      "case_id": "negative_permission_unknown",
+      "synthetic": true,
+      "mutation": "permission_tokens",
+      "input": { "perm": "read_only,synthetic_unknown" },
+      "expected_error": "provider_permission_scope_rejected"
+    },
+    {
+      "case_id": "negative_permission_duplicate",
+      "synthetic": true,
+      "mutation": "permission_tokens",
+      "input": { "perm": "read_only,read_only" },
+      "expected_error": "provider_permission_scope_rejected"
+    },
+    {
+      "case_id": "negative_ip_allowlist_empty",
+      "synthetic": true,
+      "mutation": "ip_allowlist",
+      "input": { "ip": "" },
+      "expected_error": "provider_ip_allowlist_required"
+    },
+    {
+      "case_id": "negative_ip_allowlist_invalid",
+      "synthetic": true,
+      "mutation": "ip_allowlist",
+      "input": { "ip": "not-an-ip" },
+      "expected_error": "provider_ip_allowlist_invalid"
+    },
+    {
+      "case_id": "negative_account_mfa_attestation_missing",
+      "synthetic": true,
+      "mutation": "mfa_attestation",
+      "input": { "account_mfa_attested": false },
+      "expected_error": "account_mfa_attestation_required"
+    },
+    {
+      "case_id": "negative_incident_status_active",
+      "synthetic": true,
+      "mutation": "incident_status",
+      "input": { "incident_status": "suspected_compromise" },
+      "expected_error": "credential_incident_blocks_authority"
+    },
+    {
+      "case_id": "negative_response_extra_top_level",
+      "synthetic": true,
+      "mutation": "response_shape",
+      "input": {
+        "http_status": 200,
+        "body": { "code": "0", "msg": "", "data": [], "extra": "synthetic" }
+      },
+      "expected_error": "provider_response_contract_rejected"
+    },
+    {
+      "case_id": "negative_request_port",
+      "synthetic": true,
+      "mutation": "port_pin",
+      "input": { "port": 8443 },
+      "expected_error": "provider_port_pin_mismatch"
+    },
+    {
+      "case_id": "negative_request_redirect",
+      "synthetic": true,
+      "mutation": "redirect_pin",
+      "input": { "redirect_mode": "follow" },
+      "expected_error": "provider_redirect_forbidden"
+    },
+    {
+      "case_id": "negative_request_path",
+      "synthetic": true,
+      "mutation": "path_pin",
+      "input": { "path_with_canonical_query": "/api/v5/trade/orders-pending?instType=SWAP" },
+      "expected_error": "provider_path_pin_mismatch"
+    },
+    {
+      "case_id": "negative_request_query_order",
+      "synthetic": true,
+      "mutation": "query_pin",
+      "input": { "path_with_canonical_query": "/api/v5/trade/fills-history?instType=SWAP&limit=10&begin={window_start_ms}&end={window_end_ms}" },
+      "expected_error": "provider_query_pin_mismatch"
+    },
+    {
+      "case_id": "negative_request_unexpected_header",
+      "synthetic": true,
+      "mutation": "header_allowlist",
+      "input": { "extra_header_names": ["X-SYNTHETIC-UNEXPECTED"] },
+      "expected_error": "provider_header_allowlist_rejected"
+    },
+    {
+      "case_id": "negative_request_missing_permit",
+      "synthetic": true,
+      "mutation": "permit_missing",
+      "input": { "permit_consumption_count": 0 },
+      "expected_error": "single_use_permit_missing"
+    },
+    {
+      "case_id": "negative_position_direction_conflict",
+      "synthetic": true,
+      "mutation": "position_direction",
+      "input": { "posMode": "long_short_mode", "posSide": "long", "direction": "short" },
+      "expected_error": "provider_position_semantics_rejected"
+    },
+    {
+      "case_id": "negative_position_history_pos_field",
+      "synthetic": true,
+      "mutation": "position_schema",
+      "input": { "posId": "830000005", "pos": "-2" },
+      "expected_error": "provider_position_history_shape_rejected"
+    },
+    {
+      "case_id": "negative_position_pnl_formula",
+      "synthetic": true,
+      "mutation": "pnl_formula",
+      "input": { "instType": "SWAP", "mgnMode": "cross", "realizedPnl": "0.028", "pnl": "0.028", "fee": "-0.004", "fundingFee": "-0.001", "liqPenalty": "0", "settledPnl": "" },
+      "expected_error": "provider_realized_pnl_invariant_rejected"
+    },
+    {
+      "case_id": "negative_position_pnl_component_missing",
+      "synthetic": true,
+      "mutation": "pnl_components",
+      "input": { "instType": "SWAP", "mgnMode": "cross", "realizedPnl": "0.028", "pnl": "0.033", "fee": "-0.004", "fundingFee": "-0.001", "liqPenalty": "0" },
+      "expected_error": "provider_realized_pnl_components_missing"
+    },
+    {
+      "case_id": "negative_position_currency_conflict",
+      "synthetic": true,
+      "mutation": "position_currency",
+      "input": { "ccy": "USDC" },
+      "expected_error": "provider_position_currency_rejected"
+    },
+    {
+      "case_id": "negative_decimal_exponent",
+      "synthetic": true,
+      "mutation": "decimal",
+      "input": { "fillSz": "1e3" },
+      "expected_error": "provider_decimal_rejected"
+    },
+    {
+      "case_id": "negative_decimal_plus",
+      "synthetic": true,
+      "mutation": "decimal",
+      "input": { "fillSz": "+1" },
+      "expected_error": "provider_decimal_rejected"
+    },
+    {
+      "case_id": "negative_decimal_leading_zero",
+      "synthetic": true,
+      "mutation": "decimal",
+      "input": { "fillSz": "01.0" },
+      "expected_error": "provider_decimal_rejected"
+    },
+    {
+      "case_id": "negative_decimal_overflow",
+      "synthetic": true,
+      "mutation": "decimal",
+      "input": { "fillSz": "123456789012345678901234567890123456789" },
+      "expected_error": "provider_decimal_rejected"
+    },
+    {
+      "case_id": "negative_quantity_negative",
+      "synthetic": true,
+      "mutation": "quantity_sign",
+      "input": { "fillSz": "-1" },
+      "expected_error": "provider_quantity_semantics_blocked"
+    },
+    {
+      "case_id": "negative_instrument_wrong_type",
+      "synthetic": true,
+      "mutation": "contract_class",
+      "input": { "instType": "FUTURES" },
+      "expected_error": "provider_contract_class_out_of_scope"
+    },
+    {
+      "case_id": "negative_instrument_wrong_contract_type",
+      "synthetic": true,
+      "mutation": "contract_class",
+      "input": { "ctType": "inverse" },
+      "expected_error": "provider_contract_class_out_of_scope"
+    },
+    {
+      "case_id": "negative_instrument_wrong_value_currency",
+      "synthetic": true,
+      "mutation": "unit_metadata",
+      "input": { "ctValCcy": "USDT" },
+      "expected_error": "provider_quantity_semantics_blocked"
+    },
+    {
+      "case_id": "negative_instrument_multiplier_missing",
+      "synthetic": true,
+      "mutation": "unit_metadata",
+      "input": { "ctMult": "" },
+      "expected_error": "provider_quantity_semantics_blocked"
+    },
+    {
+      "case_id": "negative_instrument_state",
+      "synthetic": true,
+      "mutation": "instrument_state",
+      "input": { "state": "suspend" },
+      "expected_error": "provider_instrument_state_rejected"
+    },
+    {
+      "case_id": "negative_fills_cursor_uses_trade_id",
+      "synthetic": true,
+      "mutation": "pagination_cursor_field",
+      "input": { "capability_id": "okx_fills_history_swap_v1", "cursor_field": "tradeId" },
+      "expected_error": "provider_pagination_cursor_contract_rejected"
+    },
+    {
+      "case_id": "negative_positions_cursor_uses_pos_id",
+      "synthetic": true,
+      "mutation": "pagination_cursor_field",
+      "input": { "capability_id": "okx_positions_history_swap_v1", "cursor_field": "posId" },
+      "expected_error": "provider_pagination_cursor_contract_rejected"
+    },
+    {
+      "case_id": "negative_fills_filter_uses_fill_time",
+      "synthetic": true,
+      "mutation": "filter_clock",
+      "input": { "capability_id": "okx_fills_history_swap_v1", "filter_clock": "fillTime" },
+      "expected_error": "provider_filter_clock_contract_rejected"
+    },
+    {
+      "case_id": "negative_fillSz_zero",
+      "synthetic": true,
+      "mutation": "positive_quantity",
+      "input": { "field": "fillSz", "value": "0" },
+      "expected_error": "provider_quantity_semantics_blocked"
+    },
+    {
+      "case_id": "negative_fillSz_zero_fraction",
+      "synthetic": true,
+      "mutation": "positive_quantity",
+      "input": { "field": "fillSz", "value": "0.0" },
+      "expected_error": "provider_quantity_semantics_blocked"
+    },
+    {
+      "case_id": "negative_fillSz_zero_long_fraction",
+      "synthetic": true,
+      "mutation": "positive_quantity",
+      "input": { "field": "fillSz", "value": "0.000" },
+      "expected_error": "provider_quantity_semantics_blocked"
+    },
+    {
+      "case_id": "negative_sz_zero",
+      "synthetic": true,
+      "mutation": "positive_quantity",
+      "input": { "field": "sz", "value": "0" },
+      "expected_error": "provider_quantity_semantics_blocked"
+    },
+    {
+      "case_id": "negative_sz_zero_fraction",
+      "synthetic": true,
+      "mutation": "positive_quantity",
+      "input": { "field": "sz", "value": "0.0" },
+      "expected_error": "provider_quantity_semantics_blocked"
+    },
+    {
+      "case_id": "negative_sz_zero_long_fraction",
+      "synthetic": true,
+      "mutation": "positive_quantity",
+      "input": { "field": "sz", "value": "0.000" },
+      "expected_error": "provider_quantity_semantics_blocked"
+    },
+    {
+      "case_id": "negative_ctVal_zero",
+      "synthetic": true,
+      "mutation": "positive_quantity",
+      "input": { "field": "ctVal", "value": "0" },
+      "expected_error": "provider_quantity_semantics_blocked"
+    },
+    {
+      "case_id": "negative_ctVal_zero_fraction",
+      "synthetic": true,
+      "mutation": "positive_quantity",
+      "input": { "field": "ctVal", "value": "0.0" },
+      "expected_error": "provider_quantity_semantics_blocked"
+    },
+    {
+      "case_id": "negative_ctVal_zero_long_fraction",
+      "synthetic": true,
+      "mutation": "positive_quantity",
+      "input": { "field": "ctVal", "value": "0.000" },
+      "expected_error": "provider_quantity_semantics_blocked"
+    },
+    {
+      "case_id": "negative_ctMult_zero",
+      "synthetic": true,
+      "mutation": "positive_quantity",
+      "input": { "field": "ctMult", "value": "0" },
+      "expected_error": "provider_quantity_semantics_blocked"
+    },
+    {
+      "case_id": "negative_ctMult_zero_fraction",
+      "synthetic": true,
+      "mutation": "positive_quantity",
+      "input": { "field": "ctMult", "value": "0.0" },
+      "expected_error": "provider_quantity_semantics_blocked"
+    },
+    {
+      "case_id": "negative_ctMult_zero_long_fraction",
+      "synthetic": true,
+      "mutation": "positive_quantity",
+      "input": { "field": "ctMult", "value": "0.000" },
+      "expected_error": "provider_quantity_semantics_blocked"
+    },
+    {
+      "case_id": "negative_ip_allowlist_wrong_valid_ip",
+      "synthetic": true,
+      "mutation": "ip_allowlist",
+      "input": { "ip": "198.51.100.10" },
+      "expected_error": "provider_ip_allowlist_mismatch"
+    },
+    {
+      "case_id": "negative_ip_allowlist_correct_plus_extra",
+      "synthetic": true,
+      "mutation": "ip_allowlist",
+      "input": { "ip": "192.0.2.10,198.51.100.10" },
+      "expected_error": "provider_ip_allowlist_mismatch"
+    },
+    {
+      "case_id": "negative_ip_allowlist_duplicate",
+      "synthetic": true,
+      "mutation": "ip_allowlist",
+      "input": { "ip": "192.0.2.10,192.0.2.10" },
+      "expected_error": "provider_ip_allowlist_invalid"
+    },
+    {
+      "case_id": "negative_ip_allowlist_unspecified",
+      "synthetic": true,
+      "mutation": "ip_allowlist",
+      "input": { "ip": "0.0.0.0" },
+      "expected_error": "provider_ip_allowlist_invalid"
+    },
+    {
+      "case_id": "negative_ip_allowlist_loopback",
+      "synthetic": true,
+      "mutation": "ip_allowlist",
+      "input": { "ip": "127.0.0.1" },
+      "expected_error": "provider_ip_allowlist_invalid"
+    },
+    {
+      "case_id": "negative_permit_wrong_connection",
+      "synthetic": true,
+      "mutation": "permit_claim",
+      "input": { "field": "account_connection_id", "value": "synthetic-other-connection" },
+      "expected_error": "single_use_permit_scope_mismatch"
+    },
+    {
+      "case_id": "negative_permit_wrong_setup_row",
+      "synthetic": true,
+      "mutation": "permit_claim",
+      "input": { "field": "setup_row_version", "value": 8 },
+      "expected_error": "single_use_permit_scope_mismatch"
+    },
+    {
+      "case_id": "negative_permit_cross_request",
+      "synthetic": true,
+      "mutation": "permit_claim",
+      "input": { "field": "request_id", "value": "probe_account_config" },
+      "expected_error": "single_use_permit_scope_mismatch"
+    },
+    {
+      "case_id": "negative_permit_wrong_sequence",
+      "synthetic": true,
+      "mutation": "permit_claim",
+      "input": { "field": "request_sequence", "value": 2 },
+      "expected_error": "single_use_permit_scope_mismatch"
+    },
+    {
+      "case_id": "negative_permit_wrong_capability",
+      "synthetic": true,
+      "mutation": "permit_claim",
+      "input": { "field": "capability_id", "value": "okx_account_config_v1" },
+      "expected_error": "single_use_permit_scope_mismatch"
+    },
+    {
+      "case_id": "negative_permit_wrong_capability_digest",
+      "synthetic": true,
+      "mutation": "permit_claim",
+      "input": { "field": "capability_descriptor_sha256", "value": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" },
+      "expected_error": "single_use_permit_scope_mismatch"
+    },
+    {
+      "case_id": "negative_permit_wrong_profile_digest",
+      "synthetic": true,
+      "mutation": "permit_claim",
+      "input": { "field": "profile_digest_sha256", "value": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" },
+      "expected_error": "single_use_permit_scope_mismatch"
+    },
+    {
+      "case_id": "negative_permit_wrong_authority_digest",
+      "synthetic": true,
+      "mutation": "permit_claim",
+      "input": { "field": "authority_snapshot_sha256", "value": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc" },
+      "expected_error": "single_use_permit_scope_mismatch"
+    },
+    {
+      "case_id": "negative_permit_wrong_origin",
+      "synthetic": true,
+      "mutation": "permit_claim",
+      "input": { "field": "https_origin", "value": "https://openapi.okx.com" },
+      "expected_error": "single_use_permit_scope_mismatch"
+    },
+    {
+      "case_id": "negative_permit_wrong_path",
+      "synthetic": true,
+      "mutation": "permit_claim",
+      "input": { "field": "path_with_canonical_query", "value": "/api/v5/account/config" },
+      "expected_error": "single_use_permit_scope_mismatch"
+    },
+    {
+      "case_id": "negative_permit_wrong_header_digest",
+      "synthetic": true,
+      "mutation": "permit_claim",
+      "input": { "field": "header_name_set_sha256", "value": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd" },
+      "expected_error": "single_use_permit_scope_mismatch"
+    },
+    {
+      "case_id": "negative_permit_wrong_window",
+      "synthetic": true,
+      "mutation": "permit_claim",
+      "input": { "field": "window_end_ms", "value": "1787652000001" },
+      "expected_error": "single_use_permit_scope_mismatch"
+    },
+    {
+      "case_id": "negative_permit_wrong_request_budget",
+      "synthetic": true,
+      "mutation": "permit_claim",
+      "input": { "field": "total_request_budget", "value": 4 },
+      "expected_error": "single_use_permit_scope_mismatch"
+    },
+    {
+      "case_id": "negative_permit_wrong_response_budget",
+      "synthetic": true,
+      "mutation": "permit_claim",
+      "input": { "field": "total_response_byte_budget", "value": 1048577 },
+      "expected_error": "single_use_permit_scope_mismatch"
+    },
+    {
+      "case_id": "negative_permit_expired",
+      "synthetic": true,
+      "mutation": "runtime_clock",
+      "input": { "server_now_at": "2026-08-27T10:20:45.123Z" },
+      "expected_error": "single_use_permit_expired"
+    },
+    {
+      "case_id": "negative_permit_extra_claim",
+      "synthetic": true,
+      "mutation": "permit_claim",
+      "input": { "field": "unexpected_claim", "value": "synthetic" },
+      "expected_error": "single_use_permit_shape_rejected"
+    },
+    {
+      "case_id": "negative_order_wrong_inst_type",
+      "synthetic": true,
+      "mutation": "response_record",
+      "input": { "base_case_id": "positive_orders_same_order_grain", "patch": { "instType": "SPOT" } },
+      "expected_error": "provider_contract_class_out_of_scope"
+    },
+    {
+      "case_id": "negative_order_unknown_state",
+      "synthetic": true,
+      "mutation": "response_record",
+      "input": { "base_case_id": "positive_orders_same_order_grain", "patch": { "state": "synthetic_unknown" } },
+      "expected_error": "provider_enum_unknown"
+    },
+    {
+      "case_id": "negative_order_unknown_side",
+      "synthetic": true,
+      "mutation": "response_record",
+      "input": { "base_case_id": "positive_orders_same_order_grain", "patch": { "side": "synthetic_unknown" } },
+      "expected_error": "provider_enum_unknown"
+    },
+    {
+      "case_id": "negative_order_invalid_timestamp",
+      "synthetic": true,
+      "mutation": "response_record",
+      "input": { "base_case_id": "positive_orders_same_order_grain", "patch": { "cTime": "not-a-timestamp" } },
+      "expected_error": "provider_timestamp_rejected"
+    },
+    {
+      "case_id": "negative_order_missing_field",
+      "synthetic": true,
+      "mutation": "response_record",
+      "input": { "base_case_id": "positive_orders_same_order_grain", "delete_field": "state" },
+      "expected_error": "provider_record_shape_rejected"
+    },
+    {
+      "case_id": "negative_order_extra_field",
+      "synthetic": true,
+      "mutation": "response_record",
+      "input": { "base_case_id": "positive_orders_same_order_grain", "patch": { "unexpected": "synthetic" } },
+      "expected_error": "provider_record_shape_rejected"
+    },
+    {
+      "case_id": "negative_order_duplicate_id",
+      "synthetic": true,
+      "mutation": "duplicate_record",
+      "input": { "base_case_id": "positive_orders_same_order_grain" },
+      "expected_error": "provider_event_identity_blocked"
+    },
+    {
+      "case_id": "negative_fill_wrong_inst_type",
+      "synthetic": true,
+      "mutation": "response_record",
+      "input": { "base_case_id": "positive_two_partial_fills_same_order_and_time", "patch": { "instType": "SPOT" } },
+      "expected_error": "provider_contract_class_out_of_scope"
+    },
+    {
+      "case_id": "negative_fill_unknown_side",
+      "synthetic": true,
+      "mutation": "response_record",
+      "input": { "base_case_id": "positive_two_partial_fills_same_order_and_time", "patch": { "side": "synthetic_unknown" } },
+      "expected_error": "provider_enum_unknown"
+    },
+    {
+      "case_id": "negative_fill_unknown_pos_side",
+      "synthetic": true,
+      "mutation": "response_record",
+      "input": { "base_case_id": "positive_two_partial_fills_same_order_and_time", "patch": { "posSide": "synthetic_unknown" } },
+      "expected_error": "provider_enum_unknown"
+    },
+    {
+      "case_id": "negative_fill_invalid_timestamp",
+      "synthetic": true,
+      "mutation": "response_record",
+      "input": { "base_case_id": "positive_two_partial_fills_same_order_and_time", "patch": { "fillTime": "not-a-timestamp" } },
+      "expected_error": "provider_timestamp_rejected"
+    },
+    {
+      "case_id": "negative_fill_zero_equivalent",
+      "synthetic": true,
+      "mutation": "response_record",
+      "input": { "base_case_id": "positive_two_partial_fills_same_order_and_time", "patch": { "fillSz": "0.0" } },
+      "expected_error": "provider_quantity_semantics_blocked"
+    },
+    {
+      "case_id": "negative_fill_missing_field",
+      "synthetic": true,
+      "mutation": "response_record",
+      "input": { "base_case_id": "positive_two_partial_fills_same_order_and_time", "delete_field": "side" },
+      "expected_error": "provider_record_shape_rejected"
+    },
+    {
+      "case_id": "negative_fill_duplicate_trade_id",
+      "synthetic": true,
+      "mutation": "duplicate_record",
+      "input": { "base_case_id": "positive_two_partial_fills_same_order_and_time", "row_index": 0, "patch": { "billId": "825000003" } },
+      "expected_error": "provider_event_identity_blocked"
+    },
+    {
+      "case_id": "negative_position_wrong_inst_type",
+      "synthetic": true,
+      "mutation": "response_record",
+      "input": { "base_case_id": "positive_position_net_mode", "patch": { "instType": "SPOT" } },
+      "expected_error": "provider_contract_class_out_of_scope"
+    },
+    {
+      "case_id": "negative_position_invalid_timestamp",
+      "synthetic": true,
+      "mutation": "response_record",
+      "input": { "base_case_id": "positive_position_net_mode", "patch": { "uTime": "not-a-timestamp" } },
+      "expected_error": "provider_timestamp_rejected"
+    },
+    {
+      "case_id": "negative_position_unknown_type",
+      "synthetic": true,
+      "mutation": "response_record",
+      "input": { "base_case_id": "positive_position_net_mode", "patch": { "type": "999" } },
+      "expected_error": "provider_enum_unknown"
+    },
+    {
+      "case_id": "negative_position_missing_field",
+      "synthetic": true,
+      "mutation": "response_record",
+      "input": { "base_case_id": "positive_position_net_mode", "delete_field": "direction" },
+      "expected_error": "provider_record_shape_rejected"
+    },
+    {
+      "case_id": "negative_position_duplicate_observation",
+      "synthetic": true,
+      "mutation": "duplicate_record",
+      "input": { "base_case_id": "positive_position_net_mode" },
+      "expected_error": "provider_event_identity_blocked"
+    },
+    {
+      "case_id": "negative_settled_pnl_nonempty_swap",
+      "synthetic": true,
+      "mutation": "settled_pnl_semantics",
+      "input": { "instType": "SWAP", "mgnMode": "cross", "settledPnl": "0" },
+      "expected_error": "provider_settled_pnl_semantics_rejected"
+    },
+    {
+      "case_id": "negative_settled_pnl_invalid_nonempty_swap",
+      "synthetic": true,
+      "mutation": "settled_pnl_semantics",
+      "input": { "instType": "SWAP", "mgnMode": "cross", "settledPnl": "NaN" },
+      "expected_error": "provider_settled_pnl_semantics_rejected"
+    },
+    {
+      "case_id": "negative_settled_pnl_empty_cross_futures",
+      "synthetic": true,
+      "mutation": "settled_pnl_semantics",
+      "input": { "instType": "FUTURES", "mgnMode": "cross", "settledPnl": "" },
+      "expected_error": "provider_settled_pnl_semantics_rejected"
+    },
+    {
+      "case_id": "negative_bill_wrong_inst_type",
+      "synthetic": true,
+      "mutation": "response_record",
+      "input": { "base_case_id": "positive_funding_and_fee_bills_separate", "patch": { "instType": "SPOT" } },
+      "expected_error": "provider_contract_class_out_of_scope"
+    },
+    {
+      "case_id": "negative_bill_invalid_timestamp",
+      "synthetic": true,
+      "mutation": "response_record",
+      "input": { "base_case_id": "positive_funding_and_fee_bills_separate", "patch": { "ts": "not-a-timestamp" } },
+      "expected_error": "provider_timestamp_rejected"
+    },
+    {
+      "case_id": "negative_bill_missing_field",
+      "synthetic": true,
+      "mutation": "response_record",
+      "input": { "base_case_id": "positive_funding_and_fee_bills_separate", "delete_field": "subType" },
+      "expected_error": "provider_record_shape_rejected"
+    },
+    {
+      "case_id": "negative_bill_duplicate_id",
+      "synthetic": true,
+      "mutation": "duplicate_record",
+      "input": { "base_case_id": "positive_funding_and_fee_bills_separate", "row_index": 0, "patch": { "ts": "1787654000001" } },
+      "expected_error": "provider_event_identity_blocked"
+    },
+    {
+      "case_id": "negative_request_private_header_missing",
+      "synthetic": true,
+      "mutation": "header_allowlist",
+      "input": { "headers": { "x-simulated-trading": "1" } },
+      "expected_error": "provider_header_allowlist_rejected"
+    },
+    {
+      "case_id": "negative_permit_wrong_setup_command",
+      "synthetic": true,
+      "mutation": "permit_claim",
+      "input": { "field": "setup_command_id", "value": "synthetic-other-setup" },
+      "expected_error": "single_use_permit_scope_mismatch"
+    },
+    {
+      "case_id": "negative_permit_wrong_contract_version",
+      "synthetic": true,
+      "mutation": "permit_claim",
+      "input": { "field": "provider_contract_version", "value": "okx-swap-read-contract/synthetic-other" },
+      "expected_error": "single_use_permit_scope_mismatch"
+    },
+    {
+      "case_id": "negative_permit_wrong_request_descriptor_digest",
+      "synthetic": true,
+      "mutation": "permit_claim",
+      "input": { "field": "request_descriptor_sha256", "value": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee" },
+      "expected_error": "single_use_permit_scope_mismatch"
+    },
+    {
+      "case_id": "negative_permit_wrong_provider_observation_digest",
+      "synthetic": true,
+      "mutation": "permit_claim",
+      "input": { "field": "expected_provider_perm_and_ip_projection_sha256", "value": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff" },
+      "expected_error": "single_use_permit_scope_mismatch"
+    },
+    {
+      "case_id": "negative_coordinated_request_and_permit_budget",
+      "synthetic": true,
+      "mutation": "request_and_permit_claim",
+      "input": { "field": "total_request_budget", "value": 4 },
+      "expected_error": "provider_request_descriptor_pin_mismatch"
+    },
+    {
+      "case_id": "negative_runtime_clock_unparseable",
+      "synthetic": true,
+      "mutation": "runtime_clock",
+      "input": { "server_now_at": "not-a-date" },
+      "expected_error": "single_use_permit_time_invalid"
+    },
+    {
+      "case_id": "negative_runtime_clock_noncanonical",
+      "synthetic": true,
+      "mutation": "runtime_clock",
+      "input": { "server_now_at": "2026-08-27T10:20:30Z" },
+      "expected_error": "single_use_permit_time_invalid"
+    },
+    {
+      "case_id": "negative_runtime_clock_rollback",
+      "synthetic": true,
+      "mutation": "runtime_clock",
+      "input": { "server_now_at": "2026-08-27T10:20:15.122Z" },
+      "expected_error": "single_use_permit_clock_rollback"
+    },
+    {
+      "case_id": "negative_runtime_clock_untrusted_source",
+      "synthetic": true,
+      "mutation": "runtime_clock",
+      "input": { "source": "request_supplied_clock" },
+      "expected_error": "single_use_permit_runtime_clock_untrusted"
+    },
+    {
+      "case_id": "negative_permit_deadline_unparseable",
+      "synthetic": true,
+      "mutation": "permit_claim",
+      "input": { "field": "deadline_at", "value": "not-a-date" },
+      "expected_error": "single_use_permit_time_invalid"
+    },
+    {
+      "case_id": "negative_permit_deadline_noncanonical",
+      "synthetic": true,
+      "mutation": "permit_claim",
+      "input": { "field": "deadline_at", "value": "2026-08-27T10:20:45Z" },
+      "expected_error": "single_use_permit_time_invalid"
+    },
+    {
+      "case_id": "negative_fill_ts_below_request_window",
+      "synthetic": true,
+      "mutation": "response_record",
+      "input": { "base_case_id": "positive_two_partial_fills_same_order_and_time", "patch": { "ts": "1787047201999" } },
+      "expected_error": "provider_response_window_rejected"
+    },
+    {
+      "case_id": "negative_fill_ts_above_request_window",
+      "synthetic": true,
+      "mutation": "response_record",
+      "input": { "base_case_id": "positive_two_partial_fills_same_order_and_time", "patch": { "ts": "1787652002001" } },
+      "expected_error": "provider_response_window_rejected"
+    },
+    {
+      "case_id": "negative_aggregate_position_mode_fill_side_conflict",
+      "synthetic": true,
+      "mutation": "probe_aggregate",
+      "input": { "scenario": "position_mode_fill_side_conflict" },
+      "expected_error": "provider_position_semantics_rejected"
+    },
+    {
+      "case_id": "negative_aggregate_provider_observation_coordinated",
+      "synthetic": true,
+      "mutation": "probe_aggregate",
+      "input": { "scenario": "provider_observation_coordinated" },
+      "expected_error": "single_use_permit_scope_mismatch"
+    },
+    {
+      "case_id": "negative_aggregate_response_clock_cursor_coordinated",
+      "synthetic": true,
+      "mutation": "probe_aggregate",
+      "input": { "scenario": "response_clock_cursor_coordinated" },
+      "expected_error": "provider_response_window_rejected"
+    },
+    {
+      "case_id": "negative_aggregate_cross_request_permit_reuse",
+      "synthetic": true,
+      "mutation": "probe_aggregate",
+      "input": { "scenario": "cross_request_permit_reuse" },
+      "expected_error": "provider_authority_transition_mismatch"
+    },
+    {
+      "case_id": "negative_ip_allowlist_unicode_whitespace",
+      "synthetic": true,
+      "mutation": "ip_allowlist",
+      "input": { "ip": "\u00a0192.0.2.10\u00a0" },
+      "expected_error": "provider_ip_allowlist_invalid"
+    },
+    {
+      "case_id": "negative_ip_allowlist_ipv4_mapped_ipv6",
+      "synthetic": true,
+      "mutation": "ip_allowlist",
+      "input": { "ip": "::ffff:127.0.0.1" },
+      "expected_error": "provider_ip_allowlist_invalid"
+    },
+    {
+      "case_id": "negative_permit_issued_at_unparseable",
+      "synthetic": true,
+      "mutation": "permit_claim",
+      "input": { "field": "issued_at", "value": "not-a-date" },
+      "expected_error": "single_use_permit_time_invalid"
+    },
+    {
+      "case_id": "negative_permit_issued_at_noncanonical",
+      "synthetic": true,
+      "mutation": "permit_claim",
+      "input": { "field": "issued_at", "value": "2026-08-27T10:20:15Z" },
+      "expected_error": "single_use_permit_time_invalid"
+    },
+    {
+      "case_id": "negative_aggregate_permit_2_preissued",
+      "synthetic": true,
+      "mutation": "probe_aggregate",
+      "input": { "scenario": "permit_2_preissued" },
+      "expected_error": "provider_authority_transition_preissued"
+    },
+    {
+      "case_id": "negative_aggregate_observed_transition_missing",
+      "synthetic": true,
+      "mutation": "probe_aggregate",
+      "input": { "scenario": "observed_transition_missing" },
+      "expected_error": "provider_authority_transition_mismatch"
+    },
+    {
+      "case_id": "negative_aggregate_identity_coordinated",
+      "synthetic": true,
+      "mutation": "probe_aggregate",
+      "input": { "scenario": "identity_coordinated" },
+      "expected_error": "account_identity_digest_mismatch"
+    },
+    {
+      "case_id": "negative_aggregate_identity_response_and_permits_coordinated",
+      "synthetic": true,
+      "mutation": "probe_aggregate",
+      "input": { "scenario": "identity_response_and_permits_coordinated" },
+      "expected_error": "single_use_permit_scope_mismatch"
+    },
+    {
+      "case_id": "negative_aggregate_response_after_deadline",
+      "synthetic": true,
+      "mutation": "probe_aggregate",
+      "input": { "scenario": "response_after_deadline" },
+      "expected_error": "provider_response_after_deadline"
+    },
+    {
+      "case_id": "negative_aggregate_response_byte_claim_mismatch",
+      "synthetic": true,
+      "mutation": "probe_aggregate",
+      "input": { "scenario": "response_byte_claim_mismatch" },
+      "expected_error": "provider_transport_measurement_mismatch"
+    },
+    {
+      "case_id": "negative_aggregate_capability_byte_limit",
+      "synthetic": true,
+      "mutation": "probe_aggregate",
+      "input": { "scenario": "capability_byte_limit" },
+      "expected_error": "provider_response_byte_limit_exceeded"
+    },
+    {
+      "case_id": "negative_aggregate_total_byte_budget",
+      "synthetic": true,
+      "mutation": "probe_aggregate",
+      "input": { "scenario": "total_byte_budget" },
+      "expected_error": "probe_response_budget_exceeded"
+    },
+    {
+      "case_id": "negative_aggregate_total_duration",
+      "synthetic": true,
+      "mutation": "probe_aggregate",
+      "input": { "scenario": "total_duration" },
+      "expected_error": "probe_deadline_exceeded"
+    },
+    {
+      "case_id": "negative_aggregate_fill_record_limit",
+      "synthetic": true,
+      "mutation": "probe_aggregate",
+      "input": { "scenario": "fill_record_limit" },
+      "expected_error": "provider_response_record_limit_exceeded"
+    },
+    {
+      "case_id": "negative_aggregate_transport_untrusted",
+      "synthetic": true,
+      "mutation": "probe_aggregate",
+      "input": { "scenario": "transport_untrusted" },
+      "expected_error": "provider_transport_measurement_untrusted"
+    },
+    {
+      "case_id": "negative_aggregate_transport_time_unparseable",
+      "synthetic": true,
+      "mutation": "probe_aggregate",
+      "input": { "scenario": "transport_time_unparseable" },
+      "expected_error": "provider_transport_time_invalid"
+    },
+    {
+      "case_id": "negative_aggregate_request_timeout",
+      "synthetic": true,
+      "mutation": "probe_aggregate",
+      "input": { "scenario": "request_timeout" },
+      "expected_error": "provider_request_timeout"
+    },
+    {
+      "case_id": "negative_aggregate_identity_legacy_json_encoding",
+      "synthetic": true,
+      "mutation": "probe_aggregate",
+      "input": { "scenario": "identity_legacy_json_encoding" },
+      "expected_error": "single_use_permit_scope_mismatch"
+    },
+    {
+      "case_id": "negative_aggregate_instrument_filter_empty",
+      "synthetic": true,
+      "mutation": "probe_aggregate",
+      "input": { "scenario": "instrument_filter_empty" },
+      "expected_error": "provider_instrument_filter_empty"
+    },
+    {
+      "case_id": "negative_aggregate_instrument_selected_record_invalid",
+      "synthetic": true,
+      "mutation": "probe_aggregate",
+      "input": { "scenario": "instrument_selected_record_invalid" },
+      "expected_error": "provider_quantity_semantics_blocked"
+    },
+    {
+      "case_id": "negative_aggregate_duplicate_envelope_key",
+      "synthetic": true,
+      "mutation": "probe_aggregate",
+      "input": { "scenario": "duplicate_envelope_key" },
+      "expected_error": "provider_response_duplicate_json_key_rejected"
+    },
+    {
+      "case_id": "negative_aggregate_duplicate_id_key",
+      "synthetic": true,
+      "mutation": "probe_aggregate",
+      "input": { "scenario": "duplicate_id_key" },
+      "expected_error": "provider_response_duplicate_json_key_rejected"
+    },
+    {
+      "case_id": "negative_aggregate_duplicate_decimal_key",
+      "synthetic": true,
+      "mutation": "probe_aggregate",
+      "input": { "scenario": "duplicate_decimal_key" },
+      "expected_error": "provider_response_duplicate_json_key_rejected"
+    },
+    {
+      "case_id": "negative_aggregate_duplicate_timestamp_key",
+      "synthetic": true,
+      "mutation": "probe_aggregate",
+      "input": { "scenario": "duplicate_timestamp_key" },
+      "expected_error": "provider_response_duplicate_json_key_rejected"
+    },
+    {
+      "case_id": "negative_aggregate_fill_references_filtered_out_instrument",
+      "synthetic": true,
+      "mutation": "probe_aggregate",
+      "input": { "scenario": "fill_references_filtered_out_instrument" },
+      "expected_error": "provider_cross_capability_instrument_mismatch"
+    },
+    {
+      "case_id": "negative_aggregate_unselected_instrument_base_invalid",
+      "synthetic": true,
+      "mutation": "probe_aggregate",
+      "input": { "scenario": "unselected_instrument_base_invalid" },
+      "expected_error": "provider_record_shape_rejected"
+    },
+    {
+      "case_id": "negative_aggregate_duplicate_selected_instrument_id",
+      "synthetic": true,
+      "mutation": "probe_aggregate",
+      "input": { "scenario": "duplicate_selected_instrument_id" },
+      "expected_error": "provider_event_identity_blocked"
+    }
+  ]
+}

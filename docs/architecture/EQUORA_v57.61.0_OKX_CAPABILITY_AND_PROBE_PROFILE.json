@@ -1,0 +1,892 @@
+{
+  "schema_version": "equora_mb5_okx_contract_v1",
+  "phase": "MB5",
+  "status": "local_contract_candidate_second_provider_not_built",
+  "generated_at_utc": "2026-08-27T00:00:00.000Z",
+  "decision": {
+    "provider_code": "okx",
+    "provider_contract_version": "okx-swap-read-contract/2026-08-27-mb5.6",
+    "adapter_version": "not_built",
+    "account_scope": "own_main_or_subaccount_only",
+    "instrument_type": "SWAP",
+    "settlement_currency": "USDT",
+    "contract_style": "linear_perpetual",
+    "region_profile": "eea_candidate_requires_attestation",
+    "first_probe_environment": "demo_only_not_authorized",
+    "broker_sync_api_adapter_built": false,
+    "connected_provider_registered": false,
+    "api_read_provider_supported": false,
+    "api_read_provider_observed": false,
+    "existing_manual_okx_csv_import_changed": false
+  },
+  "official_sources": [
+    {
+      "source_id": "OKX-SRC-001",
+      "url": "https://www.okx.com/docs-v5/en/",
+      "accessed_on": "2026-08-26",
+      "authority": "official_provider_documentation",
+      "claims": [
+        "rest_authentication_and_signature",
+        "demo_header",
+        "account_config_identity_fields",
+        "account_instruments",
+        "history_endpoints",
+        "retention_pagination_and_rate_limits",
+        "swap_contract_units"
+      ]
+    },
+    {
+      "source_id": "OKX-SRC-002",
+      "url": "https://www.okx.com/docs-v5/log_en/",
+      "accessed_on": "2026-08-26",
+      "authority": "official_provider_change_log",
+      "claims": [
+        "change_revalidation_source",
+        "global_openapi_host_preference"
+      ]
+    },
+    {
+      "source_id": "OKX-SRC-003",
+      "url": "https://www.okx.com/en-eu/help/api-faq-eea",
+      "accessed_on": "2026-08-26",
+      "authority": "official_provider_eea_help",
+      "claims": [
+        "eea_api_host",
+        "regional_account_dependency"
+      ]
+    },
+    {
+      "source_id": "OKX-SRC-004",
+      "url": "https://www.okx.com/en-eu/help/okx-api-agreement",
+      "accessed_on": "2026-08-26",
+      "authority": "official_provider_eea_agreement",
+      "claims": [
+        "eligibility_is_jurisdiction_dependent",
+        "least_privilege_and_ip_allowlist",
+        "encrypted_credentials_no_plaintext_logs_or_repositories",
+        "commercial_and_saas_use_requires_written_authorization"
+      ]
+    },
+    {
+      "source_id": "OKX-SRC-005",
+      "url": "https://www.okx.com/en-au/help/how-can-i-do-derivatives-trading-with-the-jupyter-notebook",
+      "accessed_on": "2026-08-27",
+      "authority": "official_provider_derivatives_tutorial",
+      "claims": [
+        "derivative_contract_notional_equals_ctVal_times_ctMult_in_ctValCcy"
+      ]
+    }
+  ],
+  "authority_boundary": {
+    "runtime_mode": "off",
+    "okx_provider_request_authorized": false,
+    "credential_action_authorized": false,
+    "supabase_action_authorized": false,
+    "production_action_authorized": false,
+    "cron_action_authorized": false,
+    "capture_action_authorized": false,
+    "import_action_authorized": false,
+    "git_staging_authorized": false,
+    "git_commit_authorized": false,
+    "git_push_authorized": false,
+    "pull_request_authorized": false,
+    "merge_authorized": false,
+    "deployment_authorized": false
+  },
+  "legal_product_gate": {
+    "own_account_internal_use": "candidate_subject_to_account_and_jurisdiction_eligibility",
+    "commercial_multi_user_or_saas_release": "blocked_pending_explicit_written_okx_authorization_or_new_explicitly_permitting_versioned_okx_contract",
+    "market_data_redistribution": "blocked_pending_explicit_written_okx_authorization_or_new_explicitly_permitting_versioned_okx_contract",
+    "gate_may_not_be_satisfied_by_local_tests": true
+  },
+  "region_profiles": {
+    "selected_candidate": {
+      "profile_id": "okx-eea-demo-v1",
+      "registration_domain_attestation": "my.okx.com_or_current_official_eea_equivalent_must_be_confirmed",
+      "contracting_entity_attestation": "required_before_probe",
+      "https_origin": "https://eea.okx.com",
+      "port": 443,
+      "environment": "demo",
+      "required_constant_headers": {
+        "x-simulated-trading": "1"
+      },
+      "fallback_origins": [],
+      "status": "candidate_not_authorized"
+    },
+    "documented_not_selected": [
+      {
+        "profile_id": "okx-global-v1",
+        "https_origin": "https://openapi.okx.com",
+        "status": "not_selected"
+      },
+      {
+        "profile_id": "okx-us-v1",
+        "https_origin": "https://us.okx.com",
+        "status": "not_selected"
+      }
+    ]
+  },
+  "credential_contract": {
+    "provider_permissions_required": [
+      "Read"
+    ],
+    "provider_permissions_forbidden": [
+      "Trade",
+      "Withdraw"
+    ],
+    "technical_permission_introspection": "account_config_perm_reports_current_requesting_api_key_permissions",
+    "accepted_permission_evidence": "provider_reported_perm_exactly_read_only_plus_user_attestation",
+    "forbidden_permission_claim": "all_account_and_provider_capabilities_technically_verified",
+    "permission_tokens_allowed": [
+      "read_only"
+    ],
+    "permission_tokens_blocking": [
+      "trade",
+      "withdraw"
+    ],
+    "empty_duplicate_or_unknown_permission_token": "block_probe_and_apply",
+    "ip_allowlist": "canonical_provider_reported_ip_set_must_exactly_equal_authority_pinned_authorized_egress_ip_set_digest",
+    "ip_set_canonicalization": "trim_ascii_space_reject_empty_duplicate_or_non_ip_sort_by_codepoint_join_with_comma",
+    "ip_set_mismatch": "block_probe_and_apply",
+    "account_mfa_user_attestation": "required_before_probe",
+    "incident_response": {
+      "suspected_or_confirmed_compromise": "block_all_new_permits_setup_apply_capture_and_import",
+      "required_user_actions": [
+        "immediately_revoke_affected_api_key_and_agent_authorization",
+        "rotate_affected_api_key",
+        "notify_okx"
+      ],
+      "equora_may_execute_actions_automatically": false
+    },
+    "storage": "future_encrypted_server_side_ephemeral_session_only",
+    "raw_credential_persistence": false,
+    "raw_credential_logging": false,
+    "raw_header_logging": false
+  },
+  "identity_contract": {
+    "source_capability_id": "okx_account_config_v1",
+    "source_fields": [
+      "uid",
+      "mainUid",
+      "perm",
+      "ip"
+    ],
+    "stable_scope_field": "uid",
+    "account_classification": "uid_equals_mainUid_means_main_else_subaccount",
+    "raw_identity_persistence": false,
+    "raw_identity_client_projection": false,
+    "derivation": "HMAC-SHA256(installation_identity_key_v1, domain_separator_and_provider_environment_region_uid)",
+    "domain_separator": "equora:okx-account-identity:v1",
+    "message_encoding": "UTF-8",
+    "message_fields_in_order": [
+      "domain_separator",
+      "provider_code",
+      "environment",
+      "region_profile_id",
+      "uid"
+    ],
+    "field_separator_hex": "00",
+    "message_canonicalization": "exact_field_order_nul_separated_no_json",
+    "digest_encoding": "lowercase_hex",
+    "pre_request_expected_identity": "expected_account_identity_sha256_bound_to_connection_and_every_permit",
+    "post_response_observed_identity": "observed_account_identity_sha256_derived_only_from_accepted_account_config_uid",
+    "aggregate_comparison": "observed_account_identity_sha256_must_equal_expected_account_identity_sha256_before_permit_2_or_apply",
+    "missing_or_changed_identity": "block_setup_apply"
+  },
+  "signing_contract": {
+    "private_header_names": [
+      "OK-ACCESS-KEY",
+      "OK-ACCESS-SIGN",
+      "OK-ACCESS-TIMESTAMP",
+      "OK-ACCESS-PASSPHRASE"
+    ],
+    "timestamp_format": "UTC_ISO_8601_millisecond_precision",
+    "prehash": "timestamp + uppercase_method + request_path_with_canonical_query + empty_body",
+    "algorithm": "HMAC-SHA256",
+    "encoding": "Base64",
+    "method": "GET",
+    "body": "",
+    "query_is_part_of_request_path": true,
+    "redirect_mode": "error"
+  },
+  "single_use_permit_contract": {
+    "state_before_request": "issued_unconsumed",
+    "consumption_count_before_request": 0,
+    "state_after_exactly_one_request": "consumed",
+    "consumption_count_after_exactly_one_request": 1,
+    "atomic_compare_and_consume_required": true,
+    "closed_claim_fields": [
+      "permit_id",
+      "account_connection_id",
+      "setup_command_id",
+      "setup_row_version",
+      "identity_key_version",
+      "permission_attestation_sha256",
+      "expected_provider_perm_and_ip_projection_sha256",
+      "expected_account_identity_sha256",
+      "authorized_egress_ip_set_sha256",
+      "account_mfa_attestation_sha256",
+      "incident_clear_attestation_sha256",
+      "authority_generation",
+      "predecessor_response_evidence_sha256",
+      "observed_provider_perm_and_ip_projection_sha256",
+      "observed_account_identity_sha256",
+      "request_id",
+      "request_sequence",
+      "capability_id",
+      "capability_descriptor_sha256",
+      "provider_contract_version",
+      "profile_digest_sha256",
+      "authority_snapshot_sha256",
+      "environment",
+      "https_origin",
+      "port",
+      "method",
+      "path_with_canonical_query",
+      "header_name_set_sha256",
+      "request_descriptor_sha256",
+      "window_start_ms",
+      "window_end_ms",
+      "response_byte_limit",
+      "request_timeout_ms",
+      "total_request_budget",
+      "total_response_byte_budget",
+      "issued_at",
+      "deadline_at",
+      "state",
+      "consumption_count"
+    ],
+    "all_claims_must_atomically_match_current_request_and_authority": true,
+    "cross_request_or_cross_connection_reuse": "blocked",
+    "bootstrap_transition": {
+      "permit_1": "authority_generation_1_expected_digests_only_observed_digests_and_predecessor_null",
+      "after_response_1": "derive_observed_provider_projection_and_account_identity_compare_to_expected_then_issue_permit_2",
+      "permit_2": "authority_generation_2_binds_response_1_evidence_and_observed_digests",
+      "permit_3": "authority_generation_3_binds_response_2_evidence_and_response_1_observed_digests",
+      "preissued_or_missing_transition": "blocked"
+    },
+    "time_contract": {
+      "runtime_clock_source": "trusted_server_clock_not_request_supplied",
+      "instant_format": "canonical_utc_iso_8601_exactly_millisecond_precision_Z_roundtrip_equal",
+      "valid_order": "issued_at_lte_server_now_at_lt_deadline_at",
+      "unparseable_noncanonical_rollback_or_expired": "block_before_request"
+    }
+  },
+  "response_transport_evidence_contract": {
+    "source": "trusted_server_transport_not_request_or_provider_claim",
+    "closed_fields": [
+      "request_id",
+      "request_sequence",
+      "capability_id",
+      "raw_response_bytes",
+      "raw_response_sha256",
+      "request_started_at",
+      "response_received_at"
+    ],
+    "raw_response_binding": "measured_utf8_bytes_and_sha256_must_match_exact_parsed_response_bytes",
+    "duplicate_json_object_keys": "blocked_before_semantic_parse_on_every_object_level",
+    "per_request_checks": "response_received_before_permit_deadline_duration_lte_request_timeout_bytes_lte_capability_limit",
+    "aggregate_checks": "sequential_nonoverlap_total_duration_lte_15000_and_total_bytes_lte_1048576",
+    "raw_response_persistence": false,
+    "raw_response_logging": false
+  },
+  "response_envelope_contract": {
+    "success_http_status": "2xx",
+    "success_code": "0",
+    "success_message": "",
+    "data_type": "array",
+    "empty_array_meaning": "successful_empty_exact_request_scope_only",
+    "nonzero_code_meaning": "provider_error_not_empty_success",
+    "unknown_shape": "blocked",
+    "raw_provider_message_logging": false
+  },
+  "capabilities": [
+    {
+      "capability_id": "okx_account_config_v1",
+      "capability_kind": "account_identity",
+      "descriptor_version": "okx-capability/2026-08-26/account-config-v1",
+      "capability_descriptor_sha256": "e41bdb29820fdf756df33c55c6dfab1fdf9c5bdeef1a6b9d4e0c39b6368e5917",
+      "method": "GET",
+      "https_origin": "https://eea.okx.com",
+      "port": 443,
+      "path": "/api/v5/account/config",
+      "canonical_query": "",
+      "auth_class": "signed_read",
+      "permission": "Read",
+      "data_class": "account_identity",
+      "response_byte_limit": 65536,
+      "request_timeout_ms": 4000,
+      "documented_rate_limit": "5 requests per 2 seconds by user ID",
+      "retention": "current_configuration",
+      "grain": "one_current_account_configuration",
+      "stable_provider_id": "uid",
+      "required_security_fields": [
+        "perm",
+        "ip"
+      ],
+      "response_contract": {
+        "exact_projection_fields": [
+          "uid",
+          "mainUid",
+          "acctLv",
+          "posMode",
+          "perm",
+          "ip"
+        ],
+        "uid_and_mainUid": "positive_decimal_digit_strings",
+        "acctLv_allowed": ["1", "2", "3", "4"],
+        "posMode_allowed": ["net_mode", "long_short_mode"],
+        "perm": "exactly_read_only",
+        "ip": "exact_authority_pinned_egress_set_match",
+        "unknown_or_missing_projection_field": "blocked"
+      },
+      "pagination_contract": {
+        "supported": false
+      },
+      "in_minimal_probe": true,
+      "support_state": "candidate",
+      "import_eligibility": "blocked"
+    },
+    {
+      "capability_id": "okx_account_instruments_swap_v1",
+      "capability_kind": "instrument_metadata",
+      "descriptor_version": "okx-capability/2026-08-26/account-instruments-swap-v1",
+      "capability_descriptor_sha256": "0ed2246a0e6437fc6dc4ba341d0b881d00dee4fc697cd73fdb330d48167f18ad",
+      "method": "GET",
+      "https_origin": "https://eea.okx.com",
+      "port": 443,
+      "path": "/api/v5/account/instruments",
+      "canonical_query": "instType=SWAP",
+      "auth_class": "signed_read",
+      "permission": "Read",
+      "data_class": "metadata",
+      "response_byte_limit": 1048576,
+      "request_timeout_ms": 4000,
+      "documented_rate_limit": "20 requests per 2 seconds by user ID and instrument type",
+      "retention": "current_instrument_configuration",
+      "grain": "instId",
+      "stable_provider_id": "instId",
+      "response_contract": {
+        "exact_projection_fields": [
+          "instId",
+          "instType",
+          "instFamily",
+          "settleCcy",
+          "ctType",
+          "ctVal",
+          "ctMult",
+          "ctValCcy",
+          "lotSz",
+          "tickSz",
+          "state"
+        ],
+        "instType_allowed": ["SWAP"],
+        "delivered_record_base_contract": "exact_projection_all_fields_strings_and_instType_SWAP",
+        "post_response_filter": "settleCcy_equals_USDT_and_ctType_equals_linear",
+        "post_filter_minimum_selected_records": 1,
+        "selected_ctType_allowed": ["linear"],
+        "selected_settleCcy_allowed": ["USDT"],
+        "selected_state_allowed": ["live"],
+        "selected_strictly_positive_decimal_fields": ["ctVal", "ctMult", "lotSz", "tickSz"],
+        "selected_instId_and_family_contract": "BASE-USDT-SWAP_and_BASE-USDT",
+        "selected_ctValCcy_contract": "must_equal_BASE",
+        "selected_instId_uniqueness": "required_within_response",
+        "cross_capability_instrument_set": "all_and_only_post_filter_selected_records",
+        "unselected_record_semantics": "base_projection_validated_then_excluded_from_selected_contract_class",
+        "unknown_or_missing_projection_field": "blocked"
+      },
+      "pagination_contract": {
+        "supported": false
+      },
+      "in_minimal_probe": true,
+      "support_state": "candidate",
+      "import_eligibility": "blocked"
+    },
+    {
+      "capability_id": "okx_orders_archive_swap_v1",
+      "capability_kind": "historical_orders",
+      "descriptor_version": "okx-capability/2026-08-26/orders-archive-swap-v1",
+      "capability_descriptor_sha256": "32a0c2f9efd2a525273bc2a60b912b6580905026234e40a77174541b97a6036e",
+      "method": "GET",
+      "https_origin": "https://eea.okx.com",
+      "port": 443,
+      "path": "/api/v5/trade/orders-history-archive",
+      "canonical_query": "instType=SWAP",
+      "auth_class": "signed_read",
+      "permission": "Read",
+      "data_class": "account_history",
+      "response_byte_limit": 524288,
+      "request_timeout_ms": 4000,
+      "documented_rate_limit": "20 requests per 2 seconds by user ID",
+      "retention": "completed_orders_last_3_months_zero_fill_canceled_orders_absent",
+      "grain": "ordId",
+      "stable_provider_id": "ordId",
+      "response_contract": {
+        "exact_projection_fields": [
+          "instId",
+          "instType",
+          "ordId",
+          "state",
+          "side",
+          "posSide",
+          "sz",
+          "accFillSz",
+          "avgPx",
+          "cTime",
+          "uTime"
+        ],
+        "instType_allowed": ["SWAP"],
+        "state_allowed": ["filled", "canceled", "mmp_canceled"],
+        "side_allowed": ["buy", "sell"],
+        "posSide_allowed": ["net", "long", "short"],
+        "strictly_positive_decimal_fields": ["sz", "accFillSz", "avgPx"],
+        "timestamp_fields": ["cTime", "uTime"],
+        "timestamp_format": "exactly_13_ascii_digits_unix_milliseconds",
+        "ordId": "positive_decimal_digit_string_unique_per_page",
+        "unknown_or_missing_projection_field": "blocked"
+      },
+      "pagination_contract": {
+        "cursor_parameter": "after",
+        "cursor_field": "ordId",
+        "direction": "records_earlier_than_ordId",
+        "filter_clock": "cTime",
+        "before_and_after_may_not_be_mixed": true,
+        "zero_fill_canceled_orders": "absent_from_archive_available_only_on_excluded_last_7_days_endpoint_for_2_hours"
+      },
+      "in_minimal_probe": false,
+      "support_state": "candidate",
+      "import_eligibility": "blocked"
+    },
+    {
+      "capability_id": "okx_fills_history_swap_v1",
+      "capability_kind": "historical_executions",
+      "descriptor_version": "okx-capability/2026-08-26/fills-history-swap-v1",
+      "capability_descriptor_sha256": "a4c5ef944969eafff9748f7cbb1b71fbcf4348152bf53e9e17660cf7ab1c7945",
+      "method": "GET",
+      "https_origin": "https://eea.okx.com",
+      "port": 443,
+      "path": "/api/v5/trade/fills-history",
+      "canonical_query": "begin={window_start_ms}&end={window_end_ms}&instType=SWAP&limit=10",
+      "auth_class": "signed_read",
+      "permission": "Read",
+      "data_class": "account_history",
+      "response_byte_limit": 262144,
+      "request_timeout_ms": 4000,
+      "documented_rate_limit": "10 requests per 2 seconds by user ID",
+      "retention": "last_3_months",
+      "grain": "tradeId",
+      "stable_provider_id": "tradeId",
+      "order_link": "ordId_required_in_initial_profile",
+      "event_time": "fillTime",
+      "response_contract": {
+        "exact_projection_fields": [
+          "instId",
+          "instType",
+          "tradeId",
+          "billId",
+          "ordId",
+          "side",
+          "posSide",
+          "fillSz",
+          "fillPx",
+          "fee",
+          "feeCcy",
+          "fillPnl",
+          "fillTime",
+          "ts"
+        ],
+        "instType_allowed": ["SWAP"],
+        "side_allowed": ["buy", "sell"],
+        "posSide_allowed": ["net", "long", "short"],
+        "strictly_positive_decimal_fields": ["fillSz", "fillPx"],
+        "signed_decimal_fields": ["fee", "fillPnl"],
+        "currency_fields": {"feeCcy": "USDT"},
+        "timestamp_fields": ["fillTime", "ts"],
+        "timestamp_format": "exactly_13_ascii_digits_unix_milliseconds",
+        "filter_clock_request_binding": "authority_and_permit_bound_window_start_ms_lte_ts_lte_window_end_ms",
+        "event_clock_not_used_for_filter_window": "fillTime",
+        "maximum_records_for_bound_query": 10,
+        "identity_fields": ["tradeId", "billId", "ordId"],
+        "unique_per_page_fields": ["tradeId", "billId"],
+        "empty_data_allowed": true,
+        "unknown_or_missing_projection_field": "blocked"
+      },
+      "pagination_contract": {
+        "cursor_parameter": "after",
+        "cursor_field": "billId",
+        "direction": "records_earlier_than_billId",
+        "filter_clock": "ts",
+        "event_clock": "fillTime",
+        "before_and_after_may_not_be_mixed": true
+      },
+      "in_minimal_probe": true,
+      "support_state": "candidate",
+      "import_eligibility": "blocked"
+    },
+    {
+      "capability_id": "okx_positions_history_swap_v1",
+      "capability_kind": "historical_positions",
+      "descriptor_version": "okx-capability/2026-08-26/positions-history-swap-v1",
+      "capability_descriptor_sha256": "e771226658c38ce1908937a46624a38c99b0fa039e0a24b96742a02f2dc32a76",
+      "method": "GET",
+      "https_origin": "https://eea.okx.com",
+      "port": 443,
+      "path": "/api/v5/account/positions-history",
+      "canonical_query": "instType=SWAP",
+      "auth_class": "signed_read",
+      "permission": "Read",
+      "data_class": "account_history",
+      "response_byte_limit": 524288,
+      "request_timeout_ms": 4000,
+      "documented_rate_limit": "10 requests per 2 seconds by user ID",
+      "retention": "last_3_months",
+      "grain": "posId_entity_with_posId_uTime_observation",
+      "stable_provider_id": "posId",
+      "position_mode_dependency": "account_config.posMode",
+      "response_contract": {
+        "exact_projection_fields": [
+          "instId",
+          "instType",
+          "posId",
+          "posSide",
+          "direction",
+          "mgnMode",
+          "type",
+          "openMaxPos",
+          "closeTotalPos",
+          "openAvgPx",
+          "closeAvgPx",
+          "realizedPnl",
+          "pnl",
+          "fee",
+          "fundingFee",
+          "liqPenalty",
+          "settledPnl",
+          "ccy",
+          "cTime",
+          "uTime"
+        ],
+        "instType_allowed": ["SWAP"],
+        "posSide_allowed": ["net", "long", "short"],
+        "direction_allowed": ["long", "short"],
+        "mgnMode_allowed": ["cross", "isolated"],
+        "type_allowed": ["1", "2", "3", "4", "5"],
+        "nonnegative_decimal_fields": ["openMaxPos", "closeTotalPos"],
+        "strictly_positive_decimal_fields": ["openAvgPx", "closeAvgPx"],
+        "signed_decimal_fields": ["realizedPnl", "pnl", "fee", "fundingFee", "liqPenalty"],
+        "settledPnl_for_SWAP": "required_empty_string_preserved_and_arithmetically_normalized_to_zero",
+        "currency_fields": {"ccy": "USDT"},
+        "timestamp_fields": ["cTime", "uTime"],
+        "timestamp_format": "exactly_13_ascii_digits_unix_milliseconds",
+        "posId": "positive_decimal_digit_string",
+        "observation_identity": "posId_plus_uTime_unique_per_page",
+        "unknown_or_missing_projection_field": "blocked"
+      },
+      "pagination_contract": {
+        "cursor_parameter": "after",
+        "cursor_field": "uTime",
+        "direction": "records_earlier_than_uTime",
+        "sort_clock": "uTime_reverse_chronological",
+        "same_uTime_contract": "all_same_uTime_records_returned_together",
+        "observation_identity": "posId_plus_uTime",
+        "before_and_after_may_not_be_mixed": true
+      },
+      "in_minimal_probe": false,
+      "support_state": "candidate",
+      "import_eligibility": "blocked"
+    },
+    {
+      "capability_id": "okx_bills_archive_swap_v1",
+      "capability_kind": "funding_history",
+      "descriptor_version": "okx-capability/2026-08-26/bills-archive-swap-v1",
+      "capability_descriptor_sha256": "17e3aafed14fcf0002c5bc38e511db25ae43495b089af899aabd400843121b6a",
+      "method": "GET",
+      "https_origin": "https://eea.okx.com",
+      "port": 443,
+      "path": "/api/v5/account/bills-archive",
+      "canonical_query": "instType=SWAP",
+      "auth_class": "signed_read",
+      "permission": "Read",
+      "data_class": "account_history",
+      "response_byte_limit": 524288,
+      "request_timeout_ms": 4000,
+      "documented_rate_limit": "5 requests per 2 seconds by user ID",
+      "retention": "last_3_months",
+      "grain": "billId",
+      "stable_provider_id": "billId",
+      "type_subtype_mapping": "blocked_until_versioned_official_enum_matrix",
+      "response_contract": {
+        "exact_projection_fields": [
+          "billId",
+          "instId",
+          "instType",
+          "type",
+          "subType",
+          "balChg",
+          "fee",
+          "ccy",
+          "ts"
+        ],
+        "instType_allowed": ["SWAP"],
+        "temporarily_recognized_type_subType_pairs": ["8:173", "2:2"],
+        "signed_decimal_fields": ["balChg", "fee"],
+        "currency_fields": {"ccy": "USDT"},
+        "timestamp_fields": ["ts"],
+        "timestamp_format": "exactly_13_ascii_digits_unix_milliseconds",
+        "billId": "positive_decimal_digit_string_unique_per_page",
+        "unknown_or_missing_projection_field": "blocked"
+      },
+      "pagination_contract": {
+        "cursor_parameter": "after",
+        "cursor_field": "billId",
+        "direction": "records_earlier_than_billId",
+        "filter_clock": "ts",
+        "before_and_after_may_not_be_mixed": true
+      },
+      "in_minimal_probe": false,
+      "support_state": "candidate",
+      "import_eligibility": "blocked"
+    }
+  ],
+  "minimal_probe_profile": {
+    "profile_id": "okx-eea-demo-usdt-swap-minimal-read-v1",
+    "profile_version": "2026-08-27-mb5.6",
+    "profile_digest_sha256": "12d3498031e982fd1e0946ac63d47a888409b9e389125bf68c7c8d61274f9f22",
+    "status": "contract_only_not_authorized_not_executable",
+    "environment": "demo",
+    "region_profile_id": "okx-eea-demo-v1",
+    "https_origin": "https://eea.okx.com",
+    "port": 443,
+    "method": "GET",
+    "redirect_mode": "error",
+    "required_constant_headers": {
+      "x-simulated-trading": "1"
+    },
+    "request_sequence": [
+      {
+        "sequence": 1,
+        "request_id": "probe_account_config",
+        "capability_id": "okx_account_config_v1",
+        "path_with_canonical_query": "/api/v5/account/config",
+        "max_pages": 1
+      },
+      {
+        "sequence": 2,
+        "request_id": "probe_account_instruments",
+        "capability_id": "okx_account_instruments_swap_v1",
+        "path_with_canonical_query": "/api/v5/account/instruments?instType=SWAP",
+        "max_pages": 1,
+        "post_response_filter": "settleCcy=USDT_and_ctType=linear"
+      },
+      {
+        "sequence": 3,
+        "request_id": "probe_fills_history",
+        "capability_id": "okx_fills_history_swap_v1",
+        "path_with_canonical_query": "/api/v5/trade/fills-history?begin={window_start_ms}&end={window_end_ms}&instType=SWAP&limit=10",
+        "max_pages": 1,
+        "window_contract": "authority_pinned_utc_ts_filter_window_product_maximum_7_days_within_documented_retention_fillTime_is_separate_event_clock"
+      }
+    ],
+    "budget": {
+      "maximum_requests": 3,
+      "maximum_total_response_bytes": 1048576,
+      "maximum_duration_ms": 15000,
+      "request_timeout_ms": 4000,
+      "maximum_parallel_requests": 1,
+      "maximum_retries": 0,
+      "maximum_pages_per_request": 1
+    },
+    "required_pre_request_authority_pins": [
+      "provider_contract_version",
+      "profile_digest_sha256",
+      "each_capability_descriptor_sha256",
+      "region_profile_id",
+      "environment",
+      "https_origin",
+      "account_connection_id",
+      "identity_key_version",
+      "setup_command_id_and_row_version",
+      "permission_attestation_digest",
+      "expected_provider_perm_and_ip_projection_digest",
+      "expected_account_identity_digest",
+      "authorized_egress_ip_set_digest",
+      "account_mfa_attestation_digest",
+      "incident_clear_attestation_digest",
+      "authority_snapshot_sha256",
+      "request_descriptor_sha256",
+      "window_start_ms_and_window_end_ms",
+      "trusted_server_runtime_clock",
+      "issued_at_and_deadline_at",
+      "deadline_at",
+      "closed_single_use_permit_per_request",
+      "total_budget"
+    ],
+    "required_post_response_observations": [
+      "observed_provider_perm_and_ip_projection_digest_after_account_config",
+      "observed_account_identity_digest_after_account_config",
+      "trusted_server_transport_response_evidence_per_request",
+      "raw_response_bytes_and_sha256_per_request",
+      "request_started_at_and_response_received_at_per_request"
+    ],
+    "aggregate_comparison_requirements": [
+      "observed_provider_projection_equals_expected_permit_projection",
+      "observed_account_identity_equals_expected_connection_identity",
+      "permit_2_and_3_bind_prior_accepted_response_evidence_and_observed_digests",
+      "actual_response_bytes_times_and_record_count_within_bound_budgets",
+      "all_three_requests_sequential_nonoverlapping_and_before_deadline"
+    ],
+    "success_requirements": [
+      "all_three_requests_succeeded",
+      "stable_minimized_identity_observed",
+      "provider_reported_perm_exactly_read_only",
+      "provider_reported_ip_set_exactly_matches_authorized_egress_ip_set",
+      "account_mfa_attested",
+      "incident_status_clear",
+      "at_least_one_eligible_usdt_linear_swap_instrument_observed",
+      "all_delivered_instrument_records_pass_base_projection_before_post_response_filter",
+      "all_selected_instruments_pass_full_contract_and_cross_capability_reference_validation",
+      "fills_page_contract_valid_even_when_data_is_empty",
+      "fills_record_count_lte_bound_query_limit_10",
+      "fills_ts_values_inside_exact_authority_and_permit_bound_request_window",
+      "account_position_mode_and_fill_position_sides_cross_validated",
+      "provider_permission_and_ip_observation_matches_pre_request_expectation_commitment",
+      "all_three_responses_and_permits_pass_one_closed_aggregate_oracle",
+      "all_permits_consumed_exactly_once",
+      "no_budget_timeout_or_pin_violation",
+      "user_read_only_attestation_still_valid"
+    ],
+    "aggregate_validation_contract": "exact_three_sequence_capability_response_transport_permit_authority_transition_identity_window_position_mode_instrument_observation_and_budget_bindings_fail_closed",
+    "apply_contract": "all_or_nothing_local_setup_apply_only_after_aggregate_oracle_no_capture_no_import",
+    "partial_success_result": "blocked_no_connection_activation_no_credential_persistence",
+    "missing_runtime_authority": true,
+    "missing_credentials": true,
+    "missing_identity_authority": true,
+    "missing_window_authority": true,
+    "missing_single_use_permits": true
+  },
+  "pagination_and_completeness": {
+    "probe_pages_per_capability": 1,
+    "before_and_after_may_not_be_mixed": true,
+    "cursor_contract_is_capability_specific": true,
+    "orders_cursor": "ordId",
+    "fills_cursor": "billId",
+    "fills_filter_clock": "ts",
+    "fills_event_clock": "fillTime",
+    "positions_cursor_and_sort_clock": "uTime",
+    "positions_entity": "posId",
+    "positions_observation_identity": "posId_plus_uTime",
+    "bills_cursor": "billId",
+    "repeated_page_or_cursor": "blocked_partial",
+    "non_monotonic_progress": "blocked_partial",
+    "retention_claim": "bounded_documented_window_not_complete_account_history",
+    "late_arrival_claim": "unknown_until_separately_authorized_observation",
+    "global_completeness_claim": false
+  },
+  "financial_semantics": {
+    "numeric_representation": "validated_canonical_decimal_strings_scaled_integer_arithmetic_no_binary_float",
+    "decimal_grammar": "^-?(?:0|[1-9][0-9]*)(?:\\.[0-9]+)?$",
+    "negative_zero": "forbidden",
+    "maximum_integer_digits": 38,
+    "maximum_fraction_digits": 18,
+    "plus_exponent_leading_zero_or_empty": "forbidden",
+    "timestamp_representation": "validated_unix_millisecond_strings_to_utc_microseconds",
+    "swap_size_unit": "contracts",
+    "strictly_positive_quantity_fields": [
+      "sz",
+      "fillSz",
+      "ctVal",
+      "ctMult",
+      "lotSz",
+      "tickSz"
+    ],
+    "nonnegative_quantity_fields": [
+      "accFillSz",
+      "openMaxPos",
+      "closeTotalPos"
+    ],
+    "base_quantity_derivation": "linear_base_ctValCcy_only_contracts_times_ctVal_times_ctMult_with_scaled_integer_arithmetic",
+    "base_quantity_derivation_source": "OKX-SRC-005",
+    "fee": "preserve_fee_and_feeCcy_and_provider_sign_semantics",
+    "funding": "account_bill_or_position_evidence_only_never_public_rate_and_never_double_count",
+    "position_modes": [
+      "net_mode_posSide_net_direction_long_or_short",
+      "long_short_mode_posSide_must_equal_direction_with_separate_observations"
+    ],
+    "position_history_forbidden_field_assumption": "no_pos_field_direction_is_explicit",
+    "position_realized_pnl_invariant": "realizedPnl_equals_pnl_plus_fee_plus_fundingFee_plus_liqPenalty_plus_settledPnl",
+    "swap_settledPnl_semantics": "field_required_empty_not_applicable_preserve_raw_empty_and_normalize_to_zero_only_for_invariant",
+    "pnl": "validate_official_invariant_preserve_all_components_do_not_create_unversioned_journal_net",
+    "unknown_currency_enum_or_unit": "block_affected_work_unit"
+  },
+  "explicitly_forbidden": {
+    "methods": [
+      "POST",
+      "PUT",
+      "PATCH",
+      "DELETE"
+    ],
+    "read_semantic_post": {
+      "path": "/api/v5/account/bills-history-archive",
+      "status": "unsupported_requires_future_a4_and_core_contract_gate"
+    },
+    "operation_classes": [
+      "place_order",
+      "amend_order",
+      "cancel_order",
+      "close_or_reverse_position",
+      "transfer",
+      "withdrawal",
+      "deposit",
+      "api_key_management",
+      "account_configuration_mutation",
+      "dynamic_host_or_redirect",
+      "websocket",
+      "automatic_capture",
+      "automatic_or_manual_import_execution"
+    ]
+  },
+  "claim_contract": {
+    "allowed_after_future_successful_probe": [
+      "exact_three_endpoint_okx_demo_read_succeeded",
+      "stable_account_identity_observed_for_exact_demo_scope",
+      "bounded_fills_page_observed_for_authorized_window"
+    ],
+    "forbidden": [
+      "connected_okx_broker_sync_api_provider_supported_or_available",
+      "all_account_and_provider_capabilities_technically_verified",
+      "complete_account_history",
+      "all_trades_imported",
+      "gap_free_history",
+      "pnl_verified",
+      "production_ready",
+      "commercial_use_authorized_without_explicit_written_okx_authorization_or_new_explicitly_permitting_versioned_okx_contract"
+    ],
+    "local_mb5_pass_meaning": "contract_fixture_and_review_readiness_only"
+  },
+  "hash_contract": {
+    "algorithm": "SHA-256",
+    "canonicalization": "recursive_object_keys_lexicographically_sorted_arrays_ordered_utf8_no_bom",
+    "capability_digest_input": "capability_object_without_capability_descriptor_sha256",
+    "probe_profile_digest_input": "minimal_probe_profile_without_profile_digest_sha256",
+    "validator_dependencies_outside_candidate_scope": [
+      {
+        "path": "scripts/multibroker-mb4-validation-lib.mjs",
+        "sha256": "d8dd6fe7839d502b906965861063b39b343a75aa0bd2a4e65e31fe4f39fbf820",
+        "role": "broad_offline_secret_encoding_control_and_duplicate_json_validator",
+        "git_binding": "unchanged_HEAD_25793bc873faa8fd89d42bfa2ddaea4cd6188a3b"
+      },
+      {
+        "path": "lib/server/broker-core-contracts.ts",
+        "sha256": "c72eeb57aa6de4f122bce185c794929664c11a4737eedcfde102cde5520811e1",
+        "role": "provider_neutral_get_only_core_contract_read_by_candidate_test",
+        "git_binding": "unchanged_HEAD_25793bc873faa8fd89d42bfa2ddaea4cd6188a3b"
+      },
+      {
+        "path": "lib/server/broker-code-registry.ts",
+        "sha256": "f028bb4d90834ea747ebe3605257193bd1d456a608808fe393f8e4da5c94e002",
+        "role": "connected_provider_registry_exclusion_read_by_candidate_test",
+        "git_binding": "unchanged_HEAD_25793bc873faa8fd89d42bfa2ddaea4cd6188a3b"
+      }
+    ]
+  }
+}
