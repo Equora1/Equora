@@ -3,7 +3,7 @@
 ## 0. Status und Geltungsgrenze
 
 ```text
-status = local_unstaged_implementation_candidate
+status = non_production_implementation_candidate
 base_main = 766cbea2a6ec95930944f3c279b5dbe77ed8e1fd
 provider = okx
 provider_contract = okx-swap-read-contract/2026-08-27-mb5.6
