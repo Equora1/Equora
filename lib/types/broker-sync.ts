@@ -1,13 +1,13 @@
 export type BrokerPreviewKind = 'order' | 'execution'
 
-export type BrokerProviderUiCode = 'mexc'
+export type BrokerProviderUiCode = 'mexc' | 'okx'
 
 export type BrokerProviderPresentation = Readonly<{
   providerCode: BrokerProviderUiCode
   displayName: string
   marketLabel: string
-  setupComponent: 'mexc_readonly_setup_v1'
-  availability: 'built_in'
+  setupComponent: 'mexc_readonly_setup_v1' | 'okx_candidate_status_v1'
+  availability: 'built_in' | 'local_candidate_locked'
   readBoundary: string
 }>
 
@@ -19,6 +19,14 @@ export const BROKER_PROVIDER_PRESENTATIONS: readonly BrokerProviderPresentation[
     setupComponent: 'mexc_readonly_setup_v1',
     availability: 'built_in',
     readBoundary: 'Fest definierte GET-only Lesecapabilities; kein Trading, Transfer oder automatischer Import.',
+  }),
+  Object.freeze({
+    providerCode: 'okx',
+    displayName: 'OKX',
+    marketLabel: 'USDT Perpetuals',
+    setupComponent: 'okx_candidate_status_v1',
+    availability: 'local_candidate_locked',
+    readBoundary: 'Lokaler Adapter- und Synthetiktest-Kandidat; keine Credentials, kein Providerrequest und keine Productionfreigabe.',
   }),
 ])
 
