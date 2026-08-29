@@ -29,6 +29,10 @@ export type JournalSnapshot = {
   source: "supabase" | "mock";
 };
 
+export type DashboardJournalSnapshot = JournalSnapshot & {
+  availability: "ready" | "unavailable" | "unauthenticated";
+};
+
 function buildMockTradeRows(): TradeRow[] {
   const pnlModes: Array<TradeRow["pnl_mode"]> = [
     "manual",
@@ -457,7 +461,20 @@ type SnapshotFetchOptions = {
   dailyNotesFrom?: string;
   dailyNotesTo?: string;
   diagnosticRoute?: string;
+  failOnRelatedDataError?: boolean;
 };
+
+type JournalSnapshotLoadResult = {
+  snapshot: JournalSnapshot;
+  availability: DashboardJournalSnapshot["availability"];
+};
+
+function bindSnapshotAvailability(
+  snapshot: JournalSnapshot,
+  availability: DashboardJournalSnapshot["availability"],
+): JournalSnapshotLoadResult {
+  return { snapshot, availability };
+}
 
 type ResolvedSnapshotFetchOptions = SnapshotFetchOptions & {
   includeTradeTags: boolean;
@@ -631,11 +648,13 @@ function buildFallbackSetups(
   );
 }
 
-export async function getJournalSnapshotServer(
+async function loadJournalSnapshotServer(
   userId?: string | null,
   options?: SnapshotFetchOptions,
-): Promise<JournalSnapshot> {
-  if (!hasSupabaseClientEnv()) return getMockSnapshotForOptions(options);
+): Promise<JournalSnapshotLoadResult> {
+  if (!hasSupabaseClientEnv()) {
+    return bindSnapshotAvailability(getMockSnapshotForOptions(options), "ready");
+  }
 
   const fetchOptions = mergeSnapshotOptions(options);
 
@@ -646,13 +665,15 @@ export async function getJournalSnapshotServer(
         ? createSupabaseServerClient()
         : await createSupabaseAuthServerClient();
 
-    if (!scopedUserId && hasSupabaseServerEnv()) return getEmptySnapshot();
+    if (!scopedUserId && hasSupabaseServerEnv()) {
+      return bindSnapshotAvailability(getEmptySnapshot(), "unauthenticated");
+    }
     if (!scopedUserId) {
       const {
         data: { user },
       } = await supabase.auth.getUser();
-      if (!user?.id) return getEmptySnapshot();
-      return getJournalSnapshotServer(user.id, options);
+      if (!user?.id) return bindSnapshotAvailability(getEmptySnapshot(), "unauthenticated");
+      return loadJournalSnapshotServer(user.id, options);
     }
 
     const { data: tradeRows, error: tradesError } = await measurePerformance(
@@ -666,7 +687,7 @@ export async function getJournalSnapshotServer(
         "Trades fetch failed, returning empty snapshot:",
         tradesError?.message ?? "unknown error",
       );
-      return getEmptySnapshot();
+      return bindSnapshotAvailability(getEmptySnapshot(), "unavailable");
     }
 
     const normalizedTradeRows = tradeRows as unknown as TradeRow[];
@@ -701,6 +722,20 @@ export async function getJournalSnapshotServer(
         : Promise.resolve({ data: [], error: null }),
     ]);
 
+    const relatedDataError = [
+      tagsResponse.error,
+      tradeMediaResponse.error,
+      setupsResponse.error,
+      dailyNotesResponse.error,
+    ].find(Boolean);
+    if (fetchOptions.failOnRelatedDataError && relatedDataError) {
+      console.error(
+        "Related journal data fetch failed, returning unavailable snapshot:",
+        relatedDataError.message,
+      );
+      return bindSnapshotAvailability(getEmptySnapshot(), "unavailable");
+    }
+
     const setupRowsFromDb = (setupsResponse.data ??
       []) as unknown as SetupRow[];
     const setupRows =
@@ -730,6 +765,18 @@ export async function getJournalSnapshotServer(
         : Promise.resolve({ data: [], error: null }),
     ]);
 
+    const setupDataError = [
+      setupMediaResponse.error,
+      setupTradeLinksResponse.error,
+    ].find(Boolean);
+    if (fetchOptions.failOnRelatedDataError && setupDataError) {
+      console.error(
+        "Setup journal data fetch failed, returning unavailable snapshot:",
+        setupDataError.message,
+      );
+      return bindSnapshotAvailability(getEmptySnapshot(), "unavailable");
+    }
+
     const signedTradeMediaRows = await signTradeMediaRows(
       supabase,
       (tradeMediaResponse.data ?? []) as TradeMediaRow[],
@@ -749,7 +796,7 @@ export async function getJournalSnapshotServer(
       return urls;
     }, {});
 
-    return {
+    return bindSnapshotAvailability({
       tradeRows: normalizedTradeRows.map((trade) => ({
         ...trade,
         screenshot_url: primaryTradeUrlById[trade.id] ?? null,
@@ -765,28 +812,44 @@ export async function getJournalSnapshotServer(
         []) as SetupTradeLinkRow[],
       dailyNotes: (dailyNotesResponse.data ?? []) as DailyNoteRow[],
       source: "supabase",
-    };
+    }, "ready");
   } catch (error) {
     console.error(
       "Journal snapshot failed:",
       error instanceof Error ? error.message : "unknown error",
     );
-    return getEmptySnapshot();
+    return bindSnapshotAvailability(getEmptySnapshot(), "unavailable");
   }
 }
 
+export async function getJournalSnapshotServer(
+  userId?: string | null,
+  options?: SnapshotFetchOptions,
+): Promise<JournalSnapshot> {
+  const result = await loadJournalSnapshotServer(userId, options);
+  return result.snapshot;
+}
+
 export function getDashboardSnapshotServer(userId?: string | null) {
-  return measurePerformance('snapshot.dashboard.total', 'page', () => getJournalSnapshotServer(userId, {
-    includeTradeTags: false,
-    includeTradeMedia: false,
-    includeSetupRows: false,
-    includeSetupMedia: false,
-    includeSetupTradeLinks: false,
-    includeDailyNotes: true,
-    tradeLimit: 60,
-    dailyNotesLimit: 7,
-    diagnosticRoute: '/dashboard',
-  }), { route: '/dashboard' })
+  return measurePerformance('snapshot.dashboard.total', 'page', async () => {
+    const result = await loadJournalSnapshotServer(userId, {
+      includeTradeTags: false,
+      includeTradeMedia: false,
+      includeSetupRows: false,
+      includeSetupMedia: false,
+      includeSetupTradeLinks: false,
+      includeDailyNotes: true,
+      tradeLimit: 60,
+      dailyNotesLimit: 7,
+      diagnosticRoute: '/dashboard',
+      failOnRelatedDataError: true,
+    });
+
+    return {
+      ...result.snapshot,
+      availability: result.availability,
+    } satisfies DashboardJournalSnapshot;
+  }, { route: '/dashboard' })
 }
 
 export function getStatisticsSnapshotServer(userId?: string | null) {

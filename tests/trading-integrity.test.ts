@@ -6,6 +6,7 @@ import { buildCsvImportPreview, inferCsvImportMapping } from '../lib/utils/trade
 import { computeTradeMetrics, derivePartialExitPnL, resolveTradeCostBreakdown } from '../lib/utils/calculations'
 import { buildDrawdownProfile, buildKillZonePerformance, buildSessionPerformance, buildTimeWindowPerformance, getCoreMetrics } from '../lib/utils/analytics'
 import { buildDrawdownSeries, buildEquitySeries } from '../lib/utils/chart-series'
+import { buildDashboardMetricModel, getDashboardMoneyLockReason, getDashboardRObservation, resolveDashboardDataState } from '../lib/utils/dashboard'
 import { filterTrades } from '../lib/utils/filters'
 import {
   getAnalyticsEvidenceState,
@@ -48,6 +49,50 @@ function statisticFilters(overrides: Partial<FilterState> = {}): FilterState {
 }
 
 describe('trading and data integrity gates', () => {
+  it('separates demo, live, empty and unavailable dashboard states', () => {
+    expect(resolveDashboardDataState({ source: 'mock', availability: 'ready', tradeCount: 4 })).toBe('demo')
+    expect(resolveDashboardDataState({ source: 'supabase', availability: 'ready', tradeCount: 4 })).toBe('live')
+    expect(resolveDashboardDataState({ source: 'supabase', availability: 'ready', tradeCount: 0 })).toBe('empty')
+    expect(resolveDashboardDataState({ source: 'supabase', availability: 'unavailable', tradeCount: 0 })).toBe('unavailable')
+    expect(resolveDashboardDataState({ source: 'supabase', availability: 'unauthenticated', tradeCount: 0 })).toBe('unauthenticated')
+  })
+
+  it('uses only realized or manual R observations in dashboard averages', () => {
+    const realized = trade({ netPnL: 100, accountCurrency: 'EUR', rValue: 2, r: '+2,00R', rSource: 'realized' })
+    const manual = trade({ netPnL: -50, accountCurrency: 'EUR', rValue: -1, r: '-1,00R', rSource: 'manual' })
+    const planned = trade({ netPnL: 30, accountCurrency: 'EUR', rValue: 3, r: '+3,00R', rSource: 'planned' })
+    const missing = trade({ netPnL: 20, accountCurrency: 'EUR', rValue: 0, r: '+0,00R', rSource: 'missing' })
+    const model = buildDashboardMetricModel([realized, manual, planned, missing])
+
+    expect(model.trustedTrades).toHaveLength(4)
+    expect(model.documentedR).toEqual({ averageR: 0.5, documentedCount: 2, eligibleCount: 4 })
+    expect(getDashboardRObservation(planned)).toEqual({ source: 'planned', value: 3, documented: false })
+    expect(getDashboardRObservation(missing)).toEqual({ source: 'missing', value: null, documented: false })
+    expect(getDashboardRObservation(trade({ rSource: 'manual', r: 'nicht dokumentiert' }))).toEqual({
+      source: 'manual',
+      value: null,
+      documented: false,
+    })
+  })
+
+  it('uses data-state-specific money lock reasons instead of inventing currency problems', () => {
+    expect(getDashboardMoneyLockReason({ scopeKind: 'empty', trustedTradeCount: 0 })).toBe('Keine belastbaren Abschlüsse')
+    expect(getDashboardMoneyLockReason({ scopeKind: 'mixed', trustedTradeCount: 2 })).toBe('Mehrere Währungen ohne Umrechnungskurs')
+    expect(getDashboardMoneyLockReason({ scopeKind: 'unknown', trustedTradeCount: 2 })).toBe('Mindestens eine Währung fehlt oder wird nicht unterstützt')
+    expect(getDashboardMoneyLockReason({ scopeKind: 'single', trustedTradeCount: 2 })).toBeNull()
+  })
+
+  it('keeps dashboard money metrics locked for mixed trusted currencies', () => {
+    const model = buildDashboardMetricModel([
+      trade({ netPnL: 100, accountCurrency: 'EUR', rValue: 1, r: '+1,00R', rSource: 'realized' }),
+      trade({ netPnL: 100, accountCurrency: 'USDT', rValue: 1, r: '+1,00R', rSource: 'realized' }),
+    ])
+
+    expect(model.trustedTrades).toHaveLength(2)
+    expect(model.moneyComparable).toBe(false)
+    expect(model.metrics.netPnL).toBe(0)
+  })
+
   it('limits strategy statistics to inclusive Europe/Berlin trade dates', () => {
     const trades = [
       trade({ id: 'before', tradeOccurredAt: '2026-08-04T21:59:59.000Z', setup: 'Strategy V2' }),

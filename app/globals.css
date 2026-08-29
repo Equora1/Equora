@@ -17,14 +17,14 @@
   color-scheme: dark;
   --font-plus-jakarta: "Plus Jakarta Sans Variable", "Plus Jakarta Sans", "Segoe UI", Arial, system-ui, sans-serif;
   --font-display: "Bicubik", var(--font-plus-jakarta);
-  --eq-bg: #080808;
+  --eq-bg: #070708;
   --eq-panel: rgba(255, 255, 255, 0.04);
   --eq-panel-strong: rgba(255, 255, 255, 0.06);
-  --eq-card: #0d0d0d;
-  --eq-muted-surface: #1f1c1a;
-  --eq-border: #221e1a;
-  --eq-text-muted: #998a72;
-  --eq-text-secondary: #b09a7a;
+  --eq-card: #0d0d0e;
+  --eq-muted-surface: #171514;
+  --eq-border: #24201c;
+  --eq-text-muted: #998c7a;
+  --eq-text-secondary: #b8a58b;
   --eq-white: #ffffff;
   --eq-gold: #c8823a;
   --eq-gold-bright: #f0a855;
@@ -42,9 +42,8 @@ body {
   padding: 0;
   min-height: 100%;
   background:
-    radial-gradient(circle at top right, rgba(240, 168, 85, 0.14), transparent 26%),
-    radial-gradient(circle at bottom left, rgba(200, 130, 58, 0.12), transparent 24%),
-    radial-gradient(circle at center top, rgba(160, 104, 40, 0.08), transparent 18%),
+    radial-gradient(circle at top right, rgba(240, 168, 85, 0.09), transparent 27%),
+    radial-gradient(circle at bottom left, rgba(200, 130, 58, 0.07), transparent 24%),
     var(--eq-bg);
   color: var(--eq-white);
 }
@@ -142,9 +141,9 @@ textarea {
 
 
 .eq-card {
-  border: 1px solid color-mix(in srgb, var(--eq-gold) 14%, var(--eq-border));
-  background: color-mix(in srgb, var(--eq-card) 94%, transparent);
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.42);
+  border: 1px solid color-mix(in srgb, var(--eq-gold) 10%, var(--eq-border));
+  background: color-mix(in srgb, var(--eq-card) 96%, transparent);
+  box-shadow: 0 18px 55px rgba(0, 0, 0, 0.38);
 }
 
 .eq-card-soft {
