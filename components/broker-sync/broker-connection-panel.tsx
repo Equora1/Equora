@@ -7,6 +7,7 @@ import {
   removeBrokerConnection,
 } from '@/app/actions/broker-sync'
 import { MexcConnectionSetup } from '@/components/broker-sync/providers/mexc-connection-setup'
+import { OkxCandidateStatus } from '@/components/broker-sync/providers/okx-candidate-status'
 import type { BrokerDependencyState, BrokerSchemaState } from '@/lib/server/broker-sync'
 import {
   BROKER_PROVIDER_PRESENTATIONS,
@@ -39,6 +40,8 @@ export function BrokerConnectionPanel({
   const [feedback, setFeedback] = useState<Feedback>(null)
   const selectedProvider = findBrokerProviderPresentation(selectedProviderCode)
   const connectionListReadable = schemaState === 'ready'
+  const builtInProviderCount = BROKER_PROVIDER_PRESENTATIONS.filter((provider) => provider.availability === 'built_in').length
+  const candidateProviderCount = BROKER_PROVIDER_PRESENTATIONS.length - builtInProviderCount
 
   function refreshConnection(connectionId: string) {
     setFeedback(null)
@@ -73,9 +76,9 @@ export function BrokerConnectionPanel({
         <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <p className="eq-display text-[0.58rem] text-[#b09a7a]">Providerübersicht</p>
-            <h3 id="provider-overview-title" className="mt-2 text-xl font-semibold text-white">Unterstützten Anbieter wählen</h3>
+            <h3 id="provider-overview-title" className="mt-2 text-xl font-semibold text-white">Anbieterstatus wählen</h3>
           </div>
-          <span className="text-xs text-white/60">{BROKER_PROVIDER_PRESENTATIONS.length} integrierter Anbieter</span>
+          <span className="text-xs text-white/60">{builtInProviderCount} integriert · {candidateProviderCount} lokaler Kandidat</span>
         </div>
 
         <div role="list" className="mt-5 grid gap-3 md:grid-cols-2">
@@ -100,7 +103,11 @@ export function BrokerConnectionPanel({
                       <span className="mt-1 block text-xs text-white/60">{provider.marketLabel}</span>
                     </span>
                     <span className="rounded-full border border-white/10 bg-black/20 px-2.5 py-1 text-[10px] uppercase tracking-[0.14em] text-white/55">
-                      {selected ? 'Ausgewählt' : 'Verfügbar'}
+                      {provider.availability === 'local_candidate_locked'
+                        ? 'Kandidat · gesperrt'
+                        : selected
+                          ? 'Ausgewählt'
+                          : 'Verfügbar'}
                     </span>
                   </span>
                   <span className="mt-3 block text-xs leading-5 text-white/60">{provider.readBoundary}</span>
@@ -114,6 +121,8 @@ export function BrokerConnectionPanel({
       <div id="provider-setup-panel" className="grid gap-5 xl:grid-cols-[1.05fr_0.95fr]">
         {selectedProvider?.setupComponent === 'mexc_readonly_setup_v1' ? (
           <MexcConnectionSetup connectorState={connectorState} secureStoreState={secureStoreState} />
+        ) : selectedProvider?.setupComponent === 'okx_candidate_status_v1' ? (
+          <OkxCandidateStatus />
         ) : (
           <section className="rounded-3xl border border-white/8 bg-white/[0.02] p-5 sm:p-6">
             <h3 className="text-xl font-semibold text-white">Kein Setup verfügbar</h3>

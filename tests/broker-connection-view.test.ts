@@ -195,14 +195,20 @@ describe('provider-neutral broker connection view', () => {
     expect(findBrokerProviderPresentation(summary.providerCode)).toBeNull()
   })
 
-  it('exposes exactly the built MEXC presentation without implying a second provider', () => {
-    expect(BROKER_PROVIDER_PRESENTATIONS).toHaveLength(1)
+  it('exposes built MEXC plus a locked OKX candidate without implying OKX support', () => {
+    expect(BROKER_PROVIDER_PRESENTATIONS).toHaveLength(2)
     expect(BROKER_PROVIDER_PRESENTATIONS[0]).toMatchObject({
       providerCode: 'mexc',
       setupComponent: 'mexc_readonly_setup_v1',
       availability: 'built_in',
     })
     expect(BROKER_PROVIDER_PRESENTATIONS[0].readBoundary).toContain('kein Trading')
+    expect(BROKER_PROVIDER_PRESENTATIONS[1]).toMatchObject({
+      providerCode: 'okx',
+      setupComponent: 'okx_candidate_status_v1',
+      availability: 'local_candidate_locked',
+    })
+    expect(BROKER_PROVIDER_PRESENTATIONS[1].readBoundary).toContain('kein Providerrequest')
     expect(findBrokerProviderPresentation('binance')).toBeNull()
   })
 

@@ -5,7 +5,7 @@ import type { BrokerSyncSnapshot } from '@/lib/server/broker-sync'
 import type { BrokerCaptureRunSummary, BrokerPreviewItem } from '@/lib/types/broker-sync'
 
 const workflow = [
-  ['1', 'Leseschlüssel anlegen', 'Bei MEXC nur Futures-Leserechte aktivieren. Trading, Transfer und Auszahlung bleiben aus.'],
+  ['1', 'Providerstatus prüfen', 'Nur gebaute und freigegebene Provider dürfen Zugangsdaten anfordern. Lokale Kandidaten bleiben gesperrt.'],
   ['2', 'Lesecapabilities prüfen', 'Equora prüft später nur fest benannte Leseabrufe; eine Testorder ist technisch nicht vorgesehen.'],
   ['3', 'Gefundene Daten ansehen', 'Orders und Ausführungen erscheinen zuerst als übersichtliche Vorschau.'],
   ['4', 'Später bewusst importieren', 'Erst in der nächsten Ausbaustufe entscheidest du, welche Trades ins Journal kommen.'],
