@@ -2,6 +2,7 @@ import { redirect } from 'next/navigation'
 import { AuthPanel } from '@/components/auth/auth-panel'
 import { getCurrentUser } from '@/lib/server/auth'
 import { hasSupabaseClientEnv } from '@/lib/supabase/config'
+import { brokerFileImportCapability } from '@/lib/utils/broker-file-import-capability'
 
 
 
@@ -34,7 +35,7 @@ export default async function LoginPage({ searchParams }: { searchParams?: Promi
             <p className="text-xs uppercase tracking-[0.24em] text-[#998a72]">Start</p>
             <h2 className="mt-4 text-2xl font-semibold text-white">Trade erfassen</h2>
             <div className="mt-5 grid gap-3 sm:grid-cols-2">
-              {['CSV importieren', 'Review starten', 'Setups', 'Statistik'].map((item) => (
+              {[brokerFileImportCapability.previewActionLabel, 'Review starten', 'Setups', 'Statistik'].map((item) => (
                 <div key={item} className="rounded-2xl border border-[#221e1a] bg-[#1f1c1a]/45 px-4 py-3.5">
                   <p className="text-sm text-white/82">{item}</p>
                 </div>

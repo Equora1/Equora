@@ -1,12 +1,81 @@
 import type { Trade } from '@/lib/types/trade'
+import { FuturisticCard } from '@/components/ui/futuristic-card'
 import { buildEquitySeries, chartFrame } from '@/lib/utils/chart-series'
 import { formatPlainNumber } from '@/lib/utils/calculations'
 import { getTradeTrustSummary } from '@/lib/utils/trade-trust'
 import { formatMoney, getMonetaryScopeMessage } from '@/lib/utils/currency'
+import { DASHBOARD_TRADE_WINDOW_LIMIT } from '@/lib/utils/dashboard'
 
 export function EquityCurveCard({ trades }: { trades: Trade[] }) {
   const series = buildEquitySeries(trades)
-  const trustSummary = getTradeTrustSummary(trades)
+  const trust = getTradeTrustSummary(trades)
+  const positive = series.latestValue >= 0
+  const valueTone = !series.monetaryScope.isComparable
+    ? 'text-[#f3bd7f]'
+    : positive
+      ? 'text-emerald-300'
+      : 'text-red-300'
 
-  return <div className="rounded-3xl border border-orange-400/15 bg-white/5 p-5 shadow-2xl"><div className="mb-4 flex items-center justify-between"><div><h2 className="text-xl font-semibold">Equity Kurve</h2><p className="text-sm text-white/50">Nur belastbare Trades fließen ein. Coverage: {trustSummary.trustedTrades}/{trustSummary.totalTrades} ({formatPlainNumber(trustSummary.trustedCoverage, 0)}%).</p></div><div className="rounded-full border border-emerald-400/20 bg-emerald-400/10 px-3 py-1 text-xs text-emerald-300">{series.monetaryScope.isComparable ? formatMoney(series.latestValue, series.monetaryScope.currency) : 'Gesperrt'}</div></div><div className="relative h-64 overflow-hidden rounded-3xl border border-white/10 bg-black/40 p-4"><div className="absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(34,197,94,0.18),transparent_45%)]" />{series.totalPoints ? <svg viewBox={`0 0 ${chartFrame.width} ${chartFrame.height}`} className="relative h-full w-full">{[40, 90, 140, 190].map((y)=><line key={y} x1="0" y1={y} x2={chartFrame.width} y2={y} stroke="rgba(255,255,255,0.08)" strokeDasharray="6 8" />)}<path d={series.areaPath} fill="rgba(74,222,128,0.14)" /><path d={series.linePath} fill="none" stroke="rgb(74,222,128)" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" />{series.points.map((point)=><circle key={`${point.x}-${point.y}`} cx={point.x} cy={point.y} r="4" fill="rgb(74,222,128)" />)}</svg> : <div className="flex h-full items-center justify-center px-6 text-center text-sm text-white/50">{getMonetaryScopeMessage(series.monetaryScope)}</div>}</div></div>
+  return (
+    <FuturisticCard className="p-5 sm:p-6">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <p className="eq-eyebrow">Performance</p>
+          <h2 className="mt-2 text-xl font-semibold tracking-tight text-white">Kumuliertes Netto-P&amp;L</h2>
+          <p className="mt-2 text-xs leading-5 text-white/60">
+            Maximal {DASHBOARD_TRADE_WINDOW_LIMIT} zuletzt geladene Trades · {trust.trustedTrades} belastbar · {formatPlainNumber(trust.trustedCoverage, 0)}% Coverage
+          </p>
+        </div>
+        <div className="sm:text-right">
+          <p className="text-[10px] uppercase tracking-[0.18em] text-white/60">Fenster-Summe</p>
+          <p className={`mt-1 text-2xl font-semibold tracking-[-0.04em] tabular-nums ${valueTone}`}>
+            {series.monetaryScope.isComparable
+              ? formatMoney(series.latestValue, series.monetaryScope.currency)
+              : 'Gesperrt'}
+          </p>
+        </div>
+      </div>
+
+      <div className="relative mt-6 h-[290px] overflow-hidden rounded-2xl border border-white/[0.07] bg-[#080808] px-2 py-4 sm:px-4">
+        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_75%_0%,rgba(200,130,58,0.13),transparent_45%)]" />
+        {series.totalPoints ? (
+          <svg
+            viewBox={`0 0 ${chartFrame.width} ${chartFrame.height}`}
+            className="relative h-full w-full"
+            role="img"
+            aria-label={`Kumuliertes realisiertes Netto-P&L im geladenen Fenster aus ${series.totalPoints} belastbaren Trades`}
+          >
+            <defs>
+              <linearGradient id="dashboard-equity-area" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="#f0a855" stopOpacity="0.26" />
+                <stop offset="100%" stopColor="#f0a855" stopOpacity="0" />
+              </linearGradient>
+              <linearGradient id="dashboard-equity-line" x1="0" y1="0" x2="1" y2="0">
+                <stop offset="0%" stopColor="#9f6428" />
+                <stop offset="100%" stopColor="#f0a855" />
+              </linearGradient>
+            </defs>
+            {[40, 90, 140, 190].map((y) => (
+              <line key={y} x1="0" y1={y} x2={chartFrame.width} y2={y} stroke="rgba(255,255,255,0.07)" strokeDasharray="4 9" />
+            ))}
+            <path d={series.areaPath} fill="url(#dashboard-equity-area)" />
+            <path d={series.linePath} fill="none" stroke="url(#dashboard-equity-line)" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" />
+            {series.points.map((point, index) => (
+              <circle
+                key={`${point.x}-${point.y}`}
+                cx={point.x}
+                cy={point.y}
+                r={index === series.points.length - 1 ? 5 : 2.5}
+                fill={index === series.points.length - 1 ? '#f0a855' : '#c8823a'}
+              />
+            ))}
+          </svg>
+        ) : (
+          <div className="relative flex h-full items-center justify-center px-6 text-center text-sm leading-6 text-white/60">
+            {getMonetaryScopeMessage(series.monetaryScope)}
+          </div>
+        )}
+      </div>
+    </FuturisticCard>
+  )
 }

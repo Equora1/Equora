@@ -2,6 +2,7 @@
 
 import Link from 'next/link'
 import { useEffect, useState, type ReactNode } from 'react'
+import { brokerFileImportCapability } from '@/lib/utils/broker-file-import-capability'
 
 export function TradeCaptureDeck({
   quickCapture,
@@ -51,7 +52,7 @@ export function TradeCaptureDeck({
 
   const controls = [
     { key: 'quick' as const, label: 'Schnell', activeClass: 'border-orange-300/45 bg-orange-400/15 text-white', idleClass: 'border-orange-400/20 bg-black/30 text-orange-100/80 hover:border-orange-300/45 hover:text-white' },
-    { key: 'import' as const, label: 'CSV / Excel importieren', activeClass: 'border-emerald-300/35 bg-emerald-400/15 text-white', idleClass: 'border-emerald-400/20 bg-black/30 text-emerald-100/80 hover:border-emerald-300/45 hover:text-white' },
+    { key: 'import' as const, label: brokerFileImportCapability.previewActionLabel, activeClass: 'border-emerald-300/35 bg-emerald-400/15 text-white', idleClass: 'border-emerald-400/20 bg-black/30 text-emerald-100/80 hover:border-emerald-300/45 hover:text-white' },
     { key: 'full' as const, label: 'Vollständig', activeClass: 'border-white/25 bg-white/10 text-white', idleClass: 'border-white/10 bg-black/30 text-white/75 hover:border-white/20 hover:text-white' },
   ]
 
@@ -73,12 +74,18 @@ export function TradeCaptureDeck({
           ) : null}
           {controls.map((control) => {
             const isActive = mode === control.key
+            const isDisabled = control.key === 'import' && !brokerFileImportCapability.previewEnabled
             return (
               <button
                 key={control.key}
                 type="button"
-                onClick={() => setMode((current) => (current === control.key ? 'none' : control.key))}
-                className={`rounded-full border px-4 py-2 text-sm transition ${isActive ? control.activeClass : control.idleClass}`}
+                disabled={isDisabled}
+                title={control.key === 'import' ? brokerFileImportCapability.blockedReason : undefined}
+                onClick={() => {
+                  if (isDisabled) return
+                  setMode((current) => (current === control.key ? 'none' : control.key))
+                }}
+                className={`rounded-full border px-4 py-2 text-sm transition disabled:cursor-not-allowed disabled:opacity-50 ${isActive ? control.activeClass : control.idleClass}`}
               >
                 {control.label}
               </button>

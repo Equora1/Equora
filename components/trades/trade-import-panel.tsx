@@ -1,13 +1,27 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
-import { getTradeImportBatches, importTradeCsvEntries, revertTradeImportBatch, type TradeImportBatchSummary } from "@/app/actions/trade-import";
+import { useRouter, useSearchParams } from "next/navigation";
+import {
+  getTradeImportAccounts,
+  getTradeImportBatches,
+  importTradeCsvEntries,
+  revertTradeImportBatch,
+  type TradeImportAccountSummary,
+  type TradeImportBatchSummary,
+} from "@/app/actions/trade-import";
 import { getAccountTemplateLabel } from "@/lib/utils/trade-presets";
 import { SUPPORTED_TRADE_CURRENCIES } from "@/lib/utils/currency";
+import { brokerFileImportCapability } from "@/lib/utils/broker-file-import-capability";
+import {
+  detectBrokerImportProfile,
+  getBrokerImportRuntimeDefaults, isCsvImportPresetKey,
+  type BrokerImportDetection,
+} from "@/lib/utils/broker-import-kit";
 import {
   buildCsvImportDrafts,
-  buildCsvImportPreview,
+  buildCsvImportPreview, isExplicitCsvImportAccountLabel,
+  CSV_IMPORT_LIMITS,
   csvImportFieldDefinitions,
   csvImportPresets,
   getCsvImportPresetMeta,
@@ -59,8 +73,10 @@ const repairFieldKeys: CsvImportFieldKey[] = [
 ];
 
 function getPresetAccountLabel(preset: CsvImportPresetKey) {
-  if (preset === "mexc-spot" || preset === "kraken-spot") return getAccountTemplateLabel("crypto-spot");
-  if (preset === "mexc-futures" || preset === "binance-futures" || preset === "bybit-futures" || preset === "okx-futures") return getAccountTemplateLabel("crypto-perps");
+  if (getCsvImportPresetMeta(preset).sourceIdentity) return "";
+  const accountTemplate = getBrokerImportRuntimeDefaults(preset).accountTemplate;
+  if (accountTemplate === "crypto-spot") return getAccountTemplateLabel("crypto-spot");
+  if (accountTemplate === "crypto-perps") return getAccountTemplateLabel("crypto-perps");
   return "Hauptkonto";
 }
 
@@ -68,12 +84,15 @@ type ImportReport = {
   importedCount: number;
   duplicateCount: number;
   skippedCount: number;
+  invalidCount: number;
+  sourceRowCount: number;
   repairCount: number;
   importedPresetLabel: string;
   batchId?: string | null;
 };
 
 const spreadsheetExtensions = new Set(["xlsx", "xls"]);
+const allowedImportExtensions = new Set(["csv", "tsv", "txt", "xlsx", "xls"]);
 const spreadsheetHeaderHints = [
   "time",
   "date",
@@ -93,9 +112,35 @@ function getFileExtension(fileName: string) {
   return fileName.split(".").pop()?.toLowerCase() ?? "";
 }
 
+function parseUtcOffsetMinutes(value: string) {
+  const match = value.trim().match(/^([+-])(\d{2}):(\d{2})$/);
+  if (!match) return null;
+  const hours = Number(match[2]);
+  const minutes = Number(match[3]);
+  if (hours > 14 || minutes > 59) return null;
+  const total = hours * 60 + minutes;
+  if (total > 14 * 60) return null;
+  return match[1] === "-" ? -total : total;
+}
+
+function detectUtcOffset(headers: string[]) {
+  for (const header of headers) {
+    const match = header.match(/UTC\s*([+-])(\d{1,2})(?::?(\d{2}))?/i);
+    if (!match) continue;
+    const hours = match[2].padStart(2, "0");
+    const minutes = (match[3] ?? "00").padStart(2, "0");
+    const normalized = `${match[1]}${hours}:${minutes}`;
+    if (parseUtcOffsetMinutes(normalized) !== null) return normalized;
+  }
+  return "";
+}
+
 function normalizeSpreadsheetCell(value: unknown) {
   if (value == null) return "";
-  if (value instanceof Date) return value.toISOString();
+  if (value instanceof Date) {
+    const pad = (part: number) => String(part).padStart(2, "0");
+    return `${value.getUTCFullYear()}-${pad(value.getUTCMonth() + 1)}-${pad(value.getUTCDate())} ${pad(value.getUTCHours())}:${pad(value.getUTCMinutes())}:${pad(value.getUTCSeconds())}`;
+  }
   return String(value).trim();
 }
 
@@ -135,7 +180,6 @@ function findSpreadsheetHeaderRow(rows: string[][]) {
 
 async function parseSpreadsheetFile(file: File): Promise<ParsedCsvData> {
   const extension = getFileExtension(file.name);
-
   if (extension === "xls") {
     throw new Error(
       "Alte .xls-Dateien bitte in Excel als .xlsx oder .csv speichern und erneut wählen.",
@@ -150,10 +194,30 @@ async function parseSpreadsheetFile(file: File): Promise<ParsedCsvData> {
   if (!table.length) {
     return { delimiter: "excel", headers: [], rows: [] };
   }
+  if (
+    table.length - 1 > CSV_IMPORT_LIMITS.maxRows ||
+    table.some(
+      (row) =>
+        row.length > CSV_IMPORT_LIMITS.maxColumns ||
+        row.some((cell) => cell.length > CSV_IMPORT_LIMITS.maxCellCharacters),
+    )
+  ) {
+    throw new Error(
+      `Excel-Datei überschreitet das sichere Limit von ${CSV_IMPORT_LIMITS.maxRows} Zeilen, ${CSV_IMPORT_LIMITS.maxColumns} Spalten oder ${CSV_IMPORT_LIMITS.maxCellCharacters} Zeichen je Zelle.`,
+    );
+  }
 
   const headerRowIndex = findSpreadsheetHeaderRow(table);
   const headers = makeUniqueHeaders(table[headerRowIndex] ?? []);
   const dataRows = table.slice(headerRowIndex + 1);
+  const overwideRowIndex = dataRows.findIndex(
+    (row) => row.length > headers.length,
+  );
+  if (overwideRowIndex >= 0) {
+    throw new Error(
+      `Excel-Zeile ${headerRowIndex + overwideRowIndex + 2} enthält mehr Zellen als die Kopfzeile und wurde nicht still abgeschnitten.`,
+    );
+  }
   const rows = dataRows.map((row) =>
     headers.reduce<Record<string, string>>((acc, header, index) => {
       acc[header] = row[index] ?? "";
@@ -166,6 +230,12 @@ async function parseSpreadsheetFile(file: File): Promise<ParsedCsvData> {
 
 async function parseImportFile(file: File): Promise<ParsedCsvData> {
   const extension = getFileExtension(file.name);
+  if (!allowedImportExtensions.has(extension)) {
+    throw new Error("Nur CSV, TSV, TXT oder XLSX werden unterstützt.");
+  }
+  if (file.size > CSV_IMPORT_LIMITS.maxFileBytes) {
+    throw new Error("Datei ist zu groß. Erlaubt sind höchstens 5 MB.");
+  }
 
   if (spreadsheetExtensions.has(extension)) {
     return parseSpreadsheetFile(file);
@@ -174,38 +244,119 @@ async function parseImportFile(file: File): Promise<ParsedCsvData> {
   return parseCsvText(await file.text());
 }
 
+function BrokerImportDetectionNotice({
+  detection,
+  selectedPreset,
+}: {
+  detection: BrokerImportDetection;
+  selectedPreset: CsvImportPresetKey;
+}) {
+  const detectedLabel = getCsvImportPresetMeta(detection.presetKey).label;
+  const selectedLabel = getCsvImportPresetMeta(selectedPreset).label;
+
+  if (detection.confidence === "high") {
+    if (detection.presetKey !== selectedPreset) {
+      return (
+        <>
+          Dateisignatur und gewähltes Preset widersprechen sich. Erkannt wurde{" "}
+          <span className="font-medium text-orange-100">{detectedLabel}</span>, aktiv bleibt{" "}
+          <span className="font-medium text-white">{selectedLabel}</span>. Bitte Auswahl und Zuordnung vor der Vorschau prüfen.
+        </>
+      );
+    }
+
+    return (
+      <>
+        Dateisignatur erkannt: <span className="font-medium text-orange-100">{detectedLabel}</span>{" "}
+        · {detection.score}/100 · {detection.matchedSignals.join(", ")}
+      </>
+    );
+  }
+
+  if (detection.confidence === "low") {
+    return (
+      <>
+        Möglicher Treffer: <span className="font-medium text-white">{detectedLabel}</span>. Wegen uneindeutiger
+        Signatur wurde nicht automatisch umgestellt. Aktiv bleibt {selectedLabel}.
+      </>
+    );
+  }
+
+  return (
+    <>
+      Keine eindeutige Broker-Signatur erkannt. Aktiv bleibt {selectedLabel}; bitte die Zuordnung manuell prüfen.
+    </>
+  );
+}
+
 export function TradeImportPanel() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const requestedPreset = searchParams.get("preset");
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [selectedPreset, setSelectedPreset] =
-    useState<CsvImportPresetKey>("generic");
+    useState<CsvImportPresetKey>(() =>
+      isCsvImportPresetKey(requestedPreset) ? requestedPreset : "generic",
+    );
   const [accountCurrency, setAccountCurrency] = useState("");
+  const [importAccountLabel, setImportAccountLabel] = useState(() =>
+    getPresetAccountLabel(
+      isCsvImportPresetKey(requestedPreset) ? requestedPreset : "generic",
+    ),
+  );
+  const [statementUtcOffset, setStatementUtcOffset] = useState("");
+  const [selectedImportAccountId, setSelectedImportAccountId] = useState("");
   const [fileName, setFileName] = useState("");
   const [headers, setHeaders] = useState<string[]>([]);
   const [rawRows, setRawRows] = useState<Array<Record<string, string>>>([]);
   const [mapping, setMapping] = useState<CsvImportMapping>({});
+  const [profileDetection, setProfileDetection] =
+    useState<BrokerImportDetection | null>(null);
   const [repairOverrides, setRepairOverrides] =
     useState<CsvImportRepairOverrides>({});
   const [statusMessage, setStatusMessage] = useState("");
   const [lastImportReport, setLastImportReport] = useState<ImportReport | null>(
     null,
   );
-  const [includeCheckRows, setIncludeCheckRows] = useState(true);
+  const [includeCheckRows, setIncludeCheckRows] = useState(false);
   const [showOptionalMappings, setShowOptionalMappings] = useState(false);
   const [isImporting, startImporting] = useTransition();
   const [isHistoryPending, startHistoryTransition] = useTransition();
   const [importBatches, setImportBatches] = useState<TradeImportBatchSummary[]>([]);
+  const [importAccounts, setImportAccounts] = useState<
+    TradeImportAccountSummary[]
+  >([]);
   const [historyMessage, setHistoryMessage] = useState("");
 
   const presetMeta = useMemo(
     () => getCsvImportPresetMeta(selectedPreset),
     [selectedPreset],
   );
-  const importAccountLabel = useMemo(() => getPresetAccountLabel(selectedPreset), [selectedPreset]);
+  const displayAccountLabel =
+    importAccountLabel.trim() || "Zielkonto noch nicht benannt";
+  const availableImportAccounts = useMemo(
+    () =>
+      importAccounts.filter(
+        (account) => account.presetKey === selectedPreset,
+      ),
+    [importAccounts, selectedPreset],
+  );
   const previewRows = useMemo(
     () =>
-      buildCsvImportPreview(rawRows, mapping, selectedPreset, repairOverrides),
-    [mapping, rawRows, repairOverrides, selectedPreset],
+      buildCsvImportPreview(
+        rawRows,
+        mapping,
+        selectedPreset,
+        repairOverrides,
+        parseUtcOffsetMinutes(statementUtcOffset),
+      ),
+    [
+      mapping,
+      rawRows,
+      repairOverrides,
+      selectedPreset,
+      statementUtcOffset,
+    ],
   );
   const counts = useMemo(() => {
     return previewRows.reduce(
@@ -258,16 +409,21 @@ export function TradeImportPanel() {
   );
 
 
-  function loadImportHistory() {
+  function loadImportState() {
     startHistoryTransition(async () => {
-      const result = await getTradeImportBatches();
-      setImportBatches(result.batches ?? []);
-      if (!result.success) setHistoryMessage(result.message);
+      const [batchResult, accountResult] = await Promise.all([
+        getTradeImportBatches(),
+        getTradeImportAccounts(),
+      ]);
+      setImportBatches(batchResult.batches ?? []);
+      setImportAccounts(accountResult.accounts ?? []);
+      if (!batchResult.success) setHistoryMessage(batchResult.message);
+      else if (!accountResult.success) setHistoryMessage(accountResult.message);
     });
   }
 
   useEffect(() => {
-    loadImportHistory();
+    loadImportState();
   }, []);
 
   function handleRevertImport(batch: TradeImportBatchSummary) {
@@ -278,7 +434,7 @@ export function TradeImportPanel() {
     startHistoryTransition(async () => {
       const result = await revertTradeImportBatch(batch.id);
       setHistoryMessage(result.message);
-      loadImportHistory();
+      loadImportState();
       router.refresh();
     });
   }
@@ -293,6 +449,8 @@ export function TradeImportPanel() {
       setHeaders([]);
       setRawRows([]);
       setMapping({});
+      setProfileDetection(null);
+      setStatementUtcOffset("");
       return;
     }
 
@@ -301,7 +459,19 @@ export function TradeImportPanel() {
       setFileName(file.name);
       setHeaders(parsed.headers);
       setRawRows(parsed.rows);
-      setMapping(inferCsvImportMapping(parsed.headers, selectedPreset));
+      const detection = detectBrokerImportProfile(parsed.headers, file.name);
+      const nextPreset =
+        selectedPreset === "generic" && detection.confidence === "high"
+          ? detection.presetKey
+          : selectedPreset;
+      setProfileDetection(detection);
+      setStatementUtcOffset(detectUtcOffset(parsed.headers));
+      if (nextPreset !== selectedPreset) {
+        setSelectedPreset(nextPreset);
+        setSelectedImportAccountId("");
+        setImportAccountLabel(getPresetAccountLabel(nextPreset));
+      }
+      setMapping(inferCsvImportMapping(parsed.headers, nextPreset));
 
       if (!parsed.headers.length || !parsed.rows.length) {
         setStatusMessage(
@@ -313,6 +483,7 @@ export function TradeImportPanel() {
       setHeaders([]);
       setRawRows([]);
       setMapping({});
+      setProfileDetection(null);
       setStatusMessage(
         error instanceof Error
           ? error.message
@@ -323,7 +494,10 @@ export function TradeImportPanel() {
 
   function handlePresetChange(nextPreset: CsvImportPresetKey) {
     setSelectedPreset(nextPreset);
+    setSelectedImportAccountId("");
     setAccountCurrency("");
+    setImportAccountLabel(getPresetAccountLabel(nextPreset));
+    setStatementUtcOffset(detectUtcOffset(headers));
     setStatusMessage("");
     setLastImportReport(null);
     setRepairOverrides({});
@@ -366,6 +540,10 @@ export function TradeImportPanel() {
   }
 
   function handleImport() {
+    if (!brokerFileImportCapability.persistenceEnabled) {
+      setStatusMessage(brokerFileImportCapability.blockedReason);
+      return;
+    }
     if (!drafts.length) {
       setStatusMessage("Noch keine importierbaren Zeilen ausgewählt.");
       return;
@@ -374,30 +552,59 @@ export function TradeImportPanel() {
       setStatusMessage("Vor dem Import eine Kontowährung auswählen. Sie wird nicht aus dem Preset geraten.");
       return;
     }
+    const normalizedAccountLabel = importAccountLabel.trim();
+    if (
+      normalizedAccountLabel.length < 3 ||
+      normalizedAccountLabel.length > 60
+    ) {
+      setStatusMessage(
+        "Vor dem Import ein Zielkonto mit 3 bis 60 Zeichen benennen.",
+      );
+      return;
+    }
+    if (
+      presetMeta.sourceIdentity &&
+      !isExplicitCsvImportAccountLabel(normalizedAccountLabel)
+    ) {
+      setStatusMessage(
+        "Für dieses Preset das Zielkonto eindeutig benennen, zum Beispiel IC Markets cTrader 1234. „Hauptkonto“ reicht nicht.",
+      );
+      return;
+    }
 
     startImporting(async () => {
+      const selectedRowNumbers = new Set(drafts.map((draft) => draft.rowNumber));
       const result = await importTradeCsvEntries({
         rows: drafts,
+        sourceRows: previewRows.map((row) => ({
+          rowNumber: row.rowNumber,
+          previewStatus: row.status,
+          selected: selectedRowNumbers.has(row.rowNumber),
+        })),
+        batchId: crypto.randomUUID(),
         fileName,
         presetLabel: presetMeta.label,
-        accountLabel: importAccountLabel,
+        accountLabel: normalizedAccountLabel,
+        accountId: selectedImportAccountId || null,
         accountCurrency,
-        trustScore: trustSummary.score,
-        trustLabel: trustSummary.label,
-        warnings: trustSummary.warnings,
       });
       setStatusMessage(result.message);
+      if (!result.success) {
+        setLastImportReport(null);
+        return;
+      }
       setLastImportReport({
-        importedCount: result.importedCount ?? drafts.length,
+        importedCount: result.importedCount ?? 0,
         duplicateCount: result.duplicateCount ?? 0,
         skippedCount: result.skippedCount ?? 0,
+        invalidCount: result.invalidCount ?? 0,
+        sourceRowCount: result.sourceRowCount ?? 0,
         repairCount: repairRows.length,
         importedPresetLabel: presetMeta.label,
         batchId: result.batchId ?? null,
       });
-      if (!result.success) return;
 
-      loadImportHistory();
+      loadImportState();
 
       const params = new URLSearchParams();
       if (result.importedIds?.length) {
@@ -407,13 +614,15 @@ export function TradeImportPanel() {
       params.set("reviewTitle", `${presetMeta.label} Import`);
       params.set("reviewDescription", result.message);
       const chips = [
-        `Neu: ${result.importedCount ?? drafts.length}`,
+        `Neu: ${result.importedCount ?? 0}`,
         presetMeta.label,
       ];
       if (result.duplicateCount)
         chips.push(`Dubletten: ${result.duplicateCount}`);
       if (result.skippedCount)
         chips.push(`Ausgelassen: ${result.skippedCount}`);
+      if (result.invalidCount)
+        chips.push(`Prüfpflichtig: ${result.invalidCount}`);
       if (repairRows.length) chips.push(`Problemzeilen: ${repairRows.length}`);
       params.set("reviewChips", chips.join("|"));
       router.push(`/trades?${params.toString()}`);
@@ -426,7 +635,7 @@ export function TradeImportPanel() {
       <div className="rounded-[28px] border border-white/10 bg-black/20 p-5">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
           <div>
-            <p className="text-[10px] uppercase tracking-[0.24em] text-white/35">
+            <p className="text-[11px] uppercase tracking-[0.24em] text-white/60">
               Import-Verlauf
             </p>
             <h3 className="mt-2 text-xl font-semibold text-white">
@@ -438,7 +647,7 @@ export function TradeImportPanel() {
           </div>
           <button
             type="button"
-            onClick={loadImportHistory}
+            onClick={loadImportState}
             disabled={isHistoryPending}
             className="rounded-full border border-white/10 bg-black/25 px-4 py-2 text-sm text-white/70 transition hover:border-white/20 hover:text-white disabled:cursor-not-allowed disabled:text-white/35"
           >
@@ -479,6 +688,14 @@ export function TradeImportPanel() {
                           {batch.duplicateCount} Dubletten
                         </span>
                       ) : null}
+                      {batch.skippedCount || batch.invalidCount ? (
+                        <span className="rounded-full border border-orange-300/15 bg-orange-400/[0.06] px-3 py-1 text-orange-100/80">
+                          {batch.skippedCount} ausgelassen · {batch.invalidCount} prüfpflichtig
+                        </span>
+                      ) : null}
+                      <span className="rounded-full border border-white/10 bg-black/25 px-3 py-1 text-white/55">
+                        {batch.sourceRowCount} Quellenzeilen
+                      </span>
                       <span className="rounded-full border border-white/10 bg-black/25 px-3 py-1 text-white/55">
                         {batch.trustScore ?? "—"}% · {batch.trustLabel || "Vertrauen offen"}
                       </span>
@@ -518,7 +735,7 @@ export function TradeImportPanel() {
             <h3 className="mt-2 text-xl font-semibold text-white">Preset</h3>
           </div>
           <div className="rounded-2xl border border-orange-300/20 bg-orange-400/10 px-4 py-3 text-sm text-orange-100">
-            {presetMeta.label} · {presetMeta.badge} · {importAccountLabel}
+            {presetMeta.label} · {presetMeta.badge} · {displayAccountLabel}
           </div>
         </div>
 
@@ -549,18 +766,96 @@ export function TradeImportPanel() {
             );
           })}
         </div>
-        <label className="mt-5 block rounded-2xl border border-orange-300/20 bg-black/25 p-4">
-          <span className="text-[10px] uppercase tracking-[0.24em] text-white/35">Kontowährung · Pflichtfeld</span>
-          <select
-            value={accountCurrency}
-            onChange={(event) => { setAccountCurrency(event.target.value); setStatusMessage(""); }}
-            className="mt-3 w-full rounded-xl border border-orange-300/20 bg-black/40 px-3 py-2.5 text-sm text-white outline-none focus:border-orange-300/45"
+        {profileDetection && fileName ? (
+          <div
+            role="status"
+            aria-live="polite"
+            aria-atomic="true"
+            className="mt-4 rounded-2xl border border-white/10 bg-black/25 px-4 py-3 text-sm leading-6 text-white/60"
           >
-            <option value="">Bitte bewusst auswählen</option>
-            {SUPPORTED_TRADE_CURRENCIES.map((currency) => <option key={currency} value={currency}>{currency}</option>)}
-          </select>
-          <span className="mt-2 block text-xs leading-5 text-white/50">Ein gültiger CSV-Zeilenwert überschreibt diesen Fallback. USD, USDT und USDC bleiben getrennt; es findet keine Umrechnung statt.</span>
-        </label>
+            <BrokerImportDetectionNotice detection={profileDetection} selectedPreset={selectedPreset} />
+          </div>
+        ) : null}
+        <div className="mt-5 grid gap-3 lg:grid-cols-2">
+          <label className="block rounded-2xl border border-orange-300/20 bg-black/25 p-4">
+            <span className="text-[11px] uppercase tracking-[0.24em] text-white/60">Zielkonto · Pflichtfeld</span>
+            {availableImportAccounts.length ? (
+              <select
+                value={selectedImportAccountId}
+                onChange={(event) => {
+                  const accountId = event.target.value;
+                  setSelectedImportAccountId(accountId);
+                  const account = availableImportAccounts.find(
+                    (candidate) => candidate.id === accountId,
+                  );
+                  if (account) {
+                    setImportAccountLabel(account.displayLabel);
+                    setAccountCurrency(account.accountCurrency);
+                  } else {
+                    setImportAccountLabel(getPresetAccountLabel(selectedPreset));
+                  }
+                  setStatusMessage("");
+                  setLastImportReport(null);
+                }}
+                className="mt-3 w-full rounded-xl border border-orange-300/20 bg-black/40 px-3 py-2.5 text-sm text-white outline-none focus:border-orange-300/45"
+              >
+                <option value="">Neues Importkonto anlegen</option>
+                {availableImportAccounts.map((account) => (
+                  <option key={account.id} value={account.id}>
+                    {account.displayLabel} · {account.accountCurrency}
+                  </option>
+                ))}
+              </select>
+            ) : null}
+            <input
+              value={importAccountLabel}
+              onChange={(event) => {
+                setImportAccountLabel(event.target.value);
+                setStatusMessage("");
+              }}
+              maxLength={60}
+              autoComplete="off"
+              className="mt-3 w-full rounded-xl border border-orange-300/20 bg-black/40 px-3 py-2.5 text-sm text-white outline-none focus:border-orange-300/45"
+              placeholder="Zum Beispiel IC Markets cTrader 1234"
+            />
+            <span className="mt-2 block text-xs leading-5 text-white/50">
+              Ein gespeichertes Konto besitzt eine dauerhafte interne ID; der sichtbare Name bleibt editierbar. Exporte mit Deal-ID bewusst eindeutig benennen.
+            </span>
+          </label>
+          <label className="block rounded-2xl border border-orange-300/20 bg-black/25 p-4">
+            <span className="text-[11px] uppercase tracking-[0.24em] text-white/60">Kontowährung · Pflichtfeld</span>
+            <select
+              value={accountCurrency}
+              onChange={(event) => { setAccountCurrency(event.target.value); setStatusMessage(""); }}
+              className="mt-3 w-full rounded-xl border border-orange-300/20 bg-black/40 px-3 py-2.5 text-sm text-white outline-none focus:border-orange-300/45"
+            >
+              <option value="">Bitte bewusst auswählen</option>
+              {SUPPORTED_TRADE_CURRENCIES.map((currency) => <option key={currency} value={currency}>{currency}</option>)}
+            </select>
+            <span className="mt-2 block text-xs leading-5 text-white/50">Ein gültiger CSV-Zeilenwert überschreibt diesen Fallback. USD, USDT und USDC bleiben getrennt; es findet keine Umrechnung statt.</span>
+          </label>
+        </div>
+        <label className="mt-3 block rounded-2xl border border-orange-300/20 bg-black/25 p-4">
+            <span className="text-[10px] uppercase tracking-[0.24em] text-white/60">
+              Export-UTC-Offset · Pflichtfeld bei Zeit ohne Zone
+            </span>
+            <input
+              value={statementUtcOffset}
+              onChange={(event) => {
+                setStatementUtcOffset(event.target.value);
+                setStatusMessage("");
+                setLastImportReport(null);
+              }}
+              inputMode="text"
+              maxLength={6}
+              autoComplete="off"
+              placeholder="+02:00"
+              className="mt-3 w-full rounded-xl border border-orange-300/20 bg-black/40 px-3 py-2.5 text-sm text-white outline-none focus:border-orange-300/45"
+            />
+            <span className="mt-2 block text-xs leading-5 text-white/60">
+              Der Offset wird aus Kopfzeilen wie UTC+02:00 übernommen, wenn vorhanden. Andernfalls den im Broker-Export verwendeten Offset ausdrücklich eintragen; ohne belastbare Zone bleiben zonenlose Zeiten gesperrt.
+            </span>
+          </label>
       </div>
 
       <div className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
@@ -577,12 +872,12 @@ export function TradeImportPanel() {
             <span className="rounded-full border border-orange-400/20 bg-orange-400/10 px-4 py-2 text-orange-100">
               CSV oder Excel wählen
             </span>
-            <span className="text-white/45">Zielkonto: {importAccountLabel}</span>
+            <span className="text-white/45">Zielkonto: {displayAccountLabel}</span>
           </div>
           <input
             ref={inputRef}
             type="file"
-            accept=".csv,text/csv,.xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
+            accept=".csv,.tsv,.txt,text/csv,text/tab-separated-values,.xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
             className="sr-only"
             onChange={(event) =>
               void handleFileChange(event.target.files?.[0] ?? null)
@@ -652,7 +947,7 @@ export function TradeImportPanel() {
               />
               <MetricTile
                 label="Zielkonto"
-                value={importAccountLabel}
+                value={displayAccountLabel}
                 tone="text-orange-100"
               />
               <MetricTile
@@ -749,7 +1044,7 @@ export function TradeImportPanel() {
               {lastImportReport.importedPresetLabel}
             </div>
           </div>
-          <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
             <MetricTile
               label="Importiert"
               value={String(lastImportReport.importedCount)}
@@ -772,6 +1067,20 @@ export function TradeImportPanel() {
                   ? "text-orange-100"
                   : "text-white/45"
               }
+            />
+            <MetricTile
+              label="Prüfpflichtig"
+              value={String(lastImportReport.invalidCount)}
+              tone={
+                lastImportReport.invalidCount
+                  ? "text-orange-100"
+                  : "text-white/45"
+              }
+            />
+            <MetricTile
+              label="Quellenzeilen"
+              value={String(lastImportReport.sourceRowCount)}
+              tone="text-white/70"
             />
             <MetricTile
               label="Problemzeilen offen"
@@ -877,17 +1186,38 @@ export function TradeImportPanel() {
               <p className="text-[10px] uppercase tracking-[0.24em] text-white/35">
                 4. Vorschau
               </p>
-              <h3 className="mt-2 text-xl font-semibold text-white">Import</h3>
+              <h3 className="mt-2 text-xl font-semibold text-white">Dateivorschau</h3>
+              <p
+                id="file-import-deployment-status"
+                className="mt-2 max-w-2xl text-xs leading-5 text-white/60"
+              >
+                {brokerFileImportCapability.persistenceEnabled
+                  ? "Produktiver Dateiimport ist freigegeben."
+                  : brokerFileImportCapability.blockedReason}
+              </p>
             </div>
             <button
               type="button"
               onClick={handleImport}
-              disabled={isImporting || !drafts.length}
-              className={`rounded-full px-5 py-3 text-sm font-medium transition ${isImporting || !drafts.length ? "cursor-not-allowed border border-white/10 bg-black/20 text-white/35" : "border border-orange-300/35 bg-orange-400/15 text-white hover:border-orange-300/55 hover:bg-orange-400/20"}`}
+              aria-describedby="file-import-deployment-status"
+              disabled={
+                isImporting ||
+                !drafts.length ||
+                !brokerFileImportCapability.persistenceEnabled
+              }
+              className={`rounded-full px-5 py-3 text-sm font-medium transition ${
+                isImporting ||
+                !drafts.length ||
+                !brokerFileImportCapability.persistenceEnabled
+                  ? "cursor-not-allowed border border-white/10 bg-black/20 text-white/45"
+                  : "border border-orange-300/35 bg-orange-400/15 text-white hover:border-orange-300/55 hover:bg-orange-400/20"
+              }`}
             >
               {isImporting
                 ? "Import läuft …"
-                : `${drafts.length} Trades importieren`}
+                : !brokerFileImportCapability.persistenceEnabled
+                  ? brokerFileImportCapability.blockedActionLabel
+                  : `${drafts.length} Trades importieren`}
             </button>
           </div>
 
@@ -1144,7 +1474,7 @@ function buildImportReadiness(
   if (mappedRequired < requiredFieldKeys.length) {
     return {
       title: "Pflichtfeld fehlt",
-      description: "Datum und Markt müssen sitzen. Erst dann importieren.",
+      description: "Datum und Markt müssen sitzen. Erst dann ist die Vorschau belastbar.",
       chips,
       tone: "border-orange-300/20 bg-orange-400/[0.06]",
     };
@@ -1162,7 +1492,7 @@ function buildImportReadiness(
 
   if (checkRows > 0) {
     return {
-      title: "Import möglich, aber prüfen",
+      title: "Vorschau möglich, aber prüfen",
       description: "Basis passt. Einige Zeilen brauchen P&L oder Preiskontext.",
       chips: [...chips, `Treffer: ${rowRate}%`],
       tone: "border-orange-300/20 bg-orange-400/[0.06]",
@@ -1170,9 +1500,9 @@ function buildImportReadiness(
   }
 
   return {
-    title: "Import wirkt sauber",
+    title: "Vorschau wirkt sauber",
     description:
-      "Pflichtfelder und Kernwerte sind erkannt. Vorschau kurz lesen, dann importieren.",
+      `Pflichtfelder und Kernwerte sind erkannt. ${brokerFileImportCapability.blockedReason}`,
     chips: [...chips, `Treffer: ${rowRate}%`],
     tone: "border-emerald-300/20 bg-emerald-400/[0.06]",
   };

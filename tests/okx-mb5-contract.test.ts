@@ -171,6 +171,18 @@ function sha256Canonical(value: unknown) {
   return createHash('sha256').update(canonicalJson(value), 'utf8').digest('hex')
 }
 
+function normalizeTextLineEndings(value: string) {
+  return value.replace(/\r\n?/g, '\n')
+}
+
+function sha256CanonicalText(value: string) {
+  return createHash('sha256').update(normalizeTextLineEndings(value), 'utf8').digest('hex')
+}
+
+function sha256CanonicalTextFile(path: string) {
+  return sha256CanonicalText(readFileSync(path, 'utf8'))
+}
+
 function withoutKey<T extends JsonObject>(value: T, key: string) {
   const copy = structuredClone(value)
   delete copy[key]
@@ -1741,6 +1753,14 @@ function validateNegativeCase(fixture: NegativeCase): string {
 }
 
 describe('MB5 OKX provider contract', () => {
+  it('keeps dependency digests content-sensitive while ignoring checkout line endings', () => {
+    const lf = 'alpha\nbeta\n'
+    const crlf = lf.replace(/\n/g, '\r\n')
+
+    expect(sha256CanonicalText(crlf)).toBe(sha256CanonicalText(lf))
+    expect(sha256CanonicalText('alpha\ngamma\n')).not.toBe(sha256CanonicalText(lf))
+  })
+
   it('binds the connected API-provider decision without changing existing OKX CSV support', () => {
     expect(profile).toMatchObject({
       schema_version: 'equora_mb5_okx_contract_v1',
@@ -2188,13 +2208,13 @@ describe('MB5 OKX provider contract', () => {
         git_binding: 'unchanged_HEAD_25793bc873faa8fd89d42bfa2ddaea4cd6188a3b',
       },
     ])
-    expect(createHash('sha256').update(readFileSync(validatorDependencyPath)).digest('hex')).toBe(
+    expect(sha256CanonicalTextFile(validatorDependencyPath)).toBe(
       'd8dd6fe7839d502b906965861063b39b343a75aa0bd2a4e65e31fe4f39fbf820',
     )
-    expect(createHash('sha256').update(readFileSync(corePath)).digest('hex')).toBe(
+    expect(sha256CanonicalTextFile(corePath)).toBe(
       'c72eeb57aa6de4f122bce185c794929664c11a4737eedcfde102cde5520811e1',
     )
-    expect(createHash('sha256').update(readFileSync(registryPath)).digest('hex')).toBe(
+    expect(sha256CanonicalTextFile(registryPath)).toBe(
       'f028bb4d90834ea747ebe3605257193bd1d456a608808fe393f8e4da5c94e002',
     )
   })

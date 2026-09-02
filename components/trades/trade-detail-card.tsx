@@ -5,6 +5,7 @@ import { SetupImageLightbox } from '@/components/setups/setup-image-lightbox'
 import { TradeTagEditor } from '@/components/trades/trade-tag-editor'
 import { TradeImageGallery } from '@/components/trades/trade-image-gallery'
 import type { Trade, TradeDetail } from '@/lib/types/trade'
+import { TradeActivityTimeline } from '@/components/trades/trade-activity-timeline'
 import { getTradeTrustChecklist } from '@/lib/utils/trade-trust'
 
 type TradeDetailCardProps = {
@@ -163,11 +164,11 @@ export function TradeDetailCard({
     { label: 'Markt', value: detail?.title },
     { label: 'Setup', value: detail?.setup },
     { label: 'Richtung', value: detail?.direction },
-    { label: 'Status', value: detail?.captureStatusLabel },
+    { label: 'Vollständigkeit', value: detail?.captureStatusLabel },
     { label: 'Session', value: detail?.sessionLabel },
     { label: 'Kill Zone', value: detail?.killZoneLabel },
     { label: 'Zeit', value: detail?.tradeTimeLabel },
-    { label: 'Status', value: detail?.captureResultLabel ?? detail?.result },
+    { label: 'Ergebnis', value: detail?.captureResultLabel ?? detail?.result },
     { label: 'P&L', value: detail?.pnl },
   ]
 
@@ -204,7 +205,7 @@ export function TradeDetailCard({
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div>
           <h2 className="text-2xl font-semibold text-white">{trade?.market || detail?.title || 'Trade'}</h2>
-          
+
         </div>
         <div className="flex flex-wrap gap-2">
           {tradeId ? (
@@ -251,6 +252,12 @@ export function TradeDetailCard({
           {trade?.completedAt ? <span className="rounded-full border border-white/10 bg-black/20 px-2.5 py-1 text-[11px] uppercase tracking-[0.18em] text-white/70">Abgeschlossen</span> : null}
         </div>
       </div>
+
+      {trade ? (
+        <div className="mt-4">
+          <TradeActivityTimeline trade={trade} detail={detail} tagCount={tags.length} />
+        </div>
+      ) : null}
 
       <div className="mt-4 space-y-4">
         <Fold title="Management">

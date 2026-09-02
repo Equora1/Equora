@@ -7,6 +7,7 @@ import { isEquoraAdminUser } from '@/lib/server/admin'
 import { hasSupabaseClientEnv, hasSupabaseServerEnv } from '@/lib/supabase/config'
 import { computeTradeMetrics, parseTradingNumber } from '@/lib/utils/calculations'
 import { splitDraftItems, type SharedTradeShareMode, type SharedTradeStatus, type SharedTradeVisibility } from '@/lib/utils/trade-share'
+import { extractTradeImportMeta } from '@/lib/utils/trade-import-meta'
 
 function revalidateShareSurfaces() {
   revalidatePath('/share')
@@ -110,6 +111,7 @@ export async function createTradeShareSubmission(input: {
     })
     const timestamp = new Date().toISOString()
     const sanitizedName = input.visibility === 'named' ? input.submittedByName?.trim() || null : null
+    const sharedNotes = extractTradeImportMeta(trade.notes).cleanNotes || null
     const sharePayload = {
       user_id: user.id,
       trade_id: trade.id,
@@ -128,7 +130,7 @@ export async function createTradeShareSubmission(input: {
       shared_currency: metrics.accountCurrency,
       shared_capture_status: trade.capture_status ?? null,
       shared_capture_result: trade.capture_result ?? null,
-      shared_notes: trade.notes ?? null,
+      shared_notes: sharedNotes,
       shared_quality: trade.quality ?? null,
       shared_tags: tags,
       // Private journal media is never copied into a persistent share snapshot.

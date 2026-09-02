@@ -469,7 +469,7 @@ describe('provider-neutral MB3 persistence seam', () => {
     expect(sql).toContain('create or replace function public.equora_lock_provider_capability_contract_v2')
     expect(sql).toContain('for share of contract_row;')
     expect(sql.match(/from public\.equora_lock_provider_capability_contract_v2\(/g)).toHaveLength(2)
-    expect(sql).toContain("'equora_broker_runtime_v2',\n      'public.broker_provider_capability_contracts_v2','select'")
+    expect(sql).toMatch(/'equora_broker_runtime_v2',\r?\n      'public\.broker_provider_capability_contracts_v2','select'/)
     const concurrency = readFileSync(resolve(process.cwd(), 'tests/sql/run-multibroker-mb3-concurrency.ps1'), 'utf8')
     expect(concurrency).toContain('MB3_REQUEST_AUTH_CAPABILITY_INVALID')
     expect(concurrency).toContain('MB3_PAGE_COMMIT_CAPABILITY_INVALID')

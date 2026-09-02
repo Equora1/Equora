@@ -1,6 +1,7 @@
 import Link from 'next/link'
 import type { Trade } from '@/lib/types/trade'
 import { getTradeTrustSummary } from '@/lib/utils/trade-trust'
+import { brokerFileImportCapability } from '@/lib/utils/broker-file-import-capability'
 
 export function ReviewEmptyStateCard({ trades }: { trades: Trade[] }) {
   const trust = getTradeTrustSummary(trades)
@@ -15,7 +16,7 @@ export function ReviewEmptyStateCard({ trades }: { trades: Trade[] }) {
       : 'Noch zu wenig Daten'
 
   const copy = !trades.length
-    ? 'Erfasse einen Trade oder importiere eine Datei. Danach wird Review sinnvoll.'
+    ? 'Erfasse einen Trade oder prüfe eine Importdatei. Danach wird Review sinnvoll.'
     : trust.trustedTrades === 0
       ? 'Mindestens ein Trade braucht P&L oder Abschlussdaten.'
       : 'Mit mehr sauberen Trades wird Review belastbarer.'
@@ -41,12 +42,22 @@ export function ReviewEmptyStateCard({ trades }: { trades: Trade[] }) {
         >
           Trade erfassen
         </Link>
-        <Link
-          href="/trades?capture=import#trade-editor"
-          className="inline-flex items-center rounded-full border border-white/10 bg-black/20 px-4 py-2 text-sm font-medium text-white/65 transition hover:border-white/20 hover:text-white"
-        >
-          Datei importieren
-        </Link>
+        {brokerFileImportCapability.previewEnabled ? (
+          <Link
+            href={brokerFileImportCapability.previewHref}
+            title={brokerFileImportCapability.blockedReason}
+            className="inline-flex items-center rounded-full border border-white/10 bg-black/20 px-4 py-2 text-sm font-medium text-white/65 transition hover:border-white/20 hover:text-white"
+          >
+            {brokerFileImportCapability.previewActionLabel}
+          </Link>
+        ) : (
+          <span
+            aria-disabled="true"
+            className="inline-flex cursor-not-allowed items-center rounded-full border border-white/8 bg-black/20 px-4 py-2 text-sm font-medium text-white/40"
+          >
+            {brokerFileImportCapability.blockedActionLabel}
+          </span>
+        )}
       </div>
     </section>
   )

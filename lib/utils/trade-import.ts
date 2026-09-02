@@ -1,4 +1,3 @@
-import { normalizeTradeDate } from "@/lib/utils/calendar";
 import { normalizeInstrumentType, parseTradingNumber } from "@/lib/utils/calculations";
 import { normalizeTradeCurrency } from "@/lib/utils/currency";
 
@@ -28,7 +27,8 @@ export type CsvImportPresetKey =
   | "binance-futures"
   | "bybit-futures"
   | "okx-futures"
-  | "kraken-spot";
+  | "kraken-spot"
+  | "ctrader-history";
 
 export type CsvImportMapping = Partial<Record<CsvImportFieldKey, string>>;
 
@@ -49,6 +49,10 @@ export type CsvImportPreset = {
   defaultInstrumentType?: string;
   defaultBrokerProfile?: string;
   defaultCryptoMarketType?: string;
+  sourceIdentity?: Readonly<{
+    kind: string;
+    aliases: readonly string[];
+  }>;
   aliasOverrides?: Partial<Record<CsvImportFieldKey, string[]>>;
 };
 
@@ -58,13 +62,29 @@ export type ParsedCsvData = {
   rows: Array<Record<string, string>>;
 };
 
+export const CSV_IMPORT_LIMITS = Object.freeze({
+  maxFileBytes: 5 * 1024 * 1024,
+  maxTextCharacters: 5_000_000,
+  maxRows: 5_000,
+  maxColumns: 128,
+  maxCellCharacters: 10_000,
+  maxDraftCharacters: 50_000,
+});
+
 export type CsvImportPreviewStatus = "importable" | "check" | "skip";
 
 export type CsvImportValueSource = "csv" | "preset" | "manual" | "empty";
 
+export type CsvImportSourceIdentity = Readonly<{
+  kind: string;
+  header: string;
+  value: string;
+}>;
+
 export type CsvImportPreviewRow = {
   rowNumber: number;
   raw: Record<string, string>;
+  sourceIdentity: CsvImportSourceIdentity | null;
   normalized: {
     date: string | null;
     market: string | null;
@@ -100,6 +120,7 @@ export type CsvImportRepairOverrides = Record<
 
 export type CsvImportDraft = {
   rowNumber: number;
+  sourceIdentity?: CsvImportSourceIdentity | null;
   fieldSources?: Partial<Record<CsvImportFieldKey, CsvImportValueSource>>;
   fieldHeaders?: Partial<Record<CsvImportFieldKey, string>>;
   importWarnings?: string[];
@@ -124,6 +145,12 @@ export type CsvImportDraft = {
   leverage?: string | null;
   importPreset?: CsvImportPresetKey;
 };
+
+export type CsvImportSourceManifestRow = Readonly<{
+  rowNumber: number;
+  previewStatus: CsvImportPreviewStatus;
+  selected: boolean;
+}>;
 
 export const csvImportFieldDefinitions: CsvImportFieldDefinition[] = [
   {
@@ -341,6 +368,35 @@ export const csvImportPresets: CsvImportPreset[] = [
     defaultSetup: "CSV Import",
   },
   {
+    key: "ctrader-history",
+    label: "cTrader Statement",
+    badge: "Plattform",
+    description:
+      "Gemeinsames Statement-Profil für Broker, die ihre Historie über cTrader bereitstellen.",
+    helper:
+      "Ordnet cTrader-Dealspalten wie Closing Time, Entry/Closing Price, Commission und Net P&L zu. Ein direkter Plattform-Sync ist damit nicht aktiviert.",
+    defaultSetup: "cTrader Statement Import",
+    defaultBrokerProfile: "manual",
+    sourceIdentity: {
+      kind: "deal_id",
+      aliases: ["deal id", "id"],
+    },
+    aliasOverrides: {
+      date: ["closing time", "close time", "closed time"],
+      market: ["symbol"],
+      netPnL: ["net (currency)", "net realised", "net realized", "net profit", "net"],
+      entry: ["entry price", "opening price"],
+      exit: ["closing price", "close price"],
+      stopLoss: ["stop loss", "sl"],
+      takeProfit: ["take profit", "tp"],
+      direction: ["opening direction", "direction"],
+      tags: ["label"],
+      notes: ["comment"],
+      fees: ["commissions", "commission", "realised broker commission", "realized broker commission"],
+      positionSize: ["closing quantity", "requested quantity", "opening quantity", "quantity", "lots"],
+    },
+  },
+  {
     key: "mexc-futures",
     label: "MEXC Futures",
     badge: "Krypto",
@@ -403,7 +459,7 @@ export const csvImportPresets: CsvImportPreset[] = [
       "Zieht Spot-Exporte in einen einfachen Trade-Kontext. P&L kann später ergänzt werden, wenn der Export nur Ausführungen liefert.",
     defaultSetup: "MEXC Spot Import",
     defaultInstrumentType: "Crypto",
-    defaultBrokerProfile: "manual",
+    defaultBrokerProfile: "mexc-spot",
     defaultCryptoMarketType: "spot",
     aliasOverrides: {
       date: [
@@ -436,7 +492,7 @@ export const csvImportPresets: CsvImportPreset[] = [
       "Für Futures-Listen mit Realized PNL, Commission, Quantity oder Position Side.",
     defaultSetup: "Binance Futures Import",
     defaultInstrumentType: "Crypto",
-    defaultBrokerProfile: "binance",
+    defaultBrokerProfile: "manual",
     defaultCryptoMarketType: "perps",
     aliasOverrides: {
       date: ["time", "date utc", "trade time", "order time"],
@@ -458,7 +514,7 @@ export const csvImportPresets: CsvImportPreset[] = [
       "Für Bybit-Exports, bei denen PnL, Closed PnL oder Trading Fee getrennt auftauchen.",
     defaultSetup: "Bybit Futures Import",
     defaultInstrumentType: "Crypto",
-    defaultBrokerProfile: "bybit",
+    defaultBrokerProfile: "bybit-perps",
     defaultCryptoMarketType: "perps",
     aliasOverrides: {
       date: ["created time", "updated time", "closed time", "trade time"],
@@ -482,7 +538,7 @@ export const csvImportPresets: CsvImportPreset[] = [
       "Für OKX-Spalten wie InstId, PnL, Fee, Side, PosSide und Fill Time.",
     defaultSetup: "OKX Futures Import",
     defaultInstrumentType: "Crypto",
-    defaultBrokerProfile: "okx",
+    defaultBrokerProfile: "okx-perps",
     defaultCryptoMarketType: "perps",
     aliasOverrides: {
       date: ["fill time", "u time", "c time", "trade time", "time"],
@@ -535,17 +591,61 @@ function normalizeHeader(value: string) {
     .replace(/\s+/g, " ");
 }
 
-function parseCsvLine(line: string, delimiter: string) {
-  const cells: string[] = [];
-  let current = "";
+function countDelimiterInFirstRecord(text: string, delimiter: string) {
+  let count = 0;
   let inQuotes = false;
 
-  for (let index = 0; index < line.length; index += 1) {
-    const character = line[index];
+  for (let index = 0; index < text.length; index += 1) {
+    const character = text[index];
+    if (character === '"') {
+      if (inQuotes && text[index + 1] === '"') {
+        index += 1;
+      } else {
+        inQuotes = !inQuotes;
+      }
+      continue;
+    }
+    if (!inQuotes && (character === "\n" || character === "\r")) break;
+    if (!inQuotes && character === delimiter) count += 1;
+  }
+
+  return count;
+}
+
+function detectDelimiter(text: string) {
+  const delimiters = [",", ";", "\t", "|"];
+  const scores = delimiters
+    .map((delimiter) => ({
+      delimiter,
+      count: countDelimiterInFirstRecord(text, delimiter),
+    }))
+    .sort((left, right) => right.count - left.count);
+  return scores[0]?.count ? scores[0].delimiter : ",";
+}
+
+function parseDelimitedRecords(text: string, delimiter: string) {
+  const records: string[][] = [];
+  let row: string[] = [];
+  let cell = "";
+  let inQuotes = false;
+
+  function commitCell() {
+    row.push(cell.trim());
+    cell = "";
+  }
+
+  function commitRow() {
+    commitCell();
+    if (row.some((value) => value.trim())) records.push(row);
+    row = [];
+  }
+
+  for (let index = 0; index < text.length; index += 1) {
+    const character = text[index];
 
     if (character === '"') {
-      if (inQuotes && line[index + 1] === '"') {
-        current += '"';
+      if (inQuotes && text[index + 1] === '"') {
+        cell += '"';
         index += 1;
       } else {
         inQuotes = !inQuotes;
@@ -553,49 +653,80 @@ function parseCsvLine(line: string, delimiter: string) {
       continue;
     }
 
-    if (character === delimiter && !inQuotes) {
-      cells.push(current.trim());
-      current = "";
+    if (!inQuotes && character === delimiter) {
+      commitCell();
       continue;
     }
 
-    current += character;
+    if (!inQuotes && (character === "\n" || character === "\r")) {
+      if (character === "\r" && text[index + 1] === "\n") index += 1;
+      commitRow();
+      continue;
+    }
+
+    cell += character;
   }
 
-  cells.push(current.trim());
-  return cells.map((cell) => cell.replace(/^"|"$/g, "").trim());
+  if (inQuotes) {
+    throw new Error("CSV enthält ein nicht geschlossenes Anführungszeichen.");
+  }
+  if (cell || row.length) commitRow();
+  return records;
 }
 
-function detectDelimiter(text: string) {
-  const probeLine =
-    text
-      .split(/\r?\n/)
-      .map((line) => line.trim())
-      .find(Boolean) ?? "";
-
-  const delimiters = [",", ";", "\t", "|"];
-  const scores = delimiters.map((delimiter) => ({
-    delimiter,
-    count: probeLine.split(delimiter).length,
-  }));
-  scores.sort((left, right) => right.count - left.count);
-  return scores[0]?.count && scores[0].count > 1 ? scores[0].delimiter : ",";
+function makeUniqueCsvHeaders(headers: string[]) {
+  const seen = new Map<string, number>();
+  return headers.map((header, index) => {
+    const base = header.trim() || "Spalte " + (index + 1);
+    const count = seen.get(base) ?? 0;
+    seen.set(base, count + 1);
+    return count ? base + " " + (count + 1) : base;
+  });
 }
 
 export function parseCsvText(text: string): ParsedCsvData {
+  if (text.length > CSV_IMPORT_LIMITS.maxTextCharacters) {
+    throw new Error("CSV ist zu groß. Erlaubt sind höchstens 5 MB Text.");
+  }
   const sanitized = text.replace(/^\uFEFF/, "");
   const delimiter = detectDelimiter(sanitized);
-  const lines = sanitized
-    .split(/\r?\n/)
-    .filter((line) => line.trim().length > 0);
+  const records = parseDelimitedRecords(sanitized, delimiter);
 
-  if (!lines.length) {
+  if (!records.length) {
     return { delimiter, headers: [], rows: [] };
   }
 
-  const headers = parseCsvLine(lines[0], delimiter);
-  const rows = lines.slice(1).map((line) => {
-    const cells = parseCsvLine(line, delimiter);
+  const headers = makeUniqueCsvHeaders(records[0]);
+  if (headers.length > CSV_IMPORT_LIMITS.maxColumns) {
+    throw new Error(
+      `Datei hat zu viele Spalten. Erlaubt sind höchstens ${CSV_IMPORT_LIMITS.maxColumns}.`,
+    );
+  }
+  if (records.length - 1 > CSV_IMPORT_LIMITS.maxRows) {
+    throw new Error(
+      `Datei hat zu viele Datenzeilen. Erlaubt sind höchstens ${CSV_IMPORT_LIMITS.maxRows}.`,
+    );
+  }
+  if (
+    records.some(
+      (record) =>
+        record.length > CSV_IMPORT_LIMITS.maxColumns ||
+        record.some((cell) => cell.length > CSV_IMPORT_LIMITS.maxCellCharacters),
+    )
+  ) {
+    throw new Error(
+      "Datei enthält eine zu breite Zeile oder eine überlange Zelle und wurde nicht verarbeitet.",
+    );
+  }
+  const overwideRowIndex = records
+    .slice(1)
+    .findIndex((record) => record.length > headers.length);
+  if (overwideRowIndex >= 0) {
+    throw new Error(
+      `Datenzeile ${overwideRowIndex + 2} enthält mehr Zellen als die Kopfzeile und wurde nicht still abgeschnitten.`,
+    );
+  }
+  const rows = records.slice(1).map((cells) => {
     return headers.reduce<Record<string, string>>((acc, header, index) => {
       acc[header] = cells[index] ?? "";
       return acc;
@@ -609,6 +740,121 @@ function getPreset(key: CsvImportPresetKey | null | undefined) {
   return presetLookup.get(key ?? "generic") ?? csvImportPresets[0];
 }
 
+const SOURCE_ID_KIND_PATTERN = /^[a-z0-9][a-z0-9_-]{0,63}$/;
+const REJECTED_SOURCE_ID_VALUES = new Set(["-", "n/a", "na", "null", "undefined"]);
+const AMBIGUOUS_SOURCE_ACCOUNT_LABELS = new Set([
+  "account",
+  "ctrader account",
+  "ctrader konto",
+  "hauptkonto",
+  "konto",
+  "main account",
+]);
+
+export function isExplicitCsvImportAccountLabel(
+  value: string | null | undefined,
+) {
+  const normalized = value?.trim().replace(/\s+/g, " ").toLowerCase() ?? "";
+  return (
+    normalized.length >= 3 &&
+    normalized.length <= 60 &&
+    !AMBIGUOUS_SOURCE_ACCOUNT_LABELS.has(normalized)
+  );
+}
+
+export function normalizeCsvImportSourceIdentity(
+  identity: Partial<CsvImportSourceIdentity> | null | undefined,
+): CsvImportSourceIdentity | null {
+  const kind = identity?.kind?.trim().toLowerCase() ?? "";
+  const header = identity?.header?.trim().replace(/\s+/g, " ") ?? "";
+  const value = identity?.value?.trim().replace(/\s+/g, " ") ?? "";
+
+  if (
+    !SOURCE_ID_KIND_PATTERN.test(kind) ||
+    !header ||
+    header.length > 80 ||
+    !value ||
+    value.length > 160 ||
+    REJECTED_SOURCE_ID_VALUES.has(value.toLowerCase())
+  ) {
+    return null;
+  }
+
+  return Object.freeze({ kind, header, value });
+}
+
+export function extractCsvImportSourceIdentity(
+  row: Readonly<Record<string, string>>,
+  presetKey: CsvImportPresetKey,
+) {
+  const descriptor = getPreset(presetKey).sourceIdentity;
+  if (!descriptor) return null;
+
+  const fields = Object.entries(row).map(([header, value]) => ({
+    header,
+    normalizedHeader: normalizeHeader(header),
+    value,
+  }));
+
+  for (const alias of descriptor.aliases) {
+    const normalizedAlias = normalizeHeader(alias);
+    const match = fields.find(
+      (field) => field.normalizedHeader === normalizedAlias,
+    );
+    const identity = normalizeCsvImportSourceIdentity({
+      kind: descriptor.kind,
+      header: match?.header,
+      value: match?.value,
+    });
+    if (identity) return identity;
+  }
+
+  return null;
+}
+
+export function buildCsvImportSourceIdentityKey(input: Readonly<{
+  presetKey: CsvImportPresetKey;
+  sourceIdentity: Partial<CsvImportSourceIdentity> | null | undefined;
+  brokerProfile?: string | null;
+  accountTemplate?: string | null;
+  accountLabel?: string | null;
+}>) {
+  const identity = normalizeCsvImportSourceIdentity(input.sourceIdentity);
+  const accountLabel =
+    input.accountLabel?.trim().replace(/\s+/g, " ").toLowerCase() ?? "";
+  if (!identity || !accountLabel) return null;
+
+  return JSON.stringify([
+    "equora-csv-source-identity-v1",
+    input.presetKey,
+    input.brokerProfile?.trim().toLowerCase() ?? "",
+    input.accountTemplate?.trim().toLowerCase() ?? "",
+    accountLabel,
+    identity.kind,
+    identity.value,
+  ]);
+}
+
+export function isCsvImportDuplicate(input: Readonly<{
+  sourceIdentityKey: string | null;
+  fingerprint: string;
+  existingSourceIdentityKeys: ReadonlySet<string>;
+  seenSourceIdentityKeys: ReadonlySet<string>;
+  existingFingerprints: ReadonlySet<string>;
+  seenFingerprints: ReadonlySet<string>;
+}>) {
+  if (input.sourceIdentityKey) {
+    return (
+      input.existingSourceIdentityKeys.has(input.sourceIdentityKey) ||
+      input.seenSourceIdentityKeys.has(input.sourceIdentityKey)
+    );
+  }
+  const fingerprintDuplicate =
+    input.existingFingerprints.has(input.fingerprint) ||
+    input.seenFingerprints.has(input.fingerprint);
+  return fingerprintDuplicate;
+}
+
 function getAliasesForField(
   field: CsvImportFieldKey,
   presetKey: CsvImportPresetKey | null | undefined,
@@ -617,16 +863,115 @@ function getAliasesForField(
   return [...(preset.aliasOverrides?.[field] ?? []), ...fieldAliases[field]];
 }
 
-function findHeaderMatch(headers: string[], aliases: string[]) {
-  return headers.find((header) => {
-    const normalized = normalizeHeader(header);
-    return aliases.some((alias) => {
-      const normalizedAlias = normalizeHeader(alias);
-      return (
-        normalized === normalizedAlias || normalized.includes(normalizedAlias)
-      );
+type HeaderFieldMatch = {
+  field: CsvImportFieldKey;
+  header: string;
+  score: 1 | 2;
+  aliasRank: number;
+  aliasLength: number;
+  headerRank: number;
+};
+
+function buildHeaderFieldMatches(
+  headers: string[],
+  presetKey: CsvImportPresetKey,
+) {
+  const matches: HeaderFieldMatch[] = [];
+
+  for (const definition of csvImportFieldDefinitions) {
+    const aliases = getAliasesForField(definition.key, presetKey)
+      .map(normalizeHeader)
+      .filter(Boolean);
+    headers.forEach((header, headerRank) => {
+      const normalizedHeader = normalizeHeader(header);
+      let best: HeaderFieldMatch | null = null;
+      aliases.forEach((alias, aliasRank) => {
+        const score =
+          normalizedHeader === alias
+            ? 2
+            : normalizedHeader.includes(alias)
+              ? 1
+              : 0;
+        if (!score) return;
+        const candidate: HeaderFieldMatch = {
+          field: definition.key,
+          header,
+          score,
+          aliasRank,
+          aliasLength: alias.length,
+          headerRank,
+        };
+        if (
+          !best ||
+          candidate.score > best.score ||
+          (candidate.score === best.score &&
+            candidate.aliasLength > best.aliasLength) ||
+          (candidate.score === best.score &&
+            candidate.aliasLength === best.aliasLength &&
+            candidate.aliasRank < best.aliasRank)
+        ) {
+          best = candidate;
+        }
+      });
+      if (best) matches.push(best);
     });
-  });
+  }
+
+  return matches;
+}
+
+function getTopHeaderClaims(
+  matches: HeaderFieldMatch[],
+  header: string,
+) {
+  const headerMatches = matches.filter((match) => match.header === header);
+  const bestScore = Math.max(0, ...headerMatches.map((match) => match.score));
+  return headerMatches.filter((match) => match.score === bestScore);
+}
+
+export function getCsvImportMappingIssues(
+  headers: string[],
+  mapping: CsvImportMapping,
+  presetKey: CsvImportPresetKey = "generic",
+) {
+  const issues: string[] = [];
+  const fieldsByHeader = new Map<string, CsvImportFieldKey[]>();
+  for (const definition of csvImportFieldDefinitions) {
+    const header = mapping[definition.key];
+    if (!header) continue;
+    const fields = fieldsByHeader.get(header) ?? [];
+    fields.push(definition.key);
+    fieldsByHeader.set(header, fields);
+  }
+
+  for (const [header, fields] of fieldsByHeader) {
+    if (fields.length > 1) {
+      issues.push(
+        `Spalte „${header}“ ist mehreren Feldern zugeordnet. Bitte jede Spalte nur einmal verwenden.`,
+      );
+    }
+  }
+
+  const matches = buildHeaderFieldMatches(headers, presetKey);
+  for (const header of headers) {
+    const claims = getTopHeaderClaims(matches, header);
+    const claimedFields = Array.from(
+      new Set(claims.map((claim) => claim.field)),
+    );
+    if (claimedFields.length <= 1) continue;
+    const mappedFields = fieldsByHeader.get(header) ?? [];
+    if (
+      mappedFields.length === 1 &&
+      claimedFields.includes(mappedFields[0])
+    ) {
+      continue;
+    }
+    issues.push(
+      `Spalte „${header}“ passt gleich stark zu mehreren Feldern. Bitte die Zuordnung ausdrücklich auf genau ein Feld setzen.`,
+    );
+  }
+
+  return Array.from(new Set(issues));
 }
 
 export function inferCsvImportMapping(
@@ -634,13 +979,35 @@ export function inferCsvImportMapping(
   presetKey: CsvImportPresetKey = "generic",
 ): CsvImportMapping {
   const mapping: CsvImportMapping = {};
+  const matches = buildHeaderFieldMatches(headers, presetKey);
+  const usedHeaders = new Set<string>();
 
-  for (const definition of csvImportFieldDefinitions) {
-    const match = findHeaderMatch(
-      headers,
-      getAliasesForField(definition.key, presetKey),
-    );
-    if (match) mapping[definition.key] = match;
+  for (const score of [2, 1] as const) {
+    for (const definition of csvImportFieldDefinitions) {
+      if (mapping[definition.key]) continue;
+      const candidates = matches
+        .filter(
+          (match) =>
+            match.field === definition.key &&
+            match.score === score &&
+            !usedHeaders.has(match.header) &&
+            new Set(
+              getTopHeaderClaims(matches, match.header).map(
+                (claim) => claim.field,
+              ),
+            ).size === 1,
+        )
+        .sort(
+          (left, right) =>
+            left.aliasRank - right.aliasRank ||
+            right.aliasLength - left.aliasLength ||
+            left.headerRank - right.headerRank,
+        );
+      const match = candidates[0];
+      if (!match) continue;
+      mapping[definition.key] = match.header;
+      usedHeaders.add(match.header);
+    }
   }
 
   return mapping;
@@ -654,6 +1021,23 @@ function getMappedValue(
   const header = mapping[key];
   if (!header) return "";
   return row[header] ?? "";
+}
+
+function getCTraderStatementCurrency(mapping: CsvImportMapping) {
+  const netPnlHeader = mapping.netPnL;
+  if (!netPnlHeader) return "";
+  const match = netPnlHeader.match(/\((EUR|USD|GBP|USDT|USDC)\)/i);
+  return match?.[1]?.toUpperCase() ?? "";
+}
+
+function normalizeImportedFeeValue(
+  value: string,
+  presetKey: CsvImportPresetKey,
+) {
+  const trimmed = value.trim();
+  if (!trimmed || presetKey !== "ctrader-history") return trimmed;
+  const parsed = parseTradingNumber(trimmed);
+  return parsed === null ? trimmed : String(Math.abs(parsed));
 }
 
 function getPreviewValue(
@@ -738,6 +1122,15 @@ function buildImportTrust(input: {
   if (input.sources.netPnL === "csv") {
     warnings.push("P&L wurde aus der Datei übernommen. Gebühren nur prüfen, wenn die Börse sie getrennt ausweist.")
   }
+  if (
+    input.presetKey === "ctrader-history" &&
+    input.sources.netPnL === "csv" &&
+    input.normalized.fees
+  ) {
+    warnings.push(
+      "cTrader Net enthält Kosten bereits. Die Kommission wird für Equora als positiver Kostenbetrag dokumentiert, aber nicht erneut vom importierten Netto-P&L abgezogen.",
+    );
+  }
   if (input.sources.entry === "csv" && input.sources.exit === "csv" && !input.normalized.netPnL) {
     warnings.push("P&L wurde nicht geliefert. Equora kann nur mit vollständigem Preis- und Size-Kontext sinnvoll rechnen.")
   }
@@ -762,40 +1155,97 @@ function buildImportTrust(input: {
   }
 }
 
-function normalizeDateValue(value: string) {
+function buildOffsetIso(
+  year: number,
+  month: number,
+  day: number,
+  hour: number,
+  minute: number,
+  second: number,
+  offsetMinutes: number,
+) {
+  const timestamp =
+    Date.UTC(year, month - 1, day, hour, minute, second) -
+    offsetMinutes * 60_000;
+  const shifted = new Date(timestamp + offsetMinutes * 60_000);
+  if (
+    shifted.getUTCFullYear() !== year ||
+    shifted.getUTCMonth() !== month - 1 ||
+    shifted.getUTCDate() !== day ||
+    shifted.getUTCHours() !== hour ||
+    shifted.getUTCMinutes() !== minute ||
+    shifted.getUTCSeconds() !== second
+  ) {
+    return null;
+  }
+  return new Date(timestamp).toISOString();
+}
+
+function normalizeDateValue(
+  value: string,
+  timestampOffsetMinutes?: number | null,
+) {
   const trimmed = value.trim();
   if (!trimmed) return null;
 
   const unixSeconds = trimmed.match(/^\d{10}$/);
-  if (unixSeconds) return new Date(Number(trimmed) * 1000).toISOString();
+  if (unixSeconds) {
+    const date = new Date(Number(trimmed) * 1000);
+    return Number.isNaN(date.getTime()) ? null : date.toISOString();
+  }
 
   const unixMilliseconds = trimmed.match(/^\d{13}$/);
-  if (unixMilliseconds) return new Date(Number(trimmed)).toISOString();
+  if (unixMilliseconds) {
+    const date = new Date(Number(trimmed));
+    return Number.isNaN(date.getTime()) ? null : date.toISOString();
+  }
 
   const numericDate = trimmed.match(
     /^(\d{1,2})[.\-/](\d{1,2})[.\-/](\d{2,4})(?:[ T,]+(\d{1,2}):(\d{2})(?::(\d{2}))?)?$/,
   );
   if (numericDate) {
     const day = Number(numericDate[1]);
-    const month = Number(numericDate[2]) - 1;
+    const month = Number(numericDate[2]);
     const year = Number(
       numericDate[3].length === 2 ? `20${numericDate[3]}` : numericDate[3],
     );
     const hour = Number(numericDate[4] ?? 0);
     const minute = Number(numericDate[5] ?? 0);
     const second = Number(numericDate[6] ?? 0);
-    const date = new Date(year, month, day, hour, minute, second);
-    if (!Number.isNaN(date.getTime())) return date.toISOString();
+    if (timestampOffsetMinutes == null) return null;
+    return buildOffsetIso(
+      year,
+      month,
+      day,
+      hour,
+      minute,
+      second,
+      timestampOffsetMinutes,
+    );
   }
 
+  const isoLikeDate = trimmed.match(
+    /^(\d{4})-(\d{1,2})-(\d{1,2})[ T](\d{1,2}):(\d{2})(?::(\d{2}))?$/,
+  );
+  if (
+    isoLikeDate && timestampOffsetMinutes != null
+  ) {
+    return buildOffsetIso(
+      Number(isoLikeDate[1]),
+      Number(isoLikeDate[2]),
+      Number(isoLikeDate[3]),
+      Number(isoLikeDate[4]),
+      Number(isoLikeDate[5]),
+      Number(isoLikeDate[6] ?? 0),
+      timestampOffsetMinutes,
+    );
+  }
+
+  const hasExplicitTimezone =
+    /(?:z|utc|[+-]\d{2}:?\d{2})$/i.test(trimmed);
+  if (!hasExplicitTimezone) return null;
   const direct = new Date(trimmed.replace(" UTC", "Z"));
   if (!Number.isNaN(direct.getTime())) return direct.toISOString();
-
-  const monthNameDate = trimmed.match(/^\d{1,2}\s+[A-Za-zÄÖÜäöüß.]+\s+\d{4}$/);
-  if (monthNameDate) {
-    const normalized = normalizeTradeDate(trimmed);
-    if (!Number.isNaN(normalized.getTime())) return normalized.toISOString();
-  }
 
   return null;
 }
@@ -887,6 +1337,13 @@ function getMexcPositionSide(direction: string) {
   return normalizeDirectionValue(direction) ?? null;
 }
 
+function getMexcOrderAction(value: string) {
+  const normalized = value.trim().toLowerCase();
+  if (/\b(close|closing|reduce|reduction)\b/.test(normalized)) return "close";
+  if (/\b(open|opening|increase)\b/.test(normalized)) return "open";
+  return null;
+}
+
 type MexcOrderHistoryOverride = {
   entry?: string;
   exit?: string;
@@ -903,81 +1360,66 @@ function buildMexcFuturesOrderHistoryOverrides(rows: Array<Record<string, string
   const looksLikeOrderHistory = rows.some(isMexcFuturesOrderHistoryRow);
   if (!looksLikeOrderHistory) return overrides;
 
-  const parsedRows = rows
-    .map((row, index) => {
-      const dateRaw = getRawValueByAliases(row, ["Time(UTC+02:00)", "Time", "Created Time", "Trade Time"]);
-      const date = normalizeDateValue(dateRaw);
-      const market = getRawValueByAliases(row, ["Futures Trading Pair", "Trading Pair", "Symbol", "Contract"]);
-      const directionRaw = getRawValueByAliases(row, ["Direction", "Side", "Position Side"]);
-      const side = getMexcPositionSide(directionRaw);
-      const averageFilledPrice = getRawValueByAliases(row, ["Average Filled Price", "Avg Filled Price"]);
-      const orderPrice = getRawValueByAliases(row, ["Order Price"]);
-      const pnlRaw = getRawValueByAliases(row, ["Closing PNL", "Closed PNL", "Realized PNL"]);
-      const feeRaw = getRawValueByAliases(row, ["Trading Fee", "Fee"]);
-      const sizeRaw =
-        getRawValueByAliases(row, ["Filled Qty (Crypto)", "Filled Qty Crypto", "Filled Qty", "Filled Qty (Cont.)"]) ||
-        getRawValueByAliases(row, ["Order Qty (Crypto)", "Order Qty"]);
-      const pnl = parseTradingNumber(pnlRaw);
-      const fee = parseTradingNumber(feeRaw);
-      return {
-        row,
-        index,
-        date,
-        timestamp: date ? new Date(date).getTime() : 0,
-        market,
-        directionRaw,
-        side,
-        averageFilledPrice,
-        orderPrice,
-        pnlRaw,
-        pnl,
-        feeRaw,
-        fee,
-        sizeRaw,
-      };
-    })
-    .filter((row) => row.date && row.market && row.side)
-    .sort((left, right) => left.timestamp - right.timestamp);
+  rows.forEach((row, index) => {
+    const directionRaw = getRawValueByAliases(row, [
+      "Direction",
+      "Action",
+      "Side",
+      "Position Side",
+    ]);
+    const action = getMexcOrderAction(directionRaw);
+    const side = getMexcPositionSide(directionRaw);
+    const pnlRaw = getRawValueByAliases(row, [
+      "Closing PNL",
+      "Closed PNL",
+      "Realized PNL",
+    ]);
+    const feeRaw = getRawValueByAliases(row, ["Trading Fee", "Fee"]);
+    const sizeRaw =
+      getRawValueByAliases(row, [
+        "Filled Qty (Crypto)",
+        "Filled Qty Crypto",
+        "Filled Qty",
+        "Filled Qty (Cont.)",
+      ]) || getRawValueByAliases(row, ["Order Qty (Crypto)", "Order Qty"]);
 
-  const openLegs = new Map<string, typeof parsedRows>();
-
-  for (const row of parsedRows) {
-    const key = `${row.market.toLowerCase()}|${row.side}`;
-    const hasClosingPnL = row.pnl !== null && Math.abs(row.pnl) > 0.00000001;
-
-    if (!hasClosingPnL) {
-      const current = openLegs.get(key) ?? [];
-      current.push(row);
-      openLegs.set(key, current);
-      overrides.set(row.index, {
-        skipReason: "Order-Zeile ohne Closing P&L. Wird nicht als eigener Trade importiert.",
-        direction: row.side ?? undefined,
-        fees: row.feeRaw,
-        positionSize: row.sizeRaw,
+    if (action === "open") {
+      overrides.set(index, {
+        skipReason:
+          "Explizite MEXC-Eröffnungszeile. Sie wird ohne belastbare Positions-ID und Teilfill-Zuordnung nicht automatisch gepaart.",
+        direction: side ?? undefined,
       });
-      continue;
+      return;
+    }
+    if (action !== "close") {
+      overrides.set(index, {
+        skipReason:
+          "MEXC-Zeile ohne eindeutige Open-/Close-Aktion. Manuelle Prüfung erforderlich; keine heuristische Paarung.",
+        direction: side ?? undefined,
+      });
+      return;
+    }
+    if (!pnlRaw || parseTradingNumber(pnlRaw) === null) {
+      overrides.set(index, {
+        skipReason:
+          "MEXC-Schließungszeile ohne lesbares Closing P&L. Manuelle Prüfung erforderlich.",
+        direction: side ?? undefined,
+      });
+      return;
     }
 
-    const current = openLegs.get(key) ?? [];
-    const openingLeg = current.pop();
-    openLegs.set(key, current);
-    const openingFee = openingLeg?.fee ?? 0;
-    const closingFee = row.fee ?? 0;
-    const totalFees = openingFee || closingFee ? String(Number((openingFee + closingFee).toFixed(12))) : row.feeRaw;
-    const entry = openingLeg?.averageFilledPrice || openingLeg?.orderPrice || "";
-    const exit = row.averageFilledPrice || row.orderPrice || "";
-    overrides.set(row.index, {
-      entry,
-      exit,
-      netPnL: row.pnlRaw,
-      fees: totalFees,
-      positionSize: row.sizeRaw,
-      direction: row.side ?? undefined,
-      notes: openingLeg
-        ? "MEXC Order History: Entry aus passender Eröffnungsorder übernommen. R bleibt offen, weil kein Stop/Risiko im Export steht."
-        : "MEXC Order History: Closing P&L übernommen. R bleibt offen, weil kein Stop/Risiko im Export steht.",
+    overrides.set(index, {
+      exit:
+        getRawValueByAliases(row, ["Average Filled Price", "Avg Filled Price"]) ||
+        getRawValueByAliases(row, ["Order Price"]),
+      netPnL: pnlRaw,
+      fees: feeRaw,
+      positionSize: sizeRaw,
+      direction: side ?? undefined,
+      notes:
+        "MEXC Order History: explizite Schließungszeile einschließlich Breakeven-P&L übernommen. Keine heuristische Entry-Paarung; R bleibt ohne Stop-/Risikodaten offen.",
     });
-  }
+  });
 
   return overrides;
 }
@@ -987,16 +1429,34 @@ export function buildCsvImportPreview(
   mapping: CsvImportMapping,
   presetKey: CsvImportPresetKey = "generic",
   repairOverrides?: CsvImportRepairOverrides,
+  timestampOffsetMinutes?: number | null,
 ): CsvImportPreviewRow[] {
   const preset = getPreset(presetKey);
   const mexcOrderOverrides =
     presetKey === "mexc-futures"
       ? buildMexcFuturesOrderHistoryOverrides(rows)
       : new Map<number, MexcOrderHistoryOverride>();
+  const cTraderStatementCurrency =
+    presetKey === "ctrader-history"
+      ? getCTraderStatementCurrency(mapping)
+      : "";
+  const mappingIssues = getCsvImportMappingIssues(
+    Object.keys(rows[0] ?? {}),
+    mapping,
+    presetKey,
+  );
 
   return rows.map((row, index) => {
     const rowNumber = index + 2;
+    const sourceIdentity = extractCsvImportSourceIdentity(row, presetKey);
     const mexcOverride = mexcOrderOverrides.get(index);
+    const mappedCurrency = getPreviewValue(
+      row,
+      mapping,
+      "currency",
+      rowNumber,
+      repairOverrides,
+    );
     const previewValues = {
       date: getPreviewValue(row, mapping, "date", rowNumber, repairOverrides),
       market: getPreviewValue(
@@ -1006,13 +1466,7 @@ export function buildCsvImportPreview(
         rowNumber,
         repairOverrides,
       ),
-      currency: getPreviewValue(
-        row,
-        mapping,
-        "currency",
-        rowNumber,
-        repairOverrides,
-      ),
+      currency: mappedCurrency || cTraderStatementCurrency,
       netPnL:
         mexcOverride?.netPnL ??
         getPreviewValue(
@@ -1230,8 +1684,15 @@ export function buildCsvImportPreview(
       ),
     };
 
+    if (cTraderStatementCurrency && sources.currency === "empty") {
+      sources.currency = "csv";
+    }
+
     const normalized = {
-      date: normalizeDateValue(previewValues.date),
+      date: normalizeDateValue(
+        previewValues.date,
+        timestampOffsetMinutes,
+      ),
       market: previewValues.market.trim() || null,
       currency: previewValues.currency.trim().toUpperCase() || null,
       netPnL: previewValues.netPnL.trim() || null,
@@ -1244,7 +1705,7 @@ export function buildCsvImportPreview(
       session: previewValues.session.trim() || null,
       tags: splitTagValue(previewValues.tags),
       notes: previewValues.notes.trim() || null,
-      fees: previewValues.fees.trim() || null,
+      fees: normalizeImportedFeeValue(previewValues.fees, presetKey) || null,
       positionSize: previewValues.positionSize.trim() || null,
       instrumentType: normalizeInstrumentTypeValue(
         previewValues.instrumentType,
@@ -1254,8 +1715,15 @@ export function buildCsvImportPreview(
     };
 
     const issues: string[] = [];
+    issues.push(...mappingIssues);
     if (mexcOverride?.skipReason) issues.push(mexcOverride.skipReason);
-    if (!normalized.date) issues.push("Datum fehlt oder ist nicht lesbar.");
+    if (!normalized.date) {
+      issues.push(
+        previewValues.date.trim() && timestampOffsetMinutes == null
+          ? "Exportzeit enthält keine belastbare Zeitzone. Bitte den UTC-Offset des Exports ausdrücklich wählen."
+          : "Datum fehlt oder ist nicht lesbar.",
+      );
+    }
     if (!normalized.market) issues.push("Markt / Symbol fehlt.");
     if (normalized.currency && !normalizeTradeCurrency(normalized.currency)) {
       issues.push("Kontowährung ist nicht unterstützt; erlaubt sind EUR, USD, GBP, USDT und USDC.");
@@ -1282,7 +1750,7 @@ export function buildCsvImportPreview(
     if (mexcOverride?.direction) sources.direction = "csv";
 
     let status: CsvImportPreviewStatus = "importable";
-    if (mexcOverride?.skipReason) status = "skip";
+    if (mexcOverride?.skipReason || mappingIssues.length) status = "skip";
     else if (!normalized.date || !normalized.market || (normalized.currency !== null && !normalizeTradeCurrency(normalized.currency))) status = "skip";
     else if (!hasEnoughContext(normalized)) status = "check";
 
@@ -1297,6 +1765,7 @@ export function buildCsvImportPreview(
     return {
       rowNumber,
       raw: row,
+      sourceIdentity,
       normalized,
       sources,
       fieldHeaders: buildFieldHeaderMap(mapping),
@@ -1324,6 +1793,7 @@ export function buildCsvImportDrafts(
     )
     .map<CsvImportDraft>((row) => ({
       rowNumber: row.rowNumber,
+      sourceIdentity: row.sourceIdentity,
       fieldSources: row.sources,
       fieldHeaders: row.fieldHeaders,
       importWarnings: row.warnings,
