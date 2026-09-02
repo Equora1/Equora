@@ -1,8 +1,12 @@
-import { AppIcon } from '@/components/ui/app-icon'
+import Link from 'next/link'
+import { AppIcon, type AppIconName } from '@/components/ui/app-icon'
 import { FuturisticCard } from '@/components/ui/futuristic-card'
 import { BrokerConnectionPanel } from '@/components/broker-sync/broker-connection-panel'
+import { BrokerOnboardingCatalog } from '@/components/broker-sync/broker-onboarding-catalog'
 import type { BrokerSyncSnapshot } from '@/lib/server/broker-sync'
 import type { BrokerCaptureRunSummary, BrokerPreviewItem } from '@/lib/types/broker-sync'
+import { brokerCatalogSummary } from '@/lib/utils/broker-catalog'
+import { brokerFileImportCapability } from '@/lib/utils/broker-file-import-capability'
 
 const workflow = [
   ['1', 'Providerstatus prüfen', 'Nur gebaute und freigegebene Provider dürfen Zugangsdaten anfordern. Lokale Kandidaten bleiben gesperrt.'],
@@ -30,8 +34,8 @@ export function BrokerSyncHub({ snapshot }: { snapshot: BrokerSyncSnapshot }) {
                 <AppIcon name="sync" className="h-5 w-5" aria-hidden="true" />
               </span>
               <div>
-                <p className="eq-display text-[0.62rem] text-[#b09a7a]">Automatisch dokumentieren</p>
-                <h2 className="mt-1 text-2xl font-semibold text-white sm:text-3xl">Broker verbinden</h2>
+                <p className="eq-display text-[0.62rem] text-[#b09a7a]">Kontrolliert dokumentieren</p>
+                <h1 className="mt-1 text-2xl font-semibold text-white sm:text-3xl">Broker verbinden</h1>
               </div>
             </div>
             <p className="mt-5 max-w-2xl text-sm leading-7 text-white/58 sm:text-base">
@@ -57,6 +61,60 @@ export function BrokerSyncHub({ snapshot }: { snapshot: BrokerSyncSnapshot }) {
           {snapshot.notice}
         </div>
       ) : null}
+
+      <FuturisticCard className="overflow-hidden p-0">
+        <div className="border-b border-white/8 px-6 py-6 sm:px-7">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+            <div className="max-w-3xl">
+              <p className="eq-display text-[0.58rem] text-[#b09a7a]">Anbindungswege</p>
+              <h3 className="mt-2 text-2xl font-semibold text-white">Der schnellste passende Weg zu deinen Trades</h3>
+              <p className="mt-3 text-sm leading-6 text-white/58">
+                Equora trennt Importprofile, Plattform-Connectoren und direkte Broker-APIs. So lässt sich neue Abdeckung
+                ergänzen, ohne jede Broker-Marke als eigene Runtime zu bauen oder automatische Verbindung zu behaupten.
+              </p>
+            </div>
+            <span className="w-fit rounded-full border border-[#c8823a]/25 bg-[#c8823a]/10 px-3 py-1.5 text-[10px] uppercase tracking-[0.16em] text-[#f0a855]">
+              {brokerCatalogSummary.brokerCount} Broker · {brokerCatalogSummary.platformCount} Plattform · {brokerCatalogSummary.genericFallbackCount} Fallback
+            </span>
+          </div>
+        </div>
+
+        <div className="grid lg:grid-cols-3">
+          <OnboardingLane
+            step="01"
+            icon="vault"
+            eyebrow={brokerFileImportCapability.statusLabel}
+            title="Dateiimport vorbereiten"
+            description={`CSV- und Excel-Profile, Signaturerkennung und Vorschau sind lokal gebaut. ${brokerFileImportCapability.blockedReason}`}
+            metric={`${brokerCatalogSummary.builtFileProfileCount} Parserprofile · ${brokerFileImportCapability.requiredMigration} ausstehend`}
+            inactiveLabel={brokerFileImportCapability.blockedActionLabel}
+            tone="controlled"
+          />
+          <OnboardingLane
+            step="02"
+            icon="sync"
+            eyebrow="Kontrollierter Ausbau"
+            title="Read-only verbinden"
+            description="Nur ausdrücklich gebaute Provider erhalten einen getrennten Connection-Flow. Runtime, Nutzerfreigabe und Datencapture bleiben eigene Gates."
+            metric="MEXC Runtime gebaut, derzeit aus · OKX Kandidat"
+            href="#broker-connections"
+            action="Verbindungen prüfen"
+            tone="controlled"
+          />
+          <OnboardingLane
+            step="03"
+            icon="scan"
+            eyebrow="Nächster Skalierungshebel"
+            title="Plattformfamilie nutzen"
+            description={`Das cTrader-Statement-Profil ist für cTrader-gebundene Broker gebaut. ${brokerFileImportCapability.blockedReason} MetaTrader 4/5, DXtrade und direkter Plattform-Sync bleiben inaktiv.`}
+            metric={`cTrader-Profil gebaut · ${brokerFileImportCapability.requiredMigration} ausstehend · Sync aus`}
+            inactiveLabel={brokerFileImportCapability.blockedActionLabel}
+            tone="controlled"
+          />
+        </div>
+      </FuturisticCard>
+
+      <BrokerOnboardingCatalog />
 
       <div className="grid gap-5 xl:grid-cols-[1.05fr_0.95fr]">
         <FuturisticCard className="p-6">
@@ -110,14 +168,16 @@ export function BrokerSyncHub({ snapshot }: { snapshot: BrokerSyncSnapshot }) {
         </FuturisticCard>
       </div>
 
-      <FuturisticCard className="p-5 sm:p-6">
-        <BrokerConnectionPanel
-          connections={snapshot.connections}
-          schemaState={snapshot.schemaState}
-          connectorState={snapshot.connectorState}
-          secureStoreState={snapshot.secureStoreState}
-        />
-      </FuturisticCard>
+      <div id="broker-connections" className="scroll-mt-6">
+        <FuturisticCard className="p-5 sm:p-6">
+          <BrokerConnectionPanel
+            connections={snapshot.connections}
+            schemaState={snapshot.schemaState}
+            connectorState={snapshot.connectorState}
+            secureStoreState={snapshot.secureStoreState}
+          />
+        </FuturisticCard>
+      </div>
 
       <FuturisticCard className="p-6">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
@@ -199,6 +259,66 @@ export function BrokerSyncHub({ snapshot }: { snapshot: BrokerSyncSnapshot }) {
         </FuturisticCard>
       </div>
     </div>
+  )
+}
+
+function OnboardingLane({
+  step,
+  icon,
+  eyebrow,
+  title,
+  description,
+  metric,
+  href,
+  action,
+  inactiveLabel = 'Noch nicht aktiv',
+  tone,
+}: {
+  step: string
+  icon: AppIconName
+  eyebrow: string
+  title: string
+  description: string
+  metric: string
+  href?: string
+  action?: string
+  inactiveLabel?: string
+  tone: 'ready' | 'controlled' | 'planned'
+}) {
+  const accentClass = tone === 'ready'
+    ? 'border-emerald-300/25 bg-emerald-300/10 text-emerald-200'
+    : tone === 'controlled'
+      ? 'border-[#c8823a]/25 bg-[#c8823a]/10 text-[#f0a855]'
+      : 'border-white/10 bg-white/[0.035] text-white/55'
+
+  return (
+    <article className="relative border-b border-white/8 p-6 last:border-b-0 lg:border-b-0 lg:border-r lg:last:border-r-0">
+      <div className="flex items-start justify-between gap-4">
+        <span className={`inline-flex h-11 w-11 items-center justify-center rounded-2xl border ${accentClass}`}>
+          <AppIcon name={icon} className="h-5 w-5" aria-hidden="true" />
+        </span>
+        <span className="eq-display text-[0.55rem] text-white/28">{step}</span>
+      </div>
+      <p className="mt-6 text-[10px] uppercase tracking-[0.16em] text-[#b09a7a]">{eyebrow}</p>
+      <h4 className="mt-2 text-lg font-semibold text-white">{title}</h4>
+      <p className="mt-3 min-h-24 text-sm leading-6 text-white/55">{description}</p>
+      <div className="mt-5 border-t border-white/8 pt-4">
+        <p className="text-xs text-white/45">{metric}</p>
+        {href && action ? (
+          <Link
+            href={href}
+            className="mt-4 inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.035] px-3.5 py-2 text-xs font-medium text-white/72 transition hover:border-[#c8823a]/35 hover:bg-[#c8823a]/10 hover:text-white"
+          >
+            {action}
+            <AppIcon name="arrow" className="h-3.5 w-3.5" aria-hidden="true" />
+          </Link>
+        ) : (
+          <span className="mt-4 inline-flex rounded-full border border-white/8 bg-black/20 px-3.5 py-2 text-[10px] uppercase tracking-[0.14em] text-white/35">
+            {inactiveLabel}
+          </span>
+        )}
+      </div>
+    </article>
   )
 }
 

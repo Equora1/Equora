@@ -79,14 +79,23 @@ describe('v57.60.1 application safety contracts', () => {
     expect(cleanupAction).not.toContain('not_before: now')
   })
 
-  it('uses exact timestamp, currency and account identity for CSV duplicate checks', () => {
+  it('delegates exact timestamp, currency and account identity dedupe to SQL v2', () => {
     const action = source('app/actions/trade-import.ts')
+    const sql = source('supabase/schema-candidate-v57.62.0-trade-import-hardening.sql')
 
-    expect(action).toContain('date.toISOString()')
+    expect(action).toContain('normalizedDate.toISOString()')
     expect(action).toContain('input.accountCurrency')
     expect(action).toContain('input.accountLabel')
-    expect(action).toContain('input.accountTemplate')
-    expect(action).toContain('input.brokerProfile')
+    expect(action).not.toContain('existingSourceIdentityKeys')
+    expect(action).not.toContain('seenSourceIdentityKeys')
+    expect(action).toContain('p_source_rows:')
+    expect(action).toContain('isExplicitCsvImportAccountLabel(batchAccountLabel)')
+    expect(sql).toContain('v_import_account_id::text')
+    expect(sql).toContain('pg_catalog.trim_scale(')
+    expect(sql).toContain("raise exception 'INVALID_TRADE_CURRENCY'")
+    expect(sql).toContain("'account_currency', upper(btrim(v_trade->>'account_currency'))")
+    expect(sql).not.toContain("'account_currency', p_batch->>'account_currency'")
+    expect(sql).toContain("v_provider_identity_kind <> 'deal_id'")
   })
 
   it('keeps the analytics scope visible and suppresses claims for empty or small samples', () => {
@@ -200,6 +209,8 @@ describe('v57.60.1 application safety contracts', () => {
     const brokerSync = source('lib/server/broker-sync.ts')
     const brokerTypes = source('lib/types/broker-sync.ts')
     const hub = source('components/broker-sync/broker-sync-hub.tsx')
+    const catalogUi = source('components/broker-sync/broker-onboarding-catalog.tsx')
+    const catalog = source('lib/utils/broker-catalog.ts')
     const appShell = source('components/layout/app-shell.tsx')
     const refreshAction = actions.slice(
       actions.indexOf('export async function refreshMexcPreview'),
@@ -249,6 +260,26 @@ describe('v57.60.1 application safety contracts', () => {
     expect(hub).toContain('In der App nicht implementiert')
     expect(hub).toContain('nicht vollständig verifiziert')
     expect(hub).toContain('externe Provider- und Plattform-Logs sind durch dieses UI-Gate nicht vollständig auditiert')
+    expect(hub).toContain('Der schnellste passende Weg zu deinen Trades')
+    expect(hub).toContain('brokerCatalogSummary.builtFileProfileCount')
+    expect(hub).toContain('<BrokerOnboardingCatalog />')
+    expect(hub).not.toContain('/trades?capture=import#trade-editor')
+    expect(hub).toContain('brokerFileImportCapability.blockedReason')
+    expect(hub).toContain('Das cTrader-Statement-Profil ist für cTrader-gebundene Broker gebaut')
+    expect(hub).toContain('MetaTrader 4/5, DXtrade und direkter Plattform-Sync bleiben inaktiv')
+    expect(hub).toContain('brokerFileImportCapability.requiredMigration')
+    expect(hub).not.toContain('/trades?capture=import&preset=ctrader-history#trade-editor')
+    expect(hub).toContain('MEXC Runtime gebaut, derzeit aus · OKX Kandidat')
+    expect(hub).not.toMatch(/500\+|500 Broker|alle Broker automatisch/u)
+    expect(catalogUi).toContain('Reine Roadmap – derzeit keine aktive Verbindung')
+    expect(catalogUi).toContain('brokerCatalogSummary.platformCount')
+    expect(catalogUi).toContain('brokerCatalogSummary.builtFileProfileCount')
+    expect(catalogUi).toContain("fileMethod?.availability === 'available'")
+    expect(catalogUi).toContain('brokerFileImportCapability.blockedActionLabel')
+    expect(catalogUi).toContain("method.availability === 'controlled_candidate'")
+    expect(catalog).not.toContain('availability: "available"')
+    expect(catalog).toContain('availableFileProfileCount: availableFileProfileKeys.size')
+    expect(catalogUi).not.toMatch(/500\+|500 Broker|alle Broker automatisch/u)
     expect(hub).toContain('className="mt-5 grid gap-3"')
     expect(hub).toContain('className="flex flex-col items-start gap-2"')
     expect(hub).not.toContain('Equora darf lesen, sonst nichts')
@@ -275,7 +306,8 @@ describe('v57.60.1 application safety contracts', () => {
     expect(reviewFixture).toContain('runtimeEnabled: false')
     expect(reviewFixture).toContain("runtimeMode: 'off'")
     expect(reviewFixture).not.toMatch(/apiKey|secretKey|credential_reference/u)
-    expect(appShell).toContain('grid min-w-0 gap-5')
+    expect(appShell).toContain('grid min-w-0 gap-4')
+    expect(appShell).toContain('xl:grid-cols-[272px_minmax(0,1fr)]')
     expect(appShell).toContain('aside className="min-w-0')
     expect(brokerSync).toContain(".from('broker_connections')")
     expect(brokerSync).not.toMatch(/\.from\('broker_(?:credentials|connection_accounts|sync_activations|capture_runs|capture_raw_events)'\)/u)
@@ -284,6 +316,144 @@ describe('v57.60.1 application safety contracts', () => {
     expect(brokerSync).not.toContain('Connector und Capture bleiben fail-closed gesperrt')
     expect(actions).toContain('ein secret-freies Setup-Intent kann als Auditspur bestehen bleiben')
     expect(actions).not.toContain('kein halbfertiger Setup-Stand akzeptiert')
+  })
+
+  it('keeps the modern dashboard bound to trusted and currency-comparable journal data', () => {
+    const page = source('app/(journal)/dashboard/page.tsx')
+    const overview = source('components/dashboard/dashboard-overview.tsx')
+    const equity = source('components/dashboard/equity-curve-card.tsx')
+    const recentTrades = source('components/dashboard/recent-trades-card.tsx')
+    const dashboardModel = source('lib/utils/dashboard.ts')
+    const journal = source('lib/server/journal.ts')
+
+    expect(page).toContain('getDashboardSnapshotServer')
+    expect(page).toContain('source={snapshot.source}')
+    expect(page).toContain('availability={snapshot.availability}')
+    expect(overview).toContain('buildDashboardMetricModel(trades)')
+    expect(overview).toContain('getDashboardMoneyLockReason')
+    expect(overview).toContain("dataState === 'demo'")
+    expect(overview).toContain("dataState === 'unavailable' || dataState === 'unauthenticated'")
+    expect(overview).not.toContain("Währungen fehlen oder sind gemischt")
+    expect(overview).toContain('Offene oder widersprüchliche Datensätze werden nicht still eingerechnet')
+    expect(overview).toContain('role="progressbar"')
+    expect(overview).toContain('aria-valuenow={coverage}')
+    expect(equity).toContain('buildEquitySeries(trades)')
+    expect(equity).toContain('getMonetaryScopeMessage(series.monetaryScope)')
+    expect(equity).toContain('Kumuliertes Netto-P&amp;L')
+    expect(equity).not.toContain('Kumulierte Equity')
+    expect(recentTrades).toContain('lg:grid-cols-[0.85fr_1fr_1fr_0.8fr_0.7fr_0.7fr]')
+    expect(recentTrades).toContain('getTradeTrustMeta(trade)')
+    expect(recentTrades).toContain('getDashboardRObservation(trade)')
+    expect(dashboardModel).toContain("source === 'realized' || source === 'realized_partial' || source === 'manual'")
+    expect(dashboardModel).toContain("if (availability === 'unavailable') return 'unavailable'")
+    expect(dashboardModel).toContain("if (trustedTradeCount === 0) return 'Keine belastbaren Abschlüsse'")
+    expect(dashboardModel).toContain("if (scopeKind === 'mixed') return 'Mehrere Währungen ohne Umrechnungskurs'")
+    expect(journal).toContain('export type DashboardJournalSnapshot = JournalSnapshot &')
+    expect(journal).toContain('failOnRelatedDataError: true')
+    expect(journal).toContain('return result.snapshot')
+    expect(journal).toContain('availability: result.availability')
+
+    for (const content of [overview, equity, recentTrades, source('components/dashboard/stats-grid.tsx'), source('components/layout/sidebar-nav.tsx')]) {
+      expect(content).not.toMatch(/text-white\/(?:30|35|38|42|45)\b/u)
+    }
+  })
+
+  it('derives the active sidebar capture state directly from the current query', () => {
+    const sidebar = source('components/layout/sidebar-nav.tsx')
+
+    expect(sidebar).toContain("import { usePathname, useSearchParams } from 'next/navigation'")
+    expect(sidebar).toContain("const activeCapture = searchParams.get('capture')")
+    expect(sidebar).toContain('[activeCapture, pathname]')
+    expect(sidebar).not.toContain('setActiveCapture')
+  })
+
+  it('uses route-specific headings and keeps timeline evidence legible', () => {
+    const sidebar = source('components/layout/sidebar-nav.tsx')
+    const brokerHub = source('components/broker-sync/broker-sync-hub.tsx')
+    const trades = source('components/trades/trades-workbench.tsx')
+    const timeline = source('components/trades/trade-activity-timeline.tsx')
+
+    expect(sidebar).not.toContain('<h1')
+    expect(sidebar).toContain('aria-label="Equora Trading Journal – Startseite"')
+    expect(brokerHub).toContain('<h1 className="mt-1 text-2xl')
+    expect(trades).toContain('<h1 className="mt-2 text-2xl')
+    expect(timeline).not.toContain('text-[9px]')
+    expect(timeline).not.toContain('text-white/35')
+    expect(timeline).toContain('text-[11px] uppercase')
+    expect(timeline).toContain('text-xs leading-5 text-white/55')
+  })
+
+  it('enforces one fail-closed file-import capability across every visible entry point', () => {
+    const capability = source('lib/utils/broker-file-import-capability.ts')
+    const catalog = source('lib/utils/broker-catalog.ts')
+    const hub = source('components/broker-sync/broker-sync-hub.tsx')
+    const catalogUi = source('components/broker-sync/broker-onboarding-catalog.tsx')
+    const workbench = source('components/trades/trades-workbench.tsx')
+    const ledger = source('components/trades/trade-ledger-capture.tsx')
+    const panel = source('components/trades/trade-import-panel.tsx')
+    const captureDeck = source('components/trades/trade-capture-deck.tsx')
+    const dashboardStart = source('components/dashboard/simple-start-card.tsx')
+    const reviewEmptyState = source('components/review/review-empty-state-card.tsx')
+    const login = source('app/login/page.tsx')
+    const action = source('app/actions/trade-import.ts')
+
+    expect(capability).toContain('const deploymentState: BrokerFileImportDeploymentState = "migration_pending"')
+    expect(capability).toContain('persistenceEnabled: false')
+    expect(capability).toContain('previewEnabled: true')
+    expect(capability).toContain('requiredMigration: "v57.62.0"')
+    expect(capability).toContain('previewActionLabel: "Datei prüfen"')
+    expect(capability).toContain('blockedActionLabel: "DB-Gate ausstehend"')
+
+    for (const consumer of [
+      catalog,
+      hub,
+      catalogUi,
+      workbench,
+      ledger,
+      panel,
+      captureDeck,
+      dashboardStart,
+      reviewEmptyState,
+      login,
+      action,
+    ]) {
+      expect(consumer).toContain('brokerFileImportCapability')
+    }
+
+    for (const entryPoint of [
+      catalogUi,
+      workbench,
+      ledger,
+      dashboardStart,
+      reviewEmptyState,
+    ]) {
+      expect(entryPoint).not.toContain('href="/trades?capture=import')
+    }
+
+    expect(panel).toContain('if (!brokerFileImportCapability.persistenceEnabled)')
+    expect(panel).toContain('setStatusMessage(brokerFileImportCapability.blockedReason)')
+    expect(panel).toContain('!brokerFileImportCapability.persistenceEnabled')
+    expect(panel).toContain('aria-describedby="file-import-deployment-status"')
+    expect(panel).toContain('Vorschau wirkt sauber')
+    expect(panel).not.toContain('Import wirkt sauber')
+    expect(panel).not.toContain('dann importieren')
+    expect(action).toContain('if (!brokerFileImportCapability.persistenceEnabled)')
+    expect(captureDeck).toContain("label: brokerFileImportCapability.previewActionLabel")
+    expect(login).not.toContain('CSV importieren')
+  })
+
+  it('keeps detected and manually selected broker import profiles visibly distinct', () => {
+    const importPanel = source('components/trades/trade-import-panel.tsx')
+
+    expect(importPanel).toContain('const requestedPreset = searchParams.get("preset")')
+    expect(importPanel).toContain('isCsvImportPresetKey(requestedPreset) ? requestedPreset : "generic"')
+    expect(importPanel).toContain('Dateisignatur und gewähltes Preset widersprechen sich')
+    expect(importPanel).toContain('aktiv bleibt')
+    expect(importPanel).toContain('Bitte Auswahl und Zuordnung vor der Vorschau prüfen')
+    expect(importPanel).toContain('aria-atomic="true"')
+    expect(importPanel).toContain('getCsvImportPresetMeta(preset).sourceIdentity')
+    expect(importPanel).toContain('!isExplicitCsvImportAccountLabel(normalizedAccountLabel)')
+    expect(importPanel).toContain('„Hauptkonto“ reicht nicht')
   })
 
   it('builds the release ZIP with canonical portable entry names', () => {

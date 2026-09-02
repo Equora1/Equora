@@ -2,16 +2,17 @@
 
 import React from 'react'
 import Link from 'next/link'
-import { useEffect, useMemo, useState, useTransition } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { deleteTradeEntry } from '@/app/actions/trades'
-import { TradeDetailCard } from '@/components/trades/trade-detail-card'
+import { TradeDetailDrawer } from '@/components/trades/trade-detail-drawer'
 import type { TradeDetail, Trade } from '@/lib/types/trade'
 import type { TradeTag } from '@/lib/types/tag'
 import type { SavedReviewSession } from '@/lib/types/review-session'
 import { buildStreakMetrics } from '@/lib/utils/analytics'
 import { getTradeTrustMeta, getTradeTrustState } from '@/lib/utils/trade-trust'
 import { getTradeAccountLabel } from '@/lib/utils/account-context'
+import { brokerFileImportCapability } from '@/lib/utils/broker-file-import-capability'
 import {
   buildTradeTagMap,
   countActiveTradeTableFilters,
@@ -75,6 +76,14 @@ const columnDefinitions: Array<{ key: ColumnKey; label: string }> = [
   { key: 'ergebnis', label: 'P&L' },
 ]
 
+function escapeCsvCell(value: unknown) {
+  const text = String(value ?? '')
+  const formulaSafeText = typeof value !== 'number' && /^[\u0000-\u0020]*[=+\-@]/.test(text)
+    ? `'${text}`
+    : text
+  return `\"${formulaSafeText.replace(/\"/g, '\"\"')}\"`
+}
+
 type TradesWorkbenchProps = {
   trades: Trade[]
   activeTradeDetail?: TradeDetail
@@ -125,6 +134,7 @@ export function TradesWorkbench({
   initialFilters,
   reviewContext,
   spotlightTradeIds = [],
+  savedSessions = [],
   isEditorOpen = false,
   activeEditTradeId,
   activeCloseTradeId,
@@ -135,6 +145,7 @@ export function TradesWorkbench({
 }: TradesWorkbenchProps) {
   const router = useRouter()
   const searchParams = useSearchParams()
+  const lastClosedTradeIdRef = useRef<string | null>(null)
   const [tradeItems, setTradeItems] = useState<Trade[]>(trades)
   const [tradeTagItems, setTradeTagItems] = useState<TradeTag[]>(tradeTags)
   const [filters, setFilters] = useState<TradeTableFilters>(() => initialFilters ?? createDefaultTradeTableFilters())
@@ -145,6 +156,7 @@ export function TradesWorkbench({
   const [showReviewOnly, setShowReviewOnly] = useState(false)
   const [statusMessage, setStatusMessage] = useState('')
   const [visibleColumns, setVisibleColumns] = useState<ColumnKey[]>(defaultVisibleColumns)
+  const [hasLoadedColumnPreference, setHasLoadedColumnPreference] = useState(false)
   const [isDeletingTrade, startDeletingTrade] = useTransition()
   const [isExporting, startExporting] = useTransition()
   const hasExplicitSelection = Boolean(selectedTradeId)
@@ -154,23 +166,49 @@ export function TradesWorkbench({
   useEffect(() => setSelectedTrade(selectedTradeId), [selectedTradeId])
 
   useEffect(() => {
+    if (selectedTrade || selectedTradeId || !lastClosedTradeIdRef.current) return
+
+    const closedTradeId = lastClosedTradeIdRef.current
+    const timer = window.setTimeout(() => {
+      const triggers = Array.from(document.querySelectorAll<HTMLElement>('[data-trade-detail-trigger]'))
+      const visibleTrigger = triggers.find((trigger) => (
+        trigger.dataset.tradeDetailTrigger === closedTradeId && trigger.offsetParent !== null
+      ))
+      visibleTrigger?.focus()
+      lastClosedTradeIdRef.current = null
+    }, 0)
+
+    return () => window.clearTimeout(timer)
+  }, [selectedTrade, selectedTradeId])
+
+  useEffect(() => {
     if (typeof window === 'undefined') return
 
     try {
       const raw = window.localStorage.getItem(COLUMN_STORAGE_KEY)
       if (!raw) return
-      const parsed = JSON.parse(raw) as ColumnKey[]
-      const cleaned = parsed.filter((column) => columnDefinitions.some((definition) => definition.key === column))
+      const parsed: unknown = JSON.parse(raw)
+      if (!Array.isArray(parsed)) return
+      const cleaned = Array.from(new Set(parsed.filter(
+        (column): column is ColumnKey => typeof column === 'string'
+          && columnDefinitions.some((definition) => definition.key === column),
+      )))
       if (cleaned.length) setVisibleColumns(cleaned)
     } catch {
       // ignore corrupted local preference and continue with defaults
+    } finally {
+      setHasLoadedColumnPreference(true)
     }
   }, [])
 
   useEffect(() => {
-    if (typeof window === 'undefined') return
-    window.localStorage.setItem(COLUMN_STORAGE_KEY, JSON.stringify(visibleColumns))
-  }, [visibleColumns])
+    if (typeof window === 'undefined' || !hasLoadedColumnPreference) return
+    try {
+      window.localStorage.setItem(COLUMN_STORAGE_KEY, JSON.stringify(visibleColumns))
+    } catch {
+      // local preference persistence is optional and may be unavailable
+    }
+  }, [hasLoadedColumnPreference, visibleColumns])
 
   const tradeTagMap = useMemo(() => buildTradeTagMap(tradeTagItems), [tradeTagItems])
   const reviewTradeSet = useMemo(() => new Set(spotlightTradeIds), [spotlightTradeIds])
@@ -221,6 +259,10 @@ export function TradesWorkbench({
   )
   const streak = useMemo(() => buildStreakMetrics(tradeItems), [tradeItems])
   const streakTone = getStreakTone(streak)
+  const pinnedSessions = useMemo(
+    () => savedSessions.filter((session) => session.isPinned).slice(0, 3),
+    [savedSessions],
+  )
 
 
   function buildHrefForPage(targetPage: number, tradeId?: string) {
@@ -238,6 +280,18 @@ export function TradesWorkbench({
     setSelectedTrade(tradeId)
     router.push(buildHrefForPage(page, tradeId), { scroll: false })
   }
+
+  const closeTradeDetail = useCallback(() => {
+    if (selectedTrade) lastClosedTradeIdRef.current = selectedTrade
+    setSelectedTrade(undefined)
+    const next = new URLSearchParams(searchParams.toString())
+    next.set('page', String(page))
+    next.delete('tradeId')
+    next.delete('editTradeId')
+    next.delete('closeTradeId')
+    const query = next.toString()
+    router.push(query ? `/trades?${query}` : '/trades', { scroll: false })
+  }, [page, router, searchParams, selectedTrade])
 
   function updateFilter<K extends keyof TradeTableFilters>(key: K, value: TradeTableFilters[K]) {
     setFilters((current) => ({ ...current, [key]: value }))
@@ -289,16 +343,49 @@ export function TradesWorkbench({
   }
 
   return (
-    <section className="rounded-3xl border border-orange-400/15 bg-white/5 p-5 shadow-2xl">
-      <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+    <section className="rounded-3xl border border-orange-400/15 bg-white/[0.045] p-4 shadow-2xl sm:p-5">
+      <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
         <div className="max-w-3xl">
-          <h2 className="text-2xl font-semibold text-orange-300">Trades</h2>
+          <p className="text-[10px] uppercase tracking-[0.24em] text-[#b09a7a]">Journal Workspace</p>
+          <h1 className="mt-2 text-2xl font-semibold text-orange-50 sm:text-3xl">Trade Journal</h1>
+          <p className="mt-2 max-w-2xl text-sm leading-6 text-white/50">
+            Trades prüfen, filtern und direkt im Detail bearbeiten. Herkunft, Vollständigkeit und berechnete Werte bleiben sichtbar getrennt.
+          </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          <Link href="/trades?capture=full#trade-editor" className="rounded-full border border-orange-300/30 bg-orange-400/12 px-3 py-2 text-xs font-medium text-orange-50 transition hover:border-orange-300/45 hover:bg-orange-400/18">
+            + Trade
+          </Link>
+          {brokerFileImportCapability.previewEnabled ? (
+            <Link
+              href={brokerFileImportCapability.previewHref}
+              title={brokerFileImportCapability.blockedReason}
+              className="rounded-full border border-white/10 bg-black/25 px-3 py-2 text-xs text-white/70 transition hover:border-white/20 hover:text-white"
+            >
+              {brokerFileImportCapability.previewActionLabel}
+            </Link>
+          ) : (
+            <span
+              aria-disabled="true"
+              className="cursor-not-allowed rounded-full border border-white/8 bg-black/20 px-3 py-2 text-xs text-white/40"
+            >
+              {brokerFileImportCapability.blockedActionLabel}
+            </span>
+          )}
+          <Link href="/review" className="rounded-full border border-white/10 bg-black/25 px-3 py-2 text-xs text-white/70 transition hover:border-white/20 hover:text-white">
+            Review
+          </Link>
           <span className="rounded-full border border-white/10 bg-black/25 px-3 py-1 text-xs text-white/60">
-            {displayedTrades.length} Trades
+            {totalTradeCount} gesamt
           </span>
         </div>
+      </div>
+
+      <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <MetricTile label="Sichtbar" value={String(displayedTrades.length)} tone="text-white" />
+        <MetricTile label="Offen" value={String(listSummary.open)} tone="text-emerald-200" />
+        <MetricTile label="Unvollständig" value={String(listSummary.incomplete)} tone="text-orange-100" />
+        <MetricTile label="Mit Evidence" value={String(listSummary.screenshots)} tone="text-sky-200" />
       </div>
 
       <StreakPulseCard streak={streak} tone={streakTone} />
@@ -313,6 +400,7 @@ export function TradesWorkbench({
             {spotlightTradeIds.length ? (
               <button
                 type="button"
+                aria-pressed={showReviewOnly}
                 onClick={() => setShowReviewOnly((current) => !current)}
                 className={`rounded-full border px-3 py-1.5 text-xs transition ${showReviewOnly ? 'border-emerald-300/40 bg-emerald-400/15 text-emerald-100' : 'border-white/10 bg-black/25 text-white/75 hover:border-white/25 hover:text-white'}`}
               >
@@ -323,6 +411,25 @@ export function TradesWorkbench({
         </div>
       ) : null}
 
+      {!reviewContext && pinnedSessions.length ? (
+        <nav aria-label="Angepinnte Review-Sessions" className="mt-4 flex flex-wrap items-center gap-2 rounded-2xl border border-white/8 bg-black/20 p-3">
+          <span className="mr-1 text-[10px] uppercase tracking-[0.18em] text-white/35">Gespeicherte Views</span>
+          {pinnedSessions.map((session) => (
+            <Link
+              key={session.id}
+              href={`/trades?reviewSession=${encodeURIComponent(session.id)}`}
+              prefetch={false}
+              className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-white/65 transition hover:border-orange-300/30 hover:text-white"
+            >
+              {session.title} · {session.tradeCount}
+            </Link>
+          ))}
+          <Link href="/review" className="rounded-full border border-transparent px-2 py-1.5 text-xs text-[#f0a855] transition hover:border-[#c8823a]/25">
+            Alle Reviews
+          </Link>
+        </nav>
+      ) : null}
+
       <div className="mt-5 flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
         <div className="flex flex-wrap gap-2">
           <ToolbarButton
@@ -331,6 +438,8 @@ export function TradesWorkbench({
             onClick={() => setShowMoreFilters((current) => !current)}
             active={showMoreFilters}
             title="Filter ein- oder ausblenden"
+            ariaExpanded={showMoreFilters}
+            ariaControls="trade-more-filters"
           />
           <ToolbarButton
             label={showColumnsMenu ? 'Spalten zu' : 'Spalten'}
@@ -338,9 +447,11 @@ export function TradesWorkbench({
             onClick={() => setShowColumnsMenu((current) => !current)}
             active={showColumnsMenu}
             title="Sichtbare Spalten wählen"
+            ariaExpanded={showColumnsMenu}
+            ariaControls="trade-columns-menu"
           />
           <ToolbarButton
-            label={isExporting ? 'Export' : 'CSV'}
+            label={isExporting ? 'Exportiert …' : 'CSV'}
             icon="upload"
             onClick={() => {
               startExporting(async () => {
@@ -349,15 +460,11 @@ export function TradesWorkbench({
                 const headers = [
                   'account', 'asset', 'date', 'session', 'grund', 'strategie', 'status', 'trade_state', 'trust', 'direction', 'result', 'net_pnl', 'r_value', 'has_screenshot', 'tag_count', 'trade_id',
                 ]
-                const csvEscape = (value: unknown) => {
-                  const text = String(value ?? '')
-                  return `\"${text.replace(/\"/g, '\"\"')}\"`
-                }
                 const rows = displayedTrades.map((trade) => {
                   const tags = tradeTagMap[trade.id] ?? []
                   const trustMeta = getTradeTrustMeta(trade)
                   const status = trade.captureResult === 'open' ? 'Offen' : trade.captureStatus === 'incomplete' ? 'Unvollständig' : 'Geschlossen'
-                  return [getTradeAccountLabel(trade), trade.market, trade.date, trade.session || '', trade.concept || trade.emotion || '', trade.setup || '', status, trade.captureStatus || '', trustMeta.shortLabel, trade.direction || '', trade.result || '', trade.netPnL ?? '', trade.rValue ?? '', (trade.screenshotCount ?? 0) > 0 ? 'yes' : 'no', tags.length, trade.id].map(csvEscape).join(',')
+                  return [getTradeAccountLabel(trade), trade.market, trade.date, trade.session || '', trade.concept || trade.emotion || '', trade.setup || '', status, trade.captureStatus || '', trustMeta.shortLabel, trade.direction || '', trade.result || '', trade.netPnL ?? '', trade.rValue ?? '', (trade.screenshotCount ?? 0) > 0 ? 'yes' : 'no', tags.length, trade.id].map(escapeCsvCell).join(',')
                 })
                 const csv = [headers.join(','), ...rows].join('\n')
                 const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
@@ -378,12 +485,14 @@ export function TradesWorkbench({
 
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
           <input
+            aria-label="Trades durchsuchen"
             value={filters.search}
             onChange={(event) => updateFilter('search', event.target.value)}
             placeholder="Konto, Markt, Setup, Tag"
             className="w-full min-w-[240px] rounded-2xl border border-orange-400/15 bg-black/35 px-4 py-3 text-sm text-white outline-none placeholder:text-white/30"
           />
           <select
+            aria-label="Trades sortieren"
             value={sort}
             onChange={(event) => setSort(event.target.value as TradeTableSort)}
             className="rounded-2xl border border-orange-400/15 bg-black/35 px-4 py-3 text-sm text-white outline-none"
@@ -404,10 +513,10 @@ export function TradesWorkbench({
       ) : null}
 
       {showColumnsMenu ? (
-        <div className="mt-4 rounded-2xl border border-white/10 bg-black/35 p-4">
+        <div id="trade-columns-menu" className="mt-4 rounded-2xl border border-white/10 bg-black/35 p-4">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <div>
-              
+
             </div>
             <button
               type="button"
@@ -448,6 +557,7 @@ Standard
             <button
               key={tab.value}
               type="button"
+              aria-pressed={isActive}
               onClick={() => applyStatus(tab.value)}
               className={`rounded-full border px-3 py-1.5 text-xs transition ${isActive ? tab.tone : 'border-white/10 bg-black/30 text-white/55 hover:border-white/20 hover:text-white'}`}
             >
@@ -465,7 +575,7 @@ Standard
       </div>
 
       {showMoreFilters ? (
-        <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+        <div id="trade-more-filters" className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
           <FilterSelect label="Konto" value={filters.account} onChange={(value) => updateFilter('account', value)} options={accountOptions} />
           <FilterSelect label="Markt" value={filters.market} onChange={(value) => updateFilter('market', value)} options={marketOptions} />
           <FilterSelect label="Setup" value={filters.setup} onChange={(value) => updateFilter('setup', value)} options={setupOptions} />
@@ -482,7 +592,22 @@ Standard
           </div>
 
           {visibleTrades.length ? (
-            <div className="overflow-x-auto">
+            <>
+            <div className="space-y-3 p-3 md:hidden">
+              {visibleTrades.map((trade) => (
+                <MobileTradeCard
+                  key={trade.id}
+                  page={page}
+                  trade={trade}
+                  tags={tradeTagMap[trade.id] ?? []}
+                  isSelected={selectedTrade === trade.id}
+                  isEditing={activeEditTradeId === trade.id}
+                  isClosing={activeCloseTradeId === trade.id}
+                  onSelect={() => selectTrade(trade.id)}
+                />
+              ))}
+            </div>
+            <div className="hidden overflow-x-auto md:block">
               <table className="min-w-full text-sm">
                 <thead className="border-b border-white/10 bg-black/35 text-left text-[11px] uppercase tracking-[0.18em] text-white/40">
                   <tr>
@@ -523,6 +648,7 @@ Standard
                 </tbody>
               </table>
             </div>
+            </>
           ) : (
             <div className="px-4 py-10 text-center text-sm text-white/50">Keine Trades.</div>
           )}
@@ -545,27 +671,23 @@ Standard
           </div>
         </div>
 
-        <div className="space-y-4">
-          {statusMessage ? (
-            <div className="rounded-2xl border border-white/10 bg-black/25 px-4 py-3 text-sm text-white/65">{statusMessage}</div>
-          ) : null}
-
-          {selectedTradeDetail ? (
-            <div id="trade-detail" className="scroll-mt-24">
-              <TradeDetailCard
-                detail={selectedTradeDetail.detail}
-                trade={selectedTradeSummary}
-                tags={selectedTradeDetail.tags}
-                tradeId={selectedTradeDetail.id}
-                tagOptions={tagOptions}
-                source={source}
-                onDelete={handleDeleteSelectedTrade}
-                isDeleting={isDeletingTrade}
-              />
-            </div>
-          ) : null}
-        </div>
+        {statusMessage ? (
+          <div role="status" aria-live="polite" className="rounded-2xl border border-white/10 bg-black/25 px-4 py-3 text-sm text-white/65">{statusMessage}</div>
+        ) : null}
       </div>
+
+      <TradeDetailDrawer
+        trade={selectedTradeSummary}
+        detail={selectedTradeDetail?.detail}
+        tags={selectedTradeDetail?.tags ?? []}
+        tradeId={selectedTrade}
+        tagOptions={tagOptions}
+        source={source}
+        isLoading={Boolean(selectedTrade && (!selectedTradeDetail || selectedTrade !== selectedTradeId))}
+        onClose={closeTradeDetail}
+        onDelete={handleDeleteSelectedTrade}
+        isDeleting={isDeletingTrade}
+      />
     </section>
   )
 }
@@ -613,16 +735,37 @@ function StreakMiniStat({ label, value }: { label: string; value: string }) {
   )
 }
 
-function ToolbarButton({ label, icon, onClick, active = false, disabled = false, title }: { label: string; icon: IconName; onClick?: () => void; active?: boolean; disabled?: boolean; title?: string }) {
+function ToolbarButton({
+  label,
+  icon,
+  onClick,
+  active = false,
+  disabled = false,
+  title,
+  ariaExpanded,
+  ariaControls,
+}: {
+  label: string
+  icon: IconName
+  onClick?: () => void
+  active?: boolean
+  disabled?: boolean
+  title?: string
+  ariaExpanded?: boolean
+  ariaControls?: string
+}) {
   return (
     <button
       type="button"
+      aria-label={label}
+      aria-expanded={ariaExpanded}
+      aria-controls={ariaControls}
       onClick={onClick}
       title={title ?? label}
       disabled={disabled}
       className={`inline-flex items-center gap-2 rounded-2xl border px-3 py-2 text-sm transition ${disabled ? 'cursor-not-allowed border-white/10 bg-black/20 text-white/30' : active ? 'border-orange-300/35 bg-orange-400/10 text-white' : 'border-white/10 bg-black/30 text-white/75 hover:border-white/20 hover:text-white'}`}
     >
-      <span className="rounded-xl border border-white/8 bg-white/[0.03] p-1.5"><WorkspaceIcon icon={icon} /></span>
+      <span aria-hidden="true" className="rounded-xl border border-white/8 bg-white/[0.03] p-1.5"><WorkspaceIcon icon={icon} /></span>
       <span className="hidden sm:inline">{label}</span>
     </button>
   )
@@ -719,6 +862,75 @@ function TradeTableCell({ column, trade, tagCount, trustState }: { column: Colum
   return <span className="text-white/60">—</span>
 }
 
+function MobileTradeCard({
+  page,
+  trade,
+  tags,
+  isSelected,
+  isEditing,
+  isClosing,
+  onSelect,
+}: {
+  page: number
+  trade: Trade
+  tags: string[]
+  isSelected: boolean
+  isEditing: boolean
+  isClosing: boolean
+  onSelect: () => void
+}) {
+  const trustMeta = getTradeTrustMeta(trade)
+  const status = trade.captureResult === 'open'
+    ? 'Offen'
+    : trade.captureStatus === 'incomplete'
+      ? 'Unvollständig'
+      : 'Geschlossen'
+  const statusTone = trade.captureResult === 'open'
+    ? 'border-emerald-400/20 bg-emerald-400/10 text-emerald-100'
+    : trade.captureStatus === 'incomplete'
+      ? 'border-orange-400/20 bg-orange-400/10 text-orange-100'
+      : 'border-white/10 bg-white/5 text-white/65'
+
+  return (
+    <article className={`rounded-2xl border p-4 transition ${isSelected ? 'border-orange-300/35 bg-orange-400/10' : 'border-white/8 bg-black/25'}`}>
+      <button
+        type="button"
+        data-trade-detail-trigger={trade.id}
+        onClick={onSelect}
+        className="w-full text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#f0a855]/60"
+      >
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p className="truncate text-base font-semibold text-white">{trade.market}</p>
+            <p className="mt-1 truncate text-xs text-white/45">{getTradeAccountLabel(trade)} · {trade.setup || 'Ohne Setup'}</p>
+          </div>
+          <div className="text-right">
+            <p className={`text-sm font-semibold ${trade.netPnL === undefined || trade.netPnL === null ? 'text-white/50' : trade.netPnL >= 0 ? 'text-emerald-300' : 'text-red-300'}`}>
+              {trade.result}
+            </p>
+            <p className="mt-1 text-[11px] text-white/35">{trade.r}</p>
+          </div>
+        </div>
+
+        <div className="mt-4 flex flex-wrap items-center gap-2">
+          <span className={`rounded-full border px-2.5 py-1 text-[11px] ${statusTone}`}>{status}</span>
+          <span className="rounded-full border border-white/10 bg-black/20 px-2.5 py-1 text-[11px] text-white/55">{formatDirection(trade.direction)}</span>
+          {tags.length ? <span className="rounded-full border border-sky-300/15 bg-sky-300/8 px-2.5 py-1 text-[11px] text-sky-100/75">{tags.length} Tag{tags.length === 1 ? '' : 's'}</span> : null}
+        </div>
+
+        <div className="mt-4 grid grid-cols-2 gap-3 border-t border-white/8 pt-3 text-xs">
+          <span><span className="block text-[10px] uppercase tracking-[0.14em] text-white/30">Datum</span><span className="mt-1 block text-white/65">{trade.date}</span></span>
+          <span><span className="block text-[10px] uppercase tracking-[0.14em] text-white/30">Datenstatus</span><span className="mt-1 block text-white/65">{trustMeta.shortLabel}</span></span>
+        </div>
+      </button>
+
+      <div className="mt-4 border-t border-white/8 pt-3">
+        <RowActions page={page} trade={trade} isSelected={isSelected} isEditing={isEditing} isClosing={isClosing} />
+      </div>
+    </article>
+  )
+}
+
 function RowActions({ page, trade, isSelected, isEditing, isClosing }: { page: number; trade: Trade; isSelected: boolean; isEditing: boolean; isClosing: boolean }) {
   const isOpenTrade = trade.captureResult === 'open'
   const actionLabel = isOpenTrade ? 'Schließen' : trade.captureStatus === 'incomplete' ? 'Vervollständigen' : 'Bearbeiten'
@@ -733,6 +945,7 @@ function RowActions({ page, trade, isSelected, isEditing, isClosing }: { page: n
     <div className="flex min-w-[190px] flex-wrap justify-end gap-2">
       <Link
         href={detailHref}
+        data-trade-detail-trigger={trade.id}
         prefetch={false}
         className={`rounded-full border px-2.5 py-1 text-xs transition ${isSelected ? 'border-orange-300/35 bg-orange-400/10 text-white' : 'border-white/10 bg-black/25 text-white/65 hover:border-white/20 hover:text-white'}`}
       >

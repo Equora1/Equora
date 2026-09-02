@@ -2,7 +2,7 @@
 
 import { useEffect, useState, type MouseEvent } from 'react'
 import Link from 'next/link'
-import { usePathname } from 'next/navigation'
+import { usePathname, useSearchParams } from 'next/navigation'
 import { FuturisticCard } from '@/components/ui/futuristic-card'
 import { AppIcon, type AppIconName } from '@/components/ui/app-icon'
 
@@ -28,7 +28,9 @@ type OverviewCounts = { trades: number; aSetups: number; losses: number }
 
 export function SidebarNav() {
   const pathname = usePathname()
-  const [activeCapture, setActiveCapture] = useState<string | null>(null)
+  const searchParams = useSearchParams()
+  const activeCapture = searchParams.get('capture')
+  const [showMobileMenu, setShowMobileMenu] = useState(false)
   const [showAdvanced, setShowAdvanced] = useState(() => advancedNavItems.some((item) => item.href === pathname))
   const [showOverview, setShowOverview] = useState(false)
   const [overview, setOverview] = useState<OverviewCounts | null>(null)
@@ -36,10 +38,10 @@ export function SidebarNav() {
   const [pendingHref, setPendingHref] = useState<string | null>(null)
 
   useEffect(() => {
-    setActiveCapture(new URLSearchParams(window.location.search).get('capture'))
     setPendingHref(null)
+    setShowMobileMenu(false)
     if (advancedNavItems.some((item) => item.href === pathname)) setShowAdvanced(true)
-  }, [pathname])
+  }, [activeCapture, pathname])
 
   useEffect(() => {
     if (!showOverview || overviewState !== 'idle') return
@@ -77,103 +79,123 @@ export function SidebarNav() {
   }
 
   return (
-    <div className="space-y-4">
-      <FuturisticCard glow="orange" className="p-5">
+    <div className="space-y-3">
+      <FuturisticCard glow="orange" className="p-4">
         <div className="flex items-start justify-between gap-4">
-          <div>
-            <p className="eq-display text-[0.62rem] text-[#b09a7a]">Journal</p>
-            <h1 className="eq-display eq-text-gradient mt-3 text-[1.95rem] leading-none">Equora</h1>
-          </div>
-          <div className="rounded-2xl border border-[#c8823a]/20 bg-[#c8823a]/10 p-2.5 text-[#f0a855]">
-            <AppIcon name="spark" className="h-5 w-5" aria-hidden="true" />
+          <Link
+            href="/dashboard"
+            aria-label="Equora Trading Journal – Startseite"
+            onClick={(event) => handleNavigation(event, '/dashboard')}
+            className="block rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#f0a855]/60"
+          >
+            <p className="text-[9px] uppercase tracking-[0.3em] text-white/60">Trading Journal</p>
+            <span className="eq-display eq-text-gradient mt-2 block text-[1.55rem] leading-none">Equora</span>
+          </Link>
+          <button
+            type="button"
+            onClick={() => setShowMobileMenu((current) => !current)}
+            className="rounded-xl border border-[#c8823a]/20 bg-[#c8823a]/10 p-2 text-[#f0a855] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#f0a855]/60 xl:hidden"
+            aria-expanded={showMobileMenu}
+            aria-controls="journal-mobile-menu"
+            aria-label={showMobileMenu ? 'Navigation schließen' : 'Navigation öffnen'}
+          >
+            <AppIcon name="spark" className="h-4 w-4" aria-hidden="true" />
+          </button>
+          <div className="hidden rounded-xl border border-[#c8823a]/20 bg-[#c8823a]/10 p-2 text-[#f0a855] xl:block">
+            <AppIcon name="spark" className="h-4 w-4" aria-hidden="true" />
           </div>
         </div>
       </FuturisticCard>
 
-      <FuturisticCard className="p-3">
-        <NavSection
-          items={primaryNavItems}
-          pathname={pathname}
-          activeCapture={activeCapture}
-          pendingHref={pendingHref}
-          onNavigate={handleNavigation}
-        />
+      <div id="journal-mobile-menu" className={`${showMobileMenu ? 'block' : 'hidden'} space-y-3 xl:block`}>
+        <FuturisticCard className="p-2.5">
+          <nav aria-label="Journal-Navigation">
+            <p className="px-3 pb-2 pt-1 text-[9px] uppercase tracking-[0.22em] text-white/60">Journal</p>
+            <NavSection
+              items={primaryNavItems}
+              pathname={pathname}
+              activeCapture={activeCapture}
+              pendingHref={pendingHref}
+              onNavigate={handleNavigation}
+            />
 
-        <section className="mt-3 rounded-2xl border border-white/8 bg-white/[0.02] p-2">
+            <section className="mt-2 rounded-xl border border-white/[0.06] bg-white/[0.015] p-1.5">
+              <button
+                type="button"
+                onClick={() => setShowAdvanced((current) => !current)}
+                className="flex w-full items-center justify-between rounded-xl px-3 py-2 text-sm text-white/75 transition hover:text-white"
+                aria-expanded={showAdvanced}
+              >
+                <span>Erweitert</span>
+                <span className="rounded-full border border-white/10 bg-white/[0.03] px-2.5 py-1 text-[10px] uppercase tracking-[0.18em] text-white/55">
+                  {showAdvanced ? 'Ausblenden' : 'Anzeigen'}
+                </span>
+              </button>
+              {showAdvanced ? (
+                <div className="mt-2">
+                  <NavSection
+                    items={advancedNavItems}
+                    pathname={pathname}
+                    activeCapture={activeCapture}
+                    pendingHref={pendingHref}
+                    onNavigate={handleNavigation}
+                    compact
+                  />
+                </div>
+              ) : null}
+            </section>
+          </nav>
+        </FuturisticCard>
+
+        <section className="rounded-2xl border border-white/[0.07] bg-[#0d0d0e]/92 p-2.5 shadow-[0_18px_45px_rgba(0,0,0,0.32)]">
           <button
             type="button"
-            onClick={() => setShowAdvanced((current) => !current)}
+            onClick={() => setShowOverview((current) => !current)}
             className="flex w-full items-center justify-between rounded-xl px-3 py-2 text-sm text-white/75 transition hover:text-white"
-            aria-expanded={showAdvanced}
+            aria-expanded={showOverview}
           >
-            <span>Erweitert</span>
+            <span>Kurzüberblick</span>
             <span className="rounded-full border border-white/10 bg-white/[0.03] px-2.5 py-1 text-[10px] uppercase tracking-[0.18em] text-white/55">
-              {showAdvanced ? 'Ausblenden' : 'Anzeigen'}
+              {showOverview ? 'Ausblenden' : 'Anzeigen'}
             </span>
           </button>
-          {showAdvanced ? (
-            <div className="mt-2">
-              <NavSection
-                items={advancedNavItems}
-                pathname={pathname}
-                activeCapture={activeCapture}
-                pendingHref={pendingHref}
-                onNavigate={handleNavigation}
-                compact
-              />
+          {showOverview ? (
+            <div className="mt-2 grid gap-2.5 text-sm" aria-live="polite">
+              <MiniMetric label="Trades" value={overview?.trades ?? null} loading={overviewState === 'loading'} />
+              <MiniMetric label="A-Setups" value={overview?.aSetups ?? null} loading={overviewState === 'loading'} />
+              <MiniMetric label="Verluste" value={overview?.losses ?? null} loading={overviewState === 'loading'} />
+              {overviewState === 'error' ? (
+                <button
+                  type="button"
+                  onClick={() => setOverviewState('idle')}
+                  className="rounded-xl border border-[#c8823a]/20 bg-[#c8823a]/5 px-3 py-2 text-xs text-[#f0a855] transition hover:bg-[#c8823a]/10"
+                >
+                  Zahlen erneut laden
+                </button>
+              ) : null}
             </div>
           ) : null}
         </section>
-      </FuturisticCard>
 
-      <section className="rounded-3xl border border-white/8 bg-white/[0.02] p-3">
-        <button
-          type="button"
-          onClick={() => setShowOverview((current) => !current)}
-          className="flex w-full items-center justify-between rounded-xl px-3 py-2 text-sm text-white/75 transition hover:text-white"
-          aria-expanded={showOverview}
-        >
-          <span>Kurzüberblick</span>
-          <span className="rounded-full border border-white/10 bg-white/[0.03] px-2.5 py-1 text-[10px] uppercase tracking-[0.18em] text-white/55">
-            {showOverview ? 'Ausblenden' : 'Anzeigen'}
-          </span>
-        </button>
-        {showOverview ? (
-          <div className="mt-2 grid gap-2.5 text-sm" aria-live="polite">
-            <MiniMetric label="Trades" value={overview?.trades ?? null} loading={overviewState === 'loading'} />
-            <MiniMetric label="A-Setups" value={overview?.aSetups ?? null} loading={overviewState === 'loading'} />
-            <MiniMetric label="Verluste" value={overview?.losses ?? null} loading={overviewState === 'loading'} />
-            {overviewState === 'error' ? (
-              <button
-                type="button"
-                onClick={() => setOverviewState('idle')}
-                className="rounded-xl border border-[#c8823a]/20 bg-[#c8823a]/5 px-3 py-2 text-xs text-[#f0a855] transition hover:bg-[#c8823a]/10"
-              >
-                Zahlen erneut laden
-              </button>
-            ) : null}
-          </div>
-        ) : null}
-      </section>
-
-      <FuturisticCard className="p-3">
-        <Link
-          href="/logout"
-          prefetch={false}
-          title="Logout"
-          className="flex w-full items-center justify-between rounded-xl border border-[#221e1a] bg-[#1f1c1a]/45 px-4 py-3 text-left text-sm text-[#b09a7a] transition hover:border-[#c8823a]/20 hover:bg-[#1f1c1a]/70 hover:text-white"
-        >
-          <span className="flex items-center gap-3 font-medium">
-            <span className="rounded-xl border border-white/8 bg-white/[0.03] p-2 text-[#f0a855]">
-              <AppIcon name="logout" aria-hidden="true" />
+        <FuturisticCard className="p-2.5">
+          <Link
+            href="/logout"
+            prefetch={false}
+            title="Logout"
+            className="flex w-full items-center justify-between rounded-xl border border-[#221e1a] bg-[#1f1c1a]/45 px-4 py-3 text-left text-sm text-[#b09a7a] transition hover:border-[#c8823a]/20 hover:bg-[#1f1c1a]/70 hover:text-white"
+          >
+            <span className="flex items-center gap-3 font-medium">
+              <span className="rounded-xl border border-white/8 bg-white/[0.03] p-2 text-[#f0a855]">
+                <AppIcon name="logout" aria-hidden="true" />
+              </span>
+              Logout
             </span>
-            Logout
-          </span>
-          <span className="text-[#998a72]">
-            <AppIcon name="arrow" aria-hidden="true" />
-          </span>
-        </Link>
-      </FuturisticCard>
+            <span className="text-[#998a72]">
+              <AppIcon name="arrow" aria-hidden="true" />
+            </span>
+          </Link>
+        </FuturisticCard>
+      </div>
     </div>
   )
 }
@@ -210,23 +232,23 @@ function NavSection({
             onClick={(event) => onNavigate(event, item.href)}
             title={item.hint ? `${item.label}: ${item.hint}` : item.label}
             aria-current={isActive ? 'page' : undefined}
-            className={`group flex w-full items-center justify-between rounded-xl border px-3 ${compact ? 'py-2.5' : 'py-3'} text-left text-sm transition ${
+            className={`group flex w-full items-center justify-between rounded-xl border px-3 ${compact ? 'py-2.5' : 'py-2.5'} text-left text-sm transition ${
               isActive
-                ? 'border-[#c8823a]/35 bg-[linear-gradient(135deg,rgba(240,168,85,0.18),rgba(200,130,58,0.12))] text-white'
-                : 'border-[#221e1a] bg-[#1f1c1a]/45 text-[#b09a7a] hover:border-[#c8823a]/20 hover:bg-[#1f1c1a]/70 hover:text-white'
+                ? 'border-[#c8823a]/30 bg-[linear-gradient(135deg,rgba(240,168,85,0.14),rgba(200,130,58,0.07))] text-white shadow-[inset_3px_0_0_rgba(240,168,85,0.72)]'
+                : 'border-transparent bg-transparent text-[#a99b88] hover:border-white/[0.06] hover:bg-white/[0.035] hover:text-white'
             }`}
           >
             <span className="flex min-w-0 items-center gap-3">
               <span
                 className={`rounded-xl border p-2 ${
-                  isActive ? 'border-white/10 bg-white/10 text-white' : 'border-white/8 bg-white/[0.03] text-[#f0a855]'
+                  isActive ? 'border-[#c8823a]/20 bg-[#c8823a]/10 text-[#f0a855]' : 'border-white/[0.06] bg-white/[0.025] text-[#c8a06f]'
                 }`}
               >
                 <AppIcon name={item.icon} aria-hidden="true" />
               </span>
               <span className="min-w-0">
                 <span className="block truncate font-medium">{item.label}</span>
-                {item.hint ? <span className="mt-0.5 block truncate text-[11px] text-white/35">{item.hint}</span> : null}
+                {item.hint ? <span className="mt-0.5 block truncate text-[11px] text-white/60">{item.hint}</span> : null}
               </span>
             </span>
             {isPending ? (

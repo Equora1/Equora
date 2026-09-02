@@ -1358,7 +1358,7 @@ const ALLOWED_PRODUCT_NETWORK_FINDINGS = new Set([
 ])
 const ALLOWED_PRODUCT_DYNAMIC_IMPORT_CALLSITES = Object.freeze([
   'components/trades/snipping-assist-dynamic.tsx:16:9:@/components/trades/snipping-assist-card',
-  'components/trades/trade-import-panel.tsx:145:31:read-excel-file/browser',
+  'components/trades/trade-import-panel.tsx:189:31:read-excel-file/browser',
   'lib/utils/snipping-ocr.ts:79:38:tesseract.js',
 ])
 const ALLOWED_ADAPTER_EXTERNAL_IMPORTS = new Set(['server-only'])
@@ -2705,6 +2705,10 @@ describe('provider-neutral MB0 core contract', () => {
     const duplicateAllowedDynamicImport = `${readFileSync(join(WORKSPACE, 'lib/utils/snipping-ocr.ts'), 'utf8')}\nvoid import('tesseract.js')\n`
     expect(networkFindings(duplicateAllowedDynamicImport, 'lib/utils/snipping-ocr.ts')).toContain(
       'dynamic-module-loader-not-allowlisted:tesseract.js',
+    )
+    const duplicateSpreadsheetImport = `${readFileSync(join(WORKSPACE, 'components/trades/trade-import-panel.tsx'), 'utf8')}\nvoid import('read-excel-file/browser')\n`
+    expect(networkFindings(duplicateSpreadsheetImport, 'components/trades/trade-import-panel.tsx')).toContain(
+      'dynamic-module-loader-not-allowlisted:read-excel-file/browser',
     )
     expect(networkFindings("const moduleName = 'tesseract.js'\nvoid import(moduleName)\n", 'lib/utils/snipping-ocr.ts')).toContain(
       'dynamic-module-loader-not-allowlisted:nonliteral',
