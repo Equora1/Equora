@@ -43,6 +43,7 @@ describe("broker import adapter kit", () => {
   });
 
   it("validates preset keys through the static profile registry", () => {
+    expect(isCsvImportPresetKey("metatrader4-history")).toBe(true);
     expect(isCsvImportPresetKey("mexc-futures")).toBe(true);
     expect(isCsvImportPresetKey("okx-futures")).toBe(true);
     expect(isCsvImportPresetKey("unknown-provider")).toBe(false);
@@ -62,6 +63,18 @@ describe("broker import adapter kit", () => {
         noteLead: "Importiert aus CSV",
         presetLabel: "Allgemeine CSV",
         setup: "CSV Import",
+        brokerProfile: "manual",
+        costProfile: "manual",
+        instrumentType: "unknown",
+        cryptoMarketType: "manual",
+        accountTemplate: "manual",
+        marketTemplate: "manual",
+        accountCurrency: null,
+      },
+      "metatrader4-history": {
+        noteLead: "Importiert aus MetaTrader 4 HTML-Bericht",
+        presetLabel: "MetaTrader 4 Bericht",
+        setup: "MetaTrader 4 Import",
         brokerProfile: "manual",
         costProfile: "manual",
         instrumentType: "unknown",
@@ -164,6 +177,29 @@ describe("broker import adapter kit", () => {
   });
 
   it("detects every distinctive broker export signature", () => {
+    expect(
+      detectBrokerImportProfile(
+        [
+          "Ticket",
+          "Open Time",
+          "Type",
+          "Size",
+          "Item",
+          "Open Price",
+          "Close Time",
+          "Close Price",
+          "Commission",
+          "Taxes",
+          "Swap",
+          "Profit",
+        ],
+        "MetaTrader 4 Account History.html",
+      ),
+    ).toMatchObject({
+      presetKey: "metatrader4-history",
+      confidence: "high",
+    });
+
     expect(
       detectBrokerImportProfile(
         [

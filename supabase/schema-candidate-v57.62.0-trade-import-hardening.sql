@@ -52,7 +52,7 @@ create table if not exists public.journal_import_accounts (
   updated_at timestamptz not null default now(),
   constraint journal_import_accounts_preset_key_check
     check (preset_key in (
-      'generic', 'ctrader-history', 'mexc-futures', 'mexc-spot',
+      'generic', 'metatrader4-history', 'ctrader-history', 'mexc-futures', 'mexc-spot',
       'binance-futures', 'bybit-futures', 'okx-futures', 'kraken-spot'
     )),
   constraint journal_import_accounts_display_label_check
@@ -224,7 +224,7 @@ begin
   if v_user_id is null then raise exception 'UNAUTHENTICATED'; end if;
   v_normalized_label := lower(v_display_label);
   if v_preset_key not in (
-    'generic', 'ctrader-history', 'mexc-futures', 'mexc-spot',
+    'generic', 'metatrader4-history', 'ctrader-history', 'mexc-futures', 'mexc-spot',
     'binance-futures', 'bybit-futures', 'okx-futures', 'kraken-spot'
   ) then raise exception 'INVALID_PRESET'; end if;
   if char_length(v_display_label) not between 3 and 60 then
@@ -325,6 +325,7 @@ declare
   v_provider_identity_digest text;
   v_provider_identity_kind text;
   v_provider_identity_value text;
+  v_required_provider_identity_kind text;
   v_reserved_source_kind text;
   v_reserved_source_digest text;
   v_request_digest text;
@@ -551,7 +552,12 @@ begin
       ),
       'hex'
     );
-    if v_preset_key = 'ctrader-history' then
+    v_required_provider_identity_kind := case v_preset_key
+      when 'ctrader-history' then 'deal_id'
+      when 'metatrader4-history' then 'ticket'
+      else null
+    end;
+    if v_required_provider_identity_kind is not null then
       if jsonb_array_length(v_entry->'source_keys') <> 1 then
         raise exception 'REQUIRED_PROVIDER_IDENTITY_MISSING';
       end if;
@@ -563,7 +569,7 @@ begin
         btrim(coalesce(v_source_key->>'identityValue', '')), '\s+', ' ', 'g'
       ));
       if coalesce(v_source_key->>'kind', '') <> 'provider_identity_v1'
-        or v_provider_identity_kind <> 'deal_id'
+        or v_provider_identity_kind <> v_required_provider_identity_kind
         or char_length(v_provider_identity_value) not between 1 and 160
         or v_provider_identity_value in ('-', 'n/a', 'na', 'null', 'undefined')
       then raise exception 'INVALID_PROVIDER_IDENTITY'; end if;

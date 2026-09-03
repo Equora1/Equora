@@ -139,7 +139,7 @@ describe("provider-neutral broker catalog", () => {
     );
 
     expect(plannedFamilyKeys).toEqual(
-      new Set(["metatrader", "dxtrade"]),
+      new Set(["metatrader5", "dxtrade"]),
     );
     expect(
       brokerCatalog.some((broker) => plannedFamilyKeys.has(broker.platformFamilyKey)),
@@ -164,7 +164,9 @@ describe("provider-neutral broker catalog", () => {
     expect(
       findBrokerCatalogEntries("cTrader").map((broker) => broker.brokerCode),
     ).toEqual(["ctrader_platform"]);
-    expect(findBrokerCatalogEntries("MetaTrader")).toEqual([]);
+    expect(
+      findBrokerCatalogEntries("MetaTrader").map((broker) => broker.brokerCode),
+    ).toEqual(["metatrader4_platform"]);
     expect(findBrokerCatalogEntries()).toBe(brokerCatalog);
   });
 
@@ -193,13 +195,13 @@ describe("provider-neutral broker catalog", () => {
   it("publishes deterministic catalog metrics and null-safe lookups", () => {
     expect(brokerCatalogSummary).toEqual({
       brokerCount: 5,
-      platformCount: 1,
+      platformCount: 2,
       genericFallbackCount: 1,
-      builtFileProfileCount: 8,
+      builtFileProfileCount: 9,
       availableFileProfileCount: 0,
-      controlledFileProfileCount: 8,
+      controlledFileProfileCount: 9,
       availablePlatformFamilyCount: 0,
-      controlledPlatformFamilyCount: 7,
+      controlledPlatformFamilyCount: 8,
       plannedSharedFamilyCount: 2,
       controlledDirectApiCount: 2,
     });
@@ -207,7 +209,13 @@ describe("provider-neutral broker catalog", () => {
     expect(getBrokerCatalogEntry("mexc")?.displayName).toBe("MEXC");
     expect(getBrokerCatalogEntry("ctrader_platform")?.entryKind).toBe("platform");
     expect(getBrokerCatalogEntry("unknown")).toBeNull();
-    expect(getBrokerPlatformFamily("metatrader")?.availability).toBe("planned");
+    expect(getBrokerPlatformFamily("metatrader")).toMatchObject({
+      availability: "controlled_candidate",
+      profileKeys: ["metatrader4-history"],
+    });
+    expect(getBrokerPlatformFamily("metatrader5")?.availability).toBe(
+      "planned",
+    );
     expect(getBrokerPlatformFamily("ctrader")).toMatchObject({
       availability: "controlled_candidate",
       profileKeys: ["ctrader-history"],

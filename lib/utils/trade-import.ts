@@ -22,6 +22,7 @@ export type CsvImportFieldKey =
 
 export type CsvImportPresetKey =
   | "generic"
+  | "metatrader4-history"
   | "mexc-futures"
   | "mexc-spot"
   | "binance-futures"
@@ -366,6 +367,34 @@ export const csvImportPresets: CsvImportPreset[] = [
     helper:
       "Equora versucht die Spalten ruhig vorzubelegen. Danach kannst du nur das Nötigste korrigieren.",
     defaultSetup: "CSV Import",
+  },
+  {
+    key: "metatrader4-history",
+    label: "MetaTrader 4 Bericht",
+    badge: "Plattform",
+    description:
+      "Gemeinsames HTML-Kontohistorienprofil für Broker, die MetaTrader 4 einsetzen.",
+    helper:
+      "Liest den offiziellen MT4-HTML-Bericht lokal im Browser. Nur geschlossene Buy-/Sell-Trades werden übernommen; MT5 und direkter Plattform-Sync sind nicht enthalten.",
+    defaultSetup: "MetaTrader 4 Import",
+    defaultBrokerProfile: "manual",
+    sourceIdentity: {
+      kind: "ticket",
+      aliases: ["ticket"],
+    },
+    aliasOverrides: {
+      date: ["close time"],
+      market: ["item", "symbol"],
+      netPnL: ["net p&l"],
+      entry: ["open price"],
+      exit: ["close price"],
+      stopLoss: ["stop loss", "s/l"],
+      takeProfit: ["take profit", "t/p"],
+      direction: ["type"],
+      notes: ["import notes"],
+      fees: ["commission"],
+      positionSize: ["size", "lots"],
+    },
   },
   {
     key: "ctrader-history",
@@ -1035,7 +1064,13 @@ function normalizeImportedFeeValue(
   presetKey: CsvImportPresetKey,
 ) {
   const trimmed = value.trim();
-  if (!trimmed || presetKey !== "ctrader-history") return trimmed;
+  if (
+    !trimmed ||
+    (presetKey !== "ctrader-history" &&
+      presetKey !== "metatrader4-history")
+  ) {
+    return trimmed;
+  }
   const parsed = parseTradingNumber(trimmed);
   return parsed === null ? trimmed : String(Math.abs(parsed));
 }
@@ -1123,12 +1158,15 @@ function buildImportTrust(input: {
     warnings.push("P&L wurde aus der Datei übernommen. Gebühren nur prüfen, wenn die Börse sie getrennt ausweist.")
   }
   if (
-    input.presetKey === "ctrader-history" &&
+    (input.presetKey === "ctrader-history" ||
+      input.presetKey === "metatrader4-history") &&
     input.sources.netPnL === "csv" &&
     input.normalized.fees
   ) {
     warnings.push(
-      "cTrader Net enthält Kosten bereits. Die Kommission wird für Equora als positiver Kostenbetrag dokumentiert, aber nicht erneut vom importierten Netto-P&L abgezogen.",
+      input.presetKey === "ctrader-history"
+        ? "cTrader Net enthält Kosten bereits. Die Kommission wird für Equora als positiver Kostenbetrag dokumentiert, aber nicht erneut vom importierten Netto-P&L abgezogen."
+        : "MT4 Net P&L enthält Commission, Taxes und Swap bereits. Die Kommission wird als positiver Kostenbetrag dokumentiert, aber nicht erneut vom importierten Netto-P&L abgezogen.",
     );
   }
   if (input.sources.entry === "csv" && input.sources.exit === "csv" && !input.normalized.netPnL) {

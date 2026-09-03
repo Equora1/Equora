@@ -95,7 +95,7 @@ describe('v57.60.1 application safety contracts', () => {
     expect(sql).toContain("raise exception 'INVALID_TRADE_CURRENCY'")
     expect(sql).toContain("'account_currency', upper(btrim(v_trade->>'account_currency'))")
     expect(sql).not.toContain("'account_currency', p_batch->>'account_currency'")
-    expect(sql).toContain("v_provider_identity_kind <> 'deal_id'")
+    expect(sql).toContain('v_provider_identity_kind <> v_required_provider_identity_kind')
   })
 
   it('keeps the analytics scope visible and suppresses claims for empty or small samples', () => {
@@ -265,8 +265,8 @@ describe('v57.60.1 application safety contracts', () => {
     expect(hub).toContain('<BrokerOnboardingCatalog />')
     expect(hub).not.toContain('/trades?capture=import#trade-editor')
     expect(hub).toContain('brokerFileImportCapability.blockedReason')
-    expect(hub).toContain('Das cTrader-Statement-Profil ist für cTrader-gebundene Broker gebaut')
-    expect(hub).toContain('MetaTrader 4/5, DXtrade und direkter Plattform-Sync bleiben inaktiv')
+    expect(hub).toContain('Das cTrader-Statement-Profil und das lokale MT4-Dateiprofil sind gebaut')
+    expect(hub).toContain('MetaTrader 5, DXtrade und direkter Plattform-Sync bleiben inaktiv')
     expect(hub).toContain('brokerFileImportCapability.requiredMigration')
     expect(hub).not.toContain('/trades?capture=import&preset=ctrader-history#trade-editor')
     expect(hub).toContain('MEXC Runtime gebaut, derzeit aus · OKX Kandidat')
@@ -451,6 +451,8 @@ describe('v57.60.1 application safety contracts', () => {
     expect(importPanel).toContain('aktiv bleibt')
     expect(importPanel).toContain('Bitte Auswahl und Zuordnung vor der Vorschau prüfen')
     expect(importPanel).toContain('aria-atomic="true"')
+    expect(importPanel.match(/role="status"/g)).toHaveLength(2)
+    expect(importPanel.match(/aria-live="polite"/g)).toHaveLength(2)
     expect(importPanel).toContain('getCsvImportPresetMeta(preset).sourceIdentity')
     expect(importPanel).toContain('!isExplicitCsvImportAccountLabel(normalizedAccountLabel)')
     expect(importPanel).toContain('„Hauptkonto“ reicht nicht')
