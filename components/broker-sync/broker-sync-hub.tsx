@@ -106,8 +106,8 @@ export function BrokerSyncHub({ snapshot }: { snapshot: BrokerSyncSnapshot }) {
             icon="scan"
             eyebrow="Nächster Skalierungshebel"
             title="Plattformfamilie nutzen"
-            description={`Das cTrader-Statement-Profil ist für cTrader-gebundene Broker gebaut. ${brokerFileImportCapability.blockedReason} MetaTrader 4/5, DXtrade und direkter Plattform-Sync bleiben inaktiv.`}
-            metric={`cTrader-Profil gebaut · ${brokerFileImportCapability.requiredMigration} ausstehend · Sync aus`}
+            description={`Das cTrader-Statement-Profil und das lokale MT4-Dateiprofil sind gebaut. ${brokerFileImportCapability.blockedReason} MetaTrader 5, DXtrade und direkter Plattform-Sync bleiben inaktiv.`}
+            metric={`cTrader- und MT4-Dateiprofil gebaut · ${brokerFileImportCapability.requiredMigration} ausstehend · Sync aus`}
             inactiveLabel={brokerFileImportCapability.blockedActionLabel}
             tone="controlled"
           />

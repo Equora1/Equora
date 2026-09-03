@@ -65,6 +65,38 @@ const GENERIC_PRESET_KEY: CsvImportPresetKey = "generic";
 const detectionProfiles: Readonly<
   Record<Exclude<CsvImportPresetKey, "generic">, DetectionProfile>
 > = Object.freeze({
+  "metatrader4-history": Object.freeze({
+    fileNameHints: Object.freeze([
+      "metatrader",
+      "mt4",
+      "account history",
+      "statement",
+    ]),
+    fileNameWeight: 20,
+    minimumScore: 70,
+    signals: Object.freeze([
+      Object.freeze({
+        label: "MT4 Ticket",
+        anyOf: Object.freeze(["ticket"]),
+        weight: 25,
+      }),
+      Object.freeze({
+        label: "MT4 Open/Close Time",
+        anyOf: Object.freeze(["open time", "close time"]),
+        weight: 20,
+      }),
+      Object.freeze({
+        label: "MT4 Open/Close Price",
+        anyOf: Object.freeze(["open price", "close price"]),
+        weight: 20,
+      }),
+      Object.freeze({
+        label: "MT4 Result Components",
+        anyOf: Object.freeze(["commission", "taxes", "swap", "profit"]),
+        weight: 25,
+      }),
+    ]),
+  }),
   "ctrader-history": Object.freeze({
     fileNameHints: Object.freeze(["ctrader", "statement", "deal history"]),
     fileNameWeight: 20,
@@ -258,7 +290,9 @@ function getRuntimeDefaults(presetKey: CsvImportPresetKey): BrokerImportRuntimeD
     noteLead:
       presetKey === GENERIC_PRESET_KEY
         ? "Importiert aus CSV"
-        : "Importiert aus " + preset.label + " CSV",
+        : presetKey === "metatrader4-history"
+          ? "Importiert aus MetaTrader 4 HTML-Bericht"
+          : "Importiert aus " + preset.label + " CSV",
     presetLabel: preset.label,
     setup: preset.defaultSetup,
     brokerProfile: preset.defaultBrokerProfile?.trim() || "manual",

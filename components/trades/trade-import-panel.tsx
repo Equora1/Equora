@@ -35,7 +35,7 @@ import {
   type CsvImportRepairOverrides,
   type CsvImportValueSource,
 } from "@/lib/utils/trade-import";
-
+import { parseMetaTrader4ReportHtml } from "@/lib/utils/metatrader4-report-import";
 const requiredFieldKeys: CsvImportFieldKey[] = ["date", "market"];
 const visibleOptionalFieldKeys: CsvImportFieldKey[] = [
   "netPnL",
@@ -92,7 +92,7 @@ type ImportReport = {
 };
 
 const spreadsheetExtensions = new Set(["xlsx", "xls"]);
-const allowedImportExtensions = new Set(["csv", "tsv", "txt", "xlsx", "xls"]);
+const allowedImportExtensions = new Set(["csv", "tsv", "txt", "xlsx", "xls", "html", "htm"]);
 const spreadsheetHeaderHints = [
   "time",
   "date",
@@ -228,10 +228,15 @@ async function parseSpreadsheetFile(file: File): Promise<ParsedCsvData> {
   return { delimiter: "excel", headers, rows };
 }
 
-async function parseImportFile(file: File): Promise<ParsedCsvData> {
+const htmlReportExtensions = new Set(["html", "htm"]);
+type ParsedImportFile = ParsedCsvData & Readonly<{ notice?: string }>;
+
+async function parseImportFile(file: File): Promise<ParsedImportFile> {
   const extension = getFileExtension(file.name);
   if (!allowedImportExtensions.has(extension)) {
-    throw new Error("Nur CSV, TSV, TXT oder XLSX werden unterstützt.");
+    throw new Error(
+      "Nur CSV, TSV, TXT, XLSX oder offizielle MT4-HTML-Berichte werden unterstützt.",
+    );
   }
   if (file.size > CSV_IMPORT_LIMITS.maxFileBytes) {
     throw new Error("Datei ist zu groß. Erlaubt sind höchstens 5 MB.");
@@ -241,7 +246,21 @@ async function parseImportFile(file: File): Promise<ParsedCsvData> {
     return parseSpreadsheetFile(file);
   }
 
+  if (htmlReportExtensions.has(extension)) {
+    const { summary, ...parsed } = parseMetaTrader4ReportHtml(await file.text());
+    return {
+      ...parsed,
+      notice: `${summary.closedTradeCount} geschlossene MT4-Trades erkannt; ${summary.excludedRowCount} nicht als geschlossene Trades übernommene Berichtszeilen transparent ausgeschlossen. Netto-P&L vollständig abgeleitet: ${summary.derivedNetPnlCount}; manuell zu prüfen: ${summary.incompleteNetPnlCount}.`,
+    };
+  }
+
   return parseCsvText(await file.text());
+}
+
+function getSourceAccountExample(preset: CsvImportPresetKey) {
+  return preset === "metatrader4-history"
+    ? "IC Markets MT4 1234"
+    : "IC Markets cTrader 1234";
 }
 
 function BrokerImportDetectionNotice({
@@ -477,6 +496,8 @@ export function TradeImportPanel() {
         setStatusMessage(
           "Datei gelesen, aber ohne brauchbare Kopfzeile oder Datenzeilen.",
         );
+      } else if (parsed.notice) {
+        setStatusMessage(parsed.notice);
       }
     } catch (error) {
       setFileName(file.name);
@@ -567,7 +588,7 @@ export function TradeImportPanel() {
       !isExplicitCsvImportAccountLabel(normalizedAccountLabel)
     ) {
       setStatusMessage(
-        "Für dieses Preset das Zielkonto eindeutig benennen, zum Beispiel IC Markets cTrader 1234. „Hauptkonto“ reicht nicht.",
+        `Für dieses Preset das Zielkonto eindeutig benennen, zum Beispiel ${getSourceAccountExample(selectedPreset)}. „Hauptkonto“ reicht nicht.`,
       );
       return;
     }
@@ -816,10 +837,10 @@ export function TradeImportPanel() {
               maxLength={60}
               autoComplete="off"
               className="mt-3 w-full rounded-xl border border-orange-300/20 bg-black/40 px-3 py-2.5 text-sm text-white outline-none focus:border-orange-300/45"
-              placeholder="Zum Beispiel IC Markets cTrader 1234"
+              placeholder={`Zum Beispiel ${getSourceAccountExample(selectedPreset)}`}
             />
             <span className="mt-2 block text-xs leading-5 text-white/50">
-              Ein gespeichertes Konto besitzt eine dauerhafte interne ID; der sichtbare Name bleibt editierbar. Exporte mit Deal-ID bewusst eindeutig benennen.
+              Ein gespeichertes Konto besitzt eine dauerhafte interne ID; der sichtbare Name bleibt editierbar. Exporte mit Ticket- oder Deal-ID bewusst eindeutig benennen.
             </span>
           </label>
           <label className="block rounded-2xl border border-orange-300/20 bg-black/25 p-4">
@@ -865,19 +886,19 @@ export function TradeImportPanel() {
               2. Datei
             </p>
             <h3 className="mt-3 text-2xl font-semibold text-white">
-              CSV oder Excel wählen
+              CSV, Excel oder MT4-Bericht wählen
             </h3>
           </div>
           <div className="flex flex-wrap items-center gap-3 pt-6 text-sm text-white/70">
             <span className="rounded-full border border-orange-400/20 bg-orange-400/10 px-4 py-2 text-orange-100">
-              CSV oder Excel wählen
+              Lokale Datei wählen
             </span>
             <span className="text-white/45">Zielkonto: {displayAccountLabel}</span>
           </div>
           <input
             ref={inputRef}
             type="file"
-            accept=".csv,.tsv,.txt,text/csv,text/tab-separated-values,.xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
+            accept=".csv,.tsv,.txt,text/csv,text/tab-separated-values,.xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,.html,.htm,text/html"
             className="sr-only"
             onChange={(event) =>
               void handleFileChange(event.target.files?.[0] ?? null)
@@ -981,7 +1002,12 @@ export function TradeImportPanel() {
       </div>
 
       {statusMessage ? (
-        <div className="rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-white/75">
+        <div
+          role="status"
+          aria-live="polite"
+          aria-atomic="true"
+          className="rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-white/75"
+        >
           {statusMessage}
         </div>
       ) : null}

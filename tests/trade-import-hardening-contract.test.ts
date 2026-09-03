@@ -91,7 +91,9 @@ describe("trade import hardening candidate", () => {
     expect(sql).toContain("v_reserved_source_kind := 'value_fingerprint_v1'");
     expect(sql).toContain("v_reserved_source_digest := v_expected_fingerprint_digest");
     expect(sql).toContain("v_provider_identity_digest := encode(");
-    expect(sql).toContain("v_provider_identity_kind <> 'deal_id'");
+    expect(sql).toContain(
+      "v_provider_identity_kind <> v_required_provider_identity_kind",
+    );
     expect(sql).toContain("raise exception 'REQUIRED_PROVIDER_IDENTITY_MISSING'");
     expect(sql).toContain("raise exception 'PROVIDER_IDENTITY_NOT_ALLOWED'");
     expect(sql).toContain("pg_catalog.trim_scale(");
@@ -183,9 +185,15 @@ describe("trade import hardening candidate", () => {
       csvImportPresets
         .filter((preset) => preset.sourceIdentity)
         .map((preset) => [preset.key, preset.sourceIdentity?.kind]),
-    ).toEqual([["ctrader-history", "deal_id"]]);
-    expect(sql).toContain("if v_preset_key = 'ctrader-history' then");
-    expect(sql).toContain("v_provider_identity_kind <> 'deal_id'");
+    ).toEqual([
+      ["metatrader4-history", "ticket"],
+      ["ctrader-history", "deal_id"],
+    ]);
+    expect(sql).toContain("when 'ctrader-history' then 'deal_id'");
+    expect(sql).toContain("when 'metatrader4-history' then 'ticket'");
+    expect(sql).toContain(
+      "v_provider_identity_kind <> v_required_provider_identity_kind",
+    );
     expect(sql).toContain(
       "octet_length(coalesce(p_trades, '[]'::jsonb)::text) > 20971520",
     );

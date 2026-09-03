@@ -13,6 +13,7 @@ export type BrokerPlatformFamilyKey =
   | "okx_exchange"
   | "kraken_exchange"
   | "metatrader"
+  | "metatrader5"
   | "ctrader"
   | "dxtrade";
 
@@ -146,7 +147,15 @@ export const brokerPlatformFamilies: readonly BrokerPlatformFamily[] =
     }),
     freezeFamily({
       familyKey: "metatrader",
-      label: "MetaTrader 4 / 5",
+      label: "MetaTrader 4",
+      availability: brokerFileImportCapability.catalogAvailability,
+      sharedAcrossBrokers: true,
+      connectorKinds: ["file_upload", "platform_sync"],
+      profileKeys: ["metatrader4-history"],
+    }),
+    freezeFamily({
+      familyKey: "metatrader5",
+      label: "MetaTrader 5",
       availability: "planned",
       sharedAcrossBrokers: true,
       connectorKinds: ["file_upload", "platform_sync"],
@@ -265,6 +274,28 @@ export const brokerCatalog: readonly BrokerCatalogEntry[] = Object.freeze([
     supportNote:
       `Dateiprofil mit eigener Exporterkennung gebaut. ${brokerFileImportCapability.blockedReason}`,
     entryKind: "broker",
+  }),
+  freezeBroker({
+    brokerCode: "metatrader4_platform",
+    displayName: "MetaTrader 4 Broker",
+    platformFamilyKey: "metatrader",
+    aliases: ["metatrader", "mt4", "metatrader 4", "mt4 statement"],
+    markets: ["Brokerabhängige Märkte"],
+    methods: [
+      {
+        connectorKind: "file_upload",
+        availability: brokerFileImportCapability.catalogAvailability,
+        profileKeys: ["metatrader4-history"],
+      },
+      {
+        connectorKind: "platform_sync",
+        availability: "planned",
+        profileKeys: [],
+      },
+    ],
+    supportNote:
+      `MT4-HTML-Kontohistorienprofil gebaut. ${brokerFileImportCapability.blockedReason} MT5 und direkter Plattform-Sync bleiben separat geplant.`,
+    entryKind: "platform",
   }),
   freezeBroker({
     brokerCode: "ctrader_platform",
