@@ -5,8 +5,6 @@ $script:TradeImportContainer = $null
 $script:TradeImportDatabase = $null
 $script:TradeImportRepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $script:TradeImportSupabaseRoot = Join-Path $script:TradeImportRepoRoot 'supabase'
-$script:TradeImportCandidatePath = Join-Path $script:TradeImportRepoRoot `
-  'supabase\schema-candidate-v57.62.0-trade-import-hardening.sql'
 $script:TradeImportIntegrationPath = Join-Path $PSScriptRoot `
   'trade-import-hardening.integration.sql'
 $script:TradeImportExpectedImage = 'public.ecr.aws/supabase/postgres:17.6.1.084'
@@ -96,6 +94,35 @@ function Read-TradeImportUtf8File {
   return Get-Content -Raw -Encoding utf8 -LiteralPath $Path
 }
 
+function Expand-TradeImportV5762File {
+  param([Parameter(Mandatory = $true)][string]$Name)
+
+  $allowedNames = @(
+    'preflight-v57.62.0-trade-import.sql',
+    'deploy-v57.62.0-trade-import.sql',
+    'postflight-v57.62.0-trade-import.sql',
+    'verify-v57.62.0-trade-import.sql',
+    'schema-patch-v57.62.0-trade-import-hardening.sql',
+    'activate-v57.62.0-trade-import.sql',
+    'deactivate-v57.62.0-trade-import.sql'
+  )
+  if ($Name -notin $allowedNames) {
+    throw "Unsupported v57.62.0 trade-import include: $Name"
+  }
+
+  $sql = Read-TradeImportUtf8File (Join-Path $script:TradeImportSupabaseRoot $Name)
+  foreach ($includeName in $allowedNames) {
+    $includeToken = "\ir $includeName"
+    if ($sql.Contains($includeToken)) {
+      $sql = $sql.Replace(
+        $includeToken,
+        (Expand-TradeImportV5762File -Name $includeName)
+      )
+    }
+  }
+  return $sql
+}
+
 function Invoke-TradeImportAdminSql {
   param([Parameter(Mandatory = $true)][string]$Sql)
 
@@ -127,6 +154,29 @@ function Invoke-TradeImportSqlText {
     throw "$Phase failed: $($output -join [Environment]::NewLine)"
   }
   return $output
+}
+
+function Invoke-TradeImportSqlExpectFailure {
+  param(
+    [Parameter(Mandatory = $true)][string]$Sql,
+    [Parameter(Mandatory = $true)][string]$ExpectedCode,
+    [Parameter(Mandatory = $true)][string]$Phase
+  )
+
+  $previousErrorActionPreference = $ErrorActionPreference
+  $ErrorActionPreference = 'Continue'
+  $output = $Sql | & docker exec -i $script:TradeImportContainer psql `
+    -U postgres -d $script:TradeImportDatabase -v ON_ERROR_STOP=1 2>&1
+  $exitCode = $LASTEXITCODE
+  $ErrorActionPreference = $previousErrorActionPreference
+  $text = $output -join [Environment]::NewLine
+  if ($exitCode -eq 0) {
+    throw "$Phase unexpectedly succeeded."
+  }
+  if ($text -notmatch [regex]::Escape($ExpectedCode)) {
+    throw "$Phase failed without ${ExpectedCode}: $text"
+  }
+  return $text
 }
 
 function Get-TradeImportScalar {
@@ -242,25 +292,23 @@ function New-TradeImportBaseDatabase {
   Write-Output 'Trade-import v57.61.0 seven-layer base PASS: exact markers; legacy local postflight not claimed.'
 }
 
-function Install-TradeImportCandidate {
+function Install-TradeImportRelease {
   Invoke-TradeImportSqlText `
-    (Read-TradeImportUtf8File $script:TradeImportCandidatePath) `
-    'Trade-import v57.62 candidate' | Out-Null
+    (Expand-TradeImportV5762File -Name 'deploy-v57.62.0-trade-import.sql') `
+    'Trade-import v57.62 release deployment' | Out-Null
 }
 
 function Set-TradeImportActivationState {
   param([Parameter(Mandatory = $true)][bool]$Enabled)
 
-  $enabledSql = if ($Enabled) { 'true' } else { 'false' }
-  $activatedAtSql = if ($Enabled) { 'clock_timestamp()' } else { 'null' }
-  Invoke-TradeImportSqlText @"
-update public.equora_runtime_capability_gates
-set enabled=$enabledSql,
-    activated_at=$activatedAtSql,
-    updated_at=clock_timestamp()
-where capability_key='journal_file_import_persistence_v2'
-  and contract_version='equora-broker-file-import-capability-v1';
-"@ 'Trade-import test-only activation transition' | Out-Null
+  $transitionName = if ($Enabled) {
+    'activate-v57.62.0-trade-import.sql'
+  } else {
+    'deactivate-v57.62.0-trade-import.sql'
+  }
+  Invoke-TradeImportSqlText `
+    (Expand-TradeImportV5762File -Name $transitionName) `
+    "Trade-import v57.62 controlled gate transition: $transitionName" | Out-Null
 
   $expected = if ($Enabled) { '1|true|true' } else { '1|false|true' }
   $actual = Get-TradeImportScalar @'

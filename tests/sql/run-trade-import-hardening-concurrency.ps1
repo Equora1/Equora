@@ -6,213 +6,166 @@ param(
 . (Join-Path $PSScriptRoot 'trade-import-hardening-test-lib.ps1')
 Initialize-TradeImportTestContext $ContainerName $TestDatabase
 
-if ((Get-TradeImportScalar `
-    "select to_regprocedure('public.equora_import_trades_v2(uuid,uuid,jsonb,jsonb,jsonb)') is not null;") -ne 't') {
-  throw 'Trade-import concurrency gate requires the applied v57.62 candidate.'
-}
-
 $setupSql = @'
 insert into auth.users(id,email,created_at,updated_at)
 values ('c1000000-0000-4000-8000-000000000001','concurrency@example.invalid',now(),now());
 select set_config('request.jwt.claim.sub','c1000000-0000-4000-8000-000000000001',false);
 select public.equora_upsert_import_account_v1(
-  'c1000000-0000-4000-8000-000000000010',
-  'generic','Concurrency Account','EUR'
-);
+ 'c1000000-0000-4000-8000-000000000010','generic','Concurrency Account','EUR');
+select public.equora_upsert_import_account_v1(
+ 'c1000000-0000-4000-8000-000000000011','ctrader-history','Concurrency Account','EUR');
 '@
 Invoke-TradeImportSqlText $setupSql 'Trade-import concurrency setup' | Out-Null
 
-$worker = {
-  param(
-    $Container,
-    $Database,
-    $BatchId,
-    $ApplicationName,
-    $HoldSeconds,
-    $FileName,
-    $Market
-  )
-  $sql = @"
-set application_name='$ApplicationName';
-begin;
-set local statement_timeout='90s';
+function New-TradeImportWorkerSql {
+  param([string]$BatchId,[string]$FileName,[string]$Market,[string]$Preset='generic')
+  $accountId='c1000000-0000-4000-8000-000000000010'
+  $sourceKeys='[]'
+  if($Preset -eq 'ctrader-history') {
+    $accountId='c1000000-0000-4000-8000-000000000011'
+    $sourceKeys='[{"kind":"provider_identity_v1","identityKind":"deal_id","identityValue":"concurrency-42"}]'
+  }
+  return @"
 select set_config('request.jwt.claim.sub','c1000000-0000-4000-8000-000000000001',true);
 select public.equora_import_trades_v2(
-  '$BatchId',
-  'c1000000-0000-4000-8000-000000000010',
-  '{"file_name":"$FileName","preset_key":"generic","preset_label":"Generic CSV","account_label":"Concurrency Account","account_currency":"EUR"}'::jsonb,
-  '[{"row_number":2,"preview_status":"importable","selected":true}]'::jsonb,
-  '[{"row_number":2,"trade":{"id":"c1000000-0000-4000-8000-000000000099","created_at":"2026-08-30T10:00:00.000Z","market":"$Market","setup":"Imported execution","bias":"long","net_pnl":"12.50","position_size":"0.0100","account_currency":"USD","broker_profile":"generic","account_template":"spot"},"tags":["CSV Import"],"source_keys":[]}]'::jsonb
+ '$BatchId','$accountId',
+ '{"file_name":"$FileName","preset_key":"$Preset","preset_label":"Concurrency CSV","account_label":"Concurrency Account","account_currency":"EUR"}'::jsonb,
+ '[{"row_number":2,"preview_status":"importable","selected":true}]'::jsonb,
+ '[{"row_number":2,"trade":{"id":"c1000000-0000-4000-8000-000000000099","created_at":"2026-08-30T10:00:00.000Z","market":"$Market","setup":"Imported execution","bias":"long","net_pnl":"12.50","position_size":"0.0100","account_currency":"USD","broker_profile":"generic","account_template":"spot"},"tags":["CSV Import"],"source_keys":$sourceKeys}]'::jsonb
 );
-select pg_sleep($HoldSeconds);
-commit;
 "@
-  $output = $sql | & docker exec -i $Container psql -U postgres -d $Database `
-    -At -v ON_ERROR_STOP=1 2>&1
-  [pscustomobject]@{
-    ExitCode = $LASTEXITCODE
-    Output = ($output -join "`n")
-  }
+}
+
+$worker = {
+  param($Container,$Database,$ApplicationName,$Sql)
+  $payload="set application_name='$ApplicationName';" + [Environment]::NewLine + $Sql
+  $output=$payload | & docker exec -i $Container psql -U postgres -d $Database -At -v ON_ERROR_STOP=1 2>&1
+  [pscustomobject]@{ExitCode=$LASTEXITCODE;Output=($output -join [Environment]::NewLine)}
 }
 
 function Wait-TradeImportWorkerState {
-  param(
-    [Parameter(Mandatory = $true)][string]$ApplicationName,
-    [Parameter(Mandatory = $true)][string]$WaitEventType,
-    [Parameter(Mandatory = $true)][string]$WaitEvent,
-    [int]$TimeoutSeconds = 60
-  )
-
-  if ($ApplicationName -notmatch '^equora_ti_[a-z0-9_]+$') {
-    throw 'Trade-import worker application name is not allowlisted.'
-  }
-  $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
+  param([string]$ApplicationName,[string]$WaitEvent,[int]$TimeoutMilliseconds=2200)
+  if($ApplicationName -notmatch '^equora_ti_[a-z0-9_]+$'){throw 'Invalid fixture application name.'}
+  $timer=[Diagnostics.Stopwatch]::StartNew()
   do {
-    $state = Get-TradeImportScalar "select coalesce((select state || '|' || coalesce(wait_event_type,'') || '|' || coalesce(wait_event,'') from pg_stat_activity where application_name='$ApplicationName'),'missing');"
-    if ($state -eq "active|$WaitEventType|$WaitEvent") {
-      return $state
-    }
-    Start-Sleep -Milliseconds 100
-  } while ($stopwatch.Elapsed.TotalSeconds -lt $TimeoutSeconds)
-  throw "Trade-import worker state was not observed for ${ApplicationName}: $state"
+    $state=Get-TradeImportScalar "select coalesce((select state||'|'||coalesce(wait_event_type,'')||'|'||coalesce(wait_event,'') from pg_stat_activity where application_name='$ApplicationName'),'missing');"
+    if($state -eq "active|Lock|$WaitEvent"){return $state}
+    Start-Sleep -Milliseconds 25
+  } while($timer.ElapsedMilliseconds -lt $TimeoutMilliseconds)
+  throw "Bounded lock observation failed for $($ApplicationName): $state"
 }
 
 function Invoke-TradeImportRace {
   param(
-    [Parameter(Mandatory = $true)][string]$Scenario,
-    [Parameter(Mandatory = $true)][string]$FirstBatchId,
-    [Parameter(Mandatory = $true)][string]$SecondBatchId,
-    [Parameter(Mandatory = $true)][string]$FirstFileName,
-    [Parameter(Mandatory = $true)][string]$SecondFileName,
-    [Parameter(Mandatory = $true)][string]$Market,
-    [Parameter(Mandatory = $true)][string]$SecondWaitEvent
+    [string]$Scenario,[string]$FirstSql,[string]$SecondSql,
+    [string]$SecondWaitEvent,[switch]$ExpectTimeout,[switch]$SecondOwnTransaction
   )
-
-  $firstApplication = "equora_ti_${Scenario}_first"
-  $secondApplication = "equora_ti_${Scenario}_second"
-  $firstJob = $null
-  $secondJob = $null
+  $firstApplication="equora_ti_$($Scenario)_first"
+  $secondApplication="equora_ti_$($Scenario)_second"
+  $first=$null
+  $secondJob=$null
   try {
-    $firstJob = Start-Job -ScriptBlock $worker -ArgumentList `
-      $ContainerName,$TestDatabase,$FirstBatchId,$firstApplication,60,`
-      $FirstFileName,$Market
-    Wait-TradeImportWorkerState $firstApplication 'Timeout' 'PgSleep' | Out-Null
-
-    $secondJob = Start-Job -ScriptBlock $worker -ArgumentList `
-      $ContainerName,$TestDatabase,$SecondBatchId,$secondApplication,0,`
-      $SecondFileName,$Market
-    $observedWait = Wait-TradeImportWorkerState `
-      $secondApplication 'Lock' $SecondWaitEvent
-
-    $completedJobs = @(Wait-Job -Job @($firstJob,$secondJob) -Timeout 90)
-    if ($completedJobs.Count -ne 2) {
-      throw "Trade-import concurrency jobs timed out for $Scenario."
+    # Persistent local psql stdin is the release barrier; no fixed sleep
+    # determines success. Commit follows the observed competing lock.
+    $startInfo=New-Object Diagnostics.ProcessStartInfo
+    $startInfo.FileName=(Get-Command docker -ErrorAction Stop).Source
+    $startInfo.Arguments="exec -i $ContainerName psql -U postgres -d $TestDatabase -At -v ON_ERROR_STOP=1"
+    $startInfo.UseShellExecute=$false
+    $startInfo.CreateNoWindow=$true
+    $startInfo.RedirectStandardInput=$true
+    $startInfo.RedirectStandardOutput=$true
+    $startInfo.RedirectStandardError=$true
+    $first=New-Object Diagnostics.Process
+    $first.StartInfo=$startInfo
+    if(-not $first.Start()){throw 'First fixture worker failed to start.'}
+    $stderr=$first.StandardError.ReadToEndAsync()
+    $first.StandardInput.WriteLine("set application_name='$firstApplication';")
+    $first.StandardInput.WriteLine("begin; set local statement_timeout='30s'; set local idle_in_transaction_session_timeout='30s';")
+    $first.StandardInput.WriteLine($FirstSql)
+    $first.StandardInput.WriteLine('\echo EQUORA_FIRST_READY')
+    $first.StandardInput.Flush()
+    $firstLines=New-Object 'Collections.Generic.List[string]'
+    do {
+      $read=$first.StandardOutput.ReadLineAsync()
+      if(-not $read.Wait(30000)){throw 'First fixture readiness timeout.'}
+      $line=$read.Result
+      if($null -eq $line){throw "First fixture failed before barrier: $($stderr.GetAwaiter().GetResult())"}
+      $firstLines.Add($line)
+    } while($line -ne 'EQUORA_FIRST_READY')
+    if(-not $SecondOwnTransaction){
+      $SecondSql="begin; set local statement_timeout='30s';" + [Environment]::NewLine + $SecondSql + [Environment]::NewLine + 'commit;'
     }
-
+    $secondJob=Start-Job -ScriptBlock $worker -ArgumentList $ContainerName,$TestDatabase,$secondApplication,$SecondSql
+    $observed=Wait-TradeImportWorkerState $secondApplication $SecondWaitEvent
+    if($ExpectTimeout){
+      if($null -eq (Wait-Job -Job $secondJob -Timeout 8)){throw 'Expected lock timeout did not finish.'}
+    }
+    $first.StandardInput.WriteLine('commit;')
+    $first.StandardInput.Close()
+    if(-not $first.WaitForExit(10000)){throw 'First fixture commit timed out.'}
+    $firstError=$stderr.GetAwaiter().GetResult()
+    if($first.ExitCode -ne 0){throw "First fixture commit failed: $firstError"}
+    if($null -eq (Wait-Job -Job $secondJob -Timeout 30)){throw 'Second fixture timed out.'}
+    $second=Receive-Job -Job $secondJob
     return [pscustomobject]@{
-      First = Receive-Job -Job $firstJob
-      Second = Receive-Job -Job $secondJob
-      ObservedWait = $observedWait
+      FirstOutput=($firstLines -join [Environment]::NewLine)
+      Second=$second
+      ObservedWait=$observed
     }
   } finally {
-    foreach ($job in @($firstJob,$secondJob)) {
-      if ($null -eq $job) {
-        continue
+    if($null -ne $first){
+      if(-not $first.HasExited){
+        try { $first.StandardInput.WriteLine('rollback;'); $first.StandardInput.Close() } catch {}
+        if(-not $first.WaitForExit(5000)){ $first.Kill() }
       }
-      if ($job.State -notin @('Completed','Failed','Stopped')) {
-        Stop-Job -Job $job -ErrorAction SilentlyContinue
-      }
-      Remove-Job -Job $job -Force -ErrorAction SilentlyContinue
+      $first.Dispose()
+    }
+    if($null -ne $secondJob){
+      if($secondJob.State -notin @('Completed','Failed','Stopped')){Stop-Job $secondJob -ErrorAction SilentlyContinue}
+      Remove-Job $secondJob -Force -ErrorAction SilentlyContinue
     }
   }
 }
 
-$sourceRace = Invoke-TradeImportRace `
-  'source_key' `
-  'c1000000-0000-4000-8000-000000000020' `
-  'c1000000-0000-4000-8000-000000000021' `
-  'concurrency.csv' `
-  'concurrency.csv' `
-  'BTCUSDT' `
-  'transactionid'
-$combinedOutput = $sourceRace.First.Output + "`n" + $sourceRace.Second.Output
-$importWinnerCount = ([regex]::Matches(
-  $combinedOutput, '"importedCount"\s*:\s*1'
-)).Count
-$duplicateWinnerCount = ([regex]::Matches(
-  $combinedOutput, '"duplicateCount"\s*:\s*1'
-)).Count
-if ($sourceRace.ObservedWait -ne 'active|Lock|transactionid' `
-    -or $sourceRace.First.ExitCode -ne 0 `
-    -or $sourceRace.Second.ExitCode -ne 0 `
-    -or $importWinnerCount -ne 1 -or $duplicateWinnerCount -ne 1) {
-  throw "Trade-import source-key race invalid.`nFirst: $($sourceRace.First.Output)`nSecond: $($sourceRace.Second.Output)"
+$sourceRace=Invoke-TradeImportRace 'source_key' (New-TradeImportWorkerSql 'c1000000-0000-4000-8000-000000000020' 'source.csv' 'BTCUSDT' 'ctrader-history') (New-TradeImportWorkerSql 'c1000000-0000-4000-8000-000000000021' 'source.csv' 'BTCUSDT' 'ctrader-history') 'transactionid'
+# Same-account locking serializes the full RPC before unique reservation.
+# This proves the RPC result, not that the wait itself is index-level.
+if($sourceRace.Second.ExitCode -ne 0 -or $sourceRace.FirstOutput -notmatch '"importedCount"\s*:\s*1' -or $sourceRace.Second.Output -notmatch '"duplicateCount"\s*:\s*1'){
+  throw "Provider-identity race failed: $($sourceRace.Second.Output)"
 }
-
-$exactReplayRace = Invoke-TradeImportRace `
-  'exact_replay' `
-  'c1000000-0000-4000-8000-000000000030' `
-  'c1000000-0000-4000-8000-000000000030' `
-  'same-batch.csv' `
-  'same-batch.csv' `
-  'ETHUSDT' `
-  'advisory'
-$exactReplayOutput = `
-  $exactReplayRace.First.Output + "`n" + $exactReplayRace.Second.Output
-if ($exactReplayRace.ObservedWait -ne 'active|Lock|advisory' `
-    -or $exactReplayRace.First.ExitCode -ne 0 `
-    -or $exactReplayRace.Second.ExitCode -ne 0 `
-    -or ([regex]::Matches(
-      $exactReplayOutput,'"alreadyApplied"\s*:\s*false'
-    )).Count -ne 1 `
-    -or ([regex]::Matches(
-      $exactReplayOutput,'"alreadyApplied"\s*:\s*true'
-    )).Count -ne 1) {
-  throw "Trade-import exact replay race invalid.`nFirst: $($exactReplayRace.First.Output)`nSecond: $($exactReplayRace.Second.Output)"
+$replaySql=New-TradeImportWorkerSql 'c1000000-0000-4000-8000-000000000030' 'replay.csv' 'ETHUSDT'
+$replay=Invoke-TradeImportRace 'exact_replay' $replaySql $replaySql 'advisory'
+if($replay.Second.ExitCode -ne 0 -or $replay.Second.Output -notmatch '"alreadyApplied"\s*:\s*true'){
+  throw "Exact replay failed: $($replay.Second.Output)"
 }
-
-$mismatchRace = Invoke-TradeImportRace `
-  'replay_mismatch' `
-  'c1000000-0000-4000-8000-000000000040' `
-  'c1000000-0000-4000-8000-000000000040' `
-  'mismatch-winner.csv' `
-  'mismatch-loser.csv' `
-  'SOLUSDT' `
-  'advisory'
-if ($mismatchRace.ObservedWait -ne 'active|Lock|advisory' `
-    -or $mismatchRace.First.ExitCode -ne 0 `
-    -or $mismatchRace.Second.ExitCode -eq 0 `
-    -or $mismatchRace.Second.Output -notmatch 'BATCH_REPLAY_MISMATCH') {
-  throw "Trade-import replay mismatch race invalid.`nFirst: $($mismatchRace.First.Output)`nSecond: $($mismatchRace.Second.Output)"
+$mismatch=Invoke-TradeImportRace 'replay_mismatch' (New-TradeImportWorkerSql 'c1000000-0000-4000-8000-000000000040' 'first.csv' 'SOLUSDT') (New-TradeImportWorkerSql 'c1000000-0000-4000-8000-000000000040' 'changed.csv' 'SOLUSDT') 'advisory'
+if($mismatch.Second.ExitCode -eq 0 -or $mismatch.Second.Output -notmatch 'BATCH_REPLAY_MISMATCH'){
+  throw "Changed replay did not fail atomically: $($mismatch.Second.Output)"
 }
-
-$state = Get-TradeImportScalar @'
+$retrySql=New-TradeImportWorkerSql 'c1000000-0000-4000-8000-000000000061' 'timeout-retry.csv' 'ADAUSDT'
+$timeout=Invoke-TradeImportRace 'lock_timeout' (New-TradeImportWorkerSql 'c1000000-0000-4000-8000-000000000060' 'timeout-first.csv' 'ADAUSDT') $retrySql 'transactionid' -ExpectTimeout
+if($timeout.Second.ExitCode -eq 0 -or $timeout.Second.Output -notmatch 'lock timeout'){
+  throw "Expected lock-timeout failure missing: $($timeout.Second.Output)"
+}
+if((Get-TradeImportScalar "select count(*) from public.trade_import_batches where id='c1000000-0000-4000-8000-000000000061';") -ne '0'){
+  throw 'Lock-timeout left a partial batch.'
+}
+Invoke-TradeImportSqlText ("begin; set local statement_timeout='30s';" + [Environment]::NewLine + $retrySql + [Environment]::NewLine + 'commit;') 'Successful retry after lock timeout' | Out-Null
+$deactivation=Expand-TradeImportV5762File -Name 'deactivate-v57.62.0-trade-import.sql'
+$gate=Invoke-TradeImportRace 'gate_deactivate' (New-TradeImportWorkerSql 'c1000000-0000-4000-8000-000000000050' 'gate-race.csv' 'XRPUSDT') $deactivation 'transactionid' -SecondOwnTransaction
+if($gate.Second.ExitCode -ne 0){throw "Gate deactivation race failed: $($gate.Second.Output)"}
+if((Get-TradeImportScalar "select (not enabled and activated_at is null)::text from public.equora_runtime_capability_gates where capability_key='journal_file_import_persistence_v2' and contract_version='equora-broker-file-import-capability-v1';") -ne 'true'){
+  throw 'Gate did not close after admitted transaction committed.'
+}
+$state=Get-TradeImportScalar @'
 select
-  (select count(*) from public.trade_import_batches
-    where user_id='c1000000-0000-4000-8000-000000000001')::text
-  || '|' ||
-  (select sum(imported_count) from public.trade_import_batches
-    where user_id='c1000000-0000-4000-8000-000000000001')::text
-  || '|' ||
-  (select sum(duplicate_count) from public.trade_import_batches
-    where user_id='c1000000-0000-4000-8000-000000000001')::text
-  || '|' ||
-  (select count(*) from public.trades
-    where user_id='c1000000-0000-4000-8000-000000000001')::text
-  || '|' ||
-  (select count(*) from public.trade_import_source_keys
-    where user_id='c1000000-0000-4000-8000-000000000001' and status='active')::text
-  || '|' ||
-  (select count(*) from public.trade_import_source_keys source_key
-    left join public.trades trade on trade.id=source_key.trade_id
-    where source_key.user_id='c1000000-0000-4000-8000-000000000001'
-      and source_key.status='active' and trade.id is null)::text
-  || '|' ||
-  (select count(*) from public.trades
-    where id='c1000000-0000-4000-8000-000000000099')::text;
+ (select count(*) from public.trade_import_batches where user_id='c1000000-0000-4000-8000-000000000001')::text||'|'||
+ (select sum(imported_count) from public.trade_import_batches where user_id='c1000000-0000-4000-8000-000000000001')::text||'|'||
+ (select sum(duplicate_count) from public.trade_import_batches where user_id='c1000000-0000-4000-8000-000000000001')::text||'|'||
+ (select count(*) from public.trades where user_id='c1000000-0000-4000-8000-000000000001')::text||'|'||
+ (select count(*) from public.trade_import_source_keys where user_id='c1000000-0000-4000-8000-000000000001' and status='active')::text||'|'||
+ (select count(*) from public.trade_import_source_keys where user_id='c1000000-0000-4000-8000-000000000001' and status='active' and trade_id is null)::text||'|'||
+ (select count(*) from public.trades where id='c1000000-0000-4000-8000-000000000099')::text;
 '@
-if ($state -ne '4|3|1|3|3|0|0') {
-  throw "Trade-import concurrency persisted state invalid: $state"
-}
-
-Write-Output 'Trade-import concurrency gate PASS: source-key transaction wait, exact replay advisory wait and changed replay mismatch observed; no orphan key, partial trade or client-supplied trade ID.'
+if($state -ne '7|6|1|6|6|0|0'){throw "Trade-import concurrency state invalid: $state"}
+Write-Output 'Trade-import concurrency gate PASS: bounded barrier, account-serialized provider identity, exact replay, changed replay, lock timeout/rollback/retry and gate/deactivation.'
