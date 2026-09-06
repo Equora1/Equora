@@ -1,9 +1,20 @@
--- Equora local schema candidate: stable file-import accounts and atomic dedupe.
--- DO NOT APPLY to Production. This artifact is intentionally absent from
--- deploy-v57.61.0.sql and requires its own preflight, migration, postflight,
--- rollback/recovery review and explicit Supabase authorization.
+-- Equora v57.62.0: stable file-import accounts and atomic dedupe.
+-- Apply only through deploy-v57.62.0-trade-import.sql after an independently
+-- reviewed preflight. Installation remains default-off; activation is a
+-- separate explicitly authorized transaction.
 
 begin;
+
+set local lock_timeout = '3s';
+set local statement_timeout = '60s';
+set local idle_in_transaction_session_timeout = '75s';
+
+-- Prevent concurrent installers from racing the marker and catalog changes.
+select pg_catalog.pg_advisory_xact_lock(
+  pg_catalog.hashtextextended(
+    'equora_v57.62.0_trade_import_persistence_v1', 0
+  )
+);
 
 -- This database gate is the authoritative persistence boundary. Installing or
 -- re-applying the candidate never activates imports. Activation requires a
@@ -39,7 +50,7 @@ on conflict (capability_key, contract_version) do nothing;
 
 alter table public.equora_runtime_capability_gates enable row level security;
 revoke all on table public.equora_runtime_capability_gates
-  from public, anon, authenticated;
+  from public, anon, authenticated, service_role;
 
 create table if not exists public.journal_import_accounts (
   id uuid primary key default gen_random_uuid(),
@@ -99,6 +110,54 @@ alter table public.trade_import_batches
 do $$
 begin
   if not exists (
+    select 1
+    from pg_catalog.pg_constraint
+    where conname = 'trade_import_batches_v2_state_check'
+      and conrelid = 'public.trade_import_batches'::regclass
+  ) then
+    alter table public.trade_import_batches
+      add constraint trade_import_batches_v2_state_check
+      check (
+        import_account_id is null
+        or (
+          request_digest ~ '^[0-9a-f]{64}$'
+          and source_manifest_digest ~ '^[0-9a-f]{64}$'
+          and jsonb_typeof(source_manifest) = 'array'
+          and source_row_count between 1 and 5000
+          and imported_count >= 0
+          and duplicate_count >= 0
+          and skipped_count >= 0
+          and invalid_count >= 0
+          and (
+            (
+              status = 'processing'
+              and reverted_at is null
+              and imported_count = 0
+              and duplicate_count = 0
+              and skipped_count + invalid_count <= source_row_count
+            )
+            or (
+              status = 'active'
+              and reverted_at is null
+              and imported_count + duplicate_count
+                + skipped_count + invalid_count = source_row_count
+            )
+            or (
+              status = 'reverted'
+              and reverted_at is not null
+              and imported_count + duplicate_count
+                + skipped_count + invalid_count = source_row_count
+            )
+          )
+        ) is true
+      ) not valid;
+  end if;
+end;
+$$;
+
+do $$
+begin
+  if not exists (
     select 1 from pg_constraint
     where conname = 'trades_import_account_owner_fkey'
       and conrelid = 'public.trades'::regclass
@@ -131,17 +190,31 @@ create table if not exists public.trade_import_source_keys (
   preset_key text not null,
   source_kind text not null,
   source_digest text not null,
+  trade_snapshot jsonb not null,
+  snapshot_digest text not null,
   batch_id uuid not null,
   trade_id uuid,
   status text not null default 'active',
   created_at timestamptz not null default now(),
   reverted_at timestamptz,
   constraint trade_import_source_keys_kind_check
-    check (source_kind in ('provider_identity_v1', 'value_fingerprint_v1')),
+    check (source_kind in ('provider_identity_v1', 'request_row_v1')),
   constraint trade_import_source_keys_digest_check
     check (source_digest ~ '^[0-9a-f]{64}$'),
+  constraint trade_import_source_keys_snapshot_check
+    check ((
+      jsonb_typeof(trade_snapshot) = 'object'
+      and trade_snapshot->>'schemaVersion' =
+        'equora-trade-import-financial-snapshot-v1'
+      and snapshot_digest ~ '^[0-9a-f]{64}$'
+    ) is true),
   constraint trade_import_source_keys_status_check
     check (status in ('active', 'reverted')),
+  constraint trade_import_source_keys_lifecycle_check
+    check (
+      (status = 'active' and reverted_at is null)
+      or (status = 'reverted' and reverted_at is not null and trade_id is null)
+    ),
   constraint trade_import_source_keys_account_owner_fkey
     foreign key (user_id, import_account_id)
     references public.journal_import_accounts (user_id, id)
@@ -194,11 +267,11 @@ create policy "users can read own trade import source keys"
   on public.trade_import_source_keys for select to authenticated
   using ((select auth.uid()) = user_id);
 
-revoke all on table public.journal_import_accounts from public, anon;
-revoke all on table public.journal_import_accounts from authenticated;
+revoke all on table public.journal_import_accounts
+  from public, anon, authenticated, service_role;
 grant select on table public.journal_import_accounts to authenticated;
-revoke all on table public.trade_import_source_keys from public, anon;
-revoke all on table public.trade_import_source_keys from authenticated;
+revoke all on table public.trade_import_source_keys
+  from public, anon, authenticated, service_role;
 grant select on table public.trade_import_source_keys to authenticated;
 
 create or replace function public.equora_upsert_import_account_v1(
@@ -300,6 +373,8 @@ returns jsonb
 language plpgsql
 security definer
 set search_path = ''
+set lock_timeout = '3s'
+set timezone = 'UTC'
 as $$
 declare
   v_user_id uuid := auth.uid();
@@ -321,7 +396,6 @@ declare
   v_source_row_count integer := 0;
   v_source_key_duplicate boolean;
   v_imported_ids jsonb := '[]'::jsonb;
-  v_expected_fingerprint_digest text;
   v_provider_identity_digest text;
   v_provider_identity_kind text;
   v_provider_identity_value text;
@@ -330,25 +404,51 @@ declare
   v_reserved_source_digest text;
   v_request_digest text;
   v_source_manifest_digest text;
+  v_trade_snapshot jsonb;
+  v_trade_snapshot_digest text;
+  v_persisted_trade public.trades%rowtype;
+  v_existing_snapshot jsonb;
+  v_snapshot_fields constant text[] := array[
+    'created_at', 'completed_at', 'market', 'bias', 'entry', 'exit',
+    'stop_loss', 'take_profit', 'net_pnl', 'risk_percent', 'account_size',
+    'partial_exits', 'r_multiple', 'pnl_mode', 'cost_profile',
+    'broker_profile', 'instrument_type', 'account_template', 'market_template',
+    'position_size', 'point_value', 'fees', 'exchange_fees', 'funding_fees',
+    'funding_rate_bps', 'funding_intervals', 'spread_cost', 'slippage',
+    'account_currency', 'crypto_market_type', 'execution_type',
+    'funding_direction', 'quote_asset', 'leverage', 'capture_status'
+  ];
   v_existing_batch public.trade_import_batches%rowtype;
   v_plausibility_total integer := 0;
   v_plausibility_count integer := 0;
   v_row_plausibility integer;
+  v_runtime_started_at timestamptz := clock_timestamp();
 begin
   if v_user_id is null then raise exception 'UNAUTHENTICATED'; end if;
-  if not exists (
-    select 1
+  -- Hold a shared row lock for the complete transaction. Deactivation takes
+  -- the conflicting update lock, so it cannot return while an admitted import
+  -- can still commit under the old gate state.
+  perform 1
     from public.equora_runtime_capability_gates gate
     where gate.capability_key = 'journal_file_import_persistence_v2'
       and gate.contract_version =
         'equora-broker-file-import-capability-v1'
       and gate.enabled
       and gate.activated_at is not null
-  ) then raise exception 'IMPORT_PERSISTENCE_DISABLED'; end if;
+    for share;
+  if not found then raise exception 'IMPORT_PERSISTENCE_DISABLED'; end if;
+  -- A SET inside a function cannot arm the already-running outer statement.
+  -- Require a bounded caller/session timeout before admitting any mutation.
+  if not exists (
+    select 1 from pg_catalog.pg_settings
+    where name = 'statement_timeout' and setting::bigint between 1 and 30000
+  ) then raise exception 'IMPORT_STATEMENT_TIMEOUT_REQUIRED'; end if;
   if p_batch_id is null
-    or jsonb_typeof(coalesce(p_source_rows, '[]'::jsonb)) <> 'array'
-    or jsonb_typeof(coalesce(p_trades, '[]'::jsonb)) <> 'array'
-    or jsonb_array_length(coalesce(p_source_rows, '[]'::jsonb)) < 1
+    or jsonb_typeof(p_batch) is distinct from 'object'
+    or jsonb_typeof(p_source_rows) is distinct from 'array'
+    or jsonb_typeof(p_trades) is distinct from 'array'
+  then raise exception 'INVALID_INPUT'; end if;
+  if jsonb_array_length(coalesce(p_source_rows, '[]'::jsonb)) < 1
     or jsonb_array_length(coalesce(p_source_rows, '[]'::jsonb)) > 5000
     or jsonb_array_length(coalesce(p_trades, '[]'::jsonb)) < 1
     or jsonb_array_length(coalesce(p_trades, '[]'::jsonb)) > 5000
@@ -359,9 +459,18 @@ begin
 
   if exists (
     select 1 from jsonb_array_elements(p_source_rows) source_row
-    where coalesce(source_row->>'row_number', '') !~ '^[0-9]+$'
-      or coalesce(source_row->>'preview_status', '') not in ('importable', 'check', 'skip')
-      or jsonb_typeof(source_row->'selected') <> 'boolean'
+    where case
+      when jsonb_typeof(source_row) is distinct from 'object' then true
+      else (source_row - array['row_number', 'preview_status', 'selected']) <> '{}'::jsonb
+        or not source_row ?& array[
+          'row_number', 'preview_status', 'selected'
+        ]
+        or coalesce(source_row->>'row_number', '') !~ '^[0-9]{1,9}$'
+        or coalesce(source_row->>'preview_status', '') not in (
+          'importable', 'check', 'skip'
+        )
+        or jsonb_typeof(source_row->'selected') is distinct from 'boolean'
+    end
   ) then raise exception 'INVALID_SOURCE_MANIFEST'; end if;
   if exists (
     select 1 from jsonb_array_elements(p_source_rows) source_row
@@ -379,10 +488,17 @@ begin
   ) then raise exception 'DUPLICATE_SOURCE_ROW'; end if;
   if exists (
     select 1 from jsonb_array_elements(p_trades) trade_entry
-    where coalesce(trade_entry->>'row_number', '') !~ '^[0-9]+$'
-      or jsonb_typeof(coalesce(trade_entry->'trade', '{}'::jsonb)) <> 'object'
-      or jsonb_typeof(coalesce(trade_entry->'tags', '[]'::jsonb)) <> 'array'
-      or jsonb_typeof(coalesce(trade_entry->'source_keys', '[]'::jsonb)) <> 'array'
+    where case
+      when jsonb_typeof(trade_entry) is distinct from 'object' then true
+      else (trade_entry - array['row_number', 'trade', 'tags', 'source_keys']) <> '{}'::jsonb
+        or not trade_entry ?& array[
+          'row_number', 'trade', 'tags', 'source_keys'
+        ]
+        or coalesce(trade_entry->>'row_number', '') !~ '^[0-9]{1,9}$'
+        or jsonb_typeof(trade_entry->'trade') is distinct from 'object'
+        or jsonb_typeof(trade_entry->'tags') is distinct from 'array'
+        or jsonb_typeof(trade_entry->'source_keys') is distinct from 'array'
+    end
   ) then raise exception 'INVALID_TRADE_ENVELOPE'; end if;
   if exists (
     select 1 from jsonb_array_elements(p_trades) trade_entry
@@ -448,10 +564,21 @@ begin
     if v_existing_batch.request_digest is distinct from v_request_digest then
       raise exception 'BATCH_REPLAY_MISMATCH';
     end if;
+    if v_existing_batch.status = 'reverted' then
+      raise exception 'BATCH_REVERTED_REQUIRES_NEW_ID';
+    end if;
+    if v_existing_batch.status <> 'active' then
+      raise exception 'BATCH_REPLAY_STATE_INVALID';
+    end if;
     select coalesce(jsonb_agg(trade.id order by trade.created_at, trade.id), '[]'::jsonb)
     into v_imported_ids
     from public.trades trade
     where trade.user_id = v_user_id and trade.import_batch_id = p_batch_id;
+    if jsonb_array_length(v_imported_ids) <>
+      coalesce(v_existing_batch.imported_count, -1)
+    then
+      raise exception 'BATCH_REPLAY_STATE_INVALID';
+    end if;
     return jsonb_build_object(
       'batchId', p_batch_id, 'alreadyApplied', true,
       'sourceRowCount', coalesce(v_existing_batch.source_row_count, 0),
@@ -498,12 +625,15 @@ begin
     array[
       'Das übermittelte Quellenmanifest ist kryptografisch an diese Charge gebunden; die Originaldatei wurde serverseitig nicht unabhängig verifiziert.'
     ]::text[],
-    'active', null
+    'processing', null
   );
 
   for v_entry in
     select value from jsonb_array_elements(coalesce(p_trades, '[]'::jsonb))
   loop
+    if clock_timestamp() - v_runtime_started_at > interval '25 seconds' then
+      raise exception 'IMPORT_RUNTIME_BUDGET_EXCEEDED';
+    end if;
     v_row_number := (v_entry->>'row_number')::integer;
     v_trade := (
       coalesce(v_entry->'trade', '{}'::jsonb)
@@ -523,34 +653,54 @@ begin
       'account_currency', upper(btrim(v_trade->>'account_currency'))
     );
     v_trade_id := gen_random_uuid();
-    v_expected_fingerprint_digest := encode(
-      pg_catalog.sha256(
-        convert_to(
-        concat_ws(
-          '|',
-          to_char(
-            (v_trade->>'created_at')::timestamptz at time zone 'UTC',
-            'YYYY-MM-DD"T"HH24:MI:SS.US"Z"'
-          ),
-          lower(btrim(coalesce(v_trade->>'market', ''))),
-          lower(btrim(coalesce(v_trade->>'bias', ''))),
-          coalesce(
-            pg_catalog.trim_scale(nullif(v_trade->>'net_pnl', '')::numeric)::text,
-            ''
-          ),
-          coalesce(
-            pg_catalog.trim_scale(nullif(v_trade->>'position_size', '')::numeric)::text,
-            ''
-          ),
-          upper(btrim(coalesce(v_trade->>'account_currency', ''))),
-          lower(btrim(coalesce(v_trade->>'broker_profile', ''))),
-          lower(btrim(coalesce(v_trade->>'account_template', ''))),
-          v_import_account_id::text
-        ),
-        'UTF8'
-        )
-      ),
-      'hex'
+    -- Partial exits are financial legs, never arbitrary retained JSON payloads.
+    if v_trade->'partial_exits' is not null
+      and v_trade->'partial_exits' <> 'null'::jsonb then
+      if jsonb_typeof(v_trade->'partial_exits') is distinct from 'array'
+      then raise exception 'INVALID_PARTIAL_EXITS'; end if;
+      if jsonb_array_length(v_trade->'partial_exits') > 100
+      then raise exception 'INVALID_PARTIAL_EXITS'; end if;
+      if exists (
+        select 1 from jsonb_array_elements(v_trade->'partial_exits') leg
+        where case when jsonb_typeof(leg) is distinct from 'object' then true
+          else (leg - array['percent', 'price']) <> '{}'::jsonb
+            or not leg ?& array['percent', 'price']
+            or jsonb_typeof(leg->'percent') is distinct from 'number'
+            or jsonb_typeof(leg->'price') is distinct from 'number'
+        end
+      ) then raise exception 'INVALID_PARTIAL_EXITS'; end if;
+      if exists (
+        select 1 from jsonb_array_elements(v_trade->'partial_exits') leg
+        where (leg->>'percent')::numeric <= 0
+          or (leg->>'percent')::numeric > 100
+          or (leg->>'price')::numeric <= 0
+      ) or (select sum((leg->>'percent')::numeric)
+        from jsonb_array_elements(v_trade->'partial_exits') leg) > 100
+      then raise exception 'INVALID_PARTIAL_EXITS'; end if;
+    end if;
+    -- Project financial fields through the actual table types. The final
+    -- immutable snapshot is read back from the stored row after creation.
+    v_trade := v_trade || jsonb_build_object(
+      'market', nullif(btrim(v_trade->>'market'), ''),
+      'created_at', coalesce(nullif(v_trade->>'created_at', '')::timestamptz, now()),
+      'capture_status', coalesce(nullif(v_trade->>'capture_status', ''), 'complete')
+    );
+    select * into v_persisted_trade
+    from jsonb_populate_record(null::public.trades, (
+      select coalesce(jsonb_object_agg(field.key, field.value), '{}'::jsonb)
+      from jsonb_each(v_trade) field
+      where field.key = any(v_snapshot_fields) and field.value <> '""'::jsonb
+    ));
+    select jsonb_strip_nulls(
+      jsonb_build_object(
+        'schemaVersion', 'equora-trade-import-financial-snapshot-v1',
+        'sourceRowNumber', v_row_number
+      ) || coalesce(jsonb_object_agg(field.key, field.value), '{}'::jsonb)
+    ) into v_trade_snapshot
+    from jsonb_each(to_jsonb(v_persisted_trade)) field
+    where field.key = any(v_snapshot_fields);
+    v_trade_snapshot_digest := encode(
+      pg_catalog.sha256(convert_to(v_trade_snapshot::text, 'UTF8')), 'hex'
     );
     v_required_provider_identity_kind := case v_preset_key
       when 'ctrader-history' then 'deal_id'
@@ -562,6 +712,19 @@ begin
         raise exception 'REQUIRED_PROVIDER_IDENTITY_MISSING';
       end if;
       v_source_key := (v_entry->'source_keys')->0;
+       if jsonb_typeof(v_source_key) is distinct from 'object' then
+        raise exception 'INVALID_PROVIDER_IDENTITY';
+      end if;
+       if (v_source_key - array['kind', 'identityKind', 'identityValue']) <> '{}'::jsonb
+        or not v_source_key ?& array[
+           'kind', 'identityKind', 'identityValue'
+         ]
+         or jsonb_typeof(v_source_key->'kind') is distinct from 'string'
+         or jsonb_typeof(v_source_key->'identityKind') is distinct from 'string'
+         or jsonb_typeof(v_source_key->'identityValue') is distinct from 'string'
+      then
+        raise exception 'INVALID_PROVIDER_IDENTITY';
+      end if;
       v_provider_identity_kind := lower(regexp_replace(
         btrim(coalesce(v_source_key->>'identityKind', '')), '\s+', ' ', 'g'
       ));
@@ -586,33 +749,53 @@ begin
       if jsonb_array_length(v_entry->'source_keys') <> 0 then
         raise exception 'PROVIDER_IDENTITY_NOT_ALLOWED';
       end if;
-      v_reserved_source_kind := 'value_fingerprint_v1';
-      v_reserved_source_digest := v_expected_fingerprint_digest;
+      -- Without a verified stable provider identifier, only same-request replay
+      -- can be deduplicated honestly. Similar trades in later batches must not
+      -- be silently dropped by a heuristic value fingerprint.
+      v_reserved_source_kind := 'request_row_v1';
+      v_reserved_source_digest := encode(
+        pg_catalog.sha256(convert_to(jsonb_build_array(
+          'equora-import-request-row-v1',
+          p_batch_id,
+          v_row_number,
+          v_trade_snapshot_digest
+        )::text, 'UTF8')), 'hex'
+      );
     end if;
 
-    v_source_key_duplicate := false;
-    begin
-      -- Exactly one key is authoritative per row: the allowlisted provider ID
-      -- when available, otherwise the canonical database value fingerprint.
-      insert into public.trade_import_source_keys (
-        id, user_id, import_account_id, preset_key, source_kind,
-        source_digest, batch_id, trade_id, status, created_at, reverted_at
-      ) values (
-        gen_random_uuid(), v_user_id, v_import_account_id, v_preset_key,
-        v_reserved_source_kind, v_reserved_source_digest,
-        p_batch_id, null, 'active', now(), null
-      );
-    exception when unique_violation then
-      v_source_key_duplicate := true;
-    end;
+    -- Only the authoritative partial identity index may report a duplicate.
+    -- Any unrelated unique violation fails the complete transaction.
+    insert into public.trade_import_source_keys (
+      id, user_id, import_account_id, preset_key, source_kind,
+      source_digest, trade_snapshot, snapshot_digest, batch_id, trade_id,
+      status, created_at, reverted_at
+    ) values (
+      gen_random_uuid(), v_user_id, v_import_account_id, v_preset_key,
+      v_reserved_source_kind, v_reserved_source_digest,
+      v_trade_snapshot, v_trade_snapshot_digest,
+      p_batch_id, null, 'active', now(), null
+    )
+    on conflict (user_id, import_account_id, preset_key, source_kind, source_digest)
+      where status = 'active'
+    do nothing;
+    v_source_key_duplicate := not found;
 
     if v_source_key_duplicate then
+      select trade_snapshot into v_existing_snapshot
+      from public.trade_import_source_keys
+      where user_id = v_user_id and import_account_id = v_import_account_id
+        and preset_key = v_preset_key and source_kind = v_reserved_source_kind
+        and source_digest = v_reserved_source_digest and status = 'active'
+      for share;
+      if not found or (v_existing_snapshot - 'sourceRowNumber')
+        is distinct from (v_trade_snapshot - 'sourceRowNumber')
+      then raise exception 'PROVIDER_IDENTITY_FINANCIAL_CONFLICT'; end if;
       v_duplicates := v_duplicates + 1;
       continue;
     end if;
 
     v_row_plausibility := 100;
-    if nullif(v_trade->>'created_at', '') is null then
+    if nullif(v_entry->'trade'->>'created_at', '') is null then
       v_row_plausibility := v_row_plausibility - 35;
     end if;
     if nullif(btrim(v_trade->>'market'), '') is null then
@@ -634,13 +817,30 @@ begin
     update public.trades
     set import_account_id = v_import_account_id
     where id = v_trade_id and user_id = v_user_id;
+    if not found then raise exception 'TRADE_ACCOUNT_BIND_FAILED'; end if;
+    select * into strict v_persisted_trade
+    from public.trades
+    where id = v_trade_id and user_id = v_user_id;
+    select jsonb_strip_nulls(
+      jsonb_build_object(
+        'schemaVersion', 'equora-trade-import-financial-snapshot-v1',
+        'sourceRowNumber', v_row_number
+      ) || coalesce(jsonb_object_agg(field.key, field.value), '{}'::jsonb)
+    ) into v_trade_snapshot
+    from jsonb_each(to_jsonb(v_persisted_trade)) field
+    where field.key = any(v_snapshot_fields);
+    v_trade_snapshot_digest := encode(
+      pg_catalog.sha256(convert_to(v_trade_snapshot::text, 'UTF8')), 'hex'
+    );
     update public.trade_import_source_keys
-    set trade_id = v_trade_id
+    set trade_id = v_trade_id, trade_snapshot = v_trade_snapshot,
+        snapshot_digest = v_trade_snapshot_digest
     where user_id = v_user_id
       and batch_id = p_batch_id
       and source_kind = v_reserved_source_kind
       and source_digest = v_reserved_source_digest
       and trade_id is null;
+    if not found then raise exception 'SOURCE_KEY_TRADE_BIND_FAILED'; end if;
     v_imported := v_imported + 1;
     v_plausibility_total := v_plausibility_total
       + greatest(0, least(100, v_row_plausibility));
@@ -650,6 +850,9 @@ begin
 
   if v_imported + v_duplicates <> jsonb_array_length(p_trades) then
     raise exception 'SERVER_COUNT_INVARIANT_FAILED';
+  end if;
+  if clock_timestamp() - v_runtime_started_at > interval '25 seconds' then
+    raise exception 'IMPORT_RUNTIME_BUDGET_EXCEEDED';
   end if;
 
   update public.trade_import_batches
@@ -666,8 +869,10 @@ begin
         when v_plausibility_total::numeric / v_plausibility_count >= 65
           then 'Server-Plausibilität mittel'
         else 'Server-Prüfung erforderlich'
-      end
+      end,
+      status = 'active'
   where id = p_batch_id and user_id = v_user_id;
+  if not found then raise exception 'BATCH_FINALIZE_FAILED'; end if;
 
   return jsonb_build_object(
     'batchId', p_batch_id,
@@ -737,18 +942,18 @@ $$;
 
 revoke all on function public.equora_upsert_import_account_v1(
   uuid, text, text, text
-) from public, anon, authenticated;
+) from public, anon, authenticated, service_role;
 -- The legacy v1 import bypasses the v2 source manifest, stable account,
 -- server-side identity and replay contracts. Keep it available only as a
 -- historical rollback object; authenticated callers must not execute it.
 revoke all on function public.equora_import_trades_v1(
   uuid, jsonb, jsonb
-) from public, anon, authenticated;
+) from public, anon, authenticated, service_role;
 revoke all on function public.equora_import_trades_v2(
   uuid, uuid, jsonb, jsonb, jsonb
-) from public, anon;
+) from public, anon, authenticated, service_role;
 revoke all on function public.equora_revert_import_v1(uuid)
-  from public, anon;
+  from public, anon, authenticated, service_role;
 grant execute on function public.equora_import_trades_v2(
   uuid, uuid, jsonb, jsonb, jsonb
 ) to authenticated;
@@ -764,5 +969,32 @@ alter table public.trades
   validate constraint trades_import_account_owner_fkey;
 alter table public.trade_import_batches
   validate constraint trade_import_batches_import_account_owner_fkey;
+alter table public.trade_import_batches
+  validate constraint trade_import_batches_v2_state_check;
 
+insert into equora_private.schema_migrations (
+  migration_id,
+  contract_fingerprint
+) values (
+  'equora_v57.62.0_trade_import_persistence_v1',
+  '014731e263ec2f0ffc9b0e16962b5d5574516a0c975a1713580740fa3bc6413d'
+)
+on conflict (migration_id) do nothing;
+
+do $$
+begin
+  if not exists (
+    select 1
+    from equora_private.schema_migrations
+    where migration_id = 'equora_v57.62.0_trade_import_persistence_v1'
+      and contract_fingerprint =
+        '014731e263ec2f0ffc9b0e16962b5d5574516a0c975a1713580740fa3bc6413d'
+  ) then
+    raise exception 'TRADE_IMPORT_MIGRATION_RECEIPT_DRIFT';
+  end if;
+end;
+$$;
+
+-- Reject a failed catalog contract before schema and receipt become durable.
+\ir verify-v57.62.0-trade-import.sql
 commit;

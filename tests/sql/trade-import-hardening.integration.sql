@@ -2,6 +2,7 @@
 
 begin;
 set local statement_timeout = '10s';
+set local timezone = 'UTC';
 
 insert into auth.users(id,email,created_at,updated_at) values
   ('b1000000-0000-4000-8000-000000000001','owner-one@example.invalid',now(),now()),
@@ -93,7 +94,9 @@ begin
   if v_import_security_definer is distinct from true
     or v_import_owner is distinct from 'postgres'
     or not (
-      coalesce(v_import_config,'{}'::text[]) @> array['search_path=""']
+      coalesce(v_import_config,'{}'::text[]) @> array[
+        'search_path=""','lock_timeout=3s','TimeZone=UTC'
+      ]
     )
   then raise exception 'TEST_RPC_SECURITY_CONTRACT_INVALID'; end if;
 
@@ -276,7 +279,7 @@ as $$
       'created_at','1999-01-01T00:00:00Z'
     ),
     '[{"row_number":2,"preview_status":"importable","selected":true},{"row_number":3,"preview_status":"skip","selected":false},{"row_number":4,"preview_status":"check","selected":false}]'::jsonb,
-    '[{"row_number":2,"trade":{"id":"b1000000-0000-4000-8000-000000000099","created_at":"2026-08-30T10:00:00.000Z","market":"BTCUSDT","setup":"Imported execution","bias":"long","net_pnl":"12.50","position_size":"0.0100","account_currency":" usd ","broker_profile":"generic","account_template":"spot"},"tags":["CSV Import"],"source_keys":[]}]'::jsonb
+    '[{"row_number":2,"trade":{"id":"b1000000-0000-4000-8000-000000000099","created_at":"2026-08-30T10:00:00.000Z","market":"BTCUSDT","setup":"Imported execution","bias":"long","net_pnl":"12.50","position_size":"0.0100","account_currency":" usd ","broker_profile":"generic","account_template":"spot","notes":"sensitive free-form text"},"tags":["CSV Import"],"source_keys":[]}]'::jsonb
   )
 $$;
 
@@ -376,11 +379,82 @@ begin
       select 1 from public.trade_import_source_keys
       where batch_id='b1000000-0000-4000-8000-000000000010'
         and trade_id=v_trade_id and status='active'
-        and source_kind='value_fingerprint_v1'
+        and source_kind='request_row_v1'
+        and trade_snapshot->>'schemaVersion' =
+          'equora-trade-import-financial-snapshot-v1'
+        and snapshot_digest=encode(pg_catalog.sha256(
+          convert_to(trade_snapshot::text,'UTF8')
+        ),'hex')
+        and not trade_snapshot ? 'notes'
     )
   then raise exception 'TEST_ATOMIC_IMPORT_STATE_INVALID: %',v_result; end if;
 end;
 $$;
+
+do $snapshot_and_state_cases$
+declare
+  v_column text;
+  v_result jsonb;
+  v_snapshot jsonb;
+  v_actual jsonb;
+begin
+  foreach v_column in array array[
+    'request_digest','source_manifest','source_manifest_digest',
+    'source_row_count','invalid_count','imported_count','duplicate_count',
+    'skipped_count','status'
+  ] loop
+    begin
+      execute format(
+        'update public.trade_import_batches set %I=null where id=%L',
+        v_column,'b1000000-0000-4000-8000-000000000010'
+      );
+      raise exception 'TEST_NULL_V2_FIELD_ACCEPTED: %',v_column;
+    exception when check_violation or not_null_violation then null;
+    end;
+  end loop;
+  begin
+    update public.trade_import_source_keys
+    set trade_snapshot=trade_snapshot-'schemaVersion'
+    where batch_id='b1000000-0000-4000-8000-000000000010';
+    raise exception 'TEST_MISSING_SNAPSHOT_VERSION_ACCEPTED';
+  exception when check_violation then null;
+  end;
+
+  -- Roll back the complete synthetic case after comparing the persisted row,
+  -- its default values, financial context and the retained revert snapshot.
+  begin
+    v_result := public.equora_import_trades_v2(
+      'b1000000-0000-4000-8000-000000000098',null,
+      '{"file_name":"snapshot.csv","preset_key":"generic","account_label":"Snapshot QA","account_currency":"USD"}'::jsonb,
+      '[{"row_number":2,"preview_status":"importable","selected":true}]'::jsonb,
+      '[{"row_number":2,"trade":{"market":" BTCUSDT ","setup":"Snapshot QA","bias":"LONG","net_pnl":"5.25","position_size":"1","account_currency":"USD","pnl_mode":"manual","cost_profile":"none","market_template":"manual","partial_exits":[{"percent":25,"price":123.45}],"direction":"ignored","risk_amount":"999","notes":"must not enter snapshot"},"tags":[],"source_keys":[]}]'::jsonb
+    );
+    select to_jsonb(trade) into v_actual from public.trades trade
+    where id=(v_result->'importedIds'->>0)::uuid;
+    select trade_snapshot into v_snapshot from public.trade_import_source_keys
+    where batch_id='b1000000-0000-4000-8000-000000000098';
+    if v_actual is null or v_snapshot is null
+      or v_snapshot->>'capture_status' is distinct from 'complete'
+      or (select trust_score from public.trade_import_batches
+          where id='b1000000-0000-4000-8000-000000000098') is distinct from 57
+      or not v_snapshot ?& array['created_at','pnl_mode','cost_profile','market_template','partial_exits']
+      or v_snapshot ?| array['direction','risk_amount','notes']
+      or exists(
+        select 1 from jsonb_each(v_snapshot-array['schemaVersion','sourceRowNumber']) field
+        where field.value is distinct from v_actual->field.key
+      )
+    then raise exception 'TEST_PERSISTED_FINANCIAL_SNAPSHOT_MISMATCH'; end if;
+    perform public.equora_revert_import_v1('b1000000-0000-4000-8000-000000000098');
+    if v_snapshot is distinct from (
+      select trade_snapshot from public.trade_import_source_keys
+      where batch_id='b1000000-0000-4000-8000-000000000098'
+    ) then raise exception 'TEST_REVERT_FINANCIAL_SNAPSHOT_CHANGED'; end if;
+    raise exception 'TEST_SYNTHETIC_SNAPSHOT_ROLLBACK';
+  exception when others then
+    if sqlerrm <> 'TEST_SYNTHETIC_SNAPSHOT_ROLLBACK' then raise; end if;
+  end;
+end;
+$snapshot_and_state_cases$;
 
 do $$
 declare v_before text := pg_temp.fixture_state();
@@ -445,6 +519,26 @@ declare v_before text := pg_temp.fixture_state();
 begin
   begin
     perform pg_temp.single_import(
+      'b1000000-0000-4000-8000-000000000027',null,'identity-extra.csv',
+      'ctrader-history','USD',
+      '[{"kind":"provider_identity_v1","identityKind":"deal_id","identityValue":"42","rawPayload":"must-not-persist"}]'::jsonb
+    );
+    raise exception 'TEST_PROVIDER_IDENTITY_EXTRA_FIELD_ACCEPTED';
+  exception when others then
+    if sqlerrm='TEST_PROVIDER_IDENTITY_EXTRA_FIELD_ACCEPTED'
+      or sqlerrm not like '%INVALID_PROVIDER_IDENTITY%'
+    then raise; end if;
+  end;
+  if pg_temp.fixture_state() is distinct from v_before
+  then raise exception 'TEST_PROVIDER_IDENTITY_EXTRA_FIELD_LEFT_EFFECTS'; end if;
+end;
+$$;
+
+do $$
+declare v_before text := pg_temp.fixture_state();
+begin
+  begin
+    perform pg_temp.single_import(
       'b1000000-0000-4000-8000-000000000023',null,'manifest.csv',
       'generic','USD','[]'::jsonb,2,3
     );
@@ -456,6 +550,27 @@ begin
   end;
   if pg_temp.fixture_state() is distinct from v_before
   then raise exception 'TEST_SOURCE_MANIFEST_MISMATCH_LEFT_EFFECTS'; end if;
+end;
+$$;
+
+do $$
+declare v_before text := pg_temp.fixture_state();
+begin
+  begin
+    perform public.equora_import_trades_v2(
+      'b1000000-0000-4000-8000-000000000026',null,
+      '{"file_name":"manifest-extra.csv","preset_key":"generic","preset_label":"Generic CSV","account_label":"Primary Account","account_currency":"EUR"}'::jsonb,
+      '[{"row_number":2,"preview_status":"importable","selected":true,"source_file_name":"must-not-persist.csv"}]'::jsonb,
+      '[{"row_number":2,"trade":{"created_at":"2026-08-30T10:00:00.000Z","market":"BTCUSDT","setup":"Envelope probe","bias":"long","net_pnl":"1.00","position_size":"0.0100","account_currency":"EUR","broker_profile":"generic","account_template":"spot"},"tags":["CSV Import"],"source_keys":[]}]'::jsonb
+    );
+    raise exception 'TEST_SOURCE_MANIFEST_EXTRA_FIELD_ACCEPTED';
+  exception when others then
+    if sqlerrm='TEST_SOURCE_MANIFEST_EXTRA_FIELD_ACCEPTED'
+      or sqlerrm not like '%INVALID_SOURCE_MANIFEST%'
+    then raise; end if;
+  end;
+  if pg_temp.fixture_state() is distinct from v_before
+  then raise exception 'TEST_SOURCE_MANIFEST_EXTRA_FIELD_LEFT_EFFECTS'; end if;
 end;
 $$;
 
@@ -587,13 +702,13 @@ declare
 begin
   v_result := pg_temp.single_import(
     'b1000000-0000-4000-8000-000000000030',v_account_id,
-    'duplicate.csv','generic','USD'
+    'same-values.csv','generic','USD'
   );
-  if v_result->>'importedCount' <> '0'
-    or v_result->>'duplicateCount' <> '1'
-    or jsonb_array_length(v_result->'importedIds') <> 0
-    or pg_temp.fixture_state() <> '1|2|1|1'
-  then raise exception 'TEST_DUPLICATE_IMPORT_INVALID: %',v_result; end if;
+  if v_result->>'importedCount' <> '1'
+    or v_result->>'duplicateCount' <> '0'
+    or jsonb_array_length(v_result->'importedIds') <> 1
+    or pg_temp.fixture_state() <> '1|2|2|2'
+  then raise exception 'TEST_NO_PROVIDER_FALSE_DEDUPE: %',v_result; end if;
 end;
 $$;
 
@@ -697,6 +812,13 @@ begin
       select 1 from public.trade_import_source_keys
       where batch_id='b1000000-0000-4000-8000-000000000010'
         and status='reverted' and trade_id is null and reverted_at is not null
+        and trade_snapshot->>'schemaVersion' =
+          'equora-trade-import-financial-snapshot-v1'
+        and trade_snapshot->>'market' = 'BTCUSDT'
+        and (trade_snapshot->>'net_pnl')::numeric = 12.50
+        and snapshot_digest=encode(pg_catalog.sha256(
+          convert_to(trade_snapshot::text,'UTF8')
+        ),'hex')
     )
     or not exists (
       select 1 from public.trade_import_batches
@@ -705,14 +827,23 @@ begin
     )
   then raise exception 'TEST_REVERT_STATE_INVALID: %, %',v_revert,v_revert_replay; end if;
 
+  begin
+    perform pg_temp.primary_import('primary.csv');
+    raise exception 'TEST_REVERTED_BATCH_REPLAY_ACCEPTED';
+  exception when others then
+    if sqlerrm='TEST_REVERTED_BATCH_REPLAY_ACCEPTED'
+      or sqlerrm not like '%BATCH_REVERTED_REQUIRES_NEW_ID%'
+    then raise; end if;
+  end;
+
   v_reimport := pg_temp.single_import(
     'b1000000-0000-4000-8000-000000000031',v_account_id,
     'reimport.csv','generic','USD'
   );
   if v_reimport->>'importedCount' <> '1'
     or v_reimport->>'duplicateCount' <> '0'
-    or pg_temp.fixture_state() <> '1|3|1|2'
-    or (select count(*) from public.trade_import_source_keys where status='active') <> 1
+    or pg_temp.fixture_state() <> '1|3|2|3'
+    or (select count(*) from public.trade_import_source_keys where status='active') <> 2
     or exists (
       select 1 from public.trade_import_source_keys
       where status='active' and trade_id is null
@@ -734,10 +865,23 @@ begin
     'ctrader-history','USD',
     '[{"kind":"provider_identity_v1","identityKind":" DEAL_ID ","identityValue":" AbC-42 "}]'::jsonb
   );
+  begin
+    perform pg_temp.single_import(
+      'b1000000-0000-4000-8000-000000000074',null,'ctrader-conflict.csv',
+      'ctrader-history','USD',v_same_identity,2,2,'importable',
+      '2026-08-30T11:00:00.000Z'
+    );
+    raise exception 'TEST_CHANGED_PROVIDER_FINANCIALS_ACCEPTED';
+  exception when others then
+    if sqlerrm <> 'PROVIDER_IDENTITY_FINANCIAL_CONFLICT' then raise; end if;
+  end;
+  if exists(select 1 from public.trade_import_batches
+    where id='b1000000-0000-4000-8000-000000000074')
+  then raise exception 'TEST_PROVIDER_CONFLICT_PARTIAL_BATCH'; end if;
   v_same_changed_trade := pg_temp.single_import(
     'b1000000-0000-4000-8000-000000000071',null,'ctrader-same-id.csv',
     'ctrader-history','USD',v_same_identity,2,2,'importable',
-    '2026-08-30T11:00:00.000Z'
+    '2026-08-30T10:00:00.000Z'
   );
   v_other_identity := pg_temp.single_import(
     'b1000000-0000-4000-8000-000000000072',null,'ctrader-other-id.csv',
