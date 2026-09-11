@@ -90,6 +90,7 @@ begin
       and actual.column_name = expected.column_name
       and actual.data_type = expected.data_type
       and actual.is_nullable = 'YES'
+      and actual.domain_name is null and actual.is_generated = 'NEVER'
   ) <> 7 then
     raise exception 'TRADE_IMPORT_VERIFY_ADDITIVE_COLUMNS_INVALID';
   end if;
@@ -271,18 +272,6 @@ begin
     raise exception 'TRADE_IMPORT_VERIFY_FUNCTION_PRIVILEGES_INVALID';
   end if;
 
-  if (
-    select count(*)
-    from public.equora_runtime_capability_gates
-    where capability_key = 'journal_file_import_persistence_v2'
-      and contract_version = 'equora-broker-file-import-capability-v1'
-      and (
-        (enabled and activated_at is not null)
-        or (not enabled and activated_at is null)
-      )
-  ) <> 1 then
-    raise exception 'TRADE_IMPORT_VERIFY_ACTIVATION_STATE_INVALID';
-  end if;
 end;
 $equora_v5762_verify$;
 
@@ -314,6 +303,32 @@ begin
     where inhparent='public.equora_runtime_capability_gates'::regclass
       or inhrelid='public.equora_runtime_capability_gates'::regclass
   ) then raise exception 'TRADE_IMPORT_VERIFY_GATE_EFFECTS_INVALID'; end if;
+  -- Bind the complete gate index inventory before gate reads or updates.
+  -- IMMUTABLE labels do not prove that transitive function calls are pure.
+  if (select count(*) from pg_catalog.pg_index
+      where indrelid='public.equora_runtime_capability_gates'::regclass) <> 1
+    or exists (
+    select 1 from pg_catalog.pg_index actual
+    where actual.indrelid='public.equora_runtime_capability_gates'::regclass
+      and (actual.indexprs is not null or actual.indpred is not null
+        or not actual.indisvalid or not actual.indisready or not actual.indisunique
+        or array(select unnest(actual.indclass)) is distinct from array[
+          (select oid from pg_catalog.pg_opclass where opcname='text_ops'
+            and opcnamespace='pg_catalog'::regnamespace
+            and opcmethod=(select oid from pg_catalog.pg_am where amname='btree')),
+          (select oid from pg_catalog.pg_opclass where opcname='text_ops'
+            and opcnamespace='pg_catalog'::regnamespace
+            and opcmethod=(select oid from pg_catalog.pg_am where amname='btree'))
+        ]::oid[]
+        or pg_catalog.pg_get_indexdef(actual.indexrelid,0,false) is distinct from
+          'CREATE UNIQUE INDEX equora_runtime_capability_gates_pkey ON public.equora_runtime_capability_gates USING btree (capability_key, contract_version)')
+  ) then raise exception 'TRADE_IMPORT_VERIFY_GATE_INDEX_EFFECTS_INVALID'; end if;
+  -- Expression statistics can execute during planning, even before ANALYZE.
+  -- This release installs none; reject the complete relation-owned inventory.
+  if exists (
+    select 1 from pg_catalog.pg_statistic_ext
+    where stxrelid='public.equora_runtime_capability_gates'::regclass
+  ) then raise exception 'TRADE_IMPORT_VERIFY_GATE_STATISTICS_EFFECTS_INVALID'; end if;
   -- Bind every column of the three new relations, not merely their names.
   if (
     select count(*)
@@ -351,6 +366,7 @@ begin
       and actual.column_name = expected.column_name
       and actual.data_type = expected.data_type
       and actual.is_nullable = expected.is_nullable
+      and actual.domain_name is null and actual.is_generated = 'NEVER'
   ) <> 26 or (
     select count(*)
     from information_schema.columns
@@ -592,6 +608,68 @@ begin
     raise exception 'TRADE_IMPORT_VERIFY_INDEX_SHAPE_INVALID';
   end if;
 
+  -- The digest read below must not plan unverified source-key indexes or
+  -- inherited children outside the activation's ONLY relation lock.
+  if exists (
+    select 1 from pg_catalog.pg_inherits
+    where inhparent='public.trade_import_source_keys'::regclass
+      or inhrelid='public.trade_import_source_keys'::regclass
+  ) then raise exception 'TRADE_IMPORT_VERIFY_SOURCE_KEY_RELATION_EFFECTS_INVALID'; end if;
+  if (select count(*) from pg_catalog.pg_index
+      where indrelid='public.trade_import_source_keys'::regclass) <> 5
+    or (
+    select count(*)
+    from (values
+      ('trade_import_source_keys_pkey',true,
+        'CREATE UNIQUE INDEX trade_import_source_keys_pkey ON public.trade_import_source_keys USING btree (id)',
+        array['uuid_ops']::text[]),
+      ('trade_import_source_keys_active_identity_key',true,
+        'CREATE UNIQUE INDEX trade_import_source_keys_active_identity_key ON public.trade_import_source_keys USING btree (user_id, import_account_id, preset_key, source_kind, source_digest) WHERE (status = ''active''::text)',
+        array['uuid_ops','uuid_ops','text_ops','text_ops','text_ops']::text[]),
+      ('trade_import_source_keys_account_created_idx',false,
+        'CREATE INDEX trade_import_source_keys_account_created_idx ON public.trade_import_source_keys USING btree (user_id, import_account_id, created_at DESC)',
+        array['uuid_ops','uuid_ops','timestamptz_ops']::text[]),
+      ('trade_import_source_keys_batch_idx',false,
+        'CREATE INDEX trade_import_source_keys_batch_idx ON public.trade_import_source_keys USING btree (user_id, batch_id)',
+        array['uuid_ops','uuid_ops']::text[]),
+      ('trade_import_source_keys_trade_idx',false,
+        'CREATE INDEX trade_import_source_keys_trade_idx ON public.trade_import_source_keys USING btree (user_id, trade_id) WHERE (trade_id IS NOT NULL)',
+        array['uuid_ops','uuid_ops']::text[])
+    ) expected(index_name,is_unique,definition,operator_classes)
+    join pg_catalog.pg_class index_relation
+      on index_relation.relname = expected.index_name
+      and index_relation.relnamespace = 'public'::regnamespace
+    join pg_catalog.pg_index actual
+      on actual.indexrelid = index_relation.oid
+      and actual.indrelid = 'public.trade_import_source_keys'::regclass
+      and actual.indisvalid and actual.indisready and actual.indislive
+      and actual.indisunique = expected.is_unique and actual.indimmediate
+      and not actual.indisexclusion and actual.indexprs is null
+      and actual.indnatts = actual.indnkeyatts
+    join pg_catalog.pg_am access_method
+      on access_method.oid = index_relation.relam and access_method.amname = 'btree'
+    where pg_catalog.pg_get_indexdef(actual.indexrelid,0,false) = expected.definition
+      and array(select unnest(actual.indclass)) = array(
+        select operator_class.oid
+        from unnest(expected.operator_classes) with ordinality wanted(name,position)
+        join pg_catalog.pg_opclass operator_class
+          on operator_class.opcname = wanted.name
+          and operator_class.opcnamespace = 'pg_catalog'::regnamespace
+          and operator_class.opcmethod = access_method.oid
+        order by wanted.position
+      )
+      and array(select unnest(actual.indcollation)) = array(
+        select case when wanted.name = 'text_ops'
+          then 'pg_catalog."default"'::regcollation::oid else 0::oid end
+        from unnest(expected.operator_classes) with ordinality wanted(name,position)
+        order by wanted.position
+      )
+  ) <> 5 then raise exception 'TRADE_IMPORT_VERIFY_SOURCE_KEY_INDEX_EFFECTS_INVALID'; end if;
+  if exists (
+    select 1 from pg_catalog.pg_statistic_ext
+    where stxrelid='public.trade_import_source_keys'::regclass
+  ) then raise exception 'TRADE_IMPORT_VERIFY_SOURCE_KEY_STATISTICS_EFFECTS_INVALID'; end if;
+
   if (
     select count(*)
     from pg_catalog.pg_policy policy_row
@@ -722,7 +800,7 @@ begin
     select count(*)
     from (values
       ('public.equora_upsert_import_account_v1(uuid,text,text,text)','1a8cd9940cdfb3ec99975ae8c7a1ab341ad7abcd6476c7b0cbd8e8d73894ef09'),
-      ('public.equora_import_trades_v2(uuid,uuid,jsonb,jsonb,jsonb)','8680f7935faeff128a71c07b986407463a0c9ff4d987e13f49aeea422c821f8c'),
+      ('public.equora_import_trades_v2(uuid,uuid,jsonb,jsonb,jsonb)','6ae000360ed708d9e13695e90a137c9576fa14b2b0528d6bf0e2fd0ed0a56af6'),
       ('public.equora_revert_import_v1(uuid)','5b2c3e725f72b2905771d4a5e1e8cc4d4c7d6ae0ab988c0f720b4e39e9e0e0e9')
     ) expected(signature, body_sha256)
     join pg_catalog.pg_proc actual on actual.oid=expected.signature::regprocedure
@@ -730,6 +808,21 @@ begin
       replace(actual.prosrc, chr(13)||chr(10), chr(10)), 'UTF8'
     )), 'hex') = expected.body_sha256
   ) <> 3 then raise exception 'TRADE_IMPORT_VERIFY_FUNCTION_BODY_INVALID'; end if;
+
+  -- First gate-data access only after its full executable-shape checks.
+  -- Even SELECT planning may evaluate an unknown constant index predicate.
+  if (
+    select count(*)
+    from public.equora_runtime_capability_gates
+    where capability_key = 'journal_file_import_persistence_v2'
+      and contract_version = 'equora-broker-file-import-capability-v1'
+      and (
+        (enabled and activated_at is not null)
+        or (not enabled and activated_at is null)
+      )
+  ) <> 1 then
+    raise exception 'TRADE_IMPORT_VERIFY_ACTIVATION_STATE_INVALID';
+  end if;
 
   if exists (
       select 1

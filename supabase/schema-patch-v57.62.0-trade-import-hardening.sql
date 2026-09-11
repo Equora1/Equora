@@ -418,6 +418,12 @@ declare
     'account_currency', 'crypto_market_type', 'execution_type',
     'funding_direction', 'quote_asset', 'leverage', 'capture_status'
   ];
+  v_numeric_snapshot_fields constant text[] := array[
+    'entry', 'exit', 'stop_loss', 'take_profit', 'net_pnl', 'risk_percent',
+    'account_size', 'r_multiple', 'position_size', 'point_value', 'fees',
+    'exchange_fees', 'funding_fees', 'funding_rate_bps', 'funding_intervals',
+    'spread_cost', 'slippage', 'leverage'
+  ];
   v_existing_batch public.trade_import_batches%rowtype;
   v_plausibility_total integer := 0;
   v_plausibility_count integer := 0;
@@ -691,6 +697,19 @@ begin
       from jsonb_each(v_trade) field
       where field.key = any(v_snapshot_fields) and field.value <> '""'::jsonb
     ));
+    -- PostgreSQL numeric accepts NaN and infinities. They are not meaningful
+    -- journal values and must be rejected before a source key is reserved.
+    if exists (
+      select 1 from jsonb_each(to_jsonb(v_persisted_trade)) field
+      where field.key = any(v_numeric_snapshot_fields)
+        and field.value in (
+          to_jsonb('NaN'::numeric),
+          to_jsonb('Infinity'::numeric),
+          to_jsonb('-Infinity'::numeric)
+        )
+    ) then
+      raise exception 'INVALID_TRADE_NUMERIC_VALUE';
+    end if;
     select jsonb_strip_nulls(
       jsonb_build_object(
         'schemaVersion', 'equora-trade-import-financial-snapshot-v1',

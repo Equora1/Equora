@@ -1,6 +1,6 @@
 # Equora v57.62.0 — Dateiimport-Release-Gate
 
-Stand: 2026-09-06
+Stand: 2026-09-07
 Status: **LOCAL CANDIDATE / NO-GO für Staging ohne neue konkrete Freigabe**
 
 ## 1. Ziel und belastbarer Iststand
@@ -268,3 +268,286 @@ weiterhin ihre getrennten konkreten Freigaben.
 
 Steuer-/Originaldatei-Vollständigkeit, Production-Betrieb und Brokerimport
 werden durch diese Remediation ausdrücklich nicht behauptet.
+
+## 9. Lokale Abschalter-Remediation nach dem PR-Review vom 2026-09-06
+
+Dieser Abschnitt ergänzt Abschnitt 8 und grenzt den neueren Befund ab. Der
+anschließende Live-Review des Draft-PRs #14 auf Commit
+`410a46c714dec0b4ea1d2e4ad587d3e29d13c470` ergab ein neues P2-NO-GO:
+Ein administrativ hinzugefügter CHECK mit einer schreibenden Funktion konnte
+beim Abschalt-UPDATE ausgeführt werden, auch als NOT VALID. Das ist ein
+Ziel-Drift-Fall mit privilegierter Schemaänderung, kein belegter
+Production-Vorfall und keine gewöhnliche Nutzer-Rechteausweitung.
+
+Die lokale Folgekorrektur bleibt auf dem bestehenden 16-Pfade-Release-Scope.
+Geändert sind Abschalter, Concurrency-Harness, Negativ-Harness, gemeinsame
+Snapshot-Testhilfe, statischer Vertrag und dieses Gate-Dokument. Installer,
+Aktivator, Vollverifier und Anwendungscode bleiben unverändert.
+
+- Der Abschalter erwirbt vor Katalog- und Zeilenprüfung eine transaktionale
+  EXCLUSIVE-Sperre ausschließlich der Zielrelation. Sie wartet auf bereits
+  zugelassene Import-/Aktivierungstransaktionen und verhindert neue konkurrierende
+  Zielschemaänderungen bis COMMIT. Normale SELECTs bleiben möglich; Locklimit
+  3 Sekunden und Statementlimit 30 Sekunden bleiben bestehen. EXCLUSIVE statt
+  SHARE ROW EXCLUSIVE vermeidet den Aktivierungs-Lock-Upgrade-Zyklus, ohne
+  den Aktivator zu ändern. Timeout ist keine bestätigte Abschaltung.
+- Jeder vorhandene Ziel-CHECK muss exakt einer der drei bekannten sicheren
+  Definitionen entsprechen. Unbekannte Namen und manipulierte Ausdrücke werden
+  vor SELECT/UPDATE abgelehnt. Fehlende oder bekannte NOT VALID-CHECKs dürfen
+  für das operative Schließen bestehen bleiben; der vollständige Verifier und
+  die Aktivierung verlangen weiterhin den vollständigen validierten Vertrag.
+- Generierte Zielspalten, FORCE RLS und unbekannte Zielindizes werden abgelehnt.
+  Der einzige erlaubte vorhandene Index ist der bekannte einfache PK mit
+  eingebauten btree/text_ops-Operator-Klassen. Fehlt er, bindet STRICT die
+  tatsächliche Zielkardinalität; null oder mehrere Zielzeilen sind Fehler.
+  Die Endprüfung verlangt genau eine Zielzeile und genau einen Off-Zustand.
+- Fremdtrigger, Regeln und Vererbung bleiben gesperrt. Unabhängige Receipt-,
+  Funktions-, ACL- oder Snapshot-Drift wird weiterhin nicht über einen Aufruf
+  des vollständigen Verifiers zur Voraussetzung des Abschaltens gemacht.
+
+Der lokale PostgreSQL-17.6-Gesamtlauf auf dem unveränderten isolierten
+Testcontainer aus Abschnitt 8 bestand nach einer Testhilfe-Korrektur vollständig:
+
+- Positivkontrollen belegen die schreibende CHECK-Auswertung als postgres;
+  der korrigierte Abschalter weist sowohl zusätzliche als auch gleichnamig
+  manipulierte NOT VALID-CHECKs ab. Sentinel-Tabelle und nichttransaktionaler
+  Sequenzzähler belegen vor Fixture-Bereinigung null Schreibwirkungen und null
+  Funktionsaufrufe im abgelehnten Abschaltversuch.
+- Alle drei CHECK(true)-Ersetzungen am Ziel, zusätzlicher validierter CHECK,
+  generierte Spalte, einfacher Zusatzindex, Ausdrucksindex, Partial-Index,
+  FORCE RLS und doppelte Zielzeilen werden ohne Persistenzänderung abgelehnt.
+- Inkonsistente Gatezustände mit fehlendem bzw. bekanntem NOT VALID-CHECK und
+  fehlendem PK lassen sich schließen; Aktivierung auf solchen Teilständen
+  bleibt abgelehnt. Abschaltung trotz unabhängiger ACL-Drift besteht weiterhin.
+- Der tatsächliche Abschalter wartet auf einen laufenden Import; die nachgebildete
+  Aktivierungsfolge FOR UPDATE/UPDATE endet ohne Lock-Upgrade-Zyklus. Bereits
+  begonnene Ziel-DDL wird nach Sperrerwerb erkannt; nachträgliche Ziel-DDL läuft
+  gegen den bis COMMIT gehaltenen Abschalter-Lock in den erwarteten Timeout.
+- Die bisherigen Installer-, Import-, Revert-, Replay-, Snapshot-, Rechte- und
+  Driftfälle bestehen unverändert. Der erste Folge-Lauf scheiterte allein an
+  der einzeiligen Snapshot-Testabfrage bei absichtlich dupliziertem Gate;
+  die Korrektur aggregiert deterministisch sämtliche Zielzeilen. Beide Läufe
+  entfernten ihre synthetische Testdatenbank im finally-Pfad.
+- Fokussierte Verträge nach der Testhilfe-Korrektur: 54/54. Vollständige lokale
+  Gates, Manifest und A3/A4/A5-Voten müssen anschließend auf dem eingefrorenen
+  Gesamtstand separat gebunden werden; dieses Dokument nimmt ihr Ergebnis
+  nicht vorweg und wird nach dem Freeze nicht für Review-Voten verändert.
+
+Die frühere grüne GitHub-CI und das READY-Preview-Deployment gehören ausschließlich
+zum alten PR-Commit 410a46c. Sie belegen diese ungestagte Folgekorrektur nicht.
+Der eigentliche Preview-App-Smoke war durch den Vercel-Zugriffsschutz offen;
+dessen Schutz wurde nicht verändert. Kein erneutes externes npm-Audit in diesem
+lokalen Block; Dependency-Dateien bleiben unverändert. Historische Audits sind
+kein neuer Snapshot-Nachweis.
+
+STOP bleibt vor Staging, Commit und Push. Draft-/Ready-/Merge-Änderungen,
+Supabase, Production, Broker, Credentials, Cron, Capture und echte Importe
+gehören nicht zu diesem lokalen Block. Migration pending und Default-off
+bleiben unverändert; keine Steuer-, Broker- oder Production-Fertigmeldung.
+
+## 10. Ergänzende Aktivierungsremediation im selben lokalen Block
+
+Der unabhängige Review des Abschnitt-9-Snapshots mit Manifest-SHA-256
+`CF3CE5E442056F45D129EA58CF0424AB647B2F0054C6E02B1D20E2396C2CE1B9`
+endete mit A3/A4 NO-GO und A5 GO im eigenen Claim-/Scope-Prüfumfang. Alle drei
+bestätigten identische Anfangs-/Endhashes. Der Abschalter-P2 war geschlossen;
+ein zusätzlicher P2 betraf jedoch den Aktivator: Die bisherige Prüfung sieben
+erwarteter Indizes im Vollverifier schloss zusätzliche Gate-Ausdrucksindizes
+nicht aus. Auch zwischen Vorprüfung und UPDATE musste die Zieldefinition
+gegen konkurrierende DDL stabilisiert werden.
+
+Deshalb wurden zusätzlich innerhalb desselben 16-Pfade-Scopes korrigiert:
+
+- `verify-v57.62.0-trade-import.sql` bindet sämtliche Gate-Indizes an genau
+  den bekannten eingebauten PK. Seine Prüfung von Definition und Operator-Klassen
+  entspricht dem Abschalter; ein statischer Vertrag vergleicht beide Prüfungen.
+  Der Verifier enthält weiterhin keine Schreibsperre und bleibt für explizite
+  read-only Transaktionen verwendbar.
+- `activate-v57.62.0-trade-import.sql` prüft den Executor und erwirbt vor dem
+  ersten Verifier dieselbe zielbezogene EXCLUSIVE-Sperre. Vorprüfung, UPDATE
+  und Nachprüfung laufen mit stabiler Zieldefinition bis COMMIT. Lock- und
+  Statementlimits bleiben unverändert; ein Timeout bleibt ein Fehler.
+- Echte Aktivierungs-Negativfälle verwenden jeweils Ausdrucks- und Partial-Index
+  mit IMMUTABLE-Wrapper und transitiver VOLATILE-Funktion. Ihr Indexaufbau erfolgt
+  bei ausgeschaltetem Gate; die Positivkontrolle des Aktivierungs-UPDATE muss
+  eine fremde Sentinel-Schreibwirkung als postgres nachweisen. Der tatsächliche
+  Aktivator muss anschließend vor Funktionsaufruf und Mutation ablehnen.
+  Sequenz-/Sentinel- und vollständige Persistenzprüfung erfolgen vor Bereinigung.
+- Zusätzliche Konkurrenzfälle führen die tatsächlichen Aktivierungs- und
+  Abschaltskripte in beiden Reihenfolgen aus. Vorher begonnene Zielindex-DDL muss
+  nach Sperrerwerb abgelehnt werden, nachträgliche DDL bis COMMIT blockieren und
+  im gezielt gehaltenen Testfall in den begrenzten Timeout laufen.
+
+Damit sind jetzt acht der bestehenden 16 Scopepfade lokal verändert. Die Aussage
+aus Abschnitt 9 über einen unveränderten Aktivator/Vollverifier gilt nur für
+jenen früheren Freeze. Der Schema-Patch, der Installer und die App einschließlich
+Default-off bleiben weiterhin unverändert. Die frühere 789er-Suite und die
+vorherigen Review-Voten belegen diesen nachfolgenden Snapshot nicht.
+
+Die neuen vollständigen Laufzeitgates, das neue Manifest und A3/A4/A5 sind
+separat an den finalen gemeinsamen Freeze zu binden. Die beschriebene Testabsicht
+ist kein vorweggenommener PASS. Staging, Commit, Push, PR-Änderungen, neuer
+externer npm-Audit und sämtliche Production-/Supabase-/Broker-Aktionen bleiben
+außerhalb dieses lokalen Blocks; der geschützte Preview-App-Smoke bleibt offen.
+
+## 11. Abschlusskorrektur der beiden nachfolgenden P2-Befunde
+
+Der Snapshot mit Manifest-SHA-256
+DEEC6373AE778059AA6D9BBB51CB98117D56A053CD98AFB3C7A787A9CAFDCFAB
+bestand die separat protokollierten technischen Gates einschließlich 790 Tests
+und des isolierten PostgreSQL-17.6-Laufs. A3/A4 meldeten anschließend zwei P2;
+A5 bestätigte nur den eigenen Claim-/Scope-Umfang. Das Gesamtvotum war NO-GO.
+Diese historischen Ergebnisse gelten nicht für die nachfolgenden Änderungen.
+
+Die begrenzte Abschlusskorrektur bleibt innerhalb derselben 16 Release-Pfade:
+
+- Der Vollverifier liest den Gate-Datenzustand erst nach den vollständigen
+  zielbezogenen Metadatenprüfungen. Die bereits vor dem Verifier erworbene
+  EXCLUSIVE-Sperre des Aktivators bleibt unverändert bis Transaktionsende.
+- Beide ausdrücklich deklarierten Spaltenverträge (26 neue und sieben additive
+  Spalten) verlangen normale, nicht generierte Spalten ohne Domain-Typ. Gleiche
+  sichtbare Datentypen und NULL-Eigenschaften allein reichen nicht aus.
+- Eine neue konstante Partial-Index-Fixture prüft die Auswertung schon bei der
+  SELECT-Planung. Eine Positivkontrolle muss den Aufruf belegen. Der tatsächliche
+  Aktivator muss anschließend vor Aufruf und Wirkung ablehnen. Solange dieser
+  Index vorhanden ist, darf der normale Gate-Snapshot-SELECT nicht als Beobachter
+  dienen: Relation-COPY sowie Sequenz und Sentinel prüfen vor der Bereinigung.
+  Erst nach ausschließlicher Entfernung der Fixture-Metadaten folgt der volle
+  Persistenzvergleich mit dem Stand vor ihrem Aufbau; keine Gate- oder
+  Finanzzeilen werden bei dieser Bereinigung wiederhergestellt.
+- Weitere tatsächliche Aktivierungsfälle ersetzen die bestehende Schlüsselspalte
+  durch eine gespeicherte generierte Spalte oder den Aktivierungszeitstempel
+  durch eine Domain. Positivkontrollen, nichttransaktionale Aufrufzähler und
+  Persistenzvergleiche vor Bereinigung binden ihre Ablehnung. Eine zusätzliche
+  Domain-Fixture prüft den separaten Vertrag der additiven Legacy-Spalten.
+
+Diese Beschreibung benennt die neuen Prüfregeln und Testabsichten, keinen
+vorweggenommenen Laufzeit-PASS. Vollständige Gates, neues Hashmanifest und
+unabhängige A3/A4/A5-Voten müssen denselben finalen Snapshot binden. Frühere
+Review-Voten und Remote-CI-Ergebnisse werden nicht übernommen. Anwendung,
+Schema-Patch, Default-off und Dependency-Dateien bleiben unverändert.
+
+Stopp weiterhin vor Staging, Commit und Push. Kein neuer externer npm-Audit,
+keine PR-, Production-, Supabase-, Broker-, Credential-, Cron-, Capture- oder
+echte Importaktion; der geschützte Preview-App-Smoke bleibt offen.
+
+## 12. Begrenzte Source-Key-Remediation vom 2026-09-07
+
+Der vorherige Freeze
+`7F1BB36B178706059282EB38CE3D1296E46636F613330CF05770A77180F44471`
+bestand 56 fokussierte und 791 vollständige Tests sowie den isolierten
+PostgreSQL-Lauf. A3/A4 schlossen die zwei Abschnitt-11-Befunde, meldeten aber
+einen weiteren gemeinsamen P2: Der Daten-Digestvergleich der neuen
+Source-Key-Tabelle konnte zusätzliche konstante Partial-Indizes planen.
+A5 gab ausschließlich für Claims/Scope/Evidence GO; insgesamt blieb NO-GO.
+Die Source-Key-Variante war dabei statisch hergeleitet, noch nicht reproduziert.
+
+Der separat freigegebene lokale Folgeblock bleibt im selben 16-Pfade-Scope:
+
+- Der Aktivator hält nach dem bestehenden Gate-Lock zusätzlich eine
+  SHARE UPDATE EXCLUSIVE-Sperre auf ausschließlich trade_import_source_keys.
+  Sie stabilisiert die Indexdefinitionen gegen gewöhnliches und konkurrierendes
+  Index-DDL bis COMMIT; ROW EXCLUSIVE bleibt kompatibel. Reihenfolge Gate vor
+  Source Keys sowie Lock-/Statementlimits bleiben explizit. Der Verifier selbst
+  erhält keine Schreibsperre und bleibt in read-only Transaktionen nutzbar.
+- Der Verifier bindet alle fünf Source-Key-Indizes einschließlich PK an exakte
+  Definitionen, primitive pg_catalog/btree-Operator-Klassen und gültige
+  Indexmetadaten. Zusätzliche Indizes werden vor dem Datenvergleich abgelehnt.
+  Vererbungsbeziehungen werden ausgeschlossen, damit der Datenzugriff keine
+  ungesperrten Kindrelationen einschließt.
+- Die Source-Key-Regression verwendet den tatsächlichen Digest-SELECT als
+  Positivkontrolle. Der tatsächliche Aktivator muss vor Aufruf oder Wirkung
+  ablehnen. Sequenz, Sentinel und Relation-COPY beobachten vor Bereinigung;
+  der volle Persistenzvergleich folgt erst nach ausschließlich metadatenbezogener
+  Bereinigung. Zusatzindizes, eine nicht vorgesehene Operator-Klasse und
+  Vererbung besitzen weitere Negativfälle.
+- Konkurrenzfälle prüfen vorher begonnenes Source-Key-Index-DDL, atomaren
+  Lock-Timeout mit anschließendem Retry, bis COMMIT blockiertes gewöhnliches
+  und konkurrierendes Index-DDL sowie die Kompatibilität mit ROW EXCLUSIVE.
+
+Die Vertrauensgrenze bleibt privilegierte Drift der betroffenen neuen
+Release-Relation. Normale App-Rollen erhalten keine DDL-Rechte. Bestehende
+Receipt-/Batch-Relationen und globale administrative Änderungen sind keine
+Behauptung universeller Sicherheit gegen einen beliebig manipulierten
+Datenbankbestand. Die App, der Installer, der Schema-Patch und Dependencies
+bleiben unverändert; kein Produktionsvorfall wird behauptet.
+
+Diese Ergänzung dokumentiert Korrektur und Prüfabsicht, keinen vorweggenommenen
+PASS. Neue vollständige Gates, Hashmanifest und A3/A4/A5 müssen denselben
+abschließenden Snapshot binden. Vor Staging, Commit und Push wird erneut
+gestoppt. Keine PR-, Production-, Supabase-, Broker-, Credential-, Cron-,
+Capture-, echte Import- oder externe npm-Audit-Aktion ist Teil dieses Blocks.
+
+## 13. Begrenzter Abschluss der Statistikobjekt-Remediation vom 2026-09-07
+
+Der nach Abschnitt 12 eingefrorene A6DD8E8B7DF0-Snapshot bestand 58 fokussierte
+und 793 vollständige Tests, Typecheck, Release-Check, Build und den isolierten
+PostgreSQL-17.6-Harness. Erst danach bestätigte der unabhängige Review den
+zusätzlichen P2 bei Source-Key-Ausdrucksstatistiken. Diese grünen Ergebnisse
+schlossen den nachträglich gefundenen Fall ausdrücklich nicht ein.
+
+Der folgende Implementierungsversuch wurde durch eine Plattform-Inhaltsprüfung
+unterbrochen. Die Sicherung B5F3AF551FBF hielt deshalb einen ungeprüften Teilstand
+fest. Sie ist kein Testnachweis. Die Wiederanlaufprüfung bestätigte dieselben
+466 Quellhashes und alle 16 Release-Einträge, einschließlich des abwesenden alten
+Kandidaten. Die aktuellen Ergänzungen bleiben innerhalb dieses Release-Scopes:
+
+- Vollverifier und Abschalter weisen das gesamte vorhandene pg_statistic_ext-
+  Inventar der jeweils betroffenen neuen Zielrelation vor dem ersten zugehörigen
+  Datenzugriff ab. Dieser Releasevertrag installiert keine solchen Statistiken;
+  auch reine Spaltenstatistiken werden deshalb bewusst nicht akzeptiert.
+- Die vorhandenen Negativfälle prüfen Source-Key-Aktivierung, Gate-Aktivierung
+  und Gate-Abschaltung mit tatsächlichen Abfragen und Skripten. Kontrollaufrufe
+  ohne ANALYZE, Sequenz-/Sentinel-Prüfungen sowie Relation-COPY vor dem Entfernen
+  der Fixture-Metadaten und der vollständige Persistenzvergleich danach sollen
+  eine Ablehnung vor Aufruf und Wirkung belegen.
+- Konkurrenzfälle verwenden ungefährliche Spaltenstatistiken in beiden
+  DDL-Reihenfolgen: vorherige Änderung erkennen, unveränderte Persistenz,
+  tatsächlicher Retry, nachträgliche Änderung bis COMMIT blockieren und ihren
+  begrenzten Lock-Timeout ohne verbliebene Metadaten nachweisen.
+- Drei ergänzende statische Verträge binden die vollständigen Inventarprüfungen
+  und ihre Reihenfolge sowie die genannten Beobachter und Konkurrenzfälle.
+
+Dieser Abschnitt beschreibt Umsetzung und Prüfabsicht, keinen vorweggenommenen
+PASS. Vollständige lokale Gates und neue unabhängige A3/A4/A5-Reviews sind an
+denselben neuen Freeze zu binden; Nachweise werden separat gespeichert, ohne
+dieses Dokument nach dem Freeze für Review-Voten umzuschreiben. Bei erneutem
+Plattformabbruch wird der betroffene Lauf gestoppt, nicht umgangen.
+
+Die Grenze bleibt privilegierte Drift dieser neuen Release-Relationen, keine
+allgemeine Absicherung gegen beliebige Administrator-Manipulation und kein
+belegter Production-Vorfall. App, Schema-Patch, Dependencies und Default-off
+bleiben unverändert. Keine Broker-/Steuer-Vollständigkeitsbehauptung. Stopp vor
+Staging, Commit und Push; keine PR-, Production-, Supabase-, Credential-, Cron-,
+Capture-, echte Import-, externe npm-Audit- oder Installationsaktion.
+
+## 14. Begrenzte Endlichkeitsprüfung numerischer Importwerte
+
+Der vollständige A5-Review des in Abschnitt 13 beschriebenen Snapshots fand
+einen weiteren P2: PostgreSQL `numeric` akzeptiert die Sonderwerte `NaN`,
+`Infinity` und `-Infinity`. Der direkte, für `authenticated` freigegebene
+Import-RPC hatte diese Werte bislang typisiert, aber nicht als semantisch
+unzulässige Journalwerte abgewiesen. Eine lokale Positivkontrolle gegen den
+isolierten PostgreSQL-17.6-Container reproduzierte alle drei Typkonvertierungen.
+
+Die begrenzte Remediation prüft deshalb sämtliche numerischen Felder des
+ausgewählten Finanz-Snapshots unmittelbar nach der Projektion durch die realen
+Tabellentypen und vor jeder Source-Key-Reservierung. Nicht-endliche Werte führen
+atomar zu `INVALID_TRADE_NUMERIC_VALUE`. Der PostgreSQL-Integrationstest bindet
+alle 18 importierbaren numerischen Felder gegen jede der drei Sonderwertklassen
+und verlangt nach jeder Ablehnung einen unveränderten Fixturezustand. Ein
+statischer Vertrag bindet Feldmenge, Sonderwerte und die Reihenfolge vor der
+Source-Key-Reservierung.
+
+`risk_amount` gehört nicht zu dieser Feldmenge: Die vorhandene Basisspalte wird
+weder vom Dateiimport-RPC noch von den relevanten App-Payloads persistiert; der
+angezeigte Risikobetrag wird aus den gespeicherten Eingabefeldern berechnet. Der
+zunächst hierzu gemeldete A5-Befund wurde nach Prüfung der tatsächlichen
+Persistenzpfade zurückgenommen.
+
+Dieser Abschnitt beschreibt Umsetzung und Prüfabsicht, keinen vorweggenommenen
+PASS. Nach der Änderung sind vollständige lokale Gates, ein neues Hashmanifest
+und neue unabhängige A3/A4/A5-Voten auf exakt demselben Snapshot erforderlich.
+Stopp bleibt vor Staging, Commit und Push. Keine PR-, Production-, Supabase-,
+Broker-, Credential-, Cron-, Capture-, echte Import-, externe npm-Audit- oder
+Installationsaktion ist Teil dieses Blocks.

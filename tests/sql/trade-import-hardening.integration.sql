@@ -553,6 +553,51 @@ begin
 end;
 $$;
 
+set local role authenticated;
+do $non_finite_numeric_cases$
+declare
+  v_before text;
+  v_field text;
+  v_special text;
+  v_trade jsonb;
+  v_numeric_fields constant text[] := array[
+    'entry', 'exit', 'stop_loss', 'take_profit', 'net_pnl', 'risk_percent',
+    'account_size', 'r_multiple', 'position_size', 'point_value', 'fees',
+    'exchange_fees', 'funding_fees', 'funding_rate_bps', 'funding_intervals',
+    'spread_cost', 'slippage', 'leverage'
+  ];
+begin
+  foreach v_field in array v_numeric_fields loop
+    foreach v_special in array array['NaN', 'Infinity', '-Infinity'] loop
+      v_before := pg_temp.fixture_state();
+      v_trade := jsonb_set(
+        '{"created_at":"2026-08-30T10:00:00.000Z","market":"BTCUSDT","setup":"Non-finite probe","net_pnl":"1","position_size":"1","account_currency":"USD"}'::jsonb,
+        array[v_field], to_jsonb(v_special), true
+      );
+      begin
+        perform public.equora_import_trades_v2(
+          gen_random_uuid(), null,
+          '{"file_name":"non-finite.csv","preset_key":"generic","preset_label":"Generic CSV","account_label":"Primary Account","account_currency":"USD"}'::jsonb,
+          '[{"row_number":2,"preview_status":"importable","selected":true}]'::jsonb,
+          jsonb_build_array(jsonb_build_object(
+            'row_number', 2, 'trade', v_trade,
+            'tags', '[]'::jsonb, 'source_keys', '[]'::jsonb
+          ))
+        );
+        raise exception 'TEST_NON_FINITE_NUMERIC_ACCEPTED';
+      exception when others then
+        if sqlerrm <> 'INVALID_TRADE_NUMERIC_VALUE' then raise; end if;
+      end;
+      if pg_temp.fixture_state() is distinct from v_before then
+        raise exception 'TEST_NON_FINITE_NUMERIC_LEFT_EFFECTS: %=%',
+          v_field, v_special;
+      end if;
+    end loop;
+  end loop;
+end;
+$non_finite_numeric_cases$;
+reset role;
+
 do $$
 declare v_before text := pg_temp.fixture_state();
 begin

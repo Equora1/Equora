@@ -7,6 +7,22 @@ set local lock_timeout = '3s';
 set local statement_timeout = '30s';
 set local idle_in_transaction_session_timeout = '45s';
 
+-- Stabilize the target before either verifier or row lock; the read-only
+-- verifier itself must remain usable without a write-conflicting table lock.
+do $equora_v5762_activation_lock$
+begin
+  if current_user <> 'postgres' then
+    raise exception 'TRADE_IMPORT_ACTIVATION_EXECUTOR_INVALID';
+  end if;
+  lock table only public.equora_runtime_capability_gates
+    in exclusive mode;
+  -- Block both ordinary and concurrent index DDL, while remaining compatible
+  -- with source-row writers. Keep gate -> source order until COMMIT.
+  lock table only public.trade_import_source_keys
+    in share update exclusive mode;
+end;
+$equora_v5762_activation_lock$;
+
 \ir verify-v57.62.0-trade-import.sql
 
 do $equora_v5762_activate$

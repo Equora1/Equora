@@ -13,7 +13,9 @@ function Invoke-TradeImportDriftCase {
     [Parameter(Mandatory = $true)][string]$ApplySql,
     [Parameter(Mandatory = $true)][string]$ProbeSql,
     [Parameter(Mandatory = $true)][string]$ExpectedCode,
-    [Parameter(Mandatory = $true)][string]$RestoreSql
+    [Parameter(Mandatory = $true)][string]$RestoreSql,
+    [switch]$PreservePersistence,
+    [string]$InvariantSql
   )
 
   $applied = $false
@@ -23,8 +25,15 @@ function Invoke-TradeImportDriftCase {
     $atomicSetup = 'begin;' + [Environment]::NewLine + $ApplySql + [Environment]::NewLine + 'commit;'
     Invoke-TradeImportSqlText $atomicSetup "$Name drift setup" | Out-Null
     $applied = $true
+    if($PreservePersistence){$beforeProbe=Get-TradeImportPersistenceSnapshot}
     Invoke-TradeImportSqlExpectFailure `
       $ProbeSql $ExpectedCode "$Name negative probe" | Out-Null
+    if($PreservePersistence -and (Get-TradeImportPersistenceSnapshot) -ne $beforeProbe){
+      throw "$Name changed persistence despite rejection."
+    }
+    if($InvariantSql -and (Get-TradeImportScalar $InvariantSql) -ne 'true'){
+      throw "$Name invariant failed before fixture restoration."
+    }
   }
   finally {
     if ($applied) {
@@ -244,6 +253,550 @@ revoke execute on function public.equora_revert_import_v1(uuid) from public;
 
 # Target-local effects must be rejected before any update.
 $deactivationProbe=Expand-TradeImportV5762File -Name 'deactivate-v57.62.0-trade-import.sql'
+# Prove the privileged UPDATE counterexample with a positive control, then
+# prove the guarded script never invokes the function (sequence is nontransactional).
+Set-TradeImportActivationState -Enabled $true
+$activationCheck='equora_runtime_capability_gates_activation_check'
+$activationDefinition=Get-TradeImportScalar "select pg_get_constraintdef(oid,false) from pg_constraint where conrelid='public.equora_runtime_capability_gates'::regclass and conname='$activationCheck';"
+foreach($replaceKnown in @($false,$true)) {
+  $constraintName='equora_gate_check_effect_fixture'
+  $prepare=''
+  $restoreKnown=''
+  if($replaceKnown){
+    $constraintName=$activationCheck
+    $prepare="alter table public.equora_runtime_capability_gates drop constraint $activationCheck;"
+    $restoreKnown="alter table public.equora_runtime_capability_gates add constraint $activationCheck $activationDefinition;"
+  }
+  $effectSetup=@'
+create table public.equora_gate_check_effect_log(executor text);
+create sequence public.equora_gate_check_calls;
+create function public.equora_gate_check_effect_fixture(boolean) returns boolean
+language plpgsql volatile as $fixture$
+begin
+  perform nextval('public.equora_gate_check_calls'::regclass);
+  insert into public.equora_gate_check_effect_log(executor) values(current_user);
+  return true;
+end;
+$fixture$;
+'@ + [Environment]::NewLine + $prepare + [Environment]::NewLine + @"
+alter table public.equora_runtime_capability_gates add constraint $constraintName
+check(public.equora_gate_check_effect_fixture(enabled)) not valid;
+savepoint gate_check_control;
+update public.equora_runtime_capability_gates set enabled=false,activated_at=null
+where capability_key='journal_file_import_persistence_v2'
+and contract_version='equora-broker-file-import-capability-v1';
+"@ + [Environment]::NewLine + @'
+do $control$
+begin
+  if (select count(*) from public.equora_gate_check_effect_log where executor='postgres') <> 1
+    or not (select is_called from public.equora_gate_check_calls) then
+    raise exception 'TEST_GATE_CHECK_POSITIVE_CONTROL_FAILED';
+  end if;
+end;
+$control$;
+rollback to savepoint gate_check_control;
+alter sequence public.equora_gate_check_calls restart with 1;
+'@
+  $effectRestore="alter table public.equora_runtime_capability_gates drop constraint $constraintName;" +
+    $restoreKnown + ' drop function public.equora_gate_check_effect_fixture(boolean); drop table public.equora_gate_check_effect_log; drop sequence public.equora_gate_check_calls;'
+  Invoke-TradeImportDriftCase -Name "Gate CHECK effect NOT VALID replaceKnown=$replaceKnown" `
+    -ApplySql $effectSetup -ProbeSql $deactivationProbe `
+    -ExpectedCode 'TRADE_IMPORT_DEACTIVATION_CHECK_EFFECTS_INVALID' `
+    -RestoreSql $effectRestore -PreservePersistence `
+    -InvariantSql 'select ((select count(*) from public.equora_gate_check_effect_log)=0 and not (select is_called from public.equora_gate_check_calls))::text;'
+}
+foreach($gateCheck in $checkCases | Where-Object {$_.Table -eq 'equora_runtime_capability_gates'}) {
+  $name=$gateCheck.Name
+  $definition=Get-TradeImportScalar "select pg_get_constraintdef(oid,false) from pg_constraint where conrelid='public.equora_runtime_capability_gates'::regclass and conname='$name';"
+  Invoke-TradeImportDriftCase -Name "Gate same-name CHECK true: $name" `
+    -ApplySql "alter table public.equora_runtime_capability_gates drop constraint $name; alter table public.equora_runtime_capability_gates add constraint $name check(true);" `
+    -ProbeSql $deactivationProbe -ExpectedCode 'TRADE_IMPORT_DEACTIVATION_CHECK_EFFECTS_INVALID' `
+    -RestoreSql "alter table public.equora_runtime_capability_gates drop constraint $name; alter table public.equora_runtime_capability_gates add constraint $name $definition;" -PreservePersistence
+}
+Invoke-TradeImportDriftCase -Name 'Gate additional validated CHECK' `
+  -ApplySql 'alter table public.equora_runtime_capability_gates add constraint equora_extra_gate_check check(true);' `
+  -ProbeSql $deactivationProbe -ExpectedCode 'TRADE_IMPORT_DEACTIVATION_CHECK_EFFECTS_INVALID' `
+  -RestoreSql 'alter table public.equora_runtime_capability_gates drop constraint equora_extra_gate_check;' -PreservePersistence
+Invoke-TradeImportDriftCase -Name 'Gate generated column' `
+  -ApplySql 'alter table public.equora_runtime_capability_gates add column equora_generated_fixture integer generated always as (case when enabled then 1 else 0 end) stored;' `
+  -ProbeSql $deactivationProbe -ExpectedCode 'TRADE_IMPORT_DEACTIVATION_TARGET_EFFECTS_INVALID' `
+  -RestoreSql 'alter table public.equora_runtime_capability_gates drop column equora_generated_fixture;' -PreservePersistence
+foreach($indexDefinition in @('(enabled)','((not enabled))','(enabled) where enabled')){
+  Invoke-TradeImportDriftCase -Name "Gate unexpected index: $indexDefinition" `
+    -ApplySql "create index equora_gate_index_fixture on public.equora_runtime_capability_gates $indexDefinition;" `
+    -ProbeSql $deactivationProbe -ExpectedCode 'TRADE_IMPORT_DEACTIVATION_INDEX_EFFECTS_INVALID' `
+    -RestoreSql 'drop index public.equora_gate_index_fixture;' -PreservePersistence
+}
+Invoke-TradeImportDriftCase -Name 'Gate FORCE RLS' `
+  -ApplySql 'alter table public.equora_runtime_capability_gates force row level security;' `
+  -ProbeSql $deactivationProbe -ExpectedCode 'TRADE_IMPORT_DEACTIVATION_TARGET_EFFECTS_INVALID' `
+  -RestoreSql 'alter table public.equora_runtime_capability_gates no force row level security;' -PreservePersistence
+# An off row preceding an on row must not produce a false already-disabled PASS.
+Invoke-TradeImportDriftCase -Name 'Gate duplicate target rows' -ApplySql @'
+alter table public.equora_runtime_capability_gates drop constraint equora_runtime_capability_gates_pkey;
+update public.equora_runtime_capability_gates set enabled=false,activated_at=null;
+insert into public.equora_runtime_capability_gates(capability_key,contract_version,enabled,activated_at)
+select capability_key,contract_version,true,transaction_timestamp() from public.equora_runtime_capability_gates;
+'@ -ProbeSql $deactivationProbe -ExpectedCode 'TRADE_IMPORT_DEACTIVATION_GATE_AMBIGUOUS' -RestoreSql @'
+delete from public.equora_runtime_capability_gates where not enabled;
+alter table public.equora_runtime_capability_gates add constraint equora_runtime_capability_gates_pkey primary key(capability_key,contract_version);
+'@ -PreservePersistence
+# Missing/known NOT VALID CHECKs and a missing PK are safe for off, not for activation.
+foreach($knownNotValid in @($false,$true)){
+  $prepared=$false
+  try {
+    $prepare="begin; alter table public.equora_runtime_capability_gates drop constraint $activationCheck; alter table public.equora_runtime_capability_gates drop constraint equora_runtime_capability_gates_pkey; update public.equora_runtime_capability_gates set enabled=true,activated_at=null;"
+    if($knownNotValid){$prepare+=" alter table public.equora_runtime_capability_gates add constraint $activationCheck $activationDefinition not valid;"}
+    Invoke-TradeImportSqlText ($prepare+' commit;') 'Inconsistent gate setup' | Out-Null
+    $prepared=$true
+    Invoke-TradeImportSqlExpectFailure (Expand-TradeImportV5762File -Name 'activate-v57.62.0-trade-import.sql') 'TRADE_IMPORT_VERIFY_' 'Activation still rejects incomplete target' | Out-Null
+    Set-TradeImportActivationState -Enabled $false
+  } finally {
+    if($prepared){
+      $restore="begin; update public.equora_runtime_capability_gates set enabled=false,activated_at=null;"
+      if($knownNotValid){$restore+=" alter table public.equora_runtime_capability_gates drop constraint $activationCheck;"}
+      $restore+=" alter table public.equora_runtime_capability_gates add constraint $activationCheck $activationDefinition; alter table public.equora_runtime_capability_gates add constraint equora_runtime_capability_gates_pkey primary key(capability_key,contract_version); commit;"
+      Invoke-TradeImportSqlText $restore 'Inconsistent gate restoration' | Out-Null
+    }
+  }
+}
+Write-Output 'Gate target effects PASS: CHECK positive controls; zero sentinel writes and zero invocations on rejection; generated/index/FORCE RLS drift; ambiguous rows rejected; missing/known NOT VALID checks safely closed.'
+# Real activation must reject additional executable index expressions, not
+# merely rely on the operational off script to discover them afterward.
+$activationProbe=Expand-TradeImportV5762File -Name 'activate-v57.62.0-trade-import.sql'
+foreach($indexKind in @('expression','partial')) {
+  $indexDefinition='((public.equora_activation_index_wrapper(enabled)))'
+  if($indexKind -eq 'partial'){$indexDefinition='(enabled) where public.equora_activation_index_wrapper(enabled)'}
+  $indexEffectSetup=@'
+create table public.equora_activation_index_log(executor text);
+create sequence public.equora_activation_index_calls;
+create function public.equora_activation_index_effect(boolean) returns boolean
+language plpgsql volatile as $fixture$
+begin
+  perform nextval('public.equora_activation_index_calls'::regclass);
+  if $1 then
+    insert into public.equora_activation_index_log(executor) values(current_user);
+  end if;
+  return $1;
+end;
+$fixture$;
+create function public.equora_activation_index_wrapper(boolean) returns boolean
+language sql immutable as $fixture$ select public.equora_activation_index_effect($1); $fixture$;
+'@ + [Environment]::NewLine + "create index equora_activation_index_fixture on public.equora_runtime_capability_gates $indexDefinition;" + [Environment]::NewLine + @'
+do $off_baseline$
+begin
+  if (select count(*) from public.equora_runtime_capability_gates) <> 1
+    or not (select not enabled and activated_at is null from public.equora_runtime_capability_gates)
+    or (select count(*) from public.equora_activation_index_log) <> 0 then
+    raise exception 'TEST_ACTIVATION_INDEX_OFF_BASELINE_INVALID';
+  end if;
+end;
+$off_baseline$;
+savepoint activation_index_control;
+update public.equora_runtime_capability_gates set enabled=true,activated_at=transaction_timestamp()
+where capability_key='journal_file_import_persistence_v2'
+and contract_version='equora-broker-file-import-capability-v1';
+do $control$
+begin
+  if (select count(*) from public.equora_activation_index_log where executor='postgres') < 1
+    or not (select is_called from public.equora_activation_index_calls) then
+    raise exception 'TEST_ACTIVATION_INDEX_POSITIVE_CONTROL_FAILED';
+  end if;
+end;
+$control$;
+rollback to savepoint activation_index_control;
+alter sequence public.equora_activation_index_calls restart with 1;
+'@
+  Invoke-TradeImportDriftCase -Name "Actual activation index effect: $indexKind" `
+    -ApplySql $indexEffectSetup -ProbeSql $activationProbe `
+    -ExpectedCode 'TRADE_IMPORT_VERIFY_GATE_INDEX_EFFECTS_INVALID' -PreservePersistence `
+    -InvariantSql 'select ((select count(*) from public.equora_activation_index_log)=0 and not (select is_called from public.equora_activation_index_calls))::text;' `
+    -RestoreSql @'
+drop index public.equora_activation_index_fixture;
+drop function public.equora_activation_index_wrapper(boolean);
+drop function public.equora_activation_index_effect(boolean);
+drop table public.equora_activation_index_log;
+drop sequence public.equora_activation_index_calls;
+'@
+  Invoke-TradeImportSqlText $verifier 'Activation index fixture fully restored' | Out-Null
+}
+Write-Output 'Actual activation index effects PASS: IMMUTABLE/VOLATILE positive controls; expression and partial indexes rejected before invocation or mutation.'
+# A constant predicate can be evaluated by SELECT planning. The generic
+# persistence observer also reads the gate, so do not use it while this fixture
+# exists. Relation-form COPY reads stored rows without planning a gate SELECT.
+$beforeConstantFixture=Get-TradeImportPersistenceSnapshot
+$gateCopySql='copy public.equora_runtime_capability_gates to stdout;'
+$beforeConstantGate=Get-TradeImportScalar $gateCopySql
+$constantFixtureApplied=$false
+try {
+  Invoke-TradeImportSqlText @'
+begin;
+create table public.equora_constant_index_log(executor text);
+create sequence public.equora_constant_index_calls;
+create function public.equora_constant_index_effect() returns boolean
+language plpgsql volatile as $fixture$
+begin
+  perform nextval('public.equora_constant_index_calls'::regclass);
+  insert into public.equora_constant_index_log values(current_user);
+  return true;
+end;
+$fixture$;
+create function public.equora_constant_index_wrapper() returns boolean
+language sql immutable as $fixture$ select public.equora_constant_index_effect(); $fixture$;
+create index equora_constant_index_fixture
+on public.equora_runtime_capability_gates(capability_key)
+where public.equora_constant_index_wrapper();
+truncate public.equora_constant_index_log;
+alter sequence public.equora_constant_index_calls restart with 1;
+select count(*) from public.equora_runtime_capability_gates
+where capability_key='journal_file_import_persistence_v2'
+  and contract_version='equora-broker-file-import-capability-v1'
+  and ((enabled and activated_at is not null) or (not enabled and activated_at is null));
+do $control$
+begin
+  if not (select is_called from public.equora_constant_index_calls)
+    or not exists (select 1 from public.equora_constant_index_log where executor='postgres') then
+    raise exception 'TEST_CONSTANT_INDEX_PLANNING_CONTROL_FAILED';
+  end if;
+end;
+$control$;
+truncate public.equora_constant_index_log;
+alter sequence public.equora_constant_index_calls restart with 1;
+commit;
+'@ 'Constant index planner fixture and positive control' | Out-Null
+  $constantFixtureApplied=$true
+  Invoke-TradeImportSqlExpectFailure $activationProbe 'TRADE_IMPORT_VERIFY_GATE_INDEX_EFFECTS_INVALID' 'Actual activation rejects constant index before gate planning' | Out-Null
+  $constantInvariant='select (not (select is_called from public.equora_constant_index_calls) and not exists (select 1 from public.equora_constant_index_log))::text;'
+  if((Get-TradeImportScalar $constantInvariant) -ne 'true'){
+    throw 'Constant index was invoked before rejection.'
+  }
+  if((Get-TradeImportScalar $gateCopySql) -cne $beforeConstantGate){
+    throw 'Constant index rejection changed stored gate rows.'
+  }
+  if((Get-TradeImportScalar $constantInvariant) -ne 'true'){
+    throw 'Relation COPY observer invoked the constant index.'
+  }
+} finally {
+  if($constantFixtureApplied){
+    # Remove only test metadata and observers, never restore gate/financial rows.
+    Invoke-TradeImportSqlText @'
+begin;
+drop index public.equora_constant_index_fixture;
+drop function public.equora_constant_index_wrapper();
+drop function public.equora_constant_index_effect();
+drop table public.equora_constant_index_log;
+drop sequence public.equora_constant_index_calls;
+commit;
+'@ 'Constant index fixture cleanup' | Out-Null
+  }
+}
+if((Get-TradeImportPersistenceSnapshot) -cne $beforeConstantFixture){
+  throw 'Constant index probe changed persistence across metadata-only cleanup.'
+}
+Invoke-TradeImportSqlText $verifier 'Constant index fixture fully restored' | Out-Null
+Write-Output 'Constant index planner PASS: positive SELECT control; zero calls and writes before cleanup; stored gate COPY unchanged; full persistence unchanged after metadata-only cleanup.'
+
+# Source-key data is also read by the real activation verifier. Keep the full
+# persistence observer outside this constant-index fixture, as for the gate.
+$beforeSourceFixture=Get-TradeImportPersistenceSnapshot
+$sourceCopySql='copy public.trade_import_source_keys to stdout;'
+$beforeSourceCopy=Get-TradeImportScalar $sourceCopySql
+$beforeSourceGate=Get-TradeImportScalar $gateCopySql
+$sourceFixtureApplied=$false
+try {
+  Invoke-TradeImportSqlText @'
+begin;
+create table public.equora_source_index_log(executor text);
+create sequence public.equora_source_index_calls;
+create function public.equora_source_index_effect() returns boolean
+language plpgsql volatile as $fixture$
+begin
+  perform nextval('public.equora_source_index_calls'::regclass);
+  insert into public.equora_source_index_log values(current_user);
+  return true;
+end;
+$fixture$;
+create function public.equora_source_index_wrapper() returns boolean
+language sql immutable as $fixture$ select public.equora_source_index_effect(); $fixture$;
+create index equora_source_index_fixture on public.trade_import_source_keys(id)
+where public.equora_source_index_wrapper();
+truncate public.equora_source_index_log;
+alter sequence public.equora_source_index_calls restart with 1;
+-- This is the actual data predicate used by the verifier, not a wrapper call.
+select exists (
+  select 1 from public.trade_import_source_keys
+  where snapshot_digest is distinct from encode(
+    pg_catalog.sha256(convert_to(trade_snapshot::text,'UTF8')),'hex')
+);
+do $control$
+begin
+  if not (select is_called from public.equora_source_index_calls)
+    or not exists (select 1 from public.equora_source_index_log where executor='postgres') then
+    raise exception 'TEST_SOURCE_INDEX_PLANNING_CONTROL_FAILED';
+  end if;
+end;
+$control$;
+truncate public.equora_source_index_log;
+alter sequence public.equora_source_index_calls restart with 1;
+commit;
+'@ 'Source-key index planner fixture and positive control' | Out-Null
+  $sourceFixtureApplied=$true
+  Invoke-TradeImportSqlExpectFailure $activationProbe 'TRADE_IMPORT_VERIFY_SOURCE_KEY_INDEX_EFFECTS_INVALID' 'Actual activation rejects source-key index before digest planning' | Out-Null
+  $sourceInvariant='select (not (select is_called from public.equora_source_index_calls) and not exists (select 1 from public.equora_source_index_log))::text;'
+  if((Get-TradeImportScalar $sourceInvariant) -ne 'true'){
+    throw 'Source-key index was invoked before rejection.'
+  }
+  if((Get-TradeImportScalar $sourceCopySql) -cne $beforeSourceCopy -or (Get-TradeImportScalar $gateCopySql) -cne $beforeSourceGate){
+    throw 'Source-key index rejection changed stored source or gate rows.'
+  }
+  if((Get-TradeImportScalar $sourceInvariant) -ne 'true'){
+    throw 'Relation COPY observer invoked the source-key index.'
+  }
+} finally {
+  if($sourceFixtureApplied){
+    Invoke-TradeImportSqlText @'
+begin;
+drop index public.equora_source_index_fixture;
+drop function public.equora_source_index_wrapper();
+drop function public.equora_source_index_effect();
+drop table public.equora_source_index_log;
+drop sequence public.equora_source_index_calls;
+commit;
+'@ 'Source-key index fixture metadata-only cleanup' | Out-Null
+  }
+}
+if((Get-TradeImportPersistenceSnapshot) -cne $beforeSourceFixture){
+  throw 'Source-key index probe changed persistence across metadata-only cleanup.'
+}
+Invoke-TradeImportSqlText $verifier 'Source-key index fixture fully restored' | Out-Null
+foreach($sourceExpression in @('snapshot_digest','(length(snapshot_digest))')){
+  Invoke-TradeImportDriftCase -Name "Source-key unexpected index: $sourceExpression" `
+    -ApplySql "create index equora_source_extra_fixture on public.trade_import_source_keys($sourceExpression);" `
+    -ProbeSql $activationProbe -ExpectedCode 'TRADE_IMPORT_VERIFY_SOURCE_KEY_INDEX_EFFECTS_INVALID' `
+    -PreservePersistence -RestoreSql 'drop index public.equora_source_extra_fixture;'
+}
+$sourceIdentityDefinition=Get-TradeImportScalar "select pg_get_indexdef('public.trade_import_source_keys_active_identity_key'::regclass,0,false);"
+$sourcePatternDefinition=$sourceIdentityDefinition.Replace('preset_key,','preset_key text_pattern_ops,')
+if($sourcePatternDefinition -ceq $sourceIdentityDefinition){throw 'Source-key operator-class fixture construction failed.'}
+Invoke-TradeImportDriftCase -Name 'Source-key nondefault operator class' `
+  -ApplySql "drop index public.trade_import_source_keys_active_identity_key; $sourcePatternDefinition;" `
+  -ProbeSql $activationProbe -ExpectedCode 'TRADE_IMPORT_VERIFY_SOURCE_KEY_INDEX_EFFECTS_INVALID' `
+  -PreservePersistence -RestoreSql "drop index public.trade_import_source_keys_active_identity_key; $sourceIdentityDefinition;"
+Invoke-TradeImportDriftCase -Name 'Source-key inherited child' `
+  -ApplySql 'create table public.equora_source_inheritance_fixture() inherits(public.trade_import_source_keys);' `
+  -ProbeSql $activationProbe -ExpectedCode 'TRADE_IMPORT_VERIFY_SOURCE_KEY_RELATION_EFFECTS_INVALID' `
+  -PreservePersistence -RestoreSql 'drop table public.equora_source_inheritance_fixture;'
+Invoke-TradeImportSqlText $verifier 'Source-key shape fixtures fully restored' | Out-Null
+Write-Output 'Source-key index PASS: real digest-planning positive control; zero calls/writes before cleanup; source/gate COPY unchanged; full persistence unchanged after metadata-only cleanup; extra indexes, nondefault operator class and inheritance rejected.'
+
+# Extended-statistics expressions are planned even without ANALYZE. Exercise
+# the actual verifier query and operational off query on each affected target.
+$sourceStatisticsControl=@'
+select exists (
+  select 1 from public.trade_import_source_keys
+  where snapshot_digest is distinct from encode(
+    pg_catalog.sha256(convert_to(trade_snapshot::text,'UTF8')),'hex')
+);
+'@
+$gateStatisticsControl=@'
+select count(*) from public.equora_runtime_capability_gates
+where capability_key='journal_file_import_persistence_v2'
+  and contract_version='equora-broker-file-import-capability-v1'
+  and ((enabled and activated_at is not null) or (not enabled and activated_at is null));
+'@
+$offStatisticsControl=@'
+select enabled, activated_at from public.equora_runtime_capability_gates
+where capability_key='journal_file_import_persistence_v2'
+  and contract_version='equora-broker-file-import-capability-v1' for update;
+'@
+$statisticsCases=@(
+  @{Name='source_activation';Relation='trade_import_source_keys';Enabled=$false;
+    Control=$sourceStatisticsControl;Probe=$activationProbe;
+    Error='TRADE_IMPORT_VERIFY_SOURCE_KEY_STATISTICS_EFFECTS_INVALID'},
+  @{Name='gate_activation';Relation='equora_runtime_capability_gates';Enabled=$false;
+    Control=$gateStatisticsControl;Probe=$activationProbe;
+    Error='TRADE_IMPORT_VERIFY_GATE_STATISTICS_EFFECTS_INVALID'},
+  @{Name='gate_deactivation';Relation='equora_runtime_capability_gates';Enabled=$true;
+    Control=$offStatisticsControl;Probe=$deactivationProbe;
+    Error='TRADE_IMPORT_DEACTIVATION_STATISTICS_EFFECTS_INVALID'}
+)
+foreach($statisticsCase in $statisticsCases){
+  Set-TradeImportActivationState -Enabled $statisticsCase.Enabled
+  $beforeStatisticsFixture=Get-TradeImportPersistenceSnapshot
+  $beforeStatisticsSource=Get-TradeImportScalar $sourceCopySql
+  $beforeStatisticsGate=Get-TradeImportScalar $gateCopySql
+  $statisticsApplied=$false
+  try {
+    $statisticsSetup=@'
+begin;
+create table public.equora_statistics_log(executor text);
+create sequence public.equora_statistics_calls;
+create function public.equora_statistics_effect() returns boolean
+language plpgsql volatile as $fixture$
+begin
+  perform nextval('public.equora_statistics_calls'::regclass);
+  insert into public.equora_statistics_log values(current_user);
+  return true;
+end;
+$fixture$;
+create function public.equora_statistics_wrapper() returns boolean
+language sql immutable as $fixture$ select public.equora_statistics_effect(); $fixture$;
+create statistics public.equora_statistics_fixture
+on (public.equora_statistics_wrapper()) from public.__RELATION__;
+truncate public.equora_statistics_log;
+alter sequence public.equora_statistics_calls restart with 1;
+__CONTROL__
+do $control$
+begin
+  if not (select is_called from public.equora_statistics_calls)
+    or not exists (select 1 from public.equora_statistics_log where executor='postgres') then
+    raise exception 'TEST_STATISTICS_PLANNING_CONTROL_FAILED';
+  end if;
+end;
+$control$;
+truncate public.equora_statistics_log;
+alter sequence public.equora_statistics_calls restart with 1;
+commit;
+'@
+    $statisticsSetup=$statisticsSetup.Replace('__RELATION__',$statisticsCase.Relation).Replace('__CONTROL__',$statisticsCase.Control)
+    Invoke-TradeImportSqlText $statisticsSetup "Statistics planning control: $($statisticsCase.Name)" | Out-Null
+    $statisticsApplied=$true
+    Invoke-TradeImportSqlExpectFailure $statisticsCase.Probe $statisticsCase.Error "Actual statistics rejection: $($statisticsCase.Name)" | Out-Null
+    $statisticsInvariant='select (not (select is_called from public.equora_statistics_calls) and not exists (select 1 from public.equora_statistics_log))::text;'
+    if((Get-TradeImportScalar $statisticsInvariant) -ne 'true'){
+      throw "Statistics expression invoked before rejection: $($statisticsCase.Name)"
+    }
+    if((Get-TradeImportScalar $sourceCopySql) -cne $beforeStatisticsSource -or (Get-TradeImportScalar $gateCopySql) -cne $beforeStatisticsGate){
+      throw "Statistics rejection changed stored source or gate rows: $($statisticsCase.Name)"
+    }
+    if((Get-TradeImportScalar $statisticsInvariant) -ne 'true'){
+      throw 'Relation COPY observer invoked statistics expression.'
+    }
+  } finally {
+    if($statisticsApplied){
+      Invoke-TradeImportSqlText @'
+begin;
+drop statistics public.equora_statistics_fixture;
+drop function public.equora_statistics_wrapper();
+drop function public.equora_statistics_effect();
+drop table public.equora_statistics_log;
+drop sequence public.equora_statistics_calls;
+commit;
+'@ 'Statistics fixture metadata-only cleanup' | Out-Null
+    }
+  }
+  if((Get-TradeImportPersistenceSnapshot) -cne $beforeStatisticsFixture){
+    throw "Statistics fixture changed persistence across metadata-only cleanup: $($statisticsCase.Name)"
+  }
+  Invoke-TradeImportSqlText $verifier 'Statistics fixture fully restored' | Out-Null
+  Write-Output "Statistics planner PASS: $($statisticsCase.Name); real query control without ANALYZE; zero calls/writes; source/gate COPY unchanged; full persistence unchanged after metadata-only cleanup."
+}
+Set-TradeImportActivationState -Enabled $false
+
+# Replace existing columns rather than adding extra ones: type names, column
+# counts and nullability alone must not accept generated columns or domains.
+$keyCheck='equora_runtime_capability_gates_key_check'
+$keyDefinition=Get-TradeImportScalar "select pg_get_constraintdef(oid,false) from pg_constraint where conrelid='public.equora_runtime_capability_gates'::regclass and conname='$keyCheck';"
+if(-not $keyDefinition.StartsWith('CHECK (')){throw 'Missing original gate key CHECK.'}
+foreach($columnKind in @('generated-key','timestamp-domain')) {
+  $columnEffectSetup=@'
+create table public.equora_column_effect_log(executor text);
+create sequence public.equora_column_effect_calls;
+create function public.equora_column_effect(boolean) returns boolean
+language plpgsql volatile as $fixture$
+begin
+  perform nextval('public.equora_column_effect_calls'::regclass);
+  if $1 then
+    insert into public.equora_column_effect_log values(current_user);
+  end if;
+  return true;
+end;
+$fixture$;
+'@
+  if($columnKind -eq 'generated-key'){
+    $columnEffectSetup += [Environment]::NewLine + @'
+create function public.equora_generated_key(boolean) returns text
+language sql immutable as $fixture$
+  select 'journal_file_import_persistence_v2'::text where public.equora_column_effect($1);
+$fixture$;
+alter table public.equora_runtime_capability_gates
+  drop constraint equora_runtime_capability_gates_pkey,
+  drop constraint equora_runtime_capability_gates_key_check,
+  drop column capability_key;
+alter table public.equora_runtime_capability_gates add column capability_key text
+  generated always as (public.equora_generated_key(enabled)) stored not null;
+'@ + [Environment]::NewLine + "alter table public.equora_runtime_capability_gates add constraint $keyCheck $keyDefinition, add constraint equora_runtime_capability_gates_pkey primary key(capability_key,contract_version);"
+    $columnEffectRestore=@'
+alter table public.equora_runtime_capability_gates
+  drop constraint equora_runtime_capability_gates_pkey,
+  drop constraint equora_runtime_capability_gates_key_check,
+  drop column capability_key;
+alter table public.equora_runtime_capability_gates add column capability_key text
+  not null default 'journal_file_import_persistence_v2';
+alter table public.equora_runtime_capability_gates alter column capability_key drop default;
+drop function public.equora_generated_key(boolean);
+'@ + [Environment]::NewLine + "alter table public.equora_runtime_capability_gates add constraint $keyCheck $keyDefinition, add constraint equora_runtime_capability_gates_pkey primary key(capability_key,contract_version);"
+  } else {
+    $columnEffectSetup += [Environment]::NewLine + @'
+create domain public.equora_timestamp_domain as timestamptz
+  check(public.equora_column_effect(value is not null));
+alter table public.equora_runtime_capability_gates alter column activated_at
+  type public.equora_timestamp_domain using activated_at::public.equora_timestamp_domain;
+'@
+    $columnEffectRestore=@'
+alter table public.equora_runtime_capability_gates alter column activated_at
+  type timestamptz using activated_at::timestamptz;
+drop domain public.equora_timestamp_domain;
+'@
+  }
+  $columnEffectSetup += [Environment]::NewLine + @'
+truncate public.equora_column_effect_log;
+alter sequence public.equora_column_effect_calls restart with 1;
+savepoint column_effect_control;
+update public.equora_runtime_capability_gates
+set enabled=true,activated_at=transaction_timestamp()
+where capability_key='journal_file_import_persistence_v2'
+  and contract_version='equora-broker-file-import-capability-v1';
+do $control$
+begin
+  if not (select is_called from public.equora_column_effect_calls)
+    or not exists (select 1 from public.equora_column_effect_log where executor='postgres') then
+    raise exception 'TEST_COLUMN_EFFECT_POSITIVE_CONTROL_FAILED';
+  end if;
+end;
+$control$;
+rollback to savepoint column_effect_control;
+alter sequence public.equora_column_effect_calls restart with 1;
+'@
+  $columnEffectRestore += [Environment]::NewLine + @'
+drop function public.equora_column_effect(boolean);
+drop table public.equora_column_effect_log;
+drop sequence public.equora_column_effect_calls;
+'@
+  $columnCase=@{
+    Name="Actual activation column effect: $columnKind"
+    ApplySql=$columnEffectSetup
+    ProbeSql=$activationProbe
+    ExpectedCode='TRADE_IMPORT_VERIFY_COLUMN_SHAPE_INVALID'
+    RestoreSql=$columnEffectRestore
+    PreservePersistence=$true
+    InvariantSql='select (not (select is_called from public.equora_column_effect_calls) and not exists (select 1 from public.equora_column_effect_log))::text;'
+  }
+  Invoke-TradeImportDriftCase @columnCase
+  Invoke-TradeImportSqlText $verifier 'Column effect fixture fully restored' | Out-Null
+}
+# Also exercise the independent contract for additive legacy-table columns.
+$additiveDomainCase=@{
+  Name='Additive request digest domain'
+  ApplySql='create domain public.equora_digest_domain as text check(true); alter table public.trade_import_batches alter column request_digest type public.equora_digest_domain using request_digest::public.equora_digest_domain;'
+  ProbeSql=$activationProbe
+  ExpectedCode='TRADE_IMPORT_VERIFY_ADDITIVE_COLUMNS_INVALID'
+  RestoreSql='alter table public.trade_import_batches alter column request_digest type text using request_digest::text; drop domain public.equora_digest_domain;'
+  PreservePersistence=$true
+}
+Invoke-TradeImportDriftCase @additiveDomainCase
+Invoke-TradeImportSqlText $verifier 'Additive domain fixture fully restored' | Out-Null
+Write-Output 'Column contracts PASS: existing generated key and timestamp domain rejected before calls or mutation; additive request-digest domain rejected; original contracts restored.'
 Invoke-TradeImportDriftCase -Name 'Internal gate cascade trigger' -ApplySql @'
 alter table public.equora_runtime_capability_gates
 add constraint equora_gate_effect_fixture_unique unique(capability_key,contract_version,enabled);

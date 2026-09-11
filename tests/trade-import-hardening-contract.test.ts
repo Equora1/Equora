@@ -584,6 +584,259 @@ describe("trade import hardening release package", () => {
     expect(postgresIntegration).toContain("TEST_CHANGED_PROVIDER_FINANCIALS_ACCEPTED");
   });
 
+  it("rejects every non-finite imported numeric before source-key reservation", () => {
+    const numericGuard = sql.indexOf("raise exception 'INVALID_TRADE_NUMERIC_VALUE'");
+    const sourceKeyReservation = sql.indexOf("insert into public.trade_import_source_keys", numericGuard);
+    expect(numericGuard).toBeGreaterThan(-1);
+    expect(sourceKeyReservation).toBeGreaterThan(numericGuard);
+    for (const field of [
+      "entry", "exit", "stop_loss", "take_profit", "net_pnl", "risk_percent",
+      "account_size", "r_multiple", "position_size", "point_value", "fees",
+      "exchange_fees", "funding_fees", "funding_rate_bps", "funding_intervals",
+      "spread_cost", "slippage", "leverage",
+    ]) {
+      expect(sql).toContain(`'${field}'`);
+      expect(postgresIntegration).toContain(`'${field}'`);
+    }
+    for (const special of ["NaN", "Infinity", "-Infinity"]) {
+      expect(sql).toContain(`to_jsonb('${special}'::numeric)`);
+      expect(postgresIntegration).toContain(`'${special}'`);
+    }
+    expect(postgresIntegration).toContain("TEST_NON_FINITE_NUMERIC_LEFT_EFFECTS");
+  });
+
+  it("locks target DDL before checking every executable gate expression", () => {
+    const lock = deactivation.indexOf("lock table only public.equora_runtime_capability_gates");
+    expect(lock).toBeGreaterThan(deactivation.indexOf("current_user <> 'postgres'"));
+    expect(lock).toBeLessThan(deactivation.indexOf("pg_catalog.pg_trigger"));
+    expect(deactivation).toContain("in exclusive mode;");
+    expect(deactivation).toContain("set local lock_timeout = '3s'");
+    expect(deactivation).toContain("attgenerated <> ''");
+    expect(deactivation).toContain("and relforcerowsecurity");
+    expect(deactivation).toContain("actual.indexprs is not null or actual.indpred is not null");
+    expect(deactivation).toContain("pg_catalog.pg_get_indexdef(actual.indexrelid,0,false)");
+    expect(deactivation).toContain("array(select unnest(actual.indclass))");
+    const definitions = [...deactivation.matchAll(/\('([a-z0-9_]+_check)',\s*\$checkdef\$(.*?)\$checkdef\$\)/gu)];
+    expect(definitions).toHaveLength(3);
+    const verifiedChecks = [...verifier.matchAll(/\('equora_runtime_capability_gates','([a-z0-9_]+_check)',\s*\$checkdef\$(.*?)\$checkdef\$\)/gu)];
+    for (const [, name, definition] of definitions) {
+      expect(verifiedChecks.find((match) => match[1] === name)?.[2]).toBe(definition);
+    }
+    expect(deactivation).toContain("expected.constraint_name is null");
+    expect(deactivation).toContain("pg_catalog.pg_get_constraintdef(actual.oid,false)");
+    expect(deactivation).toContain("case when actual.convalidated then '' else ' NOT VALID' end");
+    expect(deactivation.indexOf("TRADE_IMPORT_DEACTIVATION_CHECK_EFFECTS_INVALID"))
+      .toBeLessThan(deactivation.indexOf("select enabled, activated_at into strict"));
+    expect(deactivation).toContain("when too_many_rows then raise exception 'TRADE_IMPORT_DEACTIVATION_GATE_AMBIGUOUS'");
+    expect(deactivation).toContain("when no_data_found then raise exception 'TRADE_IMPORT_DEACTIVATION_GATE_MISSING'");
+  });
+
+  it("proves CHECK effects are rejected before invocation and preserves operational off", () => {
+    expect(postgresNegative).toContain("TEST_GATE_CHECK_POSITIVE_CONTROL_FAILED");
+    expect(postgresNegative).toContain("where executor='postgres'");
+    expect(postgresNegative).toContain("rollback to savepoint gate_check_control");
+    expect(postgresNegative).toContain("alter sequence public.equora_gate_check_calls restart with 1");
+    expect(postgresNegative).toContain("not (select is_called from public.equora_gate_check_calls)");
+    expect(postgresNegative).toContain("invariant failed before fixture restoration");
+    expect(postgresNegative).toContain("Gate CHECK effect NOT VALID replaceKnown=");
+    expect(postgresNegative).toContain("Gate same-name CHECK true:");
+    expect(postgresNegative).toContain("Gate additional validated CHECK");
+    for (const fixture of ["Gate generated column", "Gate unexpected index:", "Gate FORCE RLS", "Gate duplicate target rows"]) {
+      expect(postgresNegative).toContain(fixture);
+    }
+    expect(postgresNegative).toContain("foreach($knownNotValid in @($false,$true))");
+    expect(postgresNegative).toContain("Activation still rejects incomplete target");
+    expect(postgresNegative).toContain("-PreservePersistence");
+    expect(postgresTestLib).toContain("jsonb_agg(to_jsonb(gate_row) order by to_jsonb(gate_row)::text)");
+  });
+
+  it("covers admitted imports, activation lock upgrades and both target DDL orders", () => {
+    for (const scenario of ["activation_then_off", "ddl_then_off", "off_then_ddl"]) {
+      expect(postgresConcurrency).toContain(`'${scenario}'`);
+    }
+    expect(postgresConcurrency).toContain("-FirstAfterBarrierSql $activationUpdate");
+    expect(postgresConcurrency).toContain("$deactivation 'relation' -SecondOwnTransaction");
+    expect(postgresConcurrency).toContain("TRADE_IMPORT_DEACTIVATION_CHECK_EFFECTS_INVALID");
+    expect(postgresConcurrency).toContain("Rejected DDL/off race changed persistence");
+    expect(postgresConcurrency).toContain("$lateDdl 'relation' -ExpectTimeout");
+    expect(postgresConcurrency).toContain("Off-body transaction extraction failed");
+    expect(postgresConcurrency).toContain("Timed-out target DDL left a constraint");
+  });
+
+  it("binds real activation to the same safe index expressions before a locked update", () => {
+    const gateIndexGuard = (text: string) => {
+      const canonical = text.replaceAll("\r\n", "\n");
+      const start = canonical.indexOf("select 1 from pg_catalog.pg_index actual");
+      expect(start).toBeGreaterThan(-1);
+      return canonical.slice(start, canonical.indexOf(") then raise exception", start));
+    };
+    expect(gateIndexGuard(verifier)).toBe(gateIndexGuard(deactivation));
+    expect(verifier).toContain("TRADE_IMPORT_VERIFY_GATE_INDEX_EFFECTS_INVALID");
+    expect(verifier).not.toMatch(/lock table/iu);
+    const lock = activation.indexOf("lock table only public.equora_runtime_capability_gates");
+    expect(lock).toBeGreaterThan(activation.indexOf("current_user <> 'postgres'"));
+    expect(lock).toBeLessThan(activation.indexOf("\\ir verify-v57.62.0-trade-import.sql"));
+    expect(activation).toContain("in exclusive mode;");
+    expect(postgresNegative).toContain("TEST_ACTIVATION_INDEX_POSITIVE_CONTROL_FAILED");
+    expect(postgresNegative).toContain("TEST_ACTIVATION_INDEX_OFF_BASELINE_INVALID");
+    expect(postgresNegative).toContain("language sql immutable as $fixture$ select public.equora_activation_index_effect($1)");
+    expect(postgresNegative).toContain("-ProbeSql $activationProbe");
+    expect(postgresNegative).toContain("foreach($indexKind in @('expression','partial'))");
+    expect(postgresNegative).toContain("not (select is_called from public.equora_activation_index_calls)");
+    for (const scenario of ["ddl_then_activate", "activate_then_ddl", "actual_activate_then_off", "actual_off_then_activate"]) {
+      expect(postgresConcurrency).toContain(`'${scenario}'`);
+    }
+    expect(postgresConcurrency).toContain("Activation-body transaction extraction failed");
+    expect(postgresConcurrency).toContain("Rejected DDL/activation race changed persistence");
+    expect(postgresConcurrency).toContain("Timed-out activation DDL left an index");
+  });
+
+  it("checks both primitive column contracts and all gate metadata before reading gate data", () => {
+    expect(verifier.match(/actual\.domain_name is null and actual\.is_generated = 'NEVER'/gu)).toHaveLength(2);
+    const firstGateRead = verifier.indexOf("from public.equora_runtime_capability_gates");
+    expect(firstGateRead).toBeGreaterThan(-1);
+    for (const guard of [
+      "TRADE_IMPORT_VERIFY_ADDITIVE_COLUMNS_INVALID",
+      "TRADE_IMPORT_VERIFY_GATE_EFFECTS_INVALID",
+      "TRADE_IMPORT_VERIFY_GATE_INDEX_EFFECTS_INVALID",
+      "TRADE_IMPORT_VERIFY_COLUMN_SHAPE_INVALID",
+      "TRADE_IMPORT_VERIFY_CHECK_CONSTRAINT_SHAPE_INVALID",
+      "TRADE_IMPORT_VERIFY_FUNCTION_BODY_INVALID",
+    ]) {
+      expect(verifier.indexOf(guard)).toBeGreaterThan(-1);
+      expect(verifier.indexOf(guard)).toBeLessThan(firstGateRead);
+    }
+    expect(postgresNegative).toContain("TEST_CONSTANT_INDEX_PLANNING_CONTROL_FAILED");
+    expect(postgresNegative).toContain("where public.equora_constant_index_wrapper()");
+    const constantStart = postgresNegative.indexOf("$beforeConstantFixture=Get-TradeImportPersistenceSnapshot");
+    const constantEnd = postgresNegative.indexOf("Constant index fixture fully restored");
+    const constantCase = postgresNegative.slice(constantStart, constantEnd);
+    expect(constantStart).toBeGreaterThan(-1);
+    expect(constantEnd).toBeGreaterThan(constantStart);
+    expect(constantCase).toContain("copy public.equora_runtime_capability_gates to stdout;");
+    expect(constantCase).not.toContain("-PreservePersistence");
+    expect(constantCase.match(/Get-TradeImportPersistenceSnapshot/gu)).toHaveLength(2);
+    expect(constantCase.indexOf("Relation COPY observer invoked the constant index"))
+      .toBeLessThan(constantCase.indexOf("drop index public.equora_constant_index_fixture"));
+    expect(constantCase.lastIndexOf("Get-TradeImportPersistenceSnapshot"))
+      .toBeGreaterThan(constantCase.indexOf("Constant index fixture cleanup"));
+    expect(postgresNegative).toContain("@('generated-key','timestamp-domain')");
+    expect(postgresNegative).toContain("drop column capability_key");
+    expect(postgresNegative).toContain("generated always as (public.equora_generated_key(enabled)) stored not null");
+    expect(postgresNegative).toContain("TEST_COLUMN_EFFECT_POSITIVE_CONTROL_FAILED");
+    expect(postgresNegative).toContain("not (select is_called from public.equora_column_effect_calls)");
+    expect(postgresNegative).toContain("Additive request digest domain");
+    expect(postgresNegative).toContain("TRADE_IMPORT_VERIFY_ADDITIVE_COLUMNS_INVALID");
+  });
+
+  it("binds all source-key indexes before digest reads under a DDL-stable activation", () => {
+    const sourceLock = activation.indexOf("lock table only public.trade_import_source_keys");
+    expect(sourceLock).toBeGreaterThan(activation.indexOf("lock table only public.equora_runtime_capability_gates"));
+    expect(sourceLock).toBeLessThan(activation.indexOf("\\ir verify-v57.62.0-trade-import.sql"));
+    expect(activation).toContain("in share update exclusive mode;");
+    const sourceGuard = verifier.indexOf("TRADE_IMPORT_VERIFY_SOURCE_KEY_INDEX_EFFECTS_INVALID");
+    expect(sourceGuard).toBeGreaterThan(-1);
+    expect(sourceGuard).toBeLessThan(verifier.indexOf("from public.trade_import_source_keys"));
+    expect(verifier).toContain("where indrelid='public.trade_import_source_keys'::regclass) <> 5");
+    expect(verifier).toContain("actual.indisvalid and actual.indisready and actual.indislive");
+    expect(verifier).toContain("operator_class.opcnamespace = 'pg_catalog'::regnamespace");
+    expect(verifier).toContain("operator_class.opcmethod = access_method.oid");
+    expect(verifier).toContain("array(select unnest(actual.indcollation))");
+    expect(verifier).toContain("pg_catalog.pg_get_indexdef(actual.indexrelid,0,false) = expected.definition");
+    expect(verifier).toContain("TRADE_IMPORT_VERIFY_SOURCE_KEY_RELATION_EFFECTS_INVALID");
+    expect(verifier).toContain("inhparent='public.trade_import_source_keys'::regclass");
+    const sourceStart = postgresNegative.indexOf("$beforeSourceFixture=Get-TradeImportPersistenceSnapshot");
+    const sourceEnd = postgresNegative.indexOf("Source-key index fixture fully restored");
+    expect(sourceStart).toBeGreaterThan(-1);
+    expect(sourceEnd).toBeGreaterThan(sourceStart);
+    const sourceCase = postgresNegative.slice(sourceStart, sourceEnd);
+    expect(sourceCase).toContain("TEST_SOURCE_INDEX_PLANNING_CONTROL_FAILED");
+    expect(sourceCase).toContain("where snapshot_digest is distinct from encode(");
+    expect(sourceCase).toContain("copy public.trade_import_source_keys to stdout;");
+    expect(sourceCase.match(/Get-TradeImportPersistenceSnapshot/gu)).toHaveLength(2);
+    expect(sourceCase.indexOf("Relation COPY observer invoked the source-key index"))
+      .toBeLessThan(sourceCase.indexOf("drop index public.equora_source_index_fixture"));
+    expect(sourceCase.lastIndexOf("Get-TradeImportPersistenceSnapshot"))
+      .toBeGreaterThan(sourceCase.indexOf("Source-key index fixture metadata-only cleanup"));
+    expect(postgresNegative).toContain("Source-key nondefault operator class");
+    expect(postgresNegative).toContain("Source-key inherited child");
+  });
+
+  it("covers source-key DDL orders, timeout rollback, retry and writer compatibility", () => {
+    for (const scenario of ["source_ddl_first_", "activate_source_ddl_", "source_writer_compatible"]) {
+      expect(postgresConcurrency).toContain(scenario);
+    }
+    expect(postgresConcurrency).toContain("-ExpectTimeout:$sourceTimeout");
+    expect(postgresConcurrency).toContain("Rejected source-key DDL/activation changed persistence");
+    expect(postgresConcurrency).toContain("Timed-out source-key DDL left an index");
+    expect(postgresConcurrency).toContain("$concurrentToken=if($sourceConcurrent){'concurrently '}else{''}");
+    expect(postgresConcurrency).toContain("-SecondCompletesBeforeRelease");
+    expect(postgresConcurrency).toContain("'completed-before-release'");
+  });
+
+  it("rejects all target statistics before the first affected data read", () => {
+    for (const [text, relation, error, dataRead] of [
+      [verifier, "equora_runtime_capability_gates", "TRADE_IMPORT_VERIFY_GATE_STATISTICS_EFFECTS_INVALID", "from public.equora_runtime_capability_gates"],
+      [verifier, "trade_import_source_keys", "TRADE_IMPORT_VERIFY_SOURCE_KEY_STATISTICS_EFFECTS_INVALID", "from public.trade_import_source_keys"],
+      [deactivation, "equora_runtime_capability_gates", "TRADE_IMPORT_DEACTIVATION_STATISTICS_EFFECTS_INVALID", "select enabled, activated_at into strict"],
+    ]) {
+      const guard = new RegExp(
+        `if exists \\(\\s*select 1 from pg_catalog\\.pg_statistic_ext\\s*where stxrelid='public\\.${relation}'::regclass\\s*\\) then raise exception '${error}'; end if;`,
+        "u",
+      );
+      expect(text).toMatch(guard);
+      const readPosition = text.indexOf(dataRead);
+      expect(readPosition).toBeGreaterThan(-1);
+      expect(text.indexOf(error)).toBeGreaterThan(-1);
+      expect(text.indexOf(error)).toBeLessThan(readPosition);
+    }
+  });
+
+  it("binds statistics regression controls and observers before metadata cleanup", () => {
+    const start = postgresNegative.indexOf("$sourceStatisticsControl=@'");
+    const end = postgresNegative.indexOf("# Replace existing columns", start);
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+    const cases = postgresNegative.slice(start, end);
+    for (const name of ["source_activation", "gate_activation", "gate_deactivation"]) {
+      expect(cases).toContain(`Name='${name}'`);
+    }
+    expect(cases).toContain("TEST_STATISTICS_PLANNING_CONTROL_FAILED");
+    expect(cases).toContain("where executor='postgres'");
+    expect(cases).toContain("Invoke-TradeImportSqlExpectFailure $statisticsCase.Probe $statisticsCase.Error");
+    expect(cases).not.toMatch(/^\s*analyze\b/imu);
+    expect(cases).not.toContain("-PreservePersistence");
+    expect(cases.match(/Get-TradeImportPersistenceSnapshot/gu)).toHaveLength(2);
+    expect(cases.match(/Get-TradeImportScalar \$statisticsInvariant/gu)).toHaveLength(2);
+    expect(cases).toContain("not (select is_called from public.equora_statistics_calls)");
+    expect(cases).toContain("not exists (select 1 from public.equora_statistics_log)");
+    expect(cases.indexOf("Relation COPY observer invoked statistics expression."))
+      .toBeLessThan(cases.indexOf("drop statistics public.equora_statistics_fixture;"));
+    expect(cases.lastIndexOf("Get-TradeImportPersistenceSnapshot"))
+      .toBeGreaterThan(cases.indexOf("Statistics fixture metadata-only cleanup"));
+    expect(cases).toContain("Get-TradeImportScalar $sourceCopySql");
+    expect(cases).toContain("Get-TradeImportScalar $gateCopySql");
+  });
+
+  it("binds both statistics DDL orders, transition retries and final gate states", () => {
+    const start = postgresConcurrency.indexOf("$statisticsRaces=@(");
+    const end = postgresConcurrency.indexOf("$state=Get-TradeImportScalar", start);
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+    const races = postgresConcurrency.slice(start, end);
+    for (const name of ["source_statistics", "gate_on_statistics", "gate_off_statistics"]) {
+      expect(races).toContain(`Name='${name}'`);
+    }
+    expect(races).toContain("$statisticsRace.Probe 'relation' -SecondOwnTransaction");
+    expect(races).toContain("Rejected earlier statistics DDL changed persistence.");
+    expect(races).toContain("Actual transition retry after statistics cleanup");
+    expect(races).toContain("$statisticsRace.Body");
+    expect(races).toContain("'relation' -ExpectTimeout");
+    expect(races).toContain("Timed-out statistics DDL left metadata.");
+    expect(races).toContain("-cne $statisticsRace.ExpectedEnabled");
+    expect(races).toContain("Set-TradeImportActivationState -Enabled $false");
+  });
+
   it("binds every CHECK to its exact catalog definition and metadata", () => {
     const checkNames = [...sql.matchAll(/\bconstraint\s+([a-z0-9_]+)\s+check\s*\(/gu)]
       .map((match) => match[1]).sort();

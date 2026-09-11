@@ -328,7 +328,7 @@ function Get-TradeImportPersistenceSnapshot {
   return Get-TradeImportScalar @'
 select encode(pg_catalog.sha256(convert_to(jsonb_build_object(
   'gate',(
-    select to_jsonb(gate_row)
+    select coalesce(jsonb_agg(to_jsonb(gate_row) order by to_jsonb(gate_row)::text),'[]'::jsonb)
     from public.equora_runtime_capability_gates gate_row
     where capability_key='journal_file_import_persistence_v2'
       and contract_version='equora-broker-file-import-capability-v1'
