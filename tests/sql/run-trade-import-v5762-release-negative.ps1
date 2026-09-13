@@ -7,6 +7,24 @@ param(
 . (Join-Path $PSScriptRoot 'trade-import-hardening-test-lib.ps1')
 Initialize-TradeImportTestContext $ContainerName $TestDatabase
 
+function Invoke-TradeImportSupabaseAdminSqlText {
+  param(
+    [Parameter(Mandatory = $true)][string]$Sql,
+    [Parameter(Mandatory = $true)][string]$Phase
+  )
+
+  $previousErrorActionPreference = $ErrorActionPreference
+  $ErrorActionPreference = 'Continue'
+  $output = $Sql | & docker exec -i $ContainerName psql `
+    -U supabase_admin -d $TestDatabase -v ON_ERROR_STOP=1 2>&1
+  $exitCode = $LASTEXITCODE
+  $ErrorActionPreference = $previousErrorActionPreference
+  if ($exitCode -ne 0) {
+    throw "$Phase failed: $($output -join [Environment]::NewLine)"
+  }
+  return $output
+}
+
 function Invoke-TradeImportDriftCase {
   param(
     [Parameter(Mandatory = $true)][string]$Name,
@@ -15,6 +33,7 @@ function Invoke-TradeImportDriftCase {
     [Parameter(Mandatory = $true)][string]$ExpectedCode,
     [Parameter(Mandatory = $true)][string]$RestoreSql,
     [switch]$PreservePersistence,
+    [switch]$SuperuserMutation,
     [string]$InvariantSql
   )
 
@@ -23,7 +42,11 @@ function Invoke-TradeImportDriftCase {
     # A multi-statement failed setup must roll back as a unit, even before
     # the restoration flag can be set.
     $atomicSetup = 'begin;' + [Environment]::NewLine + $ApplySql + [Environment]::NewLine + 'commit;'
-    Invoke-TradeImportSqlText $atomicSetup "$Name drift setup" | Out-Null
+    if($SuperuserMutation){
+      Invoke-TradeImportSupabaseAdminSqlText $atomicSetup "$Name drift setup" | Out-Null
+    } else {
+      Invoke-TradeImportSqlText $atomicSetup "$Name drift setup" | Out-Null
+    }
     $applied = $true
     if($PreservePersistence){$beforeProbe=Get-TradeImportPersistenceSnapshot}
     Invoke-TradeImportSqlExpectFailure `
@@ -38,7 +61,11 @@ function Invoke-TradeImportDriftCase {
   finally {
     if ($applied) {
       $atomicRestore = 'begin;' + [Environment]::NewLine + $RestoreSql + [Environment]::NewLine + 'commit;'
-      Invoke-TradeImportSqlText $atomicRestore "$Name drift restore" | Out-Null
+      if($SuperuserMutation){
+        Invoke-TradeImportSupabaseAdminSqlText $atomicRestore "$Name drift restore" | Out-Null
+      } else {
+        Invoke-TradeImportSqlText $atomicRestore "$Name drift restore" | Out-Null
+      }
     }
   }
 }
@@ -59,8 +86,12 @@ if ($Mode -eq 'PreInstall') {
 
 $verifier = Expand-TradeImportV5762File `
   -Name 'verify-v57.62.0-trade-import.sql'
+$deployProbe = Expand-TradeImportV5762File `
+  -Name 'deploy-v57.62.0-trade-import.sql'
+$activationProbe = Expand-TradeImportV5762File `
+  -Name 'activate-v57.62.0-trade-import.sql'
 $expectedFingerprint =
-  '014731e263ec2f0ffc9b0e16962b5d5574516a0c975a1713580740fa3bc6413d'
+  '460e008096b8f217e68d27f04c72b95b676d2b149daf49d5913d5a822cac628b'
 
 # Reject weakened conditions independently, restoring after every probe.
 $searchPathProbe="begin read only; set local search_path = public, pg_catalog;" + [Environment]::NewLine + $verifier + [Environment]::NewLine + @'
@@ -186,6 +217,38 @@ where migration_id='equora_v57.62.0_unknown_test_v1';
 '@
 
 Invoke-TradeImportDriftCase `
+  -Name 'Unknown same-version marker blocks activation' `
+  -ApplySql @'
+insert into equora_private.schema_migrations(migration_id,contract_fingerprint)
+values ('equora_v57.62.0_unknown_activation_test_v1',repeat('2',64));
+'@ `
+  -ProbeSql $activationProbe `
+  -ExpectedCode 'TRADE_IMPORT_ACTIVATION_UNKNOWN_MARKER' `
+  -RestoreSql @'
+delete from equora_private.schema_migrations
+where migration_id='equora_v57.62.0_unknown_activation_test_v1';
+'@ `
+  -PreservePersistence
+
+Invoke-TradeImportDriftCase `
+  -Name 'Active gate blocks default-off redeploy' `
+  -ApplySql @'
+update public.equora_runtime_capability_gates
+set enabled=true,activated_at=transaction_timestamp()
+where capability_key='journal_file_import_persistence_v2'
+  and contract_version='equora-broker-file-import-capability-v1';
+'@ `
+  -ProbeSql $deployProbe `
+  -ExpectedCode 'TRADE_IMPORT_PREFLIGHT_GATE_ACTIVE' `
+  -RestoreSql @'
+update public.equora_runtime_capability_gates
+set enabled=false,activated_at=null
+where capability_key='journal_file_import_persistence_v2'
+  and contract_version='equora-broker-file-import-capability-v1';
+'@ `
+  -PreservePersistence
+
+Invoke-TradeImportDriftCase `
   -Name 'RLS policy' `
   -ApplySql @'
 alter policy "users can read own journal import accounts"
@@ -197,6 +260,209 @@ on public.journal_import_accounts using (true);
 alter policy "users can read own journal import accounts"
 on public.journal_import_accounts using ((select auth.uid()) = user_id);
 '@
+
+Invoke-TradeImportDriftCase `
+  -Name 'Gate relation persistence' `
+  -ApplySql 'alter table public.equora_runtime_capability_gates set unlogged;' `
+  -ProbeSql $verifier `
+  -ExpectedCode 'TRADE_IMPORT_VERIFY_RELATION_SECURITY_INVALID' `
+  -RestoreSql 'alter table public.equora_runtime_capability_gates set logged;' `
+  -PreservePersistence
+
+Invoke-TradeImportDriftCase `
+  -Name 'Explicit text collation' `
+  -ApplySql 'alter table public.journal_import_accounts alter column display_label type text collate "C" using display_label::text;' `
+  -ProbeSql $verifier `
+  -ExpectedCode 'TRADE_IMPORT_VERIFY_COLUMN_SHAPE_INVALID' `
+  -RestoreSql 'alter table public.journal_import_accounts alter column display_label type text collate "default" using display_label::text;' `
+  -PreservePersistence
+
+$functionBehaviorCases=@(
+  @{Name='volatility';Apply='stable';Restore='volatile'},
+  @{Name='parallel';Apply='parallel safe';Restore='parallel unsafe'},
+  @{Name='strict';Apply='strict';Restore='called on null input'}
+)
+foreach($functionBehaviorCase in $functionBehaviorCases){
+  Invoke-TradeImportDriftCase `
+    -Name "Function behavior attribute: $($functionBehaviorCase.Name)" `
+    -ApplySql "alter function public.equora_revert_import_v1(uuid) $($functionBehaviorCase.Apply);" `
+    -ProbeSql $verifier `
+    -ExpectedCode 'TRADE_IMPORT_VERIFY_FUNCTION_SECURITY_INVALID' `
+    -RestoreSql "alter function public.equora_revert_import_v1(uuid) $($functionBehaviorCase.Restore);" `
+    -PreservePersistence
+}
+
+# PostgreSQL permits LEAKPROOF mutation only to a superuser. The disposable
+# Supabase image deliberately keeps the postgres login non-superuser, so this
+# single catalog-drift setup and restoration use its local supabase_admin role.
+Invoke-TradeImportDriftCase `
+  -Name 'Function behavior attribute: leakproof' `
+  -ApplySql 'alter function public.equora_revert_import_v1(uuid) leakproof;' `
+  -ProbeSql $verifier `
+  -ExpectedCode 'TRADE_IMPORT_VERIFY_FUNCTION_SECURITY_INVALID' `
+  -RestoreSql 'alter function public.equora_revert_import_v1(uuid) not leakproof;' `
+  -PreservePersistence `
+  -SuperuserMutation
+
+Invoke-TradeImportDriftCase `
+  -Name 'Revert bounded lock timeout configuration' `
+  -ApplySql 'alter function public.equora_revert_import_v1(uuid) reset lock_timeout;' `
+  -ProbeSql $verifier `
+  -ExpectedCode 'TRADE_IMPORT_VERIFY_FUNCTION_SECURITY_INVALID' `
+  -RestoreSql "alter function public.equora_revert_import_v1(uuid) set lock_timeout to '3s';" `
+  -PreservePersistence
+
+Invoke-TradeImportDriftCase `
+  -Name 'Account unexpected key constraint' `
+  -ApplySql 'alter table public.journal_import_accounts add constraint equora_account_extra_unique unique(id);' `
+  -ProbeSql $activationProbe `
+  -ExpectedCode 'TRADE_IMPORT_VERIFY_KEY_CONSTRAINT_SET_INVALID' `
+  -RestoreSql 'alter table public.journal_import_accounts drop constraint equora_account_extra_unique;' `
+  -PreservePersistence
+Invoke-TradeImportDriftCase `
+  -Name 'Account unexpected expression index' `
+  -ApplySql 'create index equora_account_extra_index on public.journal_import_accounts((length(display_label)));' `
+  -ProbeSql $activationProbe `
+  -ExpectedCode 'TRADE_IMPORT_VERIFY_ACCOUNT_INDEX_EFFECTS_INVALID' `
+  -RestoreSql 'drop index public.equora_account_extra_index;' `
+  -PreservePersistence
+Invoke-TradeImportDriftCase `
+  -Name 'Account unexpected trigger' `
+  -ApplySql @'
+create function public.equora_account_trigger_fixture() returns trigger
+language plpgsql as $fixture$ begin return new; end; $fixture$;
+create trigger equora_account_trigger_fixture before insert
+on public.journal_import_accounts for each row
+execute function public.equora_account_trigger_fixture();
+'@ `
+  -ProbeSql $activationProbe `
+  -ExpectedCode 'TRADE_IMPORT_VERIFY_ACCOUNT_RELATION_EFFECTS_INVALID' `
+  -RestoreSql @'
+drop trigger equora_account_trigger_fixture on public.journal_import_accounts;
+drop function public.equora_account_trigger_fixture();
+'@ `
+  -PreservePersistence
+Invoke-TradeImportDriftCase `
+  -Name 'Account unexpected incoming cascade foreign key' `
+  -ApplySql @'
+create table public.equora_account_incoming_fk_fixture(
+  user_id uuid not null,
+  preset_key text not null,
+  normalized_label text not null,
+  constraint equora_account_incoming_fk_fixture_fkey
+    foreign key(user_id,preset_key,normalized_label)
+    references public.journal_import_accounts(user_id,preset_key,normalized_label)
+    on update cascade on delete restrict
+);
+insert into public.equora_account_incoming_fk_fixture
+select user_id,preset_key,normalized_label
+from public.journal_import_accounts order by id limit 1;
+do $fixture$
+declare
+  v_user_id uuid;
+  v_preset_key text;
+  v_old_label text;
+  v_new_label text;
+begin
+  select user_id,preset_key,normalized_label
+  into strict v_user_id,v_preset_key,v_old_label
+  from public.equora_account_incoming_fk_fixture;
+  v_new_label := v_old_label || '-cascade-control';
+  update public.journal_import_accounts
+  set normalized_label=v_new_label
+  where user_id=v_user_id and preset_key=v_preset_key
+    and normalized_label=v_old_label;
+  if not exists (
+    select 1 from public.equora_account_incoming_fk_fixture
+    where user_id=v_user_id and preset_key=v_preset_key
+      and normalized_label=v_new_label
+  ) then raise exception 'TEST_ACCOUNT_INCOMING_FK_CASCADE_CONTROL_FAILED'; end if;
+  update public.journal_import_accounts
+  set normalized_label=v_old_label
+  where user_id=v_user_id and preset_key=v_preset_key
+    and normalized_label=v_new_label;
+end;
+$fixture$;
+'@ `
+  -ProbeSql $activationProbe `
+  -ExpectedCode 'TRADE_IMPORT_VERIFY_ACCOUNT_RELATION_EFFECTS_INVALID' `
+  -RestoreSql 'drop table public.equora_account_incoming_fk_fixture;' `
+  -PreservePersistence
+Invoke-TradeImportDriftCase `
+  -Name 'Account unexpected rule' `
+  -ApplySql 'create rule equora_account_rule_fixture as on update to public.journal_import_accounts do also nothing;' `
+  -ProbeSql $activationProbe `
+  -ExpectedCode 'TRADE_IMPORT_VERIFY_ACCOUNT_RELATION_EFFECTS_INVALID' `
+  -RestoreSql 'drop rule equora_account_rule_fixture on public.journal_import_accounts;' `
+  -PreservePersistence
+Invoke-TradeImportDriftCase `
+  -Name 'Account inherited child' `
+  -ApplySql 'create table public.equora_account_inheritance_fixture() inherits(public.journal_import_accounts);' `
+  -ProbeSql $activationProbe `
+  -ExpectedCode 'TRADE_IMPORT_VERIFY_ACCOUNT_RELATION_EFFECTS_INVALID' `
+  -RestoreSql 'drop table public.equora_account_inheritance_fixture;' `
+  -PreservePersistence
+Invoke-TradeImportDriftCase `
+  -Name 'Account unexpected statistics' `
+  -ApplySql 'create statistics public.equora_account_statistics_fixture on user_id,preset_key from public.journal_import_accounts;' `
+  -ProbeSql $activationProbe `
+  -ExpectedCode 'TRADE_IMPORT_VERIFY_ACCOUNT_STATISTICS_EFFECTS_INVALID' `
+  -RestoreSql 'drop statistics public.equora_account_statistics_fixture;' `
+  -PreservePersistence
+Invoke-TradeImportDriftCase `
+  -Name 'Unexpected logical publication membership' `
+  -ApplySql 'create publication equora_trade_import_publication_fixture for table public.journal_import_accounts;' `
+  -ProbeSql $activationProbe `
+  -ExpectedCode 'TRADE_IMPORT_VERIFY_PUBLICATION_EFFECTS_INVALID' `
+  -RestoreSql 'drop publication equora_trade_import_publication_fixture;' `
+  -PreservePersistence
+Invoke-TradeImportDriftCase `
+  -Name 'Unexpected FOR ALL TABLES publication membership' `
+  -ApplySql 'create publication equora_trade_import_publication_all_fixture for all tables;' `
+  -ProbeSql $activationProbe `
+  -ExpectedCode 'TRADE_IMPORT_VERIFY_PUBLICATION_EFFECTS_INVALID' `
+  -RestoreSql 'drop publication equora_trade_import_publication_all_fixture;' `
+  -SuperuserMutation `
+  -PreservePersistence
+Invoke-TradeImportDriftCase `
+  -Name 'Unexpected FOR TABLES IN SCHEMA publication membership' `
+  -ApplySql 'create publication equora_trade_import_publication_schema_fixture for tables in schema public;' `
+  -ProbeSql $activationProbe `
+  -ExpectedCode 'TRADE_IMPORT_VERIFY_PUBLICATION_EFFECTS_INVALID' `
+  -RestoreSql 'drop publication equora_trade_import_publication_schema_fixture;' `
+  -SuperuserMutation `
+  -PreservePersistence
+Invoke-TradeImportDriftCase `
+  -Name 'Authenticated role bypasses row security' `
+  -ApplySql 'alter role authenticated bypassrls;' `
+  -ProbeSql $activationProbe `
+  -ExpectedCode 'TRADE_IMPORT_VERIFY_AUTHENTICATED_ROLE_ATTRIBUTES_INVALID' `
+  -RestoreSql 'alter role authenticated nobypassrls;' `
+  -SuperuserMutation `
+  -PreservePersistence
+Invoke-TradeImportDriftCase `
+  -Name 'Source-key unexpected trigger' `
+  -ApplySql @'
+create function public.equora_source_trigger_fixture() returns trigger
+language plpgsql as $fixture$ begin return new; end; $fixture$;
+create trigger equora_source_trigger_fixture before insert
+on public.trade_import_source_keys for each row
+execute function public.equora_source_trigger_fixture();
+'@ `
+  -ProbeSql $activationProbe `
+  -ExpectedCode 'TRADE_IMPORT_VERIFY_SOURCE_KEY_RELATION_EFFECTS_INVALID' `
+  -RestoreSql @'
+drop trigger equora_source_trigger_fixture on public.trade_import_source_keys;
+drop function public.equora_source_trigger_fixture();
+'@ `
+  -PreservePersistence
+Invoke-TradeImportDriftCase `
+  -Name 'Source-key unexpected rule' `
+  -ApplySql 'create rule equora_source_rule_fixture as on update to public.trade_import_source_keys do also nothing;' `
+  -ProbeSql $activationProbe `
+  -ExpectedCode 'TRADE_IMPORT_VERIFY_SOURCE_KEY_RELATION_EFFECTS_INVALID' `
+  -RestoreSql 'drop rule equora_source_rule_fixture on public.trade_import_source_keys;' `
+  -PreservePersistence
 
 Invoke-TradeImportDriftCase `
   -Name 'Active identity index' `
@@ -239,6 +505,53 @@ references public.trade_import_batches(user_id,id)
 on delete cascade;
 '@
 
+Invoke-TradeImportDriftCase `
+  -Name 'Trade ownership foreign key delete action' `
+  -ApplySql @'
+alter table public.trade_import_source_keys
+drop constraint trade_import_source_keys_trade_owner_fkey;
+alter table public.trade_import_source_keys
+add constraint trade_import_source_keys_trade_owner_fkey
+foreign key (user_id,trade_id)
+references public.trades(user_id,id)
+on delete set null (trade_id);
+'@ `
+  -ProbeSql $verifier `
+  -ExpectedCode 'TRADE_IMPORT_VERIFY_KEY_CONSTRAINT_SHAPE_INVALID' `
+  -RestoreSql @'
+alter table public.trade_import_source_keys
+drop constraint trade_import_source_keys_trade_owner_fkey;
+alter table public.trade_import_source_keys
+add constraint trade_import_source_keys_trade_owner_fkey
+foreign key (user_id,trade_id)
+references public.trades(user_id,id)
+on delete restrict;
+'@
+
+Invoke-TradeImportDriftCase `
+  -Name 'Trade binding index uniqueness' `
+  -ApplySql @'
+drop index public.trade_import_source_keys_trade_idx;
+create index trade_import_source_keys_trade_idx
+on public.trade_import_source_keys(user_id,trade_id)
+where trade_id is not null;
+'@ `
+  -ProbeSql $verifier `
+  -ExpectedCode 'TRADE_IMPORT_VERIFY_INDEX_SHAPE_INVALID' `
+  -RestoreSql @'
+drop index public.trade_import_source_keys_trade_idx;
+create unique index trade_import_source_keys_trade_idx
+on public.trade_import_source_keys(user_id,trade_id)
+where trade_id is not null;
+'@
+
+Invoke-TradeImportDriftCase `
+  -Name 'Disabled v2 trade binding trigger' `
+  -ApplySql 'alter table public.trades disable trigger equora_enforce_v2_trade_batch_binding_v1;' `
+  -ProbeSql $verifier `
+  -ExpectedCode 'TRADE_IMPORT_VERIFY_BINDING_TRIGGER_INVALID' `
+  -RestoreSql 'alter table public.trades enable trigger equora_enforce_v2_trade_batch_binding_v1;'
+
 Invoke-TradeImportSqlText $verifier 'Post-negative verifier restoration' | Out-Null
 Invoke-TradeImportDriftCase -Name 'Financial snapshot column ACL' -ApplySql @'
 grant select(trade_snapshot) on public.trade_import_source_keys to service_role;
@@ -249,6 +562,11 @@ Invoke-TradeImportDriftCase -Name 'PUBLIC revert execute' -ApplySql @'
 grant execute on function public.equora_revert_import_v1(uuid) to public;
 '@ -ProbeSql $verifier -ExpectedCode 'TRADE_IMPORT_VERIFY_FUNCTION_ACL_SHAPE_INVALID' -RestoreSql @'
 revoke execute on function public.equora_revert_import_v1(uuid) from public;
+'@
+Invoke-TradeImportDriftCase -Name 'Authenticated binding trigger execute' -ApplySql @'
+grant execute on function public.equora_enforce_v2_trade_batch_binding_v1() to authenticated;
+'@ -ProbeSql $verifier -ExpectedCode 'TRADE_IMPORT_VERIFY_FUNCTION_PRIVILEGES_INVALID' -RestoreSql @'
+revoke execute on function public.equora_enforce_v2_trade_batch_binding_v1() from authenticated;
 '@
 
 # Target-local effects must be rejected before any update.
@@ -363,7 +681,6 @@ foreach($knownNotValid in @($false,$true)){
 Write-Output 'Gate target effects PASS: CHECK positive controls; zero sentinel writes and zero invocations on rejection; generated/index/FORCE RLS drift; ambiguous rows rejected; missing/known NOT VALID checks safely closed.'
 # Real activation must reject additional executable index expressions, not
 # merely rely on the operational off script to discover them afterward.
-$activationProbe=Expand-TradeImportV5762File -Name 'activate-v57.62.0-trade-import.sql'
 foreach($indexKind in @('expression','partial')) {
   $indexDefinition='((public.equora_activation_index_wrapper(enabled)))'
   if($indexKind -eq 'partial'){$indexDefinition='(enabled) where public.equora_activation_index_wrapper(enabled)'}
@@ -829,4 +1146,4 @@ try {
   Set-TradeImportActivationState -Enabled $false
 }
 Invoke-TradeImportSqlText $verifier 'Final negative-case restoration' | Out-Null
-Write-Output 'Trade-import post-install negative gate PASS: receipt, RLS, index, FK, column ACL and PUBLIC execute drift; kill switch closes despite unrelated drift.'
+Write-Output 'Trade-import post-install negative gate PASS: receipt, default-off redeploy, activation marker, relation persistence, collation, function behavior, RLS, index, FK, column ACL and PUBLIC execute drift; kill switch closes despite unrelated drift.'

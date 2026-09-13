@@ -93,7 +93,7 @@ select exists (
     where migration_id =
       'equora_v57.62.0_trade_import_persistence_v1'
       and contract_fingerprint =
-        '014731e263ec2f0ffc9b0e16962b5d5574516a0c975a1713580740fa3bc6413d'
+        '460e008096b8f217e68d27f04c72b95b676d2b149daf49d5913d5a822cac628b'
   ) as v5762_marker_exact,
   exists (
     select 1
@@ -115,6 +115,20 @@ select exists (
   \if :v5762_marker_exact
     \set v5762_apply_required false
     \ir verify-v57.62.0-trade-import.sql
+    do $equora_v5762_existing_gate_off$
+    begin
+      if not exists (
+        select 1
+        from public.equora_runtime_capability_gates
+        where capability_key = 'journal_file_import_persistence_v2'
+          and contract_version = 'equora-broker-file-import-capability-v1'
+          and not enabled
+          and activated_at is null
+      ) then
+        raise exception 'TRADE_IMPORT_PREFLIGHT_GATE_ACTIVE';
+      end if;
+    end;
+    $equora_v5762_existing_gate_off$;
   \else
     \echo 'NO-GO: v57.62.0-Marker besitzt einen unbekannten Fingerprint.'
     do $fail$ begin
@@ -133,6 +147,17 @@ select exists (
     and to_regprocedure(
       'public.equora_import_trades_v2(uuid,uuid,jsonb,jsonb,jsonb)'
     ) is null
+    and to_regprocedure(
+      'public.equora_enforce_v2_trade_batch_binding_v1()'
+    ) is null
+    and not exists (
+      select 1
+      from pg_catalog.pg_trigger trigger_row
+      where trigger_row.tgrelid = 'public.trades'::regclass
+        and trigger_row.tgname =
+          'equora_enforce_v2_trade_batch_binding_v1'
+        and not trigger_row.tgisinternal
+    )
     and not exists (
       select 1
       from information_schema.columns

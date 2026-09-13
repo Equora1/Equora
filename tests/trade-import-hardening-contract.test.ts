@@ -37,6 +37,9 @@ describe("trade import hardening release package", () => {
   const postgresTestLib = source(
     "tests/sql/trade-import-hardening-test-lib.ps1",
   );
+  const postgresLocalStubs = source(
+    "tests/sql/equora-local-supabase-stubs.sql",
+  );
   const postgresIntegration = source(
     "tests/sql/trade-import-hardening.integration.sql",
   );
@@ -61,7 +64,7 @@ describe("trade import hardening release package", () => {
   it("binds deployment to one exact migration receipt and a default-off driver", () => {
     const migrationId = "equora_v57.62.0_trade_import_persistence_v1";
     const fingerprint =
-      "014731e263ec2f0ffc9b0e16962b5d5574516a0c975a1713580740fa3bc6413d";
+      "460e008096b8f217e68d27f04c72b95b676d2b149daf49d5913d5a822cac628b";
 
     for (const releaseContract of [sql, preflight, verifier]) {
       expect(releaseContract).toContain(migrationId);
@@ -80,6 +83,9 @@ describe("trade import hardening release package", () => {
     expect(sql).toMatch(
       /insert into equora_private\.schema_migrations[\s\S]*?on conflict \(migration_id\) do nothing;/u,
     );
+    expect(sql).toContain("lock table only equora_private.schema_migrations");
+    expect(sql).toContain("TRADE_IMPORT_PATCH_UNKNOWN_MARKER");
+    expect(verifier).toContain("TRADE_IMPORT_VERIFY_UNKNOWN_V5762_MARKER");
   });
 
   it("preflights the exact predecessor and rejects partial or drifted states", () => {
@@ -94,6 +100,7 @@ describe("trade import hardening release package", () => {
     expect(preflight).toContain("v5762_pre_batches_count");
     expect(preflight).toContain("TRADE_IMPORT_PREFLIGHT_UNKNOWN_MARKER");
     expect(preflight).toContain("TRADE_IMPORT_PREFLIGHT_MARKER_DRIFT");
+    expect(preflight).toContain("TRADE_IMPORT_PREFLIGHT_GATE_ACTIVE");
     expect(preflight).toContain("TRADE_IMPORT_PREFLIGHT_PARTIAL_STATE");
     expect(preflight).toContain("\\set v5762_apply_required true");
     expect(preflight).toContain("\\set v5762_apply_required false");
@@ -105,6 +112,9 @@ describe("trade import hardening release package", () => {
     );
     expect(postflight).toContain("v5762_existing_row_counts_unchanged");
     expect(postflight).toContain("TRADE_IMPORT_POSTFLIGHT_BASELINE_MISSING");
+    expect(postflight).toContain(
+      "TRADE_IMPORT_POSTFLIGHT_GATE_NOT_DEFAULT_OFF",
+    );
     expect(verifier).toContain("TRADE_IMPORT_VERIFY_MIGRATION_RECEIPT_INVALID");
     expect(verifier).toContain("TRADE_IMPORT_VERIFY_RELATION_SECURITY_INVALID");
     expect(verifier).toContain("TRADE_IMPORT_VERIFY_CONSTRAINTS_INVALID");
@@ -112,6 +122,10 @@ describe("trade import hardening release package", () => {
     expect(verifier).toContain("TRADE_IMPORT_VERIFY_RLS_POLICIES_INVALID");
     expect(verifier).toContain("TRADE_IMPORT_VERIFY_TABLE_PRIVILEGES_INVALID");
     expect(verifier).toContain("TRADE_IMPORT_VERIFY_FUNCTION_SECURITY_INVALID");
+    expect(verifier).toContain(
+      "TRADE_IMPORT_VERIFY_BINDING_TRIGGER_FUNCTION_INVALID",
+    );
+    expect(verifier).toContain("TRADE_IMPORT_VERIFY_BINDING_TRIGGER_INVALID");
     expect(verifier).toContain("TRADE_IMPORT_VERIFY_FUNCTION_PRIVILEGES_INVALID");
     expect(verifier).toContain("TRADE_IMPORT_VERIFY_ACTIVATION_STATE_INVALID");
     expect(verifier).toContain("TRADE_IMPORT_VERIFY_KEY_CONSTRAINT_SHAPE_INVALID");
@@ -119,6 +133,16 @@ describe("trade import hardening release package", () => {
     expect(verifier).toContain("TRADE_IMPORT_VERIFY_RLS_POLICY_SHAPE_INVALID");
     expect(verifier).toContain("TRADE_IMPORT_VERIFY_TABLE_ACL_SHAPE_INVALID");
     expect(verifier).toContain("TRADE_IMPORT_VERIFY_FUNCTION_ACL_SHAPE_INVALID");
+    expect(verifier).toContain("relation_row.relpersistence = 'p'");
+    expect(verifier).toContain("access_method_row.amname = 'heap'");
+    expect(verifier).toContain("actual.collation_name is null");
+    expect(verifier).toContain("procedure_row.provolatile = 'v'");
+    expect(verifier).toContain("procedure_row.proparallel = 'u'");
+    expect(verifier).toContain("not procedure_row.proleakproof");
+    expect(verifier).toContain("not procedure_row.proisstrict");
+    expect(postgresNegative).toContain("Gate relation persistence");
+    expect(postgresNegative).toContain("Function behavior attribute");
+    expect(postgresNegative).toContain("Explicit text collation");
     expect(verifier).toContain("'service_role'");
   });
 
@@ -127,6 +151,7 @@ describe("trade import hardening release package", () => {
     expect(activation).toContain("set enabled = true");
     expect(activation).toContain("and not enabled");
     expect(activation).toContain("TRADE_IMPORT_ACTIVATION_CAS_FAILED");
+    expect(activation).toContain("TRADE_IMPORT_ACTIVATION_UNKNOWN_MARKER");
     expect(deactivation).toContain("for update");
     expect(deactivation).toContain("set enabled = false");
     expect(deactivation).toContain("activated_at = null");
@@ -154,7 +179,7 @@ describe("trade import hardening release package", () => {
       releaseGate.indexOf("## 8. Lokaler PostgreSQL-Abschluss"),
     );
     expect(releaseGate).toContain(
-      "Status: **LOCAL CANDIDATE / NO-GO für Staging ohne neue konkrete Freigabe**",
+      "Status: **DRAFT-PR-REMEDIATION / NO-GO für Staging, Push, PR-Änderung oder Merge**",
     );
     expect(historicalEvidence).toContain("Fokussierte statische Verträge: **PASS, 42/42**");
     expect(historicalEvidence).toContain("777/777 Tests");
@@ -242,6 +267,110 @@ describe("trade import hardening release package", () => {
     expect(reservation).toBeGreaterThan(0);
     expect(conflictGuard).toBeGreaterThan(reservation);
     expect(createTrade).toBeGreaterThan(conflictGuard);
+    const importRoutineStart = sql.indexOf(
+      "create or replace function public.equora_import_trades_v2",
+    );
+    const earlyTradeWriterLock = sql.indexOf(
+      "lock table only public.trades in row exclusive mode",
+      importRoutineStart,
+    );
+    expect(earlyTradeWriterLock).toBeGreaterThan(importRoutineStart);
+    expect(earlyTradeWriterLock).toBeLessThan(reservation);
+  });
+
+  it("binds every v2 batch trade one-to-one before assignment and revert", () => {
+    expect(sql).toMatch(
+      /trade_import_source_keys_trade_owner_fkey[\s\S]*?on delete restrict/gu,
+    );
+    expect(sql).toContain(
+      "create unique index trade_import_source_keys_trade_idx",
+    );
+    expect(sql).toContain(
+      "create or replace function public.equora_enforce_v2_trade_batch_binding_v1()",
+    );
+    expect(sql).toContain(
+      "create trigger equora_enforce_v2_trade_batch_binding_v1",
+    );
+    expect(sql).toContain("raise exception 'IMPORT_BATCH_TRADE_BINDING_INVALID'");
+    expect(sql).toMatch(
+      /revoke all on function public\.equora_enforce_v2_trade_batch_binding_v1\(\)[\s\S]*?from public, anon, authenticated, service_role;/u,
+    );
+    expect(verifier).toContain(
+      "pg_catalog.pg_get_triggerdef(trigger_row.oid, true)",
+    );
+    expect(verifier).toContain(
+      "CREATE TRIGGER equora_enforce_v2_trade_batch_binding_v1 BEFORE INSERT OR UPDATE ON public.trades FOR EACH ROW EXECUTE FUNCTION public.equora_enforce_v2_trade_batch_binding_v1()",
+    );
+    expect(verifier).not.toContain("pg_catalog.pg_get_expr(\n        trigger_row.tgqual");
+    expect(sql).not.toContain("when (new.import_batch_id is not null)");
+    expect(sql).toContain("new.import_batch_id is distinct from old.import_batch_id");
+    expect(sql).toContain("new.import_account_id is distinct from old.import_account_id");
+    expect(sql).toContain("new.import_account_id is distinct from v_batch.import_account_id");
+    expect(sql).toContain("source_key_row.import_account_id = new.import_account_id");
+    expect(sql).toContain(
+      "source_key_row.import_account_id = v_import_account_id",
+    );
+    expect(sql).toContain(
+      "trade.import_account_id = source_key_row.import_account_id",
+    );
+    expect(sql).toContain("IMPORT_BATCH_TRADE_BINDING_IMMUTABLE");
+    expect(postgresIntegration).toContain("TEST_BOUND_TRADE_NORMAL_UPDATE_REJECTED");
+    expect(postgresIntegration).toContain("TEST_BOUND_TRADE_DETACH_LEFT_EFFECTS");
+    expect(postgresIntegration).toContain("TEST_BOUND_TRADE_LEGACY_MOVE_LEFT_EFFECTS");
+    expect(postgresIntegration).toContain("TEST_BOUND_TRADE_ACCOUNT_DETACH_LEFT_EFFECTS");
+    expect(postgresIntegration).toContain("TEST_BOUND_TRADE_ACCOUNT_MOVE_LEFT_EFFECTS");
+    expect(postgresConcurrency).toContain("binding_update_then_revert");
+    expect(postgresConcurrency).toContain("Binding/revert concurrency PASS");
+    expect(postgresConcurrency).toContain("timeout is bounded and retryable");
+
+    const createWithoutBatch = sql.indexOf(
+      "v_trade_id, v_trade - 'import_batch_id', v_tags, null",
+    );
+    const bindSourceKey = sql.indexOf(
+      "set trade_id = v_trade_id",
+      createWithoutBatch,
+    );
+    const attachBatch = sql.indexOf(
+      "import_batch_id = p_batch_id",
+      bindSourceKey,
+    );
+    expect(createWithoutBatch).toBeGreaterThan(-1);
+    expect(bindSourceKey).toBeGreaterThan(createWithoutBatch);
+    expect(attachBatch).toBeGreaterThan(bindSourceKey);
+
+    const revertRoutine = sql.slice(
+      sql.indexOf("create or replace function public.equora_revert_import_v1"),
+      sql.indexOf("revoke all on function public.equora_upsert_import_account_v1"),
+    );
+    expect(sql).toContain("for key share");
+    expect(revertRoutine).toMatch(/order by id\s+for update/gu);
+    const revertTradeLock = revertRoutine.indexOf(
+      "from public.trades\n  where user_id = v_user_id and import_batch_id = p_batch_id\n  order by id\n  for update",
+    );
+    const revertTableLock = revertRoutine.indexOf(
+      "lock table only public.trades in exclusive mode",
+    );
+    const revertBatchLock = revertRoutine.indexOf(
+      "select status, import_account_id into v_status, v_import_account_id\n  from public.trade_import_batches\n  where id = p_batch_id and user_id = v_user_id\n  for update",
+    );
+    const revertSourceKeyLock = revertRoutine.indexOf(
+      "from public.trade_import_source_keys\n    where user_id = v_user_id and batch_id = p_batch_id\n    order by id\n    for update",
+    );
+    expect(revertTableLock).toBeGreaterThan(-1);
+    expect(revertTradeLock).toBeGreaterThan(revertTableLock);
+    expect(revertBatchLock).toBeGreaterThan(revertTradeLock);
+    expect(revertSourceKeyLock).toBeGreaterThan(revertBatchLock);
+    expect(revertRoutine).toContain(
+      "raise exception 'IMPORT_BATCH_TRADE_BINDING_INVALID'",
+    );
+    expect(postgresIntegration).toContain(
+      "TEST_BOUND_IMPORT_TRADE_DELETE_ACCEPTED",
+    );
+    expect(postgresIntegration).toContain("TEST_UNBOUND_V2_TRADE_ACCEPTED");
+    expect(postgresIntegration).toContain("TEST_CORRUPT_V2_REVERT_ACCEPTED");
+    expect(postgresIntegration).toContain(
+      "TEST_CORRUPT_V2_ACCOUNT_REVERT_ACCEPTED",
+    );
   });
 
   it("keeps direct table writes closed and owner-scoped reads under RLS", () => {
@@ -462,6 +591,9 @@ describe("trade import hardening release package", () => {
     expect(postgresTestLib).toContain("IpcMode");
     expect(postgresTestLib).toContain("com.equora.disposable-harness");
     expect(postgresTestLib).toContain("ON_ERROR_STOP=1");
+    expect(postgresLocalStubs).toContain(
+      "grant usage on schema auth to postgres, anon, authenticated, service_role;",
+    );
     expect(postgresTestLib).toContain("Expand-TradeImportPreflight");
     expect(postgresTestLib).toContain("Expand-TradeImportDeployment");
     expect(postgresTestLib).toContain("Assert-TradeImportBaseMarkers");
@@ -551,8 +683,10 @@ describe("trade import hardening release package", () => {
   it("binds time limits to the public RPC and requires a prearmed session timer", () => {
     const accountRoutine = sql.slice(sql.indexOf("create or replace function public.equora_upsert_import_account_v1"), sql.indexOf("create or replace function public.equora_import_trades_v2"));
     const importRoutine = sql.slice(sql.indexOf("create or replace function public.equora_import_trades_v2"), sql.indexOf("create or replace function public.equora_revert_import_v1"));
+    const revertRoutine = sql.slice(sql.indexOf("create or replace function public.equora_revert_import_v1"), sql.indexOf("revoke all on function public.equora_upsert_import_account_v1"));
     expect(accountRoutine).not.toContain("set lock_timeout");
     expect(importRoutine).toContain("set lock_timeout = '3s'");
+    expect(revertRoutine).toContain("set lock_timeout = '3s'");
     expect(importRoutine).not.toContain("set statement_timeout");
     expect(importRoutine).toContain("setting::bigint between 1 and 30000");
     expect(importRoutine).toContain("nullif(v_entry->'trade'->>'created_at', '') is null");
@@ -574,7 +708,7 @@ describe("trade import hardening release package", () => {
   it("reads the financial snapshot back from the persisted row", () => {
     const createTrade = sql.indexOf("perform public.equora_create_trade_v1");
     const readBack = sql.indexOf("select * into strict v_persisted_trade", createTrade);
-    const snapshotWrite = sql.indexOf("set trade_id = v_trade_id, trade_snapshot = v_trade_snapshot", readBack);
+    const snapshotWrite = sql.indexOf("set trade_snapshot = v_trade_snapshot", readBack);
     expect(readBack).toBeGreaterThan(createTrade);
     expect(snapshotWrite).toBeGreaterThan(readBack);
     expect(sql).toContain("'partial_exits', 'r_multiple', 'pnl_mode', 'cost_profile'");
@@ -692,7 +826,11 @@ describe("trade import hardening release package", () => {
   });
 
   it("checks both primitive column contracts and all gate metadata before reading gate data", () => {
-    expect(verifier.match(/actual\.domain_name is null and actual\.is_generated = 'NEVER'/gu)).toHaveLength(2);
+    expect(
+      verifier.match(
+        /actual\.domain_name is null[\s\S]*?actual\.is_generated = 'NEVER'/gu,
+      ),
+    ).toHaveLength(2);
     const firstGateRead = verifier.indexOf("from public.equora_runtime_capability_gates");
     expect(firstGateRead).toBeGreaterThan(-1);
     for (const guard of [
@@ -730,10 +868,19 @@ describe("trade import hardening release package", () => {
   });
 
   it("binds all source-key indexes before digest reads under a DDL-stable activation", () => {
+    const migrationLock = activation.indexOf("lock table only equora_private.schema_migrations");
+    const gateLock = activation.indexOf("lock table only public.equora_runtime_capability_gates");
+    const accountLock = activation.indexOf("lock table only public.journal_import_accounts");
     const sourceLock = activation.indexOf("lock table only public.trade_import_source_keys");
-    expect(sourceLock).toBeGreaterThan(activation.indexOf("lock table only public.equora_runtime_capability_gates"));
+    expect(migrationLock).toBeGreaterThan(-1);
+    expect(gateLock).toBeGreaterThan(migrationLock);
+    expect(accountLock).toBeGreaterThan(gateLock);
+    expect(sourceLock).toBeGreaterThan(accountLock);
     expect(sourceLock).toBeLessThan(activation.indexOf("\\ir verify-v57.62.0-trade-import.sql"));
     expect(activation).toContain("in share update exclusive mode;");
+    expect(activation).toContain("TRADE_IMPORT_ACTIVATION_EXECUTOR_PRIVILEGE_INVALID");
+    expect(verifier).toContain("TRADE_IMPORT_VERIFY_EXECUTOR_PRIVILEGE_INVALID");
+    expect(verifier).toContain("TRADE_IMPORT_VERIFY_AUTHENTICATED_ROLE_ATTRIBUTES_INVALID");
     const sourceGuard = verifier.indexOf("TRADE_IMPORT_VERIFY_SOURCE_KEY_INDEX_EFFECTS_INVALID");
     expect(sourceGuard).toBeGreaterThan(-1);
     expect(sourceGuard).toBeLessThan(verifier.indexOf("from public.trade_import_source_keys"));
@@ -760,6 +907,58 @@ describe("trade import hardening release package", () => {
       .toBeGreaterThan(sourceCase.indexOf("Source-key index fixture metadata-only cleanup"));
     expect(postgresNegative).toContain("Source-key nondefault operator class");
     expect(postgresNegative).toContain("Source-key inherited child");
+    expect(verifier).toContain("TRADE_IMPORT_VERIFY_ACCOUNT_RELATION_EFFECTS_INVALID");
+    expect(verifier).toContain("TRADE_IMPORT_VERIFY_ACCOUNT_INDEX_EFFECTS_INVALID");
+    expect(verifier).toContain("TRADE_IMPORT_VERIFY_ACCOUNT_STATISTICS_EFFECTS_INVALID");
+    expect(verifier).toContain("TRADE_IMPORT_VERIFY_PUBLICATION_EFFECTS_INVALID");
+    expect(verifier).toContain("trigger_row.tgconstraint");
+    expect(verifier).toContain("trigger_row.tgisinternal");
+    expect(verifier).toContain("tgrelid='public.journal_import_accounts'::regclass) <> 8");
+    expect(verifier).toContain("tgrelid='public.trade_import_source_keys'::regclass) <> 8");
+    for (const fixture of [
+      "Account unexpected key constraint",
+      "Account unexpected expression index",
+      "Account unexpected trigger",
+      "Account unexpected incoming cascade foreign key",
+      "Account unexpected rule",
+      "Account inherited child",
+      "Account unexpected statistics",
+      "Unexpected logical publication membership",
+      "Unexpected FOR ALL TABLES publication membership",
+      "Unexpected FOR TABLES IN SCHEMA publication membership",
+      "Authenticated role bypasses row security",
+      "Source-key unexpected trigger",
+      "Source-key unexpected rule",
+      "Revert bounded lock timeout configuration",
+    ]) {
+      expect(postgresNegative).toContain(fixture);
+    }
+  });
+
+  it("serializes migration markers and the mixed provider import/revert path", () => {
+    for (const scenario of [
+      "marker_then_patch",
+      "marker_then_activate",
+      "account_ddl_first_",
+      "activate_account_ddl_late",
+      "account_writer_compatible",
+      "account_fk_ddl_first",
+      "activate_account_fk_ddl_late",
+      "publication_ddl_first",
+      "activate_publication_ddl_late",
+      "equora_ti_mixed_import",
+      "equora_ti_mixed_revert",
+    ]) {
+      expect(postgresConcurrency).toContain(scenario);
+    }
+    expect(postgresConcurrency).toContain("TRADE_IMPORT_PATCH_UNKNOWN_MARKER");
+    expect(postgresConcurrency).toContain("TRADE_IMPORT_ACTIVATION_UNKNOWN_MARKER");
+    expect(postgresConcurrency).toContain("RowExclusiveLock");
+    expect(postgresConcurrency).toContain("Provider duplicate/new import versus revert PASS");
+    expect(postgresConcurrency).toContain("Incoming account FK concurrency PASS");
+    expect(postgresConcurrency).toContain("Publication concurrency PASS");
+    expect(postgresNegative).toContain("-SuperuserMutation");
+    expect(postgresNegative).toContain("alter role authenticated bypassrls");
   });
 
   it("covers source-key DDL orders, timeout rollback, retry and writer compatibility", () => {
@@ -777,18 +976,21 @@ describe("trade import hardening release package", () => {
   it("rejects all target statistics before the first affected data read", () => {
     for (const [text, relation, error, dataRead] of [
       [verifier, "equora_runtime_capability_gates", "TRADE_IMPORT_VERIFY_GATE_STATISTICS_EFFECTS_INVALID", "from public.equora_runtime_capability_gates"],
+      [verifier, "journal_import_accounts", "TRADE_IMPORT_VERIFY_ACCOUNT_STATISTICS_EFFECTS_INVALID", null],
       [verifier, "trade_import_source_keys", "TRADE_IMPORT_VERIFY_SOURCE_KEY_STATISTICS_EFFECTS_INVALID", "from public.trade_import_source_keys"],
       [deactivation, "equora_runtime_capability_gates", "TRADE_IMPORT_DEACTIVATION_STATISTICS_EFFECTS_INVALID", "select enabled, activated_at into strict"],
-    ]) {
+    ] as const) {
       const guard = new RegExp(
-        `if exists \\(\\s*select 1 from pg_catalog\\.pg_statistic_ext\\s*where stxrelid='public\\.${relation}'::regclass\\s*\\) then raise exception '${error}'; end if;`,
+        `if exists \\(\\s*select 1 from pg_catalog\\.pg_statistic_ext\\s*where stxrelid='public\\.${relation}'::regclass\\s*\\)\\s*then\\s*raise exception '${error}';\\s*end if;`,
         "u",
       );
       expect(text).toMatch(guard);
-      const readPosition = text.indexOf(dataRead);
-      expect(readPosition).toBeGreaterThan(-1);
       expect(text.indexOf(error)).toBeGreaterThan(-1);
-      expect(text.indexOf(error)).toBeLessThan(readPosition);
+      if (dataRead !== null) {
+        const readPosition = text.indexOf(dataRead);
+        expect(readPosition).toBeGreaterThan(-1);
+        expect(text.indexOf(error)).toBeLessThan(readPosition);
+      }
     }
   });
 
@@ -872,7 +1074,7 @@ describe("trade import hardening release package", () => {
   });
 
   it("binds index ordering, access method, target relation and typed key arrays", () => {
-    expect(verifier.match(/array_agg\(attribute_row\.attname::text/gu)).toHaveLength(3);
+    expect(verifier.match(/array_agg\(attribute_row\.attname::text/gu)).toHaveLength(2);
     expect(verifier).toContain("index_row.indrelid = format('public.%I',expected.table_name)::regclass");
     expect(verifier).toContain("access_method.amname = 'btree'");
     expect(verifier).toContain("array(select unnest(index_row.indoption)) = expected.key_options");
@@ -898,11 +1100,19 @@ describe("trade import hardening release package", () => {
     expect(postgresConcurrency).toContain("-ExpectTimeout");
     expect(postgresConcurrency).toContain("Successful retry after lock timeout");
     expect(postgresConcurrency).toContain("c1000000-0000-4000-8000-000000000011");
+    expect(postgresConcurrency).toContain("binding_update_then_revert");
+    expect(postgresConcurrency).toContain("rowlock_then_write_revert_order");
+    expect(postgresConcurrency).toContain("revert_table_lock_timeout");
+    expect(postgresConcurrency).toContain("multi_trade_writer_then_revert");
+    expect(postgresConcurrency).toContain("Binding/revert concurrency PASS");
+    expect(postgresConcurrency).toContain(
+      "EXCLUSIVE revert gate precedes every row lock",
+    );
   });
 
   it("binds every executable routine body to the exact LF-normalized hash", () => {
-    const definitions = [...sql.replaceAll("\r\n", "\n").matchAll(/create or replace function public\.(equora_upsert_import_account_v1|equora_import_trades_v2|equora_revert_import_v1)\s*\([\s\S]*?\bas \$\$([\s\S]*?)\$\$;/gu)];
-    expect(definitions).toHaveLength(3);
+    const definitions = [...sql.replaceAll("\r\n", "\n").matchAll(/create or replace function public\.(equora_upsert_import_account_v1|equora_enforce_v2_trade_batch_binding_v1|equora_import_trades_v2|equora_revert_import_v1)\s*\([\s\S]*?\bas \$\$([\s\S]*?)\$\$;/gu)];
+    expect(definitions).toHaveLength(4);
     for (const [, , body] of definitions) {
       const digest = createHash("sha256").update(body, "utf8").digest("hex");
       expect(verifier).toContain(digest);

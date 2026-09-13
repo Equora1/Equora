@@ -16,6 +16,26 @@ select pg_catalog.pg_advisory_xact_lock(
   )
 );
 
+-- Serialize every receipt writer, including installers that do not cooperate
+-- with this release's advisory key. Re-check the family marker while the
+-- write-conflicting table lock is held, so preflight-to-patch TOCTOU cannot
+-- admit an unknown v57.62 migration.
+lock table only equora_private.schema_migrations
+  in share row exclusive mode;
+do $equora_v5762_patch_marker_guard$
+begin
+  if exists (
+    select 1
+    from equora_private.schema_migrations
+    where migration_id like 'equora_v57.62.0%'
+      and migration_id <>
+        'equora_v57.62.0_trade_import_persistence_v1'
+  ) then
+    raise exception 'TRADE_IMPORT_PATCH_UNKNOWN_MARKER';
+  end if;
+end;
+$equora_v5762_patch_marker_guard$;
+
 -- This database gate is the authoritative persistence boundary. Installing or
 -- re-applying the candidate never activates imports. Activation requires a
 -- separate, explicit administrative statement after migration approval.
@@ -226,7 +246,7 @@ create table if not exists public.trade_import_source_keys (
   constraint trade_import_source_keys_trade_owner_fkey
     foreign key (user_id, trade_id)
     references public.trades (user_id, id)
-    on delete set null (trade_id)
+    on delete restrict
 );
 
 alter table public.trade_import_source_keys
@@ -248,9 +268,82 @@ create index if not exists trade_import_source_keys_account_created_idx
   (user_id, import_account_id, created_at desc);
 create index if not exists trade_import_source_keys_batch_idx
   on public.trade_import_source_keys (user_id, batch_id);
-create index if not exists trade_import_source_keys_trade_idx
+drop index if exists public.trade_import_source_keys_trade_idx;
+create unique index trade_import_source_keys_trade_idx
   on public.trade_import_source_keys (user_id, trade_id)
   where trade_id is not null;
+
+-- A v2 batch assignment is valid only after the import RPC has reserved and
+-- bound exactly one source key to the new trade. Once present, its trade,
+-- tenant, account and batch identity is immutable through ordinary trade
+-- updates. Authenticated callers cannot manufacture source-key rows or detach,
+-- relabel or move a v2 import trade. Legacy batches remain editable because
+-- they have no import_account_id and predate the v2 source-key contract.
+create or replace function public.equora_enforce_v2_trade_batch_binding_v1()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_batch public.trade_import_batches%rowtype;
+  v_old_batch public.trade_import_batches%rowtype;
+begin
+  if tg_op = 'UPDATE' and old.import_batch_id is not null then
+    select * into v_old_batch
+    from public.trade_import_batches
+    where id = old.import_batch_id and user_id = old.user_id
+    for key share;
+    if found and v_old_batch.import_account_id is not null and (
+      new.id is distinct from old.id
+      or new.user_id is distinct from old.user_id
+      or new.import_batch_id is distinct from old.import_batch_id
+      or new.import_account_id is distinct from old.import_account_id
+    ) then
+      raise exception 'IMPORT_BATCH_TRADE_BINDING_IMMUTABLE';
+    end if;
+  end if;
+
+  if new.import_batch_id is null then return new; end if;
+
+  select * into v_batch
+  from public.trade_import_batches
+  where id = new.import_batch_id and user_id = new.user_id
+  for key share;
+  if not found then raise exception 'INVALID_IMPORT_BATCH'; end if;
+
+  if v_batch.import_account_id is not null then
+    if v_batch.status not in ('processing', 'active') then
+      raise exception 'IMPORT_BATCH_NOT_ACTIVE';
+    end if;
+    if new.import_account_id is distinct from v_batch.import_account_id then
+      raise exception 'IMPORT_BATCH_TRADE_BINDING_INVALID';
+    end if;
+    if not exists (
+      select 1
+      from public.trade_import_source_keys source_key_row
+      where source_key_row.user_id = new.user_id
+        and source_key_row.import_account_id = new.import_account_id
+        and source_key_row.batch_id = new.import_batch_id
+        and source_key_row.trade_id = new.id
+        and source_key_row.status = 'active'
+    ) then
+      raise exception 'IMPORT_BATCH_TRADE_BINDING_INVALID';
+    end if;
+  end if;
+
+  return new;
+end;
+$$;
+
+revoke all on function public.equora_enforce_v2_trade_batch_binding_v1()
+  from public, anon, authenticated, service_role;
+drop trigger if exists equora_enforce_v2_trade_batch_binding_v1
+  on public.trades;
+create trigger equora_enforce_v2_trade_batch_binding_v1
+before insert or update on public.trades
+for each row
+execute function public.equora_enforce_v2_trade_batch_binding_v1();
 
 alter table public.journal_import_accounts enable row level security;
 alter table public.trade_import_source_keys enable row level security;
@@ -596,6 +689,12 @@ begin
     );
   end if;
 
+  -- Acquire the same writer-class table lock that the first trade mutation
+  -- would take, but do so before any source-key reservation or duplicate-row
+  -- lock. It remains compatible with normal writers and serializes imports
+  -- before a revert can hold the conflicting global revert lock.
+  lock table only public.trades in row exclusive mode;
+
   -- Account creation or update occurs only after a clean replay decision.
   v_account_result := public.equora_upsert_import_account_v1(
     p_import_account_id,
@@ -832,9 +931,23 @@ begin
     v_tags := coalesce(array(
       select jsonb_array_elements_text(coalesce(v_entry->'tags', '[]'::jsonb))
     ), '{}'::text[]);
-    perform public.equora_create_trade_v1(v_trade_id, v_trade, v_tags, null);
+    -- Create the row without a batch assignment, bind its reserved source key,
+    -- and only then attach the v2 account and batch. The table trigger rejects
+    -- every other path that attempts to attach a trade to a v2 batch.
+    perform public.equora_create_trade_v1(
+      v_trade_id, v_trade - 'import_batch_id', v_tags, null
+    );
+    update public.trade_import_source_keys
+    set trade_id = v_trade_id
+    where user_id = v_user_id
+      and batch_id = p_batch_id
+      and source_kind = v_reserved_source_kind
+      and source_digest = v_reserved_source_digest
+      and trade_id is null;
+    if not found then raise exception 'SOURCE_KEY_TRADE_BIND_FAILED'; end if;
     update public.trades
-    set import_account_id = v_import_account_id
+    set import_account_id = v_import_account_id,
+        import_batch_id = p_batch_id
     where id = v_trade_id and user_id = v_user_id;
     if not found then raise exception 'TRADE_ACCOUNT_BIND_FAILED'; end if;
     select * into strict v_persisted_trade
@@ -852,14 +965,14 @@ begin
       pg_catalog.sha256(convert_to(v_trade_snapshot::text, 'UTF8')), 'hex'
     );
     update public.trade_import_source_keys
-    set trade_id = v_trade_id, trade_snapshot = v_trade_snapshot,
+    set trade_snapshot = v_trade_snapshot,
         snapshot_digest = v_trade_snapshot_digest
     where user_id = v_user_id
       and batch_id = p_batch_id
       and source_kind = v_reserved_source_kind
       and source_digest = v_reserved_source_digest
-      and trade_id is null;
-    if not found then raise exception 'SOURCE_KEY_TRADE_BIND_FAILED'; end if;
+      and trade_id = v_trade_id;
+    if not found then raise exception 'SOURCE_KEY_SNAPSHOT_BIND_FAILED'; end if;
     v_imported := v_imported + 1;
     v_plausibility_total := v_plausibility_total
       + greatest(0, least(100, v_row_plausibility));
@@ -911,15 +1024,46 @@ returns jsonb
 language plpgsql
 security definer
 set search_path = ''
+set lock_timeout = '3s'
 as $$
 declare
   v_user_id uuid := auth.uid();
   v_status text;
+  v_import_account_id uuid;
   v_deleted integer := 0;
   v_paths text[] := '{}'::text[];
 begin
   if v_user_id is null then raise exception 'UNAUTHENTICATED'; end if;
-  select status into v_status
+
+  -- Read ownership and terminal state without taking a row or batch lock.
+  -- The global trade-writer/revert table lock below is acquired before this
+  -- function can hold any trade row.
+  select status, import_account_id into v_status, v_import_account_id
+  from public.trade_import_batches
+  where id = p_batch_id and user_id = v_user_id;
+  if not found then raise exception 'NOT_FOUND_OR_FORBIDDEN'; end if;
+  if v_status = 'reverted' then
+    return jsonb_build_object(
+      'reverted', false, 'alreadyReverted', true,
+      'deletedCount', 0, 'storagePaths', to_jsonb(v_paths)
+    );
+  end if;
+
+  -- EXCLUSIVE also conflicts with ROW SHARE from an earlier SELECT FOR UPDATE.
+  -- This matters for legacy authenticated RPCs that lock a trade row first and
+  -- issue their UPDATE/DELETE only afterwards. Acquire the table lock before
+  -- this revert holds any row; ordinary ACCESS SHARE readers remain compatible.
+  lock table only public.trades in exclusive mode;
+
+  perform 1
+  from public.trades
+  where user_id = v_user_id and import_batch_id = p_batch_id
+  order by id
+  for update;
+
+  -- Re-read under the write lock because another revert may have completed
+  -- while this transaction waited for a trade row.
+  select status, import_account_id into v_status, v_import_account_id
   from public.trade_import_batches
   where id = p_batch_id and user_id = v_user_id
   for update;
@@ -929,6 +1073,53 @@ begin
       'reverted', false, 'alreadyReverted', true,
       'deletedCount', 0, 'storagePaths', to_jsonb(v_paths)
     );
+  end if;
+
+  if v_import_account_id is not null then
+    -- With all current batch trades and then the batch locked, lock source keys
+    -- in deterministic order before proving the complete v2 bijection.
+    perform 1
+    from public.trade_import_source_keys
+    where user_id = v_user_id and batch_id = p_batch_id
+    order by id
+    for update;
+
+    if exists (
+      select 1
+      from public.trades trade
+      where trade.user_id = v_user_id
+        and trade.import_batch_id = p_batch_id
+        and not exists (
+          select 1
+          from public.trade_import_source_keys source_key_row
+          where source_key_row.user_id = trade.user_id
+            and source_key_row.batch_id = trade.import_batch_id
+            and source_key_row.trade_id = trade.id
+            and source_key_row.import_account_id = trade.import_account_id
+            and source_key_row.import_account_id = v_import_account_id
+            and source_key_row.status = 'active'
+        )
+    ) or exists (
+      select 1
+      from public.trade_import_source_keys source_key_row
+      where source_key_row.user_id = v_user_id
+        and source_key_row.batch_id = p_batch_id
+        and (
+          source_key_row.status <> 'active'
+          or source_key_row.trade_id is null
+          or not exists (
+            select 1
+            from public.trades trade
+            where trade.user_id = source_key_row.user_id
+              and trade.import_batch_id = source_key_row.batch_id
+              and trade.id = source_key_row.trade_id
+              and trade.import_account_id = source_key_row.import_account_id
+              and trade.import_account_id = v_import_account_id
+          )
+        )
+    ) then
+      raise exception 'IMPORT_BATCH_TRADE_BINDING_INVALID';
+    end if;
   end if;
 
   select coalesce(
@@ -996,7 +1187,7 @@ insert into equora_private.schema_migrations (
   contract_fingerprint
 ) values (
   'equora_v57.62.0_trade_import_persistence_v1',
-  '014731e263ec2f0ffc9b0e16962b5d5574516a0c975a1713580740fa3bc6413d'
+  '460e008096b8f217e68d27f04c72b95b676d2b149daf49d5913d5a822cac628b'
 )
 on conflict (migration_id) do nothing;
 
@@ -1007,7 +1198,7 @@ begin
     from equora_private.schema_migrations
     where migration_id = 'equora_v57.62.0_trade_import_persistence_v1'
       and contract_fingerprint =
-        '014731e263ec2f0ffc9b0e16962b5d5574516a0c975a1713580740fa3bc6413d'
+        '460e008096b8f217e68d27f04c72b95b676d2b149daf49d5913d5a822cac628b'
   ) then
     raise exception 'TRADE_IMPORT_MIGRATION_RECEIPT_DRIFT';
   end if;

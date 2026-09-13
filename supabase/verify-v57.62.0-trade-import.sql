@@ -7,10 +7,35 @@ declare
   v_migration_id constant text :=
     'equora_v57.62.0_trade_import_persistence_v1';
   v_contract_fingerprint constant text :=
-    '014731e263ec2f0ffc9b0e16962b5d5574516a0c975a1713580740fa3bc6413d';
+    '460e008096b8f217e68d27f04c72b95b676d2b149daf49d5913d5a822cac628b';
 begin
   if current_user <> 'postgres' then
     raise exception 'TRADE_IMPORT_VERIFY_EXECUTOR_INVALID';
+  end if;
+
+  if exists (
+    select 1 from pg_catalog.pg_roles role_row
+    where role_row.rolname = current_user
+      and role_row.rolsuper
+  ) or exists (
+    select 1 from pg_catalog.pg_roles role_row
+    where role_row.rolsuper
+      and pg_catalog.pg_has_role(current_user, role_row.oid, 'MEMBER')
+  ) then
+    raise exception 'TRADE_IMPORT_VERIFY_EXECUTOR_PRIVILEGE_INVALID';
+  end if;
+
+  if not exists (
+    select 1 from pg_catalog.pg_roles role_row
+    where role_row.rolname = 'authenticated'
+      and not role_row.rolsuper
+      and not role_row.rolcreaterole
+      and not role_row.rolcreatedb
+      and not role_row.rolcanlogin
+      and not role_row.rolreplication
+      and not role_row.rolbypassrls
+  ) then
+    raise exception 'TRADE_IMPORT_VERIFY_AUTHENTICATED_ROLE_ATTRIBUTES_INVALID';
   end if;
 
   if not exists (
@@ -20,6 +45,15 @@ begin
       and contract_fingerprint = v_contract_fingerprint
   ) then
     raise exception 'TRADE_IMPORT_VERIFY_MIGRATION_RECEIPT_INVALID';
+  end if;
+
+  if exists (
+    select 1
+    from equora_private.schema_migrations
+    where migration_id like 'equora_v57.62.0%'
+      and migration_id <> v_migration_id
+  ) then
+    raise exception 'TRADE_IMPORT_VERIFY_UNKNOWN_V5762_MARKER';
   end if;
 
   if (
@@ -59,6 +93,7 @@ begin
     join pg_namespace namespace_row
       on namespace_row.oid = relation_row.relnamespace
     join pg_roles owner_row on owner_row.oid = relation_row.relowner
+    join pg_am access_method_row on access_method_row.oid = relation_row.relam
     where namespace_row.nspname = 'public'
       and relation_row.relname in (
         'equora_runtime_capability_gates',
@@ -66,6 +101,8 @@ begin
         'trade_import_source_keys'
       )
       and relation_row.relkind = 'r'
+      and relation_row.relpersistence = 'p'
+      and access_method_row.amname = 'heap'
       and relation_row.relrowsecurity
       and not relation_row.relforcerowsecurity
       and owner_row.rolname = 'postgres'
@@ -212,6 +249,10 @@ begin
       and owner_row.rolname = 'postgres'
       and language_row.lanname = 'plpgsql'
       and procedure_row.prosecdef
+      and procedure_row.provolatile = 'v'
+      and procedure_row.proparallel = 'u'
+      and not procedure_row.proleakproof
+      and not procedure_row.proisstrict
       and procedure_row.prorettype = 'jsonb'::regtype
       and case expected.signature
         when 'public.equora_import_trades_v2(uuid,uuid,jsonb,jsonb,jsonb)'
@@ -221,11 +262,42 @@ begin
           and procedure_row.proconfig <@ array[
             'search_path=""', 'lock_timeout=3s', 'TimeZone=UTC'
           ]::text[]
+        when 'public.equora_revert_import_v1(uuid)'
+        then procedure_row.proconfig @> array[
+          'search_path=""', 'lock_timeout=3s'
+        ]::text[]
+          and procedure_row.proconfig <@ array[
+            'search_path=""', 'lock_timeout=3s'
+          ]::text[]
         else procedure_row.proconfig @> array['search_path=""']::text[]
           and procedure_row.proconfig <@ array['search_path=""']::text[]
       end
   ) <> 3 then
     raise exception 'TRADE_IMPORT_VERIFY_FUNCTION_SECURITY_INVALID';
+  end if;
+
+  if not exists (
+    select 1
+    from pg_proc procedure_row
+    join pg_namespace namespace_row
+      on namespace_row.oid = procedure_row.pronamespace
+    join pg_roles owner_row on owner_row.oid = procedure_row.proowner
+    join pg_language language_row on language_row.oid = procedure_row.prolang
+    where procedure_row.oid =
+      'public.equora_enforce_v2_trade_batch_binding_v1()'::regprocedure
+      and namespace_row.nspname = 'public'
+      and owner_row.rolname = 'postgres'
+      and language_row.lanname = 'plpgsql'
+      and procedure_row.prosecdef
+      and procedure_row.provolatile = 'v'
+      and procedure_row.proparallel = 'u'
+      and not procedure_row.proleakproof
+      and not procedure_row.proisstrict
+      and procedure_row.prorettype = 'trigger'::regtype
+      and procedure_row.proconfig @> array['search_path=""']::text[]
+      and procedure_row.proconfig <@ array['search_path=""']::text[]
+  ) then
+    raise exception 'TRADE_IMPORT_VERIFY_BINDING_TRIGGER_FUNCTION_INVALID';
   end if;
 
   if position(
@@ -267,6 +339,10 @@ begin
     ) or not has_function_privilege(
       'authenticated',
       'public.equora_revert_import_v1(uuid)',
+      'execute'
+    ) or has_function_privilege(
+      'authenticated',
+      'public.equora_enforce_v2_trade_batch_binding_v1()',
       'execute'
     ) then
     raise exception 'TRADE_IMPORT_VERIFY_FUNCTION_PRIVILEGES_INVALID';
@@ -366,7 +442,9 @@ begin
       and actual.column_name = expected.column_name
       and actual.data_type = expected.data_type
       and actual.is_nullable = expected.is_nullable
-      and actual.domain_name is null and actual.is_generated = 'NEVER'
+      and actual.domain_name is null
+      and actual.collation_name is null
+      and actual.is_generated = 'NEVER'
   ) <> 26 or (
     select count(*)
     from information_schema.columns
@@ -446,7 +524,7 @@ begin
         'public.trade_import_batches',array['user_id','id']::text[],'c'),
       ('trade_import_source_keys','trade_import_source_keys_trade_owner_fkey','f',
         array['user_id','trade_id']::text[],
-        'public.trades',array['user_id','id']::text[],'n')
+        'public.trades',array['user_id','id']::text[],'r')
     ) expected(
       table_name,constraint_name,constraint_type,local_columns,
       foreign_table,foreign_columns,delete_action
@@ -488,27 +566,12 @@ begin
   ) <> 14 then
     raise exception 'TRADE_IMPORT_VERIFY_KEY_CONSTRAINT_SHAPE_INVALID';
   end if;
-
-  if not exists (
-    select 1
-    from pg_catalog.pg_constraint constraint_row
-    cross join lateral (
-      select coalesce(array_agg(attribute_row.attname::text order by key_row.ordinality),
-        array[]::text[]) as columns
-      from unnest(coalesce(
-        constraint_row.confdelsetcols,array[]::smallint[]
-      )) with ordinality key_row(attnum,ordinality)
-      join pg_catalog.pg_attribute attribute_row
-        on attribute_row.attrelid = constraint_row.conrelid
-        and attribute_row.attnum = key_row.attnum
-    ) delete_shape
-    where constraint_row.conrelid =
-      'public.trade_import_source_keys'::regclass
-      and constraint_row.conname =
-        'trade_import_source_keys_trade_owner_fkey'
-      and delete_shape.columns = array['trade_id']::text[]
-  ) then
-    raise exception 'TRADE_IMPORT_VERIFY_FK_DELETE_COLUMNS_INVALID';
+  if (select count(*) from pg_catalog.pg_constraint
+      where conrelid in (
+        'public.journal_import_accounts'::regclass,
+        'public.trade_import_source_keys'::regclass
+      ) and contype in ('p','u','f')) <> 9 then
+    raise exception 'TRADE_IMPORT_VERIFY_KEY_CONSTRAINT_SET_INVALID';
   end if;
 
   -- Exact PostgreSQL 17 definitions, captured from the reviewed fresh schema.
@@ -578,7 +641,7 @@ begin
         array['user_id','import_account_id','created_at']::text[],array[0,0,3]::smallint[],''),
       ('trade_import_source_keys_batch_idx','trade_import_source_keys',false,
         array['user_id','batch_id']::text[],array[0,0]::smallint[],''),
-      ('trade_import_source_keys_trade_idx','trade_import_source_keys',false,
+      ('trade_import_source_keys_trade_idx','trade_import_source_keys',true,
         array['user_id','trade_id']::text[],array[0,0]::smallint[],'(trade_id IS NOT NULL)')
     ) expected(index_name,table_name,is_unique,key_expressions,key_options,predicate)
     join pg_catalog.pg_class index_relation
@@ -608,9 +671,124 @@ begin
     raise exception 'TRADE_IMPORT_VERIFY_INDEX_SHAPE_INVALID';
   end if;
 
+  -- Account upsert runs as SECURITY DEFINER. Bind every executable or
+  -- planner-visible relation attachment before activation admits imports.
+  if (select count(*) from pg_catalog.pg_trigger
+      where tgrelid='public.journal_import_accounts'::regclass) <> 8
+  or exists (
+    select 1
+    from pg_catalog.pg_trigger trigger_row
+    left join pg_catalog.pg_constraint constraint_row
+      on constraint_row.oid=trigger_row.tgconstraint
+    where trigger_row.tgrelid='public.journal_import_accounts'::regclass
+      and not (
+        trigger_row.tgisinternal
+        and trigger_row.tgenabled='O'
+        and constraint_row.contype='f'
+        and (
+          (constraint_row.conname='journal_import_accounts_user_id_fkey'
+            and constraint_row.conrelid='public.journal_import_accounts'::regclass)
+          or (constraint_row.conname='trades_import_account_owner_fkey'
+            and constraint_row.confrelid='public.journal_import_accounts'::regclass)
+          or (constraint_row.conname='trade_import_batches_import_account_owner_fkey'
+            and constraint_row.confrelid='public.journal_import_accounts'::regclass)
+          or (constraint_row.conname='trade_import_source_keys_account_owner_fkey'
+            and constraint_row.confrelid='public.journal_import_accounts'::regclass)
+        )
+      )
+  ) or exists (
+    select 1 from pg_catalog.pg_rewrite
+    where ev_class='public.journal_import_accounts'::regclass
+  ) or exists (
+    select 1 from pg_catalog.pg_inherits
+    where inhparent='public.journal_import_accounts'::regclass
+      or inhrelid='public.journal_import_accounts'::regclass
+  ) then
+    raise exception 'TRADE_IMPORT_VERIFY_ACCOUNT_RELATION_EFFECTS_INVALID';
+  end if;
+  if (select count(*) from pg_catalog.pg_index
+      where indrelid='public.journal_import_accounts'::regclass) <> 4
+    or (
+    select count(*)
+    from (values
+      ('journal_import_accounts_pkey',true,
+        'CREATE UNIQUE INDEX journal_import_accounts_pkey ON public.journal_import_accounts USING btree (id)',
+        array['uuid_ops']::text[]),
+      ('journal_import_accounts_user_id_id_key',true,
+        'CREATE UNIQUE INDEX journal_import_accounts_user_id_id_key ON public.journal_import_accounts USING btree (user_id, id)',
+        array['uuid_ops','uuid_ops']::text[]),
+      ('journal_import_accounts_namespace_key',true,
+        'CREATE UNIQUE INDEX journal_import_accounts_namespace_key ON public.journal_import_accounts USING btree (user_id, preset_key, normalized_label)',
+        array['uuid_ops','text_ops','text_ops']::text[]),
+      ('journal_import_accounts_user_created_idx',false,
+        'CREATE INDEX journal_import_accounts_user_created_idx ON public.journal_import_accounts USING btree (user_id, created_at DESC)',
+        array['uuid_ops','timestamptz_ops']::text[])
+    ) expected(index_name,is_unique,definition,operator_classes)
+    join pg_catalog.pg_class index_relation
+      on index_relation.relname=expected.index_name
+      and index_relation.relnamespace='public'::regnamespace
+    join pg_catalog.pg_index actual
+      on actual.indexrelid=index_relation.oid
+      and actual.indrelid='public.journal_import_accounts'::regclass
+      and actual.indisvalid and actual.indisready and actual.indislive
+      and actual.indisunique=expected.is_unique and actual.indimmediate
+      and not actual.indisexclusion and actual.indexprs is null
+      and actual.indpred is null and actual.indnatts=actual.indnkeyatts
+    join pg_catalog.pg_am access_method
+      on access_method.oid=index_relation.relam and access_method.amname='btree'
+    where pg_catalog.pg_get_indexdef(actual.indexrelid,0,false)=expected.definition
+      and array(select unnest(actual.indclass))=array(
+        select operator_class.oid
+        from unnest(expected.operator_classes) with ordinality wanted(name,position)
+        join pg_catalog.pg_opclass operator_class
+          on operator_class.opcname=wanted.name
+          and operator_class.opcnamespace='pg_catalog'::regnamespace
+          and operator_class.opcmethod=access_method.oid
+        order by wanted.position
+      )
+      and array(select unnest(actual.indcollation))=array(
+        select case when wanted.name='text_ops'
+          then 'pg_catalog."default"'::regcollation::oid else 0::oid end
+        from unnest(expected.operator_classes) with ordinality wanted(name,position)
+        order by wanted.position
+      )
+  ) <> 4 then
+    raise exception 'TRADE_IMPORT_VERIFY_ACCOUNT_INDEX_EFFECTS_INVALID';
+  end if;
+  if exists (
+    select 1 from pg_catalog.pg_statistic_ext
+    where stxrelid='public.journal_import_accounts'::regclass
+  ) then
+    raise exception 'TRADE_IMPORT_VERIFY_ACCOUNT_STATISTICS_EFFECTS_INVALID';
+  end if;
+
   -- The digest read below must not plan unverified source-key indexes or
   -- inherited children outside the activation's ONLY relation lock.
-  if exists (
+  if (select count(*) from pg_catalog.pg_trigger
+      where tgrelid='public.trade_import_source_keys'::regclass) <> 8
+  or exists (
+    select 1
+    from pg_catalog.pg_trigger trigger_row
+    left join pg_catalog.pg_constraint constraint_row
+      on constraint_row.oid=trigger_row.tgconstraint
+    where trigger_row.tgrelid='public.trade_import_source_keys'::regclass
+      and not (
+        trigger_row.tgisinternal
+        and trigger_row.tgenabled='O'
+        and constraint_row.contype='f'
+        and constraint_row.conrelid=
+          'public.trade_import_source_keys'::regclass
+        and constraint_row.conname in (
+          'trade_import_source_keys_user_id_fkey',
+          'trade_import_source_keys_account_owner_fkey',
+          'trade_import_source_keys_batch_owner_fkey',
+          'trade_import_source_keys_trade_owner_fkey'
+        )
+      )
+  ) or exists (
+    select 1 from pg_catalog.pg_rewrite
+    where ev_class='public.trade_import_source_keys'::regclass
+  ) or exists (
     select 1 from pg_catalog.pg_inherits
     where inhparent='public.trade_import_source_keys'::regclass
       or inhrelid='public.trade_import_source_keys'::regclass
@@ -632,8 +810,8 @@ begin
       ('trade_import_source_keys_batch_idx',false,
         'CREATE INDEX trade_import_source_keys_batch_idx ON public.trade_import_source_keys USING btree (user_id, batch_id)',
         array['uuid_ops','uuid_ops']::text[]),
-      ('trade_import_source_keys_trade_idx',false,
-        'CREATE INDEX trade_import_source_keys_trade_idx ON public.trade_import_source_keys USING btree (user_id, trade_id) WHERE (trade_id IS NOT NULL)',
+      ('trade_import_source_keys_trade_idx',true,
+        'CREATE UNIQUE INDEX trade_import_source_keys_trade_idx ON public.trade_import_source_keys USING btree (user_id, trade_id) WHERE (trade_id IS NOT NULL)',
         array['uuid_ops','uuid_ops']::text[])
     ) expected(index_name,is_unique,definition,operator_classes)
     join pg_catalog.pg_class index_relation
@@ -669,6 +847,22 @@ begin
     select 1 from pg_catalog.pg_statistic_ext
     where stxrelid='public.trade_import_source_keys'::regclass
   ) then raise exception 'TRADE_IMPORT_VERIFY_SOURCE_KEY_STATISTICS_EFFECTS_INVALID'; end if;
+
+  -- Logical publications are externally observable write side effects. The
+  -- activation's target locks serialize relation-bound publication DDL. FOR
+  -- ALL TABLES and FOR TABLES IN SCHEMA require an external superuser and are
+  -- rejected when already present; concurrent privileged DDL is an explicit
+  -- operational freeze precondition because the release role cannot lock the
+  -- publication system catalog in a write-conflicting mode.
+  if exists (
+    select 1 from pg_catalog.pg_publication_tables
+    where schemaname='public'
+      and tablename in (
+        'equora_runtime_capability_gates',
+        'journal_import_accounts',
+        'trade_import_source_keys'
+      )
+  ) then raise exception 'TRADE_IMPORT_VERIFY_PUBLICATION_EFFECTS_INVALID'; end if;
 
   if (
     select count(*)
@@ -763,7 +957,8 @@ begin
       'public.equora_upsert_import_account_v1(uuid,text,text,text)'::regprocedure,
       'public.equora_import_trades_v1(uuid,jsonb,jsonb)'::regprocedure,
       'public.equora_import_trades_v2(uuid,uuid,jsonb,jsonb,jsonb)'::regprocedure,
-      'public.equora_revert_import_v1(uuid)'::regprocedure
+      'public.equora_revert_import_v1(uuid)'::regprocedure,
+      'public.equora_enforce_v2_trade_batch_binding_v1()'::regprocedure
     )
       and acl_row.grantee <> procedure_row.proowner
       and not (
@@ -794,20 +989,39 @@ begin
     raise exception 'TRADE_IMPORT_VERIFY_FUNCTION_ACL_SHAPE_INVALID';
   end if;
 
+  if (
+    select count(*)
+    from pg_catalog.pg_trigger trigger_row
+    where trigger_row.tgrelid = 'public.trades'::regclass
+      and trigger_row.tgname = 'equora_enforce_v2_trade_batch_binding_v1'
+      and not trigger_row.tgisinternal
+      and trigger_row.tgenabled = 'O'
+      and trigger_row.tgfoid =
+        'public.equora_enforce_v2_trade_batch_binding_v1()'::regprocedure
+      and trigger_row.tgtype = 23
+      and trigger_row.tgattr = ''::int2vector
+      and trigger_row.tgqual is null
+      and pg_catalog.pg_get_triggerdef(trigger_row.oid, true) =
+        'CREATE TRIGGER equora_enforce_v2_trade_batch_binding_v1 BEFORE INSERT OR UPDATE ON public.trades FOR EACH ROW EXECUTE FUNCTION public.equora_enforce_v2_trade_batch_binding_v1()'
+  ) <> 1 then
+    raise exception 'TRADE_IMPORT_VERIFY_BINDING_TRIGGER_INVALID';
+  end if;
+
   -- Exact LF-canonical function bodies bind executable guards, not mere tokens.
   -- Regenerate only from the reviewed candidate and re-freeze the full snapshot.
   if (
     select count(*)
     from (values
       ('public.equora_upsert_import_account_v1(uuid,text,text,text)','1a8cd9940cdfb3ec99975ae8c7a1ab341ad7abcd6476c7b0cbd8e8d73894ef09'),
-      ('public.equora_import_trades_v2(uuid,uuid,jsonb,jsonb,jsonb)','6ae000360ed708d9e13695e90a137c9576fa14b2b0528d6bf0e2fd0ed0a56af6'),
-      ('public.equora_revert_import_v1(uuid)','5b2c3e725f72b2905771d4a5e1e8cc4d4c7d6ae0ab988c0f720b4e39e9e0e0e9')
+      ('public.equora_enforce_v2_trade_batch_binding_v1()','d53fe739efa35a71c099a07d556a2e47a73a4725bdfa59ab79b93b17c4f21de0'),
+      ('public.equora_import_trades_v2(uuid,uuid,jsonb,jsonb,jsonb)','05540b7f63e483378933b0b8638f412557adfcc39cb5979469f11ed27bdbad91'),
+      ('public.equora_revert_import_v1(uuid)','d22403c63a31e14d2bb8a10c063c792855c95267d0f71aa29692004cc7558257')
     ) expected(signature, body_sha256)
     join pg_catalog.pg_proc actual on actual.oid=expected.signature::regprocedure
     where encode(pg_catalog.sha256(convert_to(
       replace(actual.prosrc, chr(13)||chr(10), chr(10)), 'UTF8'
     )), 'hex') = expected.body_sha256
-  ) <> 3 then raise exception 'TRADE_IMPORT_VERIFY_FUNCTION_BODY_INVALID'; end if;
+  ) <> 4 then raise exception 'TRADE_IMPORT_VERIFY_FUNCTION_BODY_INVALID'; end if;
 
   -- First gate-data access only after its full executable-shape checks.
   -- Even SELECT planning may evaluate an unknown constant index predicate.

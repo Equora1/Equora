@@ -8,6 +8,21 @@ set local idle_in_transaction_session_timeout = '60s';
 
 \ir verify-v57.62.0-trade-import.sql
 
+do $equora_v5762_postflight_gate_off$
+begin
+  if not exists (
+    select 1
+    from public.equora_runtime_capability_gates
+    where capability_key = 'journal_file_import_persistence_v2'
+      and contract_version = 'equora-broker-file-import-capability-v1'
+      and not enabled
+      and activated_at is null
+  ) then
+    raise exception 'TRADE_IMPORT_POSTFLIGHT_GATE_NOT_DEFAULT_OFF';
+  end if;
+end;
+$equora_v5762_postflight_gate_off$;
+
 \if :{?v5762_pre_trades_count}
 \else
   do $fail$ begin

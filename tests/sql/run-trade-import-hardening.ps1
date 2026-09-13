@@ -35,7 +35,7 @@ select
     select 1 from equora_private.schema_migrations
     where migration_id='equora_v57.62.0_trade_import_persistence_v1'
       and contract_fingerprint=
-        '014731e263ec2f0ffc9b0e16962b5d5574516a0c975a1713580740fa3bc6413d'
+        '460e008096b8f217e68d27f04c72b95b676d2b149daf49d5913d5a822cac628b'
   ))::text;
 '@
   if ($candidateState -ne 'true|true|1|1|false|true') {

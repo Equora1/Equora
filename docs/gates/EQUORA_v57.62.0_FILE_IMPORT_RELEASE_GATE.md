@@ -1,7 +1,7 @@
 # Equora v57.62.0 — Dateiimport-Release-Gate
 
-Stand: 2026-09-07
-Status: **LOCAL CANDIDATE / NO-GO für Staging ohne neue konkrete Freigabe**
+Stand: 2026-09-13
+Status: **DRAFT-PR-REMEDIATION / NO-GO für Staging, Push, PR-Änderung oder Merge**
 
 ## 1. Ziel und belastbarer Iststand
 
@@ -25,13 +25,13 @@ erneut gegen Supabase verifizierte Behauptung.
 | Feld | Exakter Wert |
 |---|---|
 | Migration | `equora_v57.62.0_trade_import_persistence_v1` |
-| Fingerprint | `014731e263ec2f0ffc9b0e16962b5d5574516a0c975a1713580740fa3bc6413d` |
+| Fingerprint | `460e008096b8f217e68d27f04c72b95b676d2b149daf49d5913d5a822cac628b` |
 | Datenbank-Gate | `journal_file_import_persistence_v2` |
 | Capability-Vertrag | `equora-broker-file-import-capability-v1` |
 | Installationszustand | `enabled = false`, `activated_at = null` |
 
 Der Fingerprint bindet den freigegebenen Vertrag
-`equora_v57.62.0_trade_import_persistence_v1|journal_file_import_persistence_v2|equora-broker-file-import-capability-v1|schema_v2|default_off|request_row_fallback_v1|financial_snapshot_v1`.
+`equora_v57.62.0_trade_import_persistence_v1|journal_file_import_persistence_v2|equora-broker-file-import-capability-v1|schema_v2|default_off|request_row_fallback_v1|financial_snapshot_v1|source_key_trade_bijection_v2|immutable_v2_trade_binding_v1|global_trade_writer_revert_serialization_v1|revert_account_bijection_v1|default_off_redeploy_guard_v1|activation_marker_guard_v1|catalog_behavior_shape_v1|import_trade_lock_precedes_source_key_v1|migration_marker_serialization_v1|runtime_write_side_effect_inventory_v1|bounded_revert_lock_wait_v1|exclusive_revert_precedes_rowshare_v1|exact_internal_fk_trigger_inventory_v1|logical_publication_inventory_v1|privileged_publication_ddl_freeze_v1|authenticated_role_attributes_v1`.
 Er ist kein Hash der SQL-Datei. Die unveränderliche Dateibindung erfolgt erst
 über das Review-Manifest des final eingefrorenen Snapshots.
 
@@ -551,3 +551,429 @@ und neue unabhängige A3/A4/A5-Voten auf exakt demselben Snapshot erforderlich.
 Stopp bleibt vor Staging, Commit und Push. Keine PR-, Production-, Supabase-,
 Broker-, Credential-, Cron-, Capture-, echte Import-, externe npm-Audit- oder
 Installationsaktion ist Teil dieses Blocks.
+
+## 15. Draft-PR-Remediation von Dependency- und Datenintegritätsbefunden
+
+Der Live-Review von Draft-PR #14 auf Commit
+`53f5148ee817e2ce21c07a230cf0cd96c31515f2` war insgesamt NO-GO. GitHub-CI
+scheiterte am Dependency-Audit. A5 bestätigte unabhängig zwei P2-Fälle: Ein
+gelöschter Importtrade konnte einen aktiven, aber nicht mehr gebundenen
+Source-Key zurücklassen; außerdem durfte der Revertpfad nicht allein aufgrund
+einer fremd gesetzten `import_batch_id` gewöhnliche Trades löschen. A3 und A4
+beanstandeten zusätzlich die roten CI-Gates und veraltete Snapshotclaims.
+
+Die lokal begrenzte Remediation ändert keine Aktivierungs- oder
+Productionkonfiguration:
+
+- `next` ist auf 15.5.25, `sharp` einschließlich Override auf 0.35.4 und
+  `vitest` auf 4.1.11 gepinnt. Die ausdrücklich freigegebenen Advisory-Abfragen
+  `npm audit --json` und `npm audit --omit=dev --json` meldeten jeweils null
+  bekannte Schwachstellen bei 243 aufgelösten Dependencies. Das ist eine
+  zeitgebundene Registry-/Advisory-Aussage, keine allgemeine Sicherheitsgarantie.
+- Der zusammengesetzte Source-Key-Fremdschlüssel auf den Trade verwendet
+  `ON DELETE RESTRICT`; der partielle `(user_id, trade_id)`-Index ist eindeutig.
+  Ein nicht öffentlich ausführbarer `BEFORE INSERT OR UPDATE`-Trigger erzwingt
+  bei v2-Batches eine aktive, nutzer-, batch- und tradegebundene Source-Key-Zeile.
+  Legacy-Batches ohne `import_account_id` bleiben kompatibel.
+- Der Import erzeugt den Trade zunächst ohne Batchbindung, bindet danach den
+  reservierten Source Key und setzt erst anschließend Account und Batch am
+  Trade. Der Revertpfad sperrt und verifiziert vor der ersten Mutation die
+  vollständige bidirektionale Zuordnung; Drift endet atomar mit
+  `IMPORT_BATCH_TRADE_BINDING_INVALID`.
+- Der PostgreSQL-Verifier bindet Fremdschlüssel, eindeutigen Index, Triggerform,
+  Triggerfunktion und ACL exakt. Neue Negativfälle schwächen jede dieser
+  Eigenschaften einzeln ab. Der isolierte PostgreSQL-17.6-Gesamtlauf bestätigte
+  außerdem abgewiesenes Löschen gebundener Trades, abgewiesene ungebundene
+  Batch-Trades, atomaren Revert bei synthetischer privilegierter Drift sowie die
+  bisherigen RLS-, ACL-, Replay-, Endlichkeits- und Konkurrenzverträge.
+- Der reale Harness deckte zwei reine Prüfmitteldefekte auf und band ihre
+  Korrektur regressiv: Trigger-`WHEN` wird über die exakte
+  `pg_get_triggerdef`-Darstellung statt der für `NEW` unzulässigen
+  `pg_get_expr`-Dekodierung geprüft; die lokale Supabase-Einwegfixture gewährt
+  den API-Rollen wie die bereits bestehende Hosted-Fixture `USAGE` auf `auth`.
+  Ein Negativtest erwartet außerdem den tatsächlich zuerst ausgelösten
+  allgemeinen Funktionsprivilegienfehler.
+
+Auf den nach dieser Dokumentation unveränderten Kandidatenbytes müssen vor dem
+Freeze erneut mindestens `git diff --check`, der fokussierte Vertragstest,
+PowerShell-AST-Prüfung, vollständige 798-Test-Suite, Typecheck, Release-Check,
+Production-Build, beide Audits und der isolierte PostgreSQL-Harness bestehen.
+Erst danach werden Scope, Secret-Scan, Claims und SHA-256-Manifest gebunden und
+A3/A4/A5 unabhängig auf genau diesem Snapshot wiederholt. Frühere grüne Läufe,
+PR-CI und Review-Voten werden nicht auf den neuen Snapshot übertragen.
+
+Bis zu drei übereinstimmenden GO-Voten ohne offene P0–P2 bleibt der Stand
+**NO-GO**. Unabhängig vom Review endet dieser Arbeitsblock vor Staging, Commit,
+Push und jeder Änderung an PR #14. Die Anwendung bleibt `migration_pending`,
+das Datenbank-Gate bleibt default-off. Es erfolgten keine Supabase-, Production-,
+Broker-, Credential-, Cron-, Capture- oder echten Importaktionen; insbesondere
+werden weder Steuerbeleg-Vollständigkeit noch Production-Verhalten behauptet.
+
+## 16. Abschluss der unveränderlichen v2-Tradebindung nach dem Re-Review
+
+Der erste Freeze nach Abschnitt 15 mit Manifest-SHA-256
+`2D8B46534BF512E8345F66D312C49B91D8D8DBBA9A9CA327C7AFAE69681B4571`
+bestand die dort gebundenen lokalen Gates. A3 und A4 fanden anschließend
+unabhängig denselben weiteren P2: Ein authentifizierter Eigentümer durfte eigene
+Trades direkt aktualisieren. Der Trigger lief nur bei einem neuen nichtleeren
+`import_batch_id` und band den Trade-Account nicht an Batch und Source Key.
+Dadurch waren ein Detach auf NULL, ein Wechsel auf einen Legacy-Batch oder ein
+anderes eigenes Importkonto möglich. Der Revert hätte die resultierende Drift
+atomar erkannt, aber den regulären Revertpfad nicht mehr abschließen können.
+A5 schloss die zwei ursprünglichen P2, erfasste diesen Direkt-UPDATE-Fall jedoch
+nicht. Der 2D8B4653-Freeze ist deshalb insgesamt verworfen und kein Stagingbeleg.
+
+Die Folgekorrektur erweitert denselben lokalen Datenintegritätsscope:
+
+- Der Trigger wird bei jeder INSERT- und UPDATE-Operation ausgeführt. Bei einem
+  bereits an einen v2-Batch gebundenen Trade sperrt und liest er den alten Batch
+  und macht Trade-ID, Nutzer, Importkonto und Batchbindung unveränderlich.
+  Das verhindert sowohl NULL-Detach als auch v2-zu-Legacy- und Accountwechsel.
+- Jede neue v2-Bindung verlangt zusätzlich, dass Trade-, Batch- und aktiver
+  Source-Key exakt dasselbe `import_account_id` tragen. Die bisherige Nutzer-,
+  Batch-, Trade- und Statusprüfung bleibt bestehen. Normale Journal- und
+  Finanzfeldänderungen mit unveränderter Importidentität bleiben zulässig.
+- Authentifizierte PostgreSQL-Regressionen prüfen einen erlaubten normalen
+  Trade-UPDATE sowie jeweils atomar abgewiesenes Batch-Detach, Verschieben auf
+  einen Legacy-Batch, Account-Detach und Wechsel auf ein anderes eigenes Konto.
+  Nach jedem Fehler muss der vollständige Fixturezustand identisch bleiben.
+- Ein zusätzlicher Zweitransaktionsfall hält durch einen erlaubten Trade-UPDATE
+  den v2-Batch mit `FOR KEY SHARE`, lässt den echten Revert nachweislich warten
+  und anschließend in einer reinen Rollback-Probe erfolgreich laufen. Die aktive
+  Live-Bindung bleibt danach unverändert. Damit ist die Lockreihenfolge gegenüber
+  dem Revert ausdrücklich gebunden, nicht nur statisch abgeleitet.
+- Der Verifier bindet nun einen Trigger ohne `WHEN`-Qualifikation, den neuen
+  Funktionskörperhash und die unveränderten ACL-/Security-Definer-Eigenschaften.
+  Der Releasevertrag erhält den Zusatz `immutable_v2_trade_binding_v1`; der
+  daraus abgeleitete Fingerprint lautet
+  `ec0c385a3a5bd7d6432656759db7ee16fe7056ed9e70f2f124279a8cc1d84129`.
+
+Der fokussierte Vertragstest mit 42/42 Tests und der vollständige isolierte
+PostgreSQL-17.6-Harness bestanden nach dieser Korrektur. Diese Teilergebnisse
+nehmen den Abschluss nicht vorweg: Auf den nach dieser Dokumentation
+unveränderten Bytes müssen vollständige Suite, Typecheck, Release-Check,
+Production-Build, beide extern autorisierten npm-Audits, statische Prüfungen,
+neues SHA-256-Manifest und neue unabhängige A3/A4/A5-Voten folgen.
+
+Bis dahin bleibt **NO-GO**. Der Arbeitsblock stoppt weiterhin vor Staging,
+Commit, Push und jeder Änderung an PR #14. Keine Supabase-, Production-,
+Broker-, Credential-, Cron-, Capture- oder echte Importaktion wurde ausgeführt;
+Default-off und `migration_pending` bleiben unverändert.
+
+## 17. Deadlockfreie Lockreihenfolge nach dem zweiten Re-Review
+
+Der unveränderte Snapshot aus Abschnitt 16 mit Manifest-SHA-256
+`B8B6947D33DE254F3AE7BE2D417A397FAFEDB7CC56160298871CFD1C4136B2D4`
+bestand die gebundenen lokalen Gates. A3 fand anschließend einen weiteren P2:
+Ein gewöhnlicher Trade-UPDATE sperrt zuerst die Trade-Zeile und der
+Binding-Trigger danach den Batch mit `FOR KEY SHARE`. Der Revert sperrte dagegen
+zuerst den Batch und danach die Trade-Zeilen. Bei einer passenden Überlappung
+konnten beide Transaktionen dadurch einen zyklischen Wait bilden. Die bereits
+vorhandene Konkurrenzprobe deckte nur einen vollständig ausgeführten UPDATE vor
+dem Revert ab und bewies dieses Zwischenfenster nicht. Der B8B6947D-Snapshot ist
+deshalb verworfen und kein Stagingbeleg.
+
+Die begrenzte Folgekorrektur vereinheitlicht die Reihenfolge:
+
+- Der Revert liest Eigentümer und Terminalstatus zunächst ohne Schreibsperre,
+  sperrt anschließend alle zum Batch gehörenden Trades deterministisch nach ID
+  und nimmt erst danach den Batch-Schreiblock. Nach möglichem Warten liest und
+  prüft er den Batchzustand unter dieser Sperre erneut. Source Keys folgen
+  ebenfalls deterministisch nach ID.
+- Die Triggerreihenfolge bleibt Trade-Zeile vor Batch-`KEY SHARE`. Damit nehmen
+  reguläre Trade-UPDATEs und Revert dieselben Objekte in derselben Richtung.
+- Eine neue deterministische Zweitransaktionsprobe hält ausdrücklich nur die
+  Trade-Zeile, startet den echten Revert und fordert erst nach dessen beobachtetem
+  Wait den Batch-`KEY SHARE` an. Ein Batch-zuerst-Revert würde in dieser Probe
+  den früher möglichen Deadlock reproduzieren; die korrigierte Reihenfolge lässt
+  beide Transaktionen geordnet fortfahren. Die bestehende echte
+  UPDATE-vor-Revert-Probe bleibt zusätzlich erhalten.
+- Der Releasevertrag erhält den Zusatz
+  `trade_before_batch_revert_lock_order_v1`; der daraus abgeleitete Fingerprint
+  lautet
+  `67dd272ac9f6d1f04d24aab3fa19c0a281698440e456d23a1e111b1018155ea8`.
+
+Auch diese Korrektur ist erst nach vollständigen lokalen Gates, neuer
+Evidence-/Manifestbindung und drei unabhängigen GO-Voten von A3/A4/A5 ein
+zulässiger Stagingkandidat. Bis dahin bleibt **NO-GO**. Der Arbeitsblock stoppt
+vor Staging, Commit, Push und jeder Änderung an PR #14. Es erfolgen keine
+Supabase-, Production-, Broker-, Credential-, Cron-, Capture- oder echten
+Importaktionen; Default-off und `migration_pending` bleiben unverändert.
+
+## 18. Globale Writer-/Revert-Serialisierung und Release-Gate-Nachschärfung
+
+Der Freeze aus Abschnitt 17 mit Manifest-SHA-256
+`4FC1D789B3E0F250C4517BEB0C8F985148DC71081F221CE2166D08950755D9AF`
+bestand die dort gebundenen lokalen Gates, wurde im anschließenden gemeinsamen
+A3/A4/A5-Review aber erneut verworfen. Alle drei Reviews fanden denselben P2:
+Bei mindestens zwei Batch-Trades konnte ein direkter Mehrzeilen- oder
+Mehrstatement-UPDATE Trades in einer anderen Reihenfolge sperren als der nach
+ID sortierte Revert. Die Ein-Trade-Proben bewiesen deshalb keine allgemeine
+Deadlockfreiheit. A4 fand zusätzlich einen aktiven Re-Deploy, der entgegen dem
+Default-off-Installationsvertrag erfolgreich enden konnte, eine fehlende
+Unknown-Marker-Abweisung im separaten Aktivierungsskript und nicht vollständig
+gebundene Katalogattribute. A3 ergänzte eine fehlende Accountkomponente in der
+fail-closed Revert-Bijectionsprüfung; A5 zeigte, dass der statische Test den
+Batch-Lock nur über einen Kommentar lokalisierte.
+
+Die Folgekorrektur bleibt auf den lokalen Release-/Datenintegritätsscope
+begrenzt:
+
+- `equora_revert_import_v1` nimmt vor dem ersten Trade-Rowlock einen
+  `SHARE ROW EXCLUSIVE`-Lock auf `public.trades`. Jedes INSERT, UPDATE oder
+  DELETE hält bereits vor seinem ersten Rowlock den damit konfliktierenden
+  `ROW EXCLUSIVE`-Tabellenlock. Revert und beliebige Ein- oder Mehrzeilenwriter
+  können deshalb nicht mehr jeweils unterschiedliche Trade-Zeilen halten und
+  gegenseitig aufeinander warten. Erst danach folgen Trades nach ID, Batch und
+  Source Keys nach ID.
+- Diese bewusst konservative Lösung serialisiert den seltenen Revert global
+  gegen Trade-Schreibvorgänge aller Nutzer. Reads und untereinander laufende
+  normale Trade-Writer bleiben davon unberührt. Der breitere Schreib-Wait ist
+  der klare Verfügbarkeitspreis für die unveränderte Unterstützung direkter
+  authentifizierter Updates ohne neuen Update-RPC.
+- Eine echte Zwei-Trade-Probe sperrt zuerst den höher sortierten Trade, startet
+  den Revert, beobachtet dessen Relation-Wait vor jedem Rowlock und fordert erst
+  dann den niedriger sortierten Trade an. Der Revert läuft anschließend in einer
+  Rollback-Probe, und der vollständige Zwei-Trade-Zustand muss erhalten bleiben.
+  Die bisherigen Ein-Trade-Proben bleiben additiv bestehen.
+- Die Revert-Bijection verlangt nun in beiden Richtungen zusätzlich
+  `source_key.import_account_id = trade.import_account_id =
+  batch.import_account_id`. Eine privilegiert erzeugte Same-Tenant-Accountdrift
+  muss vor der ersten Mutation mit `IMPORT_BATCH_TRADE_BINDING_INVALID` atomar
+  enden.
+- Ein Re-Deploy mit bereits aktivem Gate endet im Preflight mit
+  `TRADE_IMPORT_PREFLIGHT_GATE_ACTIVE`; der Postflight akzeptiert ausschließlich
+  den ausgeschalteten Endzustand. Es erfolgt keine automatische Deaktivierung,
+  weil diese eine getrennt freizugebende Betriebsaktion wäre.
+- Das Aktivierungsskript weist unbekannte `equora_v57.62.0%`-Marker vor der
+  ersten Gate-Mutation mit `TRADE_IMPORT_ACTIVATION_UNKNOWN_MARKER` ab.
+- Der Verifier bindet für die drei neuen Tabellen zusätzlich permanente
+  Persistenz, Heap-Zugriffsmethode und unveränderte Standard-Collation. Für alle
+  ausführbaren Kandidatenroutinen werden neben Owner, Sprache, Security-Definer,
+  Rückgabetyp, Konfiguration und Körperhash nun auch VOLATILE, PARALLEL UNSAFE,
+  nicht LEAKPROOF und nicht STRICT geprüft. Reale Negativfälle decken UNLOGGED,
+  explizite Text-Collation und jede der vier Funktionsattributabweichungen ab.
+- Der statische Lockorder-Vertrag lokalisiert den tatsächlichen Batch-SELECT mit
+  `FOR UPDATE` statt eines Kommentars und bindet Tabellenlock, Trades, Batch und
+  Source Keys in ihrer realen Reihenfolge.
+
+Der Releasevertrag ersetzt den verworfenen Lockorder-Zusatz durch
+`global_trade_writer_revert_serialization_v1` und ergänzt
+`revert_account_bijection_v1`, `default_off_redeploy_guard_v1`,
+`activation_marker_guard_v1` sowie `catalog_behavior_shape_v1`. Der daraus
+abgeleitete Fingerprint lautet
+`c32df9198471e5804726017a209b65b887441d0402b2f4b237f8d870986c73fc`.
+
+Die Änderungen sind noch kein Stagingbeleg. Es müssen erneut der fokussierte
+Vertragstest, vollständige Suite, Typecheck, Release-Check, Production-Build,
+beide zeitgebundenen Audits, statische Prüfungen, der vollständige isolierte
+PostgreSQL-17.6-Harness, eine neue Evidence-/Manifestbindung und drei
+unabhängige A3/A4/A5-GO-Voten auf exakt denselben Bytes bestehen. Bis dahin
+bleibt **NO-GO**. Der Arbeitsblock stoppt vor Staging, Commit, Push und jeder
+Änderung an PR #14. Es erfolgen keine Hosted-Supabase-, Production-, Broker-,
+Credential-, Cron-, Capture- oder echten Importaktionen; Default-off und
+`migration_pending` bleiben unverändert.
+
+## 19. Vollständiger Lockgraph, Marker-Serialisierung und Runtime-Seiteneffekte
+
+Der Snapshot aus Abschnitt 18 mit Manifest-SHA-256
+`AB7D2469F8FC6DD89E451DE85520C8A30E1F88CF96C8AA019F1180AEB3FD3949`
+bestand sämtliche dort gebundenen lokalen Gates, ist nach dem unabhängigen
+A3/A4/A5-Review aber erneut verworfen. A3 fand eine verbleibende Lockinversion:
+Ein gemischter Providerimport konnte einen vorhandenen Source Key sperren und
+erst bei einem späteren neuen Trade den mit dem Revert konfliktierenden
+Tabellenlock anfordern. Gleichzeitig konnte der Revert bereits `trades` halten
+und am Source Key warten. A4 fand zusätzlich ein TOCTOU-Fenster zwischen
+Unknown-Marker-Prüfung und Patch beziehungsweise Aktivierung sowie nicht
+vollständig gebundene Trigger-, Rule-, Index-, Vererbungs-, Statistik- und
+Constraint-Nebenwirkungen der beiden neuen SECURITY-DEFINER-Schreibrelationen.
+A3 ergänzte als P3 einen fehlenden lokalen oberen Wait-Bound des globalen
+Revert-Locks. A5 hatte keine weiteren Befunde. AB7D2469 ist kein Stagingbeleg.
+
+Die gebündelte Folgekorrektur schließt diese Punkte auf Basis eines vollständigen
+Lock- und Seiteneffektmodells:
+
+- Jeder neue Import nimmt `ROW EXCLUSIVE` auf `public.trades`, bevor Account,
+  Batch oder Source Key geschrieben oder gesperrt werden. Der Lock bleibt mit
+  normalen Trade-Writern kompatibel, steht aber vor jeder möglichen
+  Import/Revert-Kreuzkante. Eine echte Dreitransaktionsprobe pausiert einen
+  gemischten Import nach diesem frühen Lock, startet parallel den Revert des
+  Ursprungsbatches und lässt anschließend „Dublette zuerst, neuer Trade danach“
+  vollständig durchlaufen.
+- Der Revert trägt einen funktionslokalen `lock_timeout = 3s`; sein globaler
+  Writer-Wait ist damit unabhängig vom Caller begrenzt und sicher wiederholbar.
+- Patch und Aktivator sperren `equora_private.schema_migrations` in einem mit
+  Receipt-Writes konfliktierenden Modus und prüfen den v57.62-Markerraum unter
+  demselben Transaktionslock erneut. Der Vollverifier weist unbekannte Marker
+  ebenfalls ab. Reale Zweitransaktionsproben lassen einen fremden Marker zuerst
+  uncommitted schreiben und verlangen anschließend atomare Abweisung von Patch
+  und Aktivierung nach dem beobachteten Relation-Wait.
+- Die Aktivierung stabilisiert vor dem Verifier Gate, Importkonten und Source
+  Keys in einer festen Reihenfolge. Der Verifier bindet für Importkonten das
+  vollständige Indexinventar und schließt zusätzliche Trigger, Rules,
+  Vererbung und erweiterte Statistiken aus. Für Source Keys ergänzt er Trigger-
+  und Rule-Ausschluss; ein exaktes Key-Constraint-Set verhindert zusätzliche
+  interne FK-Trigger. Negative Aktivierungsproben decken jede Klasse sowie
+  Account-DDL in beiden Konkurrenzreihenfolgen ab.
+
+Der Releasevertrag ergänzt
+`import_trade_lock_precedes_source_key_v1`,
+`migration_marker_serialization_v1`,
+`runtime_write_side_effect_inventory_v1` und
+`bounded_revert_lock_wait_v1`. Der neue Fingerprint lautet
+`1ba05c08d09810a6b0f43ebba5cd5246d414e1e5a3f6884d0d9a0a9d2370f4ec`.
+
+Auch dieser Stand bleibt bis zu vollständigen lokalen Gates, neuer
+Evidence-/Manifestbindung und drei unabhängigen A3/A4/A5-GO-Voten **NO-GO**.
+Der Arbeitsblock endet weiterhin vor Staging, Commit, Push und jeder Änderung
+an PR #14. Hosted Supabase, Production, Broker, Credentials, Cron, Capture und
+echte Importe bleiben unberührt; Gate und Anwendung bleiben default-off und
+`migration_pending`.
+
+## 20. Ausführungsbefunde und fail-closed Deaktivierung
+
+Die erste Ausführung des in Abschnitt 19 beschriebenen Gesamtblocks zeigte drei
+Fehler ausschließlich in den neuen Test-Fixtures beziehungsweise ihrer
+statischen Typisierung: Der künstliche Konkurrenzmarker verletzte den bereits
+bestehenden 64-Hex-Fingerprint-CHECK, eine zusätzliche UNIQUE-Negativ-Fixture
+verwendete absichtlich nicht eindeutige Anzeigenamen, und die optionale
+Account-Leseposition war in TypeScript nicht als festes Tupel typisiert. Diese
+Fixtures wurden auf einen gültigen 64-Hex-Wert, die bereits eindeutige ID und
+eine `as const`-Tupelbindung begrenzt korrigiert. Keine dieser Korrekturen lockert
+einen Produkt- oder Verifiervertrag.
+
+Ein weiterer Lauf fand dagegen einen echten Ausführungsbefund: Eine bereits
+vorhandene Ausdrucksstatistik des Runtime-Gates konnte beim Eintritt in die
+Deaktivierungsroutine ausgewertet werden, bevor deren bisherige Prüfung unter
+dem Tabellenlock erreicht wurde. Die Deaktivierung weist deshalb vorhandene
+erweiterte Statistiken nun bereits vor der ersten Auflösung beziehungsweise
+Sperre der Zielrelation ab und wiederholt dieselbe Prüfung nach dem
+`EXCLUSIVE`-Lock. Die zweite Prüfung schließt das konkurrierende
+`CREATE STATISTICS`-Fenster; der bestehende Konkurrenztest bindet beide
+DDL-Reihenfolgen. Der echte Negativfall verlangt unverändert null
+Funktionsaufrufe und null persistente Seiteneffekte.
+
+Diese Nachschärfung konkretisiert den bereits durch
+`runtime_write_side_effect_inventory_v1` gebundenen fail-closed Vertrag; der
+Vertragsfingerprint aus Abschnitt 19 bleibt deshalb unverändert. Der danach
+vollständig wiederholte isolierte PostgreSQL-17.6-Harness bestand einschließlich
+Marker-, Account-/Source-DDL-, Statistik-, Import/Revert-, Drift-, Aktivierungs-
+und Deaktivierungsfällen sowie abschließender Datenbankbereinigung. Fokussierter
+Vertragstest, Typecheck, Release-Check, Production-Build und beide npm-Audits
+bestanden ebenfalls in den nachfolgenden Läufen; die Audits meldeten null
+Schwachstellen bei 243 Abhängigkeiten.
+
+Vor einer neuen Evidence-/Manifestbindung wird die vollständige lokale Suite
+noch einmal auf den nach dieser Dokumentation unveränderten Bytes ausgeführt.
+Anschließend sind unabhängige A3/A4/A5-GO-Voten auf genau diesem Hashstand
+erforderlich. Bis dahin bleibt **NO-GO**; Staging, Commit, Push, PR-Änderungen
+und alle Hosted-Supabase-, Production-, Broker-, Credential-, Cron-, Capture-
+oder echten Importaktionen bleiben gesperrt.
+
+## 21. Rowshare-Lockgraph, interne FK-Trigger und Publikationsinventar
+
+Der Snapshot aus Abschnitt 20 mit Manifest-SHA-256
+`69EE1D40055AD44ED9E2DE6F27274666CD27F0171BBC15E141DCB4FB57759871`
+bestand die gebundenen lokalen Gates, wurde im anschließenden unabhängigen
+A3/A4/A5-Review aber verworfen. A3 zeigte einen verbleibenden P2-Zyklus mit
+älteren authentifizierten RPCs: Diese können zunächst eine Trade-Zeile über
+`SELECT ... FOR UPDATE` sperren, dabei nur `ROW SHARE` auf `trades` halten und
+erst beim späteren UPDATE oder DELETE `ROW EXCLUSIVE` anfordern. Der bisherige
+`SHARE ROW EXCLUSIVE`-Revert-Lock war mit dem anfänglichen `ROW SHARE`
+kompatibel und konnte deshalb zwischen beide Schritte geraten. A4 zeigte einen
+zweiten P2: Ein eingehender Fremdschlüssel einer dritten Tabelle konnte interne
+Cascade-Trigger auf `journal_import_accounts` erzeugen, ohne vom lokalen
+Constraint-Zähler oder dem Ausschluss nur nichtinterner Trigger erkannt zu
+werden. A5 gab für Scope/Claims/Evidence GO und ergänzte zwei P3-Hinweise zu
+Dokumentdatum und fehlenden Rohlog-Hashes. 69EE1D40 ist kein Stagingbeleg.
+
+Die gebündelte Folgekorrektur erweitert das Modell an den tatsächlichen
+Kreuzkanten:
+
+- Der Revert nimmt nun `EXCLUSIVE` auf `public.trades`, bevor er irgendeine
+  Trade-Zeile sperrt. Dieser Modus kollidiert sowohl mit dem `ROW EXCLUSIVE`
+  normaler Writer als auch mit dem `ROW SHARE` eines vorausgehenden
+  `SELECT ... FOR UPDATE`; gewöhnliche `ACCESS SHARE`-Leser bleiben möglich.
+  Eine echte Zweitransaktionsprobe hält zuerst nur die Zeile, beobachtet den
+  Revert am Relation-Lock und führt danach das spätere UPDATE aus. Eine zweite
+  Probe blockiert den Revert länger als seinen funktionslokalen Drei-Sekunden-
+  Timeout, verlangt atomaren Fehler und anschließend erfolgreichen Retry.
+- Der Verifier bindet auf Importkonten und Source Keys jeweils die vollständige
+  Acht-Trigger-Menge. Zugelassen sind ausschließlich aktivierte interne Trigger,
+  deren `tgconstraint` zu den bereits exakt geprüften erwarteten FK-OIDs und
+  Relationen gehört. Ein eingehender `ON UPDATE CASCADE`-FK einer dritten
+  Tabelle muss nach einer positiven Cascade-Kontrolle vor Aktivierung atomar
+  scheitern. Beide DDL-Reihenfolgen werden zusätzlich konkurrierend geprüft.
+- Mitgliedschaften des Gates, der Importkonten oder Source Keys in logischen
+  PostgreSQL-Publikationen werden über `pg_publication_tables` einschließlich
+  `FOR ALL TABLES` abgewiesen. Damit sind Realtime-/Replikationseffekte nicht nur
+  dokumentarisch ausgegrenzt, sondern Bestandteil des fail-closed
+  Aktivierungsinventars. Negativ- und Konkurrenzproben decken vorhandene und
+  während der Aktivierung angeforderte Publikationsmitgliedschaften ab.
+- Die nächste Gate-Receipt bindet zusätzlich Hashes vollständiger lokaler
+  Rohlogs. Dadurch bleibt die verdichtete Ergebnisdarstellung erhalten, ist
+  aber nicht mehr der einzige dauerhafte Ausführungsbeleg.
+
+Der Releasevertrag ergänzt `exclusive_revert_precedes_rowshare_v1`,
+`exact_internal_fk_trigger_inventory_v1` und
+`logical_publication_inventory_v1`. Der neue Fingerprint lautet
+`3de9606c724c7c961c7fe0f709ac33f82a9291daac45ba54d2661411448bc34e`.
+
+Auch dieser Stand bleibt bis zu vollständigen lokalen Gates, neuer
+Rohlog-/Evidence-/Manifestbindung und drei unabhängigen A3/A4/A5-GO-Voten
+**NO-GO**. Der Arbeitsblock stoppt vor Staging, Commit, Push und jeder Änderung
+an PR #14; Hosted Supabase, Production, Broker, Credentials, Cron, Capture und
+echte Importe bleiben unberührt. Gate und Anwendung bleiben default-off und
+`migration_pending`.
+
+## 22. Privilegierte Publication-Grenze und Rollenbindung
+
+Der Snapshot aus Abschnitt 21 mit Manifest-SHA-256
+`FED8F0D685CAF9C9356BD2C2E5A56F335221161102037282834F39F03FDCF06F`
+bestand alle gebundenen lokalen Gates und erhielt A3- sowie A5-GO. A4 verwarf
+ihn dennoch wegen eines P2-Races: Die tabellenbezogenen Zielrelationlocks
+serialisierten `CREATE/ALTER PUBLICATION ... FOR TABLE ...`, nicht jedoch
+`FOR ALL TABLES` oder `FOR TABLES IN SCHEMA public`. Ein solcher privilegierter
+Publication-Writer konnte deshalb die letzte Verifier-Lesung kreuzen.
+FED8F0D6 ist kein Stagingbeleg.
+
+Eine zunächst untersuchte Sperre auf `pg_catalog.pg_publication` wurde im
+echten Supabase-PostgreSQL-17.6-Image verworfen: Der vorgesehene Release-
+Executor `postgres` ist dort bewusst kein Superuser, kein Mitglied von
+`supabase_admin` und besitzt keine Berechtigung für einen schreibkonfligierenden
+Kataloglock. Die Korrektur behauptet daher keine technisch nicht vorhandene
+Serialisierung.
+
+Stattdessen bindet Aktivierung und Verifier den zulässigen Executor ausdrücklich
+an die Nicht-Superuser-Grenze: `postgres` darf weder Superuser sein noch einen
+Superuser erben. PostgreSQL 17 erlaubt `FOR ALL TABLES` und
+`FOR TABLES IN SCHEMA` ausschließlich Superusern. Bereits vorhandene direkte,
+globale oder schemaweite Memberships der drei geschützten Relationen werden
+weiterhin über die expandierte Sicht `pg_publication_tables` abgewiesen.
+Relationengebundene Publication-DDL des Release-Executors bleibt durch die
+Zielrelationlocks in beiden Reihenfolgen technisch serialisiert.
+
+Parallele DDL einer separaten Superuser-Administration ist wie jede andere
+gleichzeitige privilegierte Katalogmutation außerhalb der Schutzmacht des
+nichtprivilegierten Release-Executors. Für Aktivierung und Deaktivierung gilt
+deshalb zwingend eine administrative DDL-Freeze-Präcondition: Während der
+gesamten Transaktion darf kein separater Superuser Publication-, Schema-,
+Tabellen-, Policy-, Rollen- oder Funktions-DDL ausführen. Das ist ein
+Betriebsgate und keine vom SQL selbst erzwungene Garantie. Lokale Negativproben
+erzeugen globale und schemaweite Publications gezielt über `supabase_admin`
+und verlangen deren atomare Ablehnung vor Aktivierung.
+
+Zusätzlich bindet der Verifier die Laufzeitrolle `authenticated` als
+Nicht-Superuser ohne `BYPASSRLS`, `CREATEROLE`, `CREATEDB`, `LOGIN` oder
+`REPLICATION`; ein gezielter `BYPASSRLS`-Drift muss die Aktivierung atomar
+blockieren. Der Releasevertrag ergänzt
+`privileged_publication_ddl_freeze_v1` und
+`authenticated_role_attributes_v1`; der neue Fingerprint lautet
+`460e008096b8f217e68d27f04c72b95b676d2b149daf49d5913d5a822cac628b`.
+
+Auch dieser Stand bleibt bis zu vollständigen lokalen Gates, neuer
+Rohlog-/Evidence-/Manifestbindung und drei unabhängigen A3/A4/A5-GO-Voten
+**NO-GO**. Der Arbeitsblock stoppt vor Staging, Commit, Push und jeder Änderung
+an PR #14; Hosted Supabase, Production, Broker, Credentials, Cron, Capture und
+echte Importe bleiben unberührt. Gate und Anwendung bleiben default-off und
+`migration_pending`.

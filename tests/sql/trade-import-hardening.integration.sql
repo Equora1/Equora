@@ -17,6 +17,7 @@ declare
   v_import_security_definer boolean;
   v_import_owner text;
   v_import_config text[];
+  v_trade_binding_index_unique boolean;
 begin
   select
     pg_get_expr(index_row.indpred,index_row.indrelid),
@@ -39,6 +40,12 @@ begin
   where namespace_row.nspname='public'
     and relation_row.relname='trade_import_source_keys_active_identity_key';
 
+  select index_row.indisunique
+  into v_trade_binding_index_unique
+  from pg_index index_row
+  where index_row.indexrelid=
+    'public.trade_import_source_keys_trade_idx'::regclass;
+
   select procedure_row.prosecdef,owner_row.rolname,procedure_row.proconfig
   into v_import_security_definer,v_import_owner,v_import_config
   from pg_proc procedure_row
@@ -57,6 +64,23 @@ begin
     or v_active_columns is distinct from array[
       'user_id','import_account_id','preset_key','source_kind','source_digest'
     ]::text[]
+    or v_trade_binding_index_unique is distinct from true
+    or not exists (
+      select 1
+      from pg_constraint
+      where conrelid='public.trade_import_source_keys'::regclass
+        and conname='trade_import_source_keys_trade_owner_fkey'
+        and confdeltype='r'
+    )
+    or not exists (
+      select 1
+      from pg_trigger
+      where tgrelid='public.trades'::regclass
+        and tgname='equora_enforce_v2_trade_batch_binding_v1'
+        and not tgisinternal and tgenabled='O' and tgtype=23
+        and tgfoid=
+          'public.equora_enforce_v2_trade_batch_binding_v1()'::regprocedure
+    )
     or (
       select count(*) from pg_constraint
       where conrelid in (
@@ -162,6 +186,9 @@ begin
       'anon','public.equora_import_trades_v2(uuid,uuid,jsonb,jsonb,jsonb)','execute'
     ) or has_function_privilege(
       'anon','public.equora_revert_import_v1(uuid)','execute'
+    ) or has_function_privilege(
+      'authenticated',
+      'public.equora_enforce_v2_trade_batch_binding_v1()','execute'
     )
   then raise exception 'TEST_RPC_PRIVILEGE_BOUNDARY_INVALID'; end if;
 end;
@@ -688,6 +715,90 @@ begin
   then raise exception 'TEST_CHANGED_REPLAY_LEFT_EFFECTS'; end if;
 end;
 $$;
+
+insert into public.journal_import_accounts(
+  id,user_id,preset_key,display_label,normalized_label,account_currency
+) values (
+  'b1000000-0000-4000-8000-000000000070',
+  'b1000000-0000-4000-8000-000000000001',
+  'generic','Binding Probe Account','binding probe account','USD'
+);
+insert into public.trade_import_batches(
+  id,user_id,file_name,preset_key,preset_label,account_label,status
+) values (
+  'b1000000-0000-4000-8000-000000000071',
+  'b1000000-0000-4000-8000-000000000001',
+  'legacy-binding-probe.csv','generic','Generic CSV','Legacy Probe','active'
+);
+
+set local role authenticated;
+select set_config(
+  'request.jwt.claim.sub','b1000000-0000-4000-8000-000000000001',true
+);
+do $immutable_v2_binding_cases$
+declare
+  v_before jsonb;
+  v_trade_id uuid := (
+    select id from public.trades
+    where import_batch_id='b1000000-0000-4000-8000-000000000010'
+  );
+begin
+  update public.trades set net_pnl=net_pnl where id=v_trade_id;
+  if not found then raise exception 'TEST_BOUND_TRADE_NORMAL_UPDATE_REJECTED'; end if;
+
+  v_before := pg_temp.fixture_snapshot();
+  begin
+    update public.trades set import_batch_id=null where id=v_trade_id;
+    raise exception 'TEST_BOUND_TRADE_DETACH_ACCEPTED';
+  exception when others then
+    if sqlerrm <> 'IMPORT_BATCH_TRADE_BINDING_IMMUTABLE' then raise; end if;
+  end;
+  if pg_temp.fixture_snapshot() is distinct from v_before then
+    raise exception 'TEST_BOUND_TRADE_DETACH_LEFT_EFFECTS';
+  end if;
+
+  begin
+    update public.trades
+    set import_batch_id='b1000000-0000-4000-8000-000000000071'
+    where id=v_trade_id;
+    raise exception 'TEST_BOUND_TRADE_LEGACY_MOVE_ACCEPTED';
+  exception when others then
+    if sqlerrm <> 'IMPORT_BATCH_TRADE_BINDING_IMMUTABLE' then raise; end if;
+  end;
+  if pg_temp.fixture_snapshot() is distinct from v_before then
+    raise exception 'TEST_BOUND_TRADE_LEGACY_MOVE_LEFT_EFFECTS';
+  end if;
+
+  begin
+    update public.trades set import_account_id=null where id=v_trade_id;
+    raise exception 'TEST_BOUND_TRADE_ACCOUNT_DETACH_ACCEPTED';
+  exception when others then
+    if sqlerrm <> 'IMPORT_BATCH_TRADE_BINDING_IMMUTABLE' then raise; end if;
+  end;
+  if pg_temp.fixture_snapshot() is distinct from v_before then
+    raise exception 'TEST_BOUND_TRADE_ACCOUNT_DETACH_LEFT_EFFECTS';
+  end if;
+
+  begin
+    update public.trades
+    set import_account_id='b1000000-0000-4000-8000-000000000070'
+    where id=v_trade_id;
+    raise exception 'TEST_BOUND_TRADE_ACCOUNT_MOVE_ACCEPTED';
+  exception when others then
+    if sqlerrm <> 'IMPORT_BATCH_TRADE_BINDING_IMMUTABLE' then raise; end if;
+  end;
+  if pg_temp.fixture_snapshot() is distinct from v_before then
+    raise exception 'TEST_BOUND_TRADE_ACCOUNT_MOVE_LEFT_EFFECTS';
+  end if;
+end;
+$immutable_v2_binding_cases$;
+reset role;
+
+delete from public.trade_import_batches
+where id='b1000000-0000-4000-8000-000000000071';
+delete from public.journal_import_accounts
+where id='b1000000-0000-4000-8000-000000000070';
+
 set local role authenticated;
 select set_config(
   'request.jwt.claim.sub','b1000000-0000-4000-8000-000000000001',true
@@ -717,6 +828,43 @@ begin
     values (gen_random_uuid(),'b1000000-0000-4000-8000-000000000001');
     raise exception 'TEST_DIRECT_BATCH_WRITE_OPEN';
   exception when insufficient_privilege then null; end;
+
+  begin
+    perform public.equora_delete_trade_v1((
+      select id from public.trades
+      where import_batch_id='b1000000-0000-4000-8000-000000000010'
+    ));
+    raise exception 'TEST_BOUND_IMPORT_TRADE_DELETE_ACCEPTED';
+  exception when foreign_key_violation then null; end;
+  if not exists (
+    select 1
+    from public.trades trade
+    join public.trade_import_source_keys source_key_row
+      on source_key_row.user_id=trade.user_id
+      and source_key_row.trade_id=trade.id
+      and source_key_row.batch_id=trade.import_batch_id
+      and source_key_row.status='active'
+    where trade.import_batch_id='b1000000-0000-4000-8000-000000000010'
+  ) then raise exception 'TEST_BOUND_IMPORT_TRADE_DELETE_LEFT_EFFECTS'; end if;
+
+  begin
+    perform public.equora_create_trade_v1(
+      'b1000000-0000-4000-8000-000000000061',
+      jsonb_build_object(
+        'created_at','2026-08-30T12:00:00.000Z',
+        'market','ETHUSDT','setup','Unbound batch probe','bias','long',
+        'account_currency','USD',
+        'import_batch_id','b1000000-0000-4000-8000-000000000010'
+      ),'{}'::text[],null
+    );
+    raise exception 'TEST_UNBOUND_V2_TRADE_ACCEPTED';
+  exception when others then
+    if sqlerrm <> 'IMPORT_BATCH_TRADE_BINDING_INVALID' then raise; end if;
+  end;
+  if exists (
+    select 1 from public.trades
+    where id='b1000000-0000-4000-8000-000000000061'
+  ) then raise exception 'TEST_UNBOUND_V2_TRADE_LEFT_EFFECTS'; end if;
 end;
 $$;
 select set_config(
@@ -809,6 +957,82 @@ $$;
 select set_config(
   'request.jwt.claim.sub','b1000000-0000-4000-8000-000000000001',true
 );
+
+do $corrupt_v2_revert_case$
+declare
+  v_before jsonb;
+begin
+  begin
+    alter table public.trades
+      disable trigger equora_enforce_v2_trade_batch_binding_v1;
+    perform public.equora_create_trade_v1(
+      'b1000000-0000-4000-8000-000000000062',
+      jsonb_build_object(
+        'created_at','2026-08-30T12:05:00.000Z',
+        'market','SOLUSDT','setup','Corrupt batch fixture','bias','long',
+        'account_currency','USD',
+        'import_batch_id','b1000000-0000-4000-8000-000000000010'
+      ),'{}'::text[],null
+    );
+    alter table public.trades
+      enable trigger equora_enforce_v2_trade_batch_binding_v1;
+    v_before := pg_temp.fixture_snapshot();
+
+    begin
+      perform public.equora_revert_import_v1(
+        'b1000000-0000-4000-8000-000000000010'
+      );
+      raise exception 'TEST_CORRUPT_V2_REVERT_ACCEPTED';
+    exception when others then
+      if sqlerrm <> 'IMPORT_BATCH_TRADE_BINDING_INVALID' then raise; end if;
+    end;
+    if pg_temp.fixture_snapshot() is distinct from v_before then
+      raise exception 'TEST_CORRUPT_V2_REVERT_LEFT_EFFECTS';
+    end if;
+
+    raise exception 'TEST_CORRUPT_V2_FIXTURE_ROLLBACK';
+  exception when others then
+    if sqlerrm <> 'TEST_CORRUPT_V2_FIXTURE_ROLLBACK' then raise; end if;
+  end;
+end;
+$corrupt_v2_revert_case$;
+
+do $corrupt_v2_account_revert_case$
+declare
+  v_before jsonb;
+begin
+  begin
+    insert into public.journal_import_accounts(
+      id,user_id,preset_key,display_label,normalized_label,account_currency
+    ) values (
+      'b1000000-0000-4000-8000-000000000070',
+      'b1000000-0000-4000-8000-000000000001',
+      'generic','Drift Account','drift account','USD'
+    );
+    update public.trade_import_source_keys
+    set import_account_id='b1000000-0000-4000-8000-000000000070'
+    where batch_id='b1000000-0000-4000-8000-000000000010';
+    v_before := pg_temp.fixture_snapshot();
+
+    begin
+      perform public.equora_revert_import_v1(
+        'b1000000-0000-4000-8000-000000000010'
+      );
+      raise exception 'TEST_CORRUPT_V2_ACCOUNT_REVERT_ACCEPTED';
+    exception when others then
+      if sqlerrm <> 'IMPORT_BATCH_TRADE_BINDING_INVALID' then raise; end if;
+    end;
+    if pg_temp.fixture_snapshot() is distinct from v_before then
+      raise exception 'TEST_CORRUPT_V2_ACCOUNT_REVERT_LEFT_EFFECTS';
+    end if;
+
+    raise exception 'TEST_CORRUPT_V2_ACCOUNT_FIXTURE_ROLLBACK';
+  exception when others then
+    if sqlerrm <> 'TEST_CORRUPT_V2_ACCOUNT_FIXTURE_ROLLBACK' then raise; end if;
+  end;
+end;
+$corrupt_v2_account_revert_case$;
+
 insert into public.trade_media(
   id,trade_id,user_id,storage_path,public_url,file_name,mime_type,byte_size
 )

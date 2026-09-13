@@ -14,14 +14,52 @@ begin
   if current_user <> 'postgres' then
     raise exception 'TRADE_IMPORT_ACTIVATION_EXECUTOR_INVALID';
   end if;
+  -- FOR ALL TABLES and FOR TABLES IN SCHEMA require a superuser. Bind the
+  -- release executor to the non-superuser boundary: it must neither be a
+  -- superuser nor inherit one. Concurrent external superuser DDL cannot be
+  -- serialized by this role and is therefore an explicit operational freeze
+  -- precondition. Relation-bound publication DDL remains serialized by the
+  -- target locks below.
+  if exists (
+    select 1 from pg_catalog.pg_roles role_row
+    where role_row.rolname = current_user
+      and role_row.rolsuper
+  ) or exists (
+    select 1 from pg_catalog.pg_roles role_row
+    where role_row.rolsuper
+      and pg_catalog.pg_has_role(current_user, role_row.oid, 'MEMBER')
+  ) then
+    raise exception 'TRADE_IMPORT_ACTIVATION_EXECUTOR_PRIVILEGE_INVALID';
+  end if;
+  -- Stabilize the migration family guard in the same transaction as the gate
+  -- update. Every receipt INSERT/UPDATE takes ROW EXCLUSIVE and must wait.
+  lock table only equora_private.schema_migrations
+    in share row exclusive mode;
   lock table only public.equora_runtime_capability_gates
     in exclusive mode;
-  -- Block both ordinary and concurrent index DDL, while remaining compatible
-  -- with source-row writers. Keep gate -> source order until COMMIT.
+  -- Bind both SECURITY DEFINER write targets against trigger, rule, index,
+  -- inheritance and statistics DDL. These modes remain compatible with normal
+  -- row writers. Keep migrations -> gate -> account -> source until COMMIT.
+  lock table only public.journal_import_accounts
+    in share update exclusive mode;
   lock table only public.trade_import_source_keys
     in share update exclusive mode;
 end;
 $equora_v5762_activation_lock$;
+
+do $equora_v5762_activation_marker_guard$
+begin
+  if exists (
+    select 1
+    from equora_private.schema_migrations
+    where migration_id like 'equora_v57.62.0%'
+      and migration_id <>
+        'equora_v57.62.0_trade_import_persistence_v1'
+  ) then
+    raise exception 'TRADE_IMPORT_ACTIVATION_UNKNOWN_MARKER';
+  end if;
+end;
+$equora_v5762_activation_marker_guard$;
 
 \ir verify-v57.62.0-trade-import.sql
 

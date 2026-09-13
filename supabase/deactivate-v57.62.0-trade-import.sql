@@ -18,6 +18,14 @@ begin
   if current_user <> 'postgres' then
     raise exception 'TRADE_IMPORT_DEACTIVATION_TARGET_INVALID';
   end if;
+  -- Reject already-present expression statistics before resolving or locking
+  -- the target relation. PostgreSQL can evaluate immutable-labelled statistic
+  -- expressions while planning later target statements. Recheck after the
+  -- relation lock below closes the concurrent CREATE STATISTICS window.
+  if exists (
+    select 1 from pg_catalog.pg_statistic_ext
+    where stxrelid='public.equora_runtime_capability_gates'::regclass
+  ) then raise exception 'TRADE_IMPORT_DEACTIVATION_STATISTICS_EFFECTS_INVALID'; end if;
   -- Hold the target definition stable before inspecting executable effects.
   -- Wait for admitted imports/activation before taking any row lock.
   -- EXCLUSIVE avoids a ROW SHARE -> ROW EXCLUSIVE lock-upgrade cycle.
@@ -83,8 +91,8 @@ begin
         or pg_catalog.pg_get_indexdef(actual.indexrelid,0,false) is distinct from
           'CREATE UNIQUE INDEX equora_runtime_capability_gates_pkey ON public.equora_runtime_capability_gates USING btree (capability_key, contract_version)')
   ) then raise exception 'TRADE_IMPORT_DEACTIVATION_INDEX_EFFECTS_INVALID'; end if;
-  -- Unanalyzed expression statistics can execute at SELECT planning time.
-  -- No extended statistics belong to this target's release contract.
+  -- Recheck under the target lock: no concurrent CREATE STATISTICS can pass
+  -- between the pre-lock rejection above and the first gate-data statement.
   if exists (
     select 1 from pg_catalog.pg_statistic_ext
     where stxrelid='public.equora_runtime_capability_gates'::regclass
