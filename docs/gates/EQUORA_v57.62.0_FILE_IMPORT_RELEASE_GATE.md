@@ -1,13 +1,17 @@
 # Equora v57.62.0 — Dateiimport-Release-Gate
 
-Stand: 2026-09-13
-Status: **DRAFT-PR-REMEDIATION / NO-GO für Staging, Push, PR-Änderung oder Merge**
+Stand: 2026-09-14
+Status: **PR #14 GEMERGT / VERCEL-PRODUCTION GRÜN / HOSTED-SUPABASE-PREFLIGHT NOCH NICHT AUSGEFÜHRT**
 
 ## 1. Ziel und belastbarer Iststand
 
-Dieses Paket bereitet ausschließlich die additive Datenbankpersistenz für den
-providerneutralen Dateiimport vor. Es aktiviert keinen Import und führt keine
-Supabase-, Broker-, Credential-, Cron-, Capture- oder Production-Aktion aus.
+Dieses Paket enthält die additive Datenbankpersistenz für den providerneutralen
+Dateiimport sowie die eng begrenzten Dependency-Patches Next.js `15.5.25`,
+Sharp `0.35.4` und Vitest `4.1.11`. PR #14 wurde als Squash-Commit
+`889a145e3443e52e5298ae945f53e3a8f44dc50b` in `main` übernommen; GitHub-CI
+und das dadurch ausgelöste Vercel-Production-Deployment waren erfolgreich.
+Damit wurde weder der Dateiimport aktiviert noch eine v57.62.0-Supabase-
+Migration, Broker-, Credential-, Cron-, Capture- oder Importaktion ausgeführt.
 
 Der Anwendungscode bleibt bewusst auf:
 
@@ -19,6 +23,11 @@ Damit ist die lokale Dateiprüfung verfügbar, der produktive Schreibpfad jedoch
 weiter fail-closed. Die produktive v57.61.0-Datenbankbasis mit sieben bekannten
 Migrationsmarkern ist eine Preflight-Anforderung, keine in diesem Arbeitsblock
 erneut gegen Supabase verifizierte Behauptung.
+
+Die Abschnitte 6 bis 22 bleiben unverändert als chronologische historische
+Snapshots erhalten. Ihre damaligen Stop- und NO-GO-Aussagen beschreiben den
+jeweiligen Zwischenstand und nicht den aktuellen Post-Merge-Zustand. Der
+aktuelle Status und die verbleibenden Gates stehen in Abschnitt 23.
 
 ## 2. Gebundener Releasevertrag
 
@@ -61,6 +70,15 @@ Er ist kein Hash der SQL-Datei. Die unveränderliche Dateibindung erfolgt erst
   zeilengesperrtes Compare-and-set des Datenbank-Gates.
 - `deactivate-v57.62.0-trade-import.sql`: fail-closed Betriebsschalter; erhält
   Schema, Trades, Import-Batches, Quellschlüssel und Audit-Historie.
+- `docs/gates/EQUORA_v57.62.0_PRODUCTION_SQL_MANIFEST.json`: bindet alle sieben
+  Production-SQL-Artefakte per CRLF-zu-LF-normalisiertem SHA-256 und Byteumfang.
+- `scripts/run-v57.62.0-production-preflight.ps1`: validiert standardmäßig nur
+  lokal. Der separat freizugebende Modus `ExecuteReadOnly` akzeptiert nur das
+  gebundene Production-Ziel und führt ausschließlich den read-only Preflight
+  mit zusätzlichem `default_transaction_read_only=on` aus.
+- `docs/gates/EQUORA_v57.62.0_PRODUCTION_PREFLIGHT_RUNBOOK.md`: definiert
+  Backup-/Recovery-Entscheidung, Operatorgrenzen, Evidence und harte Stopps vor
+  Deploy, Aktivierung und Restore.
 
 ## 4. Lokale Freigabegates
 
@@ -925,6 +943,78 @@ Rohlog-/Evidence-/Manifestbindung und drei unabhängigen A3/A4/A5-GO-Voten
 an PR #14; Hosted Supabase, Production, Broker, Credentials, Cron, Capture und
 echte Importe bleiben unberührt. Gate und Anwendung bleiben default-off und
 `migration_pending`.
+
+## 23. Post-Merge-Abschluss und Production-Preflight-Vorbereitung
+
+Die Schlussprüfung von PR #14 band den unveränderten Review-Head
+`13ac447df7e95c84bc9aef2c526e6e5f1303284e`, den Tree
+`0868907cd1fb05abdd9072541f6b24f05bff3196` und 19 Live-Git-Blobs. A3, A4 und
+A5 erteilten jeweils GO ohne offene P0–P2-Befunde. Der PR wurde danach am
+2026-09-14 kontrolliert per Squash-Merge in `main` übernommen:
+
+- Squash-Commit und `origin/main`:
+  `889a145e3443e52e5298ae945f53e3a8f44dc50b`;
+- GitHub-CI-Run `34877824745`: `success` auf exakt diesem Commit;
+- Vercel-Production-Deployment: `success` auf exakt diesem Commit;
+- Feature-Branch nicht gelöscht;
+- keine v57.62.0-Supabase-Migration, Datenbank-Gate-Aktivierung, Broker-,
+  Credential-, Cron-, Capture- oder echte Importaktion.
+
+Die Anwendung bleibt weiterhin bei `migration_pending`,
+`persistenceEnabled=false` und `controlled_candidate`. Der erfolgreiche
+Vercel-Deploy bedeutet deshalb nicht, dass der produktive Dateiimport bereits
+persistiert oder dass der Hosted-Supabase-Vertrag bestanden wurde.
+
+Der frische lokale Vorbereitungsbranch
+`codex/file-import-post-merge-v57.62.0` wurde exakt von diesem `origin/main`
+angelegt. Der aktuelle lokale Dokumentationsblock ergänzt ausschließlich:
+
+1. den aktualisierten Status und diesen historischen Abschluss;
+2. das hashgebundene Production-SQL-Manifest;
+3. das Production-Preflight-Runbook mit Backup-/Recovery-Entscheidung;
+4. den standardmäßig lokal bleibenden Preflight-Runner;
+5. zugehörige statische Vertragstests.
+
+Der Backup-/Recovery-Entscheidungswert lautet vor jeder Liveprüfung zunächst
+`NO_GO`. Der spätere read-only Preflight darf erst nach eigener Freigabe zu
+`GO_PREFLIGHT_READ_ONLY` wechseln. Ein default-off Deploy verlangt danach
+separat `GO_DEPLOY_DEFAULT_OFF`, insbesondere einen aktuell verifizierten
+Restorepunkt, frische hashgebundene Rollen-/Schema-/Datendumps außerhalb des
+Repositorys, Recovery-Owner und Wartungsfenster. Ein Restore-Rehearsal bleibt
+vor Pilot-, Kunden- oder Brokerbetrieb Pflicht; eine Vertagung für die
+ausschließlich default-off bleibende additive Installation ist ein ausdrücklich
+zu akzeptierendes Restrisiko und kein PASS.
+
+Der Runner `scripts/run-v57.62.0-production-preflight.ps1` führt im Standardmodus
+nur lokale Hash- und Gitprüfungen aus. Sein später separat freizugebender Modus
+`ExecuteReadOnly` erzwingt eine saubere Arbeitskopie, exakten Commit, bekannte
+Production-Zielidentität, einen Evidence-Ordner außerhalb des Repositorys und
+`default_transaction_read_only=on`. Er kann weder Deploy noch Aktivierung oder
+Restore ausführen.
+
+Aktueller Gatezustand:
+
+```text
+pr14 = squash_merged
+origin_main = 889a145e3443e52e5298ae945f53e3a8f44dc50b
+github_main_ci = success
+vercel_production = success
+application_capability = migration_pending
+application_persistence = false
+database_candidate_installation = not_executed
+database_gate = not_live_verified_assumed_absent_until_preflight
+backup_recovery_decision = prepared_no_go_until_live_evidence
+production_preflight = not_executed
+production_deploy_default_off = not_authorized
+database_gate_activation = not_authorized
+restore = not_authorized
+broker_cron_capture_import = not_authorized
+git_staging_commit_push = not_authorized
+```
+
+Dieser Dokumentationsblock stoppt vor Staging und vor jedem Zugriff auf das
+Hosted-Supabase-Projekt. Zeitabhängige Backup-, Plan-, Restorepunkt-, Zähler-
+und Zielclaims müssen im späteren freigegebenen Preflight frisch erhoben werden.
 
 ## 22. Privilegierte Publication-Grenze und Rollenbindung
 

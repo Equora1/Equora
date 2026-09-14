@@ -26,6 +26,19 @@ describe("trade import hardening release package", () => {
   const releaseGate = source(
     "docs/gates/EQUORA_v57.62.0_FILE_IMPORT_RELEASE_GATE.md",
   );
+  const productionPreflightRunbook = source(
+    "docs/gates/EQUORA_v57.62.0_PRODUCTION_PREFLIGHT_RUNBOOK.md",
+  );
+  const productionPreflightRunner = source(
+    "scripts/run-v57.62.0-production-preflight.ps1",
+  );
+  const productionSqlManifest = JSON.parse(
+    source("docs/gates/EQUORA_v57.62.0_PRODUCTION_SQL_MANIFEST.json"),
+  ) as {
+    schema: string;
+    fileCount: number;
+    files: Array<{ path: string; normalizedBytes: number; sha256: string }>;
+  };
   const action = source("app/actions/trade-import.ts");
   const panel = source("components/trades/trade-import-panel.tsx");
   const share = source("app/actions/shared-trades.ts");
@@ -179,7 +192,7 @@ describe("trade import hardening release package", () => {
       releaseGate.indexOf("## 8. Lokaler PostgreSQL-Abschluss"),
     );
     expect(releaseGate).toContain(
-      "Status: **DRAFT-PR-REMEDIATION / NO-GO für Staging, Push, PR-Änderung oder Merge**",
+      "Status: **PR #14 GEMERGT / VERCEL-PRODUCTION GRÜN / HOSTED-SUPABASE-PREFLIGHT NOCH NICHT AUSGEFÜHRT**",
     );
     expect(historicalEvidence).toContain("Fokussierte statische Verträge: **PASS, 42/42**");
     expect(historicalEvidence).toContain("777/777 Tests");
@@ -196,6 +209,68 @@ describe("trade import hardening release package", () => {
       "Separate Freigabe für App-Merge einschließlich Vercel-Production-Wirkung",
     );
     expect(releaseGate).not.toContain("produktiver Dateiimport ist aktiviert");
+  });
+
+  it("prepares a hash-bound read-only production preflight without authorizing deployment", () => {
+    expect(productionSqlManifest.schema).toBe(
+      "equora-v57.62.0-production-sql-manifest-v1",
+    );
+    expect(productionSqlManifest.fileCount).toBe(7);
+    expect(productionSqlManifest.files).toHaveLength(7);
+    expect(new Set(productionSqlManifest.files.map(({ path }) => path)).size).toBe(7);
+
+    for (const entry of productionSqlManifest.files) {
+      const normalizedSource = source(entry.path).replace(/\r\n/gu, "\n");
+      expect(Buffer.byteLength(normalizedSource, "utf8")).toBe(
+        entry.normalizedBytes,
+      );
+      expect(
+        createHash("sha256").update(normalizedSource, "utf8").digest("hex"),
+      ).toBe(entry.sha256.toLowerCase());
+    }
+
+    expect(productionPreflightRunner).toContain(
+      "[ValidateSet('ValidateLocal', 'ExecuteReadOnly')]",
+    );
+    expect(productionPreflightRunner).toContain(
+      "EQUORA_SUPABASE_DIRECT_URL",
+    );
+    expect(productionPreflightRunner).toContain(
+      "default_transaction_read_only=on",
+    );
+    expect(productionPreflightRunner).toContain(
+      "EvidenceDirectory must be outside the repository",
+    );
+    expect(productionPreflightRunner).toContain(
+      "deploymentAttempted = $false",
+    );
+    expect(productionPreflightRunner).toContain(
+      "activationAttempted = $false",
+    );
+    expect(productionPreflightRunner).not.toContain(
+      "deploy-v57.62.0-trade-import.sql",
+    );
+    expect(productionPreflightRunner).not.toContain(
+      "activate-v57.62.0-trade-import.sql",
+    );
+
+    expect(productionPreflightRunbook).toContain("GO_PREFLIGHT_READ_ONLY");
+    expect(productionPreflightRunbook).toContain("GO_DEPLOY_DEFAULT_OFF");
+    expect(productionPreflightRunbook).toContain(
+      "Datenbankbackups enthalten nur Storage-",
+    );
+    expect(productionPreflightRunbook).toContain(
+      "Ein Plattform-Restore ist die letzte Maßnahme",
+    );
+    expect(productionPreflightRunbook).toContain(
+      "HOSTED-SUPABASE-PREFLIGHT NICHT AUSGEFÜHRT",
+    );
+    expect(releaseGate).toContain(
+      "production_preflight = not_executed",
+    );
+    expect(releaseGate).toContain(
+      "database_gate_activation = not_authorized",
+    );
   });
 
   it("uses durable owner-bound account identities instead of editable labels as keys", () => {
