@@ -79,9 +79,9 @@ describe('v57.60.1 application safety contracts', () => {
     expect(cleanupAction).not.toContain('not_before: now')
   })
 
-  it('delegates exact timestamp, currency and account identity dedupe to SQL v2', () => {
+  it('delegates provider identity and request-row replay protection to SQL v2', () => {
     const action = source('app/actions/trade-import.ts')
-    const sql = source('supabase/schema-candidate-v57.62.0-trade-import-hardening.sql')
+    const sql = source('supabase/schema-patch-v57.62.0-trade-import-hardening.sql')
 
     expect(action).toContain('normalizedDate.toISOString()')
     expect(action).toContain('input.accountCurrency')
@@ -90,8 +90,9 @@ describe('v57.60.1 application safety contracts', () => {
     expect(action).not.toContain('seenSourceIdentityKeys')
     expect(action).toContain('p_source_rows:')
     expect(action).toContain('isExplicitCsvImportAccountLabel(batchAccountLabel)')
-    expect(sql).toContain('v_import_account_id::text')
-    expect(sql).toContain('pg_catalog.trim_scale(')
+    expect(sql).toContain("'equora-import-request-row-v1'")
+    expect(sql).toContain("v_reserved_source_kind := 'request_row_v1'")
+    expect(sql).toContain("'equora-trade-import-financial-snapshot-v1'")
     expect(sql).toContain("raise exception 'INVALID_TRADE_CURRENCY'")
     expect(sql).toContain("'account_currency', upper(btrim(v_trade->>'account_currency'))")
     expect(sql).not.toContain("'account_currency', p_batch->>'account_currency'")

@@ -30,6 +30,7 @@ create extension if not exists pgcrypto with schema extensions;
 -- the disposable fixture faithful so the deployment contract is not derived
 -- from an unrealistically privilege-empty local database.
 grant usage on schema public to postgres, anon, authenticated, service_role;
+grant usage on schema auth to postgres, anon, authenticated, service_role;
 alter default privileges for role postgres in schema public
   grant all on tables to anon, authenticated, service_role;
 alter default privileges for role postgres in schema public
