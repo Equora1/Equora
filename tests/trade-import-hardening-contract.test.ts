@@ -99,6 +99,7 @@ describe("trade import hardening release package", () => {
   const productionPreflightRunner = source(
     "scripts/run-v57.62.0-production-preflight.ps1",
   );
+  const ciWorkflow = source(".github/workflows/ci.yml");
   const productionSqlManifest = JSON.parse(
     source("docs/gates/EQUORA_v57.62.0_PRODUCTION_SQL_MANIFEST.json"),
   ) as {
@@ -392,6 +393,21 @@ describe("trade import hardening release package", () => {
     expect(releaseGate).toContain(
       "database_gate_activation = not_authorized",
     );
+  });
+
+  it("fetches the exact main baseline before the release test suite", () => {
+    const fetchStep = "- name: Fetch main baseline";
+    const fetchCommand =
+      "git fetch --no-tags --depth=1 origin +refs/heads/main:refs/remotes/origin/main";
+    const testStep = "- name: Run test suite";
+
+    expect(ciWorkflow).toContain("persist-credentials: false");
+    expect(ciWorkflow).toContain(fetchStep);
+    expect(ciWorkflow).toContain(fetchCommand);
+    expect(ciWorkflow.indexOf(fetchStep)).toBeLessThan(
+      ciWorkflow.indexOf(testStep),
+    );
+    expect(ciWorkflow).not.toContain("fetch-depth: 0");
   });
 
   it(
