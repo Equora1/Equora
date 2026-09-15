@@ -944,78 +944,6 @@ an PR #14; Hosted Supabase, Production, Broker, Credentials, Cron, Capture und
 echte Importe bleiben unberührt. Gate und Anwendung bleiben default-off und
 `migration_pending`.
 
-## 23. Post-Merge-Abschluss und Production-Preflight-Vorbereitung
-
-Die Schlussprüfung von PR #14 band den unveränderten Review-Head
-`13ac447df7e95c84bc9aef2c526e6e5f1303284e`, den Tree
-`0868907cd1fb05abdd9072541f6b24f05bff3196` und 19 Live-Git-Blobs. A3, A4 und
-A5 erteilten jeweils GO ohne offene P0–P2-Befunde. Der PR wurde danach am
-2026-09-14 kontrolliert per Squash-Merge in `main` übernommen:
-
-- Squash-Commit und `origin/main`:
-  `889a145e3443e52e5298ae945f53e3a8f44dc50b`;
-- GitHub-CI-Run `34877824745`: `success` auf exakt diesem Commit;
-- Vercel-Production-Deployment: `success` auf exakt diesem Commit;
-- Feature-Branch nicht gelöscht;
-- keine v57.62.0-Supabase-Migration, Datenbank-Gate-Aktivierung, Broker-,
-  Credential-, Cron-, Capture- oder echte Importaktion.
-
-Die Anwendung bleibt weiterhin bei `migration_pending`,
-`persistenceEnabled=false` und `controlled_candidate`. Der erfolgreiche
-Vercel-Deploy bedeutet deshalb nicht, dass der produktive Dateiimport bereits
-persistiert oder dass der Hosted-Supabase-Vertrag bestanden wurde.
-
-Der frische lokale Vorbereitungsbranch
-`codex/file-import-post-merge-v57.62.0` wurde exakt von diesem `origin/main`
-angelegt. Der aktuelle lokale Dokumentationsblock ergänzt ausschließlich:
-
-1. den aktualisierten Status und diesen historischen Abschluss;
-2. das hashgebundene Production-SQL-Manifest;
-3. das Production-Preflight-Runbook mit Backup-/Recovery-Entscheidung;
-4. den standardmäßig lokal bleibenden Preflight-Runner;
-5. zugehörige statische Vertragstests.
-
-Der Backup-/Recovery-Entscheidungswert lautet vor jeder Liveprüfung zunächst
-`NO_GO`. Der spätere read-only Preflight darf erst nach eigener Freigabe zu
-`GO_PREFLIGHT_READ_ONLY` wechseln. Ein default-off Deploy verlangt danach
-separat `GO_DEPLOY_DEFAULT_OFF`, insbesondere einen aktuell verifizierten
-Restorepunkt, frische hashgebundene Rollen-/Schema-/Datendumps außerhalb des
-Repositorys, Recovery-Owner und Wartungsfenster. Ein Restore-Rehearsal bleibt
-vor Pilot-, Kunden- oder Brokerbetrieb Pflicht; eine Vertagung für die
-ausschließlich default-off bleibende additive Installation ist ein ausdrücklich
-zu akzeptierendes Restrisiko und kein PASS.
-
-Der Runner `scripts/run-v57.62.0-production-preflight.ps1` führt im Standardmodus
-nur lokale Hash- und Gitprüfungen aus. Sein später separat freizugebender Modus
-`ExecuteReadOnly` erzwingt eine saubere Arbeitskopie, exakten Commit, bekannte
-Production-Zielidentität, einen Evidence-Ordner außerhalb des Repositorys und
-`default_transaction_read_only=on`. Er kann weder Deploy noch Aktivierung oder
-Restore ausführen.
-
-Aktueller Gatezustand:
-
-```text
-pr14 = squash_merged
-origin_main = 889a145e3443e52e5298ae945f53e3a8f44dc50b
-github_main_ci = success
-vercel_production = success
-application_capability = migration_pending
-application_persistence = false
-database_candidate_installation = not_executed
-database_gate = not_live_verified_assumed_absent_until_preflight
-backup_recovery_decision = prepared_no_go_until_live_evidence
-production_preflight = not_executed
-production_deploy_default_off = not_authorized
-database_gate_activation = not_authorized
-restore = not_authorized
-broker_cron_capture_import = not_authorized
-git_staging_commit_push = not_authorized
-```
-
-Dieser Dokumentationsblock stoppt vor Staging und vor jedem Zugriff auf das
-Hosted-Supabase-Projekt. Zeitabhängige Backup-, Plan-, Restorepunkt-, Zähler-
-und Zielclaims müssen im späteren freigegebenen Preflight frisch erhoben werden.
-
 ## 22. Privilegierte Publication-Grenze und Rollenbindung
 
 Der Snapshot aus Abschnitt 21 mit Manifest-SHA-256
@@ -1067,3 +995,86 @@ Rohlog-/Evidence-/Manifestbindung und drei unabhängigen A3/A4/A5-GO-Voten
 an PR #14; Hosted Supabase, Production, Broker, Credentials, Cron, Capture und
 echte Importe bleiben unberührt. Gate und Anwendung bleiben default-off und
 `migration_pending`.
+
+## 23. Post-Merge-Abschluss und Production-Preflight-Vorbereitung
+
+Die Schlussprüfung von PR #14 band den unveränderten Review-Head
+`13ac447df7e95c84bc9aef2c526e6e5f1303284e`, den Tree
+`0868907cd1fb05abdd9072541f6b24f05bff3196` und 19 Live-Git-Blobs. A3, A4 und
+A5 erteilten jeweils GO ohne offene P0–P2-Befunde. Der PR wurde danach am
+2026-09-14 kontrolliert per Squash-Merge in `main` übernommen:
+
+- Squash-Commit und `origin/main`:
+  `889a145e3443e52e5298ae945f53e3a8f44dc50b`;
+- GitHub-CI-Run `34877824745`: `success` auf exakt diesem Commit;
+- Vercel-Production-Deployment: `success` auf exakt diesem Commit;
+- Feature-Branch nicht gelöscht;
+- keine v57.62.0-Supabase-Migration, Datenbank-Gate-Aktivierung, Broker-,
+  Credential-, Cron-, Capture- oder echte Importaktion.
+
+Die Anwendung bleibt weiterhin bei `migration_pending`,
+`persistenceEnabled=false` und `controlled_candidate`. Der erfolgreiche
+Vercel-Deploy bedeutet deshalb nicht, dass der produktive Dateiimport bereits
+persistiert oder dass der Hosted-Supabase-Vertrag bestanden wurde.
+
+Der frische Branch `codex/file-import-post-merge-v57.62.0` wurde exakt von
+diesem `origin/main` angelegt. Der erste Production-Preflight-Stand wurde als
+Commit `b78447e1357795fafafdd6f72724dc849377c8bf` gepusht und in Draft-PR #15
+gegen `main` geöffnet. GitHub-CI-Run `34890959535`, Vercel und Vercel Preview
+Comments waren auf exakt diesem Head erfolgreich. A3, A4 und A5 lehnten den
+Snapshot dennoch wegen nicht verhaltensgetesteter Evidence-Pfad- und
+Production-Ziel-/TLS-Grenzen ab; grüne CI ersetzte diese Prüfung nicht.
+
+Der lokale Remediationstand vom 2026-09-15 schließt deshalb fail-closed:
+
+1. EvidenceDirectory muss absolut, außerhalb des Repositorys und frei von
+   Dateisystem-Root-, Junction- oder Symlink-Rückwegen sein;
+2. URL-Host und separat bestätigter Dashboard-Host müssen exakt übereinstimmen;
+3. Direct und Shared Session Pooler besitzen getrennte Host-/Benutzerverträge;
+4. TLS verlangt `verify-full` und ein explizites externes Supabase-
+   Root-Zertifikat;
+5. Manifestidentität, exakte Sieben-Pfade-Menge, `psql`-Pfad und Version werden
+   zusätzlich gebunden beziehungsweise protokolliert;
+6. ausführbare lokale Positiv-/Negativtests prüfen die kritischen Grenzen ohne
+   Netzwerk- oder Supabase-Zugriff.
+
+Der Backup-/Recovery-Entscheidungswert lautet vor jeder Liveprüfung weiterhin
+`NO_GO`. Ein späterer read-only Preflight darf erst nach eigener Freigabe zu
+`GO_PREFLIGHT_READ_ONLY` wechseln. Ein default-off Deploy verlangt danach
+separat `GO_DEPLOY_DEFAULT_OFF`, insbesondere einen aktuell verifizierten
+Restorepunkt, frische hashgebundene Rollen-/Schema-/Datendumps außerhalb des
+Repositorys, Recovery-Owner und Wartungsfenster. Ein Restore-Rehearsal bleibt
+vor Pilot-, Kunden- oder Brokerbetrieb Pflicht; eine Vertagung ist ein
+ausdrücklich zu akzeptierendes Restrisiko und kein PASS.
+
+Gatezustand dieses ausdrücklich vor Remediation-Staging eingefrorenen
+Dokumentationssnapshots:
+
+```text
+snapshot = 2026-09-15_pre_remediation_staging
+pr14 = squash_merged
+origin_main = 889a145e3443e52e5298ae945f53e3a8f44dc50b
+github_main_ci = success
+vercel_production = success
+pr15 = open_draft
+pr15_reviewed_head = b78447e1357795fafafdd6f72724dc849377c8bf
+pr15_ci_preview = success
+pr15_a3_a4_a5 = no_go_on_reviewed_head
+local_remediation = unstaged_validation_in_progress
+application_capability = migration_pending
+application_persistence = false
+database_candidate_installation = not_executed
+database_gate = not_live_verified_assumed_absent_until_preflight
+backup_recovery_decision = prepared_no_go_until_live_evidence
+production_preflight = not_executed
+production_deploy_default_off = not_authorized
+database_gate_activation = not_authorized
+restore = not_authorized
+broker_cron_capture_import = not_authorized
+ready_for_review_merge = not_authorized
+```
+
+Dieser Remediationblock stoppt erneut vor Staging, Commit, Push, Änderung an
+Draft-PR #15 und vor jedem Zugriff auf das Hosted-Supabase-Projekt.
+Zeitabhängige Backup-, Plan-, Restorepunkt-, Zähler- und Zielclaims müssen in
+einem späteren ausdrücklich freigegebenen Preflight frisch erhoben werden.

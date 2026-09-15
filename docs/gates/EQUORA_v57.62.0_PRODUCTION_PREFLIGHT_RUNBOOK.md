@@ -1,6 +1,6 @@
 # Equora v57.62.0 — Production-Preflight-Runbook
 
-Stand: 2026-09-14
+Stand: 2026-09-15
 Status: **LOKAL VORBEREITET / HOSTED-SUPABASE-PREFLIGHT NICHT AUSGEFÜHRT**
 
 ## 1. Zweck und harte Grenze
@@ -99,6 +99,10 @@ Quellen:
 - <https://supabase.com/docs/reference/cli/supabase-db-dump>
 - <https://supabase.com/docs/guides/platform/migrating-within-supabase/backup-restore>
 - <https://supabase.com/docs/guides/platform/clone-project>
+- <https://supabase.com/docs/guides/database/connecting-to-postgres>
+- <https://supabase.com/docs/guides/platform/ssl-enforcement>
+- <https://supabase.com/docs/guides/database/psql>
+- <https://www.postgresql.org/docs/17/libpq-ssl.html>
 
 ### 4.2 Exakte Gate-Entscheidung
 
@@ -168,15 +172,28 @@ Vorbedingungen:
 - neuer, konkret freigegebener Arbeitsblock;
 - exakt benannter 40-stelliger Commit und saubere Arbeitskopie;
 - Production-Project-Ref separat gegen die Supabase-Oberfläche verifiziert;
+- exakter Datenbankhost aus dem aktuellen Supabase-Connect-Dialog separat
+  verifiziert; ein Pooler-Host darf nicht aus einer Region geraten werden;
 - Verbindungsstring ausschließlich in der kurzlebigen Prozessvariable
-  `EQUORA_SUPABASE_DIRECT_URL`, geladen aus einem Secret Store und nie ausgegeben;
-- absoluter Evidence-Ordner außerhalb des Repositorys;
+  `EQUORA_SUPABASE_DATABASE_URL`, geladen aus einem Secret Store und nie
+  ausgegeben;
+- das aktuelle Supabase-Server-Root-Zertifikat aus den Database Settings liegt
+  als nichtleere Datei außerhalb des Repositorys; unter Windows ist nur ein
+  normaler laufwerksqualifizierter Langpfad auf einem bereiten festen lokalen
+  Laufwerk zulässig; sein absoluter Pfad wird nur über
+  `EQUORA_SUPABASE_SSL_ROOT_CERT` übergeben;
+- absoluter Evidence-Ordner außerhalb des Repositorys; unter Windows ebenfalls
+  als normaler laufwerksqualifizierter Langpfad auf einem bereiten festen
+  lokalen Laufwerk; Repository-Root, Unterordner, Dateisystem-Root, Junction,
+  symbolischer Link, UNC-/Netzlaufwerk, Namespace-, `SUBST`-/DOS-Device- und
+  8.3-Kurznamenpfade sind unzulässig;
 - genau ein Operator, ein unabhängiger Beobachter, kein paralleles DDL.
 
 Beispiel mit absichtlich nicht ausgefülltem Evidence-Ziel:
 
 ```powershell
 $approvedHead = '<EXAKTER_FREIGEGEBENER_40_STELLIGER_COMMIT>'
+$approvedDatabaseHost = '<EXAKTER_HOST_AUS_DEM_SUPABASE_CONNECT_DIALOG>'
 $evidenceRoot = '<ABSOLUTER_ORDNER_AUSSERHALB_DES_REPOSITORYS>'
 
 powershell.exe -NoProfile -ExecutionPolicy Bypass `
@@ -184,19 +201,30 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass `
   -Mode ExecuteReadOnly `
   -ExpectedHead $approvedHead `
   -ExpectedProjectRef 'rrkfdprhqilvicjbgfcn' `
+  -ExpectedDatabaseHost $approvedDatabaseHost `
   -EvidenceDirectory $evidenceRoot
 ```
 
 Der Runner:
 
 - akzeptiert nur den bekannten Equora-Production-Project-Ref;
-- akzeptiert nur Datenbank `postgres` und Port `5432`;
-- verlangt Supabase-Host plus direkt gebundene Host- oder Pooler-Identität;
+- verlangt exakte Übereinstimmung von URL-Host und separat freigegebenem Host;
+- akzeptiert Direct ausschließlich als `db.<Project-Ref>.supabase.co:5432` mit
+  Benutzer `postgres`;
+- akzeptiert den Shared Session Pooler ausschließlich als kanonischen
+  `Provider-Index-Region.pooler.supabase.com:5432`-Host mit Benutzer
+  `postgres.<Project-Ref>`; Transaction- und Dedicated-Pooler auf Port `6543`
+  sind für diesen Lauf ausgeschlossen;
+- akzeptiert ausschließlich Datenbank `postgres`;
 - übergibt das Passwort nicht als Kommandozeilenargument;
 - setzt `PGPASSWORD` nur für die Lebensdauer des `psql`-Kindprozesses und stellt
   den vorherigen Prozesswert im `finally` wieder her;
+- erzwingt `sslmode=verify-full` und bindet das explizite Root-Zertifikat über
+  das nur temporär gesetzte `PGSSLROOTCERT`; `sslmode=require` ist unzulässig;
 - startet `psql` mit `-X`, `--no-psqlrc`, `ON_ERROR_STOP=1` und erzwungener
   read-only Sitzung;
+- protokolliert absoluten `psql`-Pfad, `psql --version`, Verbindungstyp und den
+  SHA-256 des Root-Zertifikats, jedoch weder Zertifikatspfad noch Passwort;
 - schreibt Log und Receipt nur in den externen Evidence-Ordner;
 - führt ausschließlich den Preflight aus und setzt im Receipt
   `deploymentAttempted=false` sowie `activationAttempted=false`.
@@ -237,8 +265,13 @@ Freigaben.
 ```text
 target_name = Equora Production
 project_ref = rrkfdprhqilvicjbgfcn
+expected_database_host = <exact-dashboard-host>
 approved_head = <40-hex>
 sql_manifest_sha256 = <64-hex>
+ssl_mode = verify-full
+ssl_root_certificate_sha256 = <64-hex>
+psql_path = <absolute-path>
+psql_version = <psql-version-output>
 operator = <name-or-role>
 observer = <name-or-role>
 maintenance_window_utc = <start/end>
