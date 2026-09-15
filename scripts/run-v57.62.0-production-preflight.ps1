@@ -435,6 +435,14 @@ if (
 
 $seenPaths = @{}
 $verifiedFiles = @()
+$manifestTrimCharacters = [char[]]@(
+  [IO.Path]::DirectorySeparatorChar,
+  [IO.Path]::AltDirectorySeparatorChar
+)
+$manifestRepositoryPrefix = (
+  $script:RepositoryRoot.TrimEnd($manifestTrimCharacters) +
+  [IO.Path]::DirectorySeparatorChar
+)
 foreach ($entry in $manifestEntries) {
   if ($seenPaths.ContainsKey($entry.path)) {
     throw "Duplicate production SQL manifest path: $($entry.path)"
@@ -442,8 +450,12 @@ foreach ($entry in $manifestEntries) {
   $seenPaths[$entry.path] = $true
 
   $candidatePath = [IO.Path]::GetFullPath((Join-Path $script:RepositoryRoot $entry.path))
-  $repositoryPrefix = $script:RepositoryRoot.TrimEnd('\') + '\'
-  if (-not $candidatePath.StartsWith($repositoryPrefix, [StringComparison]::OrdinalIgnoreCase)) {
+  if (
+    -not $candidatePath.StartsWith(
+      $manifestRepositoryPrefix,
+      [StringComparison]::OrdinalIgnoreCase
+    )
+  ) {
     throw "Production SQL manifest path escapes the repository: $($entry.path)"
   }
   if (-not (Test-Path -LiteralPath $candidatePath -PathType Leaf)) {

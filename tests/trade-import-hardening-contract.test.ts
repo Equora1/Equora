@@ -351,6 +351,15 @@ describe("trade import hardening release package", () => {
       "EvidenceDirectory must be outside the repository",
     );
     expect(productionPreflightRunner).toContain(
+      "$manifestRepositoryPrefix",
+    );
+    expect(productionPreflightRunner).toContain(
+      "[IO.Path]::DirectorySeparatorChar",
+    );
+    expect(productionPreflightRunner).not.toContain(
+      "$script:RepositoryRoot.TrimEnd('\\') + '\\'",
+    );
+    expect(productionPreflightRunner).toContain(
       "deploymentAttempted = $false",
     );
     expect(productionPreflightRunner).toContain(
