@@ -1,6 +1,6 @@
 # Equora v57.62.0 — Production-Preflight-Runbook
 
-Stand: 2026-09-15
+Stand: 2026-09-17
 Status: **LOKAL VORBEREITET / HOSTED-SUPABASE-PREFLIGHT NICHT AUSGEFÜHRT**
 
 ## 1. Zweck und harte Grenze
@@ -223,25 +223,48 @@ Der Runner:
   das nur temporär gesetzte `PGSSLROOTCERT`; `sslmode=require` ist unzulässig;
 - startet `psql` mit `-X`, `--no-psqlrc`, `ON_ERROR_STOP=1` und erzwungener
   read-only Sitzung;
+- führt den manifestgebundenen Preflight über genau ein `-f` aus und gibt danach
+  im selben `psql`-Prozess die bereits per `\gset` erhobenen Werte über genau ein
+  nachgeschaltetes `-c \echo` maschinenlesbar aus; es entsteht weder eine zweite
+  Datenbanksitzung noch ein zusätzlicher SQL-Aufruf;
 - protokolliert absoluten `psql`-Pfad, `psql --version`, Verbindungstyp und den
   SHA-256 des Root-Zertifikats, jedoch weder Zertifikatspfad noch Passwort;
 - schreibt Log und Receipt nur in den externen Evidence-Ordner;
 - führt ausschließlich den Preflight aus und setzt im Receipt
   `deploymentAttempted=false` sowie `activationAttempted=false`.
 
+Die maschinenlesbare Zeile besitzt exakt dieses Format:
+
+```text
+EQUORA_V5762_PREFLIGHT_EVIDENCE trades_count=<non-negative-int64> batches_count=<non-negative-int64> apply_required=<true|false>
+```
+
+Der Runner akzeptiert genau eine solche Zeile und genau eine Abschlusszeile. Er
+lehnt fehlende, doppelte, syntaktisch abweichende, negative oder übergroße
+Zähler sowie widersprüchliche `apply_required`-Werte fail-closed ab. Das Receipt
+mit Schema `equora-v57.62.0-production-preflight-receipt-v2` speichert
+`preflightApplyRequired`, `preflightTradesCount`, `preflightBatchesCount`,
+`preflightEvidenceValid` und etwaige `preflightEvidenceErrors`.
+
+Diese Ausgabe erfolgt ausschließlich durch die Runner-Orchestrierung. Die sieben
+SQL-Artefakte und ihre bestehende SHA-256-Manifestbindung bleiben bytegleich.
+
 ## 7. Auswertung des Preflights
 
 `GO_PREFLIGHT_READ_ONLY` verlangt gleichzeitig:
 
 - Exitcode `0`;
+- exakt eine gültige maschinenlesbare Evidence-Zeile mit zwei nichtnegativen
+  Int64-Zählern und booleschem `apply_required`;
 - Abschlusszeile
   `v57.62.0 trade-import preflight PASS; apply_required= true` oder `false`;
+- identischer `apply_required`-Wert in Evidence- und Abschlusszeile;
 - Ziel `postgres`, Executor `postgres`, PostgreSQL mindestens 16;
 - exakt sieben erwartete v57.61.0-Marker und null unbekannte Marker;
 - vorhandene v57.61.0-Basistabellen und Importfunktion;
 - bei bereits vorhandenem v57.62.0-Marker exakter Fingerprint, vollständiger
   Verifier-PASS und Gate weiterhin `enabled=false`, `activated_at=null`;
-- protokollierte Trade- und Batch-Baselinecounts.
+- im v2-Receipt protokollierte Trade- und Batch-Baselinecounts.
 
 Jeder Fehler, Timeout, Hashunterschied, falsche Targetbindung, Teilzustand,
 unbekannte Migration, aktives Gate oder fehlende Evidence führt zu `NO_GO`.

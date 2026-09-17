@@ -1,6 +1,9 @@
 import {
+  chmodSync,
   mkdtempSync,
+  mkdirSync,
   readFileSync,
+  readdirSync,
   rmSync,
   symlinkSync,
   writeFileSync,
@@ -8,7 +11,7 @@ import {
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
-import { resolve } from "node:path";
+import { delimiter, dirname, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   BROKER_FILE_IMPORT_CAPABILITY_CONTRACT_VERSION,
@@ -346,6 +349,21 @@ describe("trade import hardening release package", () => {
       "psqlVersion = $psqlVersion",
     );
     expect(productionPreflightRunner).toContain(
+      "equora-v57.62.0-production-preflight-receipt-v2",
+    );
+    expect(productionPreflightRunner).toContain(
+      "Resolve-PreflightEvidence -OutputLines $outputLines",
+    );
+    expect(productionPreflightRunner).toContain(
+      "preflightApplyRequired = $preflightEvidence.applyRequired",
+    );
+    expect(productionPreflightRunner).toContain(
+      "preflightTradesCount = $preflightEvidence.tradesCount",
+    );
+    expect(productionPreflightRunner).toContain(
+      "preflightBatchesCount = $preflightEvidence.batchesCount",
+    );
+    expect(productionPreflightRunner).toContain(
       "default_transaction_read_only=on",
     );
     expect(productionPreflightRunner).toContain(
@@ -372,11 +390,20 @@ describe("trade import hardening release package", () => {
     expect(
       productionPreflightRunner.match(/'-f' \$preflightPath/gu),
     ).toHaveLength(1);
+    expect(
+      productionPreflightRunner.match(/'-c' \$preflightEvidenceCommand/gu),
+    ).toHaveLength(1);
     expect(productionPreflightRunner).not.toMatch(
       /'-f'\s+.*(?:deploy|activate|deactivate)-v57\.62\.0/gu,
     );
 
     expect(productionPreflightRunbook).toContain("GO_PREFLIGHT_READ_ONLY");
+    expect(productionPreflightRunbook).toContain(
+      "equora-v57.62.0-production-preflight-receipt-v2",
+    );
+    expect(productionPreflightRunbook).toContain(
+      "EQUORA_V5762_PREFLIGHT_EVIDENCE",
+    );
     expect(productionPreflightRunbook).toContain("GO_DEPLOY_DEFAULT_OFF");
     expect(productionPreflightRunbook).toContain(
       "Datenbankbackups enthalten nur Storage-",
@@ -628,6 +655,346 @@ describe("trade import hardening release package", () => {
       }
     },
     40_000,
+  );
+
+  it(
+    "fails closed and receipts machine-readable ExecuteReadOnly evidence",
+    () => {
+      const temporaryRoot = mkdtempSync(
+        resolve(tmpdir(), "equora-preflight-execute-"),
+      );
+      const fixtureRoot = resolve(temporaryRoot, "repository");
+      const fakeBin = resolve(temporaryRoot, "fake-bin");
+      const certificatePath = resolve(temporaryRoot, "root.crt");
+      const fakePsqlScript = resolve(fakeBin, "fake-psql.cjs");
+      const syntheticPassword = "synthetic-preflight-password";
+      const projectRef = "rrkfdprhqilvicjbgfcn";
+      const databaseHost = `db.${projectRef}.supabase.co`;
+      const connectionUrl =
+        `postgresql://postgres:${syntheticPassword}` +
+        `@${databaseHost}:5432/postgres`;
+      const fixtureFiles = [
+        "scripts/run-v57.62.0-production-preflight.ps1",
+        "docs/gates/EQUORA_v57.62.0_PRODUCTION_SQL_MANIFEST.json",
+        ...productionSqlManifest.files.map(({ path }) => path),
+      ];
+      const git = (args: string[]) =>
+        spawnSync("git", args, {
+          cwd: fixtureRoot,
+          encoding: "utf8",
+        });
+      const assertGit = (args: string[]) => {
+        const result = git(args);
+        expect(
+          result.status,
+          `git ${args.join(" ")}: ${result.stdout}\n${result.stderr}`,
+        ).toBe(0);
+        return result;
+      };
+
+      mkdirSync(fixtureRoot, { recursive: true });
+      mkdirSync(fakeBin, { recursive: true });
+      for (const relativePath of fixtureFiles) {
+        const destination = resolve(fixtureRoot, relativePath);
+        mkdirSync(dirname(destination), { recursive: true });
+        writeFileSync(destination, readFileSync(resolve(root, relativePath)));
+      }
+      writeFileSync(certificatePath, "synthetic-root-certificate\n");
+      writeFileSync(
+        fakePsqlScript,
+        [
+          'const fs = require("node:fs");',
+          "const args = process.argv.slice(2);",
+          'if (args.length === 1 && args[0] === "--version") {',
+          '  console.log("psql (PostgreSQL) 17.6");',
+          "  process.exit(0);",
+          "}",
+          "const capture = {",
+          "  args,",
+          "  pgpassword: process.env.PGPASSWORD,",
+          "  pgoptions: process.env.PGOPTIONS,",
+          "  pgappname: process.env.PGAPPNAME,",
+          "  pgsslrootcert: process.env.PGSSLROOTCERT,",
+          "};",
+          "fs.writeFileSync(",
+          "  process.env.EQUORA_FAKE_PSQL_CAPTURE,",
+          "  JSON.stringify(capture),",
+          ");",
+          "const record =",
+          '  "EQUORA_V5762_PREFLIGHT_EVIDENCE " +',
+          '  "trades_count=42 batches_count=7 apply_required=true";',
+          "const completion =",
+          '  "v57.62.0 trade-import preflight PASS; apply_required= true";',
+          "const scenario = process.env.EQUORA_FAKE_PSQL_SCENARIO;",
+          "let lines;",
+          "let exitCode = 0;",
+          "switch (scenario) {",
+          '  case "success":',
+          "    lines = [record, completion];",
+          "    break;",
+          '  case "missing-record":',
+          "    lines = [completion];",
+          "    break;",
+          '  case "duplicate-record":',
+          "    lines = [record, record, completion];",
+          "    break;",
+          '  case "negative-count":',
+          "    lines = [",
+          '      "EQUORA_V5762_PREFLIGHT_EVIDENCE " +',
+          '        "trades_count=-1 batches_count=7 apply_required=true",',
+          "      completion,",
+          "    ];",
+          "    break;",
+          '  case "overflow-count":',
+          "    lines = [",
+          '      "EQUORA_V5762_PREFLIGHT_EVIDENCE " +',
+          '        "trades_count=9223372036854775808 " +',
+          '        "batches_count=7 apply_required=true",',
+          "      completion,",
+          "    ];",
+          "    break;",
+          '  case "apply-mismatch":',
+          "    lines = [",
+          "      record,",
+          '      "v57.62.0 trade-import preflight PASS; apply_required= false",',
+          "    ];",
+          "    break;",
+          '  case "missing-completion":',
+          "    lines = [record];",
+          "    break;",
+          '  case "exit-failure":',
+          "    lines = [record, completion];",
+          "    exitCode = 17;",
+          "    break;",
+          "  default:",
+          '    throw new Error("Unknown fake psql scenario: " + scenario);',
+          "}",
+          'process.stdout.write(lines.join("\\n") + "\\n");',
+          "process.exit(exitCode);",
+          "",
+        ].join("\n"),
+      );
+
+      const fakePsqlExecutable = resolve(
+        fakeBin,
+        process.platform === "win32" ? "psql.cmd" : "psql",
+      );
+      if (process.platform === "win32") {
+        writeFileSync(
+          fakePsqlExecutable,
+          [
+            "@echo off",
+            `"${process.execPath}" "${fakePsqlScript}" %*`,
+            "exit /b %ERRORLEVEL%",
+            "",
+          ].join("\r\n"),
+        );
+      } else {
+        writeFileSync(
+          fakePsqlExecutable,
+          [
+            "#!/bin/sh",
+            `exec "${process.execPath}" "${fakePsqlScript}" "$@"`,
+            "",
+          ].join("\n"),
+        );
+        chmodSync(fakePsqlExecutable, 0o755);
+      }
+
+      try {
+        assertGit(["init", "--quiet"]);
+        assertGit(["config", "user.name", "Equora Test"]);
+        assertGit(["config", "user.email", "equora-test@example.invalid"]);
+        assertGit(["config", "core.autocrlf", "false"]);
+        assertGit(["add", "."]);
+        assertGit([
+          "-c",
+          "commit.gpgsign=false",
+          "commit",
+          "--quiet",
+          "-m",
+          "test fixture",
+        ]);
+        const headResult = assertGit(["rev-parse", "HEAD"]);
+        const fixtureHead = headResult.stdout.trim();
+        assertGit([
+          "update-ref",
+          "refs/remotes/origin/main",
+          fixtureHead,
+        ]);
+
+        const originalPath = process.env.PATH ?? "";
+        const baseEnvironment = Object.fromEntries(
+          Object.entries(process.env).filter(
+            ([name]) => name.toUpperCase() !== "PATH",
+          ),
+        ) as NodeJS.ProcessEnv;
+        const runScenario = (shell: string, scenario: string) => {
+          const shellName = shell.replace(/[^A-Za-z0-9]/gu, "-");
+          const evidenceDirectory = resolve(
+            temporaryRoot,
+            `evidence-${shellName}-${scenario}`,
+          );
+          const capturePath = resolve(
+            temporaryRoot,
+            `capture-${shellName}-${scenario}.json`,
+          );
+          mkdirSync(evidenceDirectory, { recursive: true });
+          const result = spawnSync(
+            shell,
+            [
+              "-NoLogo",
+              "-NoProfile",
+              "-NonInteractive",
+              ...(process.platform === "win32"
+                ? ["-ExecutionPolicy", "Bypass"]
+                : []),
+              "-File",
+              resolve(
+                fixtureRoot,
+                "scripts/run-v57.62.0-production-preflight.ps1",
+              ),
+              "-Mode",
+              "ExecuteReadOnly",
+              "-ExpectedHead",
+              fixtureHead,
+              "-ExpectedProjectRef",
+              projectRef,
+              "-ExpectedDatabaseHost",
+              databaseHost,
+              "-EvidenceDirectory",
+              evidenceDirectory,
+            ],
+            {
+              cwd: fixtureRoot,
+              encoding: "utf8",
+              env: {
+                ...baseEnvironment,
+                PATH: `${fakeBin}${delimiter}${originalPath}`,
+                EQUORA_SUPABASE_DATABASE_URL: connectionUrl,
+                EQUORA_SUPABASE_SSL_ROOT_CERT: certificatePath,
+                EQUORA_FAKE_PSQL_CAPTURE: capturePath,
+                EQUORA_FAKE_PSQL_SCENARIO: scenario,
+              },
+            },
+          );
+          const receiptName = readdirSync(evidenceDirectory).find((name) =>
+            name.endsWith(".json"),
+          );
+          expect(
+            receiptName,
+            `${shell}/${scenario}: ${result.stdout}\n${result.stderr}`,
+          ).toBeDefined();
+          const receiptPath = resolve(evidenceDirectory, receiptName!);
+          const receipt = JSON.parse(readFileSync(receiptPath, "utf8")) as {
+            schema: string;
+            preflightEvidenceValid: boolean;
+            preflightApplyRequired: boolean | null;
+            preflightTradesCount: number | null;
+            preflightBatchesCount: number | null;
+            preflightEvidenceErrors: string[];
+            preflightPassed: boolean;
+            psqlExitCode: number;
+            logFile: string;
+            logSha256: string;
+          };
+          const logPath = resolve(evidenceDirectory, receipt.logFile);
+          const logBytes = readFileSync(logPath);
+          const captured = JSON.parse(readFileSync(capturePath, "utf8")) as {
+            args: string[];
+            pgpassword: string;
+            pgoptions: string;
+            pgappname: string;
+            pgsslrootcert: string;
+          };
+          return { result, receipt, logBytes, captured };
+        };
+
+        for (const shell of powershellExecutables) {
+          const success = runScenario(shell, "success");
+          expect(
+            success.result.status,
+            `${shell}: ${success.result.stdout}\n${success.result.stderr}`,
+          ).toBe(0);
+          expect(success.receipt).toMatchObject({
+            schema: "equora-v57.62.0-production-preflight-receipt-v2",
+            preflightEvidenceValid: true,
+            preflightApplyRequired: true,
+            preflightTradesCount: 42,
+            preflightBatchesCount: 7,
+            preflightEvidenceErrors: [],
+            preflightPassed: true,
+            psqlExitCode: 0,
+          });
+          expect(success.receipt.logSha256).toBe(
+            createHash("sha256")
+              .update(success.logBytes)
+              .digest("hex")
+              .toUpperCase(),
+          );
+          expect(success.captured.pgpassword).toBe(syntheticPassword);
+          expect(success.captured.pgoptions).toContain(
+            "default_transaction_read_only=on",
+          );
+          expect(success.captured.pgappname).toBe(
+            "equora_v5762_readonly_preflight",
+          );
+          expect(success.captured.pgsslrootcert).toBe(certificatePath);
+          expect(success.captured.args.filter((arg) => arg === "-f")).toHaveLength(
+            1,
+          );
+          const fileIndex = success.captured.args.indexOf("-f");
+          const commandIndex = success.captured.args.indexOf("-c");
+          expect(commandIndex).toBeGreaterThan(fileIndex);
+          expect(
+            success.captured.args[fileIndex + 1].replaceAll("\\", "/"),
+          ).toMatch(/supabase\/preflight-v57\.62\.0-trade-import\.sql$/u);
+          expect(success.captured.args[commandIndex + 1]).toBe(
+            "\\echo EQUORA_V5762_PREFLIGHT_EVIDENCE " +
+              "trades_count=:v5762_pre_trades_count " +
+              "batches_count=:v5762_pre_batches_count " +
+              "apply_required=:v5762_apply_required",
+          );
+          const publicEvidence = [
+            success.result.stdout,
+            success.result.stderr,
+            JSON.stringify(success.receipt),
+            success.logBytes.toString("utf8"),
+          ].join("\n");
+          expect(publicEvidence).not.toContain(syntheticPassword);
+          expect(publicEvidence).not.toContain(certificatePath);
+
+          for (const scenario of [
+            "missing-record",
+            "duplicate-record",
+            "negative-count",
+            "overflow-count",
+            "apply-mismatch",
+            "missing-completion",
+            "exit-failure",
+          ]) {
+            const rejected = runScenario(shell, scenario);
+            expect(rejected.result.status, `${shell}/${scenario}`).not.toBe(0);
+            expect(rejected.receipt.preflightPassed, scenario).toBe(false);
+            if (scenario === "exit-failure") {
+              expect(rejected.receipt.psqlExitCode).toBe(17);
+            } else {
+              expect(
+                rejected.receipt.preflightEvidenceValid,
+                scenario,
+              ).toBe(false);
+              expect(
+                rejected.receipt.preflightEvidenceErrors.length,
+                scenario,
+              ).toBeGreaterThan(0);
+            }
+          }
+        }
+      } finally {
+        rmSync(temporaryRoot, { recursive: true, force: true });
+      }
+    },
+    180_000,
   );
 
   it(

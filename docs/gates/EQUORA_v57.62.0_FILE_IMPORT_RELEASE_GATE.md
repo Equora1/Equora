@@ -1078,3 +1078,62 @@ Dieser Remediationblock stoppt erneut vor Staging, Commit, Push, Änderung an
 Draft-PR #15 und vor jedem Zugriff auf das Hosted-Supabase-Projekt.
 Zeitabhängige Backup-, Plan-, Restorepunkt-, Zähler- und Zielclaims müssen in
 einem späteren ausdrücklich freigegebenen Preflight frisch erhoben werden.
+
+## 24. PR-#15-Live-Review und lokale Evidence-Receipt-Remediation
+
+Der unveränderte Draft-PR-Head
+`c02310f0dee8d4f127096bc4e3b7c03aacd8efdc` bestand GitHub-CI und Vercel
+Preview. Der anschließend exakt auf diesen Head gebundene unabhängige
+Live-PR-Review ergab:
+
+- A3: GO ohne P0–P2;
+- A4: GO ohne P0–P2;
+- A5: NO-GO wegen eines P2-Evidence-Befunds.
+
+Der A5-Befund war berechtigt: Das Preflight-SQL setzte Trade- und
+Batch-Baselinecounts nur als interne `psql`-Variablen, während Runner und Receipt
+sie nicht evidenzfähig ausgaben. Dadurch konnte das v1-Receipt den eigenen
+Runbook-Vertrag zu protokollierten Baselinecounts nicht erfüllen.
+
+Der lokale Remediationkandidat vom 2026-09-17 schließt diese Lücke ohne Änderung
+der sieben SQL-Artefakte:
+
+1. derselbe `psql`-Prozess gibt nach dem einzigen manifestgebundenen `-f`-Lauf
+   die bereits erhobenen Variablen über ein einzelnes `-c \echo`
+   maschinenlesbar aus;
+2. der Runner verlangt exakt einen Evidence-Record und exakt einen PASS-Record;
+3. Trade- und Batchcount müssen nichtnegative Int64-Werte sein;
+4. `apply_required` muss in beiden Records übereinstimmen;
+5. das v2-Receipt speichert beide Counts, den booleschen Apply-Status, die
+   Evidence-Gültigkeit und Parsefehler;
+6. ein netzwerkfreier Fake-`psql`-Harness prüft Erfolg, Argumentgrenzen,
+   Log-/Receipt-Hashbindung, Secret-Nichtausgabe und Fail-Closed-Fehlerfälle in
+   beiden unterstützten lokalen PowerShell-Laufzeiten.
+
+Die sieben SQL-Dateien und
+`docs/gates/EQUORA_v57.62.0_PRODUCTION_SQL_MANIFEST.json` bleiben bytegleich.
+Der Kandidat benötigt vor jeder weiteren Git- oder PR-Aktion vollständige lokale
+Gates, neue Scope-/Hash-/Secret-Prüfungen und neue unabhängige A3/A4/A5-Voten auf
+exakt denselben Bytes.
+
+```text
+snapshot = 2026-09-17_local_receipt_remediation_candidate
+pr15 = open_draft
+pr15_reviewed_head = c02310f0dee8d4f127096bc4e3b7c03aacd8efdc
+pr15_ci_preview = success
+prior_pr15_a3 = go
+prior_pr15_a4 = go
+prior_pr15_a5 = no_go_one_p2
+local_remediation = unstaged_validation_required
+production_sql_manifest = unchanged_seven_of_seven
+production_preflight = not_executed
+production_deploy_default_off = not_authorized
+database_gate_activation = not_authorized
+restore = not_authorized
+broker_cron_capture_import = not_authorized
+ready_for_review_merge = not_authorized
+```
+
+Dieser Block stoppt weiterhin vor Staging, Commit, Push, jeder Änderung an
+Draft-PR #15 und vor jedem Hosted-Supabase-, Production-, Broker-, Credential-,
+Cron-, Capture- oder Importzugriff.

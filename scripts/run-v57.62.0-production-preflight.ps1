@@ -403,6 +403,95 @@ function Resolve-TrustedRootCertificate {
   }
 }
 
+function Resolve-PreflightEvidence {
+  param([Parameter(Mandatory = $true)][string[]]$OutputLines)
+
+  $recordPattern = (
+    '^EQUORA_V5762_PREFLIGHT_EVIDENCE ' +
+    'trades_count=([0-9]+) batches_count=([0-9]+) ' +
+    'apply_required=(true|false)$'
+  )
+  $completionPattern = (
+    '^v57\.62\.0 trade-import preflight PASS; ' +
+    'apply_required= (true|false)$'
+  )
+  $recordMatches = @()
+  $completionMatches = @()
+  foreach ($line in @($OutputLines)) {
+    $recordMatch = [regex]::Match(
+      "$line",
+      $recordPattern,
+      [Text.RegularExpressions.RegexOptions]::CultureInvariant
+    )
+    if ($recordMatch.Success) {
+      $recordMatches += $recordMatch
+    }
+    $completionMatch = [regex]::Match(
+      "$line",
+      $completionPattern,
+      [Text.RegularExpressions.RegexOptions]::CultureInvariant
+    )
+    if ($completionMatch.Success) {
+      $completionMatches += $completionMatch
+    }
+  }
+
+  $errors = @()
+  $tradesCount = $null
+  $batchesCount = $null
+  $applyRequired = $null
+  if ($recordMatches.Count -ne 1) {
+    $errors += 'Expected exactly one machine-readable preflight evidence record.'
+  }
+  else {
+    [long]$parsedTradesCount = 0
+    [long]$parsedBatchesCount = 0
+    $tradesCountValid = [long]::TryParse(
+      $recordMatches[0].Groups[1].Value,
+      [Globalization.NumberStyles]::None,
+      [Globalization.CultureInfo]::InvariantCulture,
+      [ref]$parsedTradesCount
+    )
+    $batchesCountValid = [long]::TryParse(
+      $recordMatches[0].Groups[2].Value,
+      [Globalization.NumberStyles]::None,
+      [Globalization.CultureInfo]::InvariantCulture,
+      [ref]$parsedBatchesCount
+    )
+    if (-not $tradesCountValid -or $parsedTradesCount -lt 0) {
+      $errors += 'Preflight trades count is not a non-negative Int64.'
+    }
+    else {
+      $tradesCount = $parsedTradesCount
+    }
+    if (-not $batchesCountValid -or $parsedBatchesCount -lt 0) {
+      $errors += 'Preflight batches count is not a non-negative Int64.'
+    }
+    else {
+      $batchesCount = $parsedBatchesCount
+    }
+    $applyRequired = $recordMatches[0].Groups[3].Value -ceq 'true'
+  }
+
+  if ($completionMatches.Count -ne 1) {
+    $errors += 'Expected exactly one preflight PASS completion record.'
+  }
+  elseif (
+    $null -ne $applyRequired -and
+    (($completionMatches[0].Groups[1].Value -ceq 'true') -ne $applyRequired)
+  ) {
+    $errors += 'Preflight apply_required records disagree.'
+  }
+
+  return [pscustomobject][ordered]@{
+    valid = $errors.Count -eq 0
+    applyRequired = $applyRequired
+    tradesCount = $tradesCount
+    batchesCount = $batchesCount
+    errors = @($errors)
+  }
+}
+
 if (-not (Test-Path -LiteralPath $script:ManifestPath -PathType Leaf)) {
   throw "Production SQL manifest is missing: $script:ManifestPath"
 }
@@ -566,6 +655,12 @@ if ($LASTEXITCODE -ne 0 -or $psqlVersionLines.Count -eq 0) {
 }
 $psqlVersion = ($psqlVersionLines -join ' ').Trim()
 $preflightPath = Join-Path $script:RepositoryRoot $script:PreflightRelativePath
+$preflightEvidenceCommand = (
+  '\echo EQUORA_V5762_PREFLIGHT_EVIDENCE ' +
+  'trades_count=:v5762_pre_trades_count ' +
+  'batches_count=:v5762_pre_batches_count ' +
+  'apply_required=:v5762_apply_required'
+)
 $connectionDescriptor = (
   "host=$databaseHost port=$databasePort " +
   "dbname=$databaseName user=$databaseUser sslmode=verify-full connect_timeout=10 " +
@@ -607,7 +702,8 @@ try {
     '--no-psqlrc' `
     '-v' 'ON_ERROR_STOP=1' `
     '-d' $connectionDescriptor `
-    '-f' $preflightPath 2>&1 | ForEach-Object { "$_" })
+    '-f' $preflightPath `
+    '-c' $preflightEvidenceCommand 2>&1 | ForEach-Object { "$_" })
   $exitCode = $LASTEXITCODE
 }
 finally {
@@ -626,15 +722,15 @@ finally {
 
 $utf8NoBom = [Text.UTF8Encoding]::new($false)
 [IO.File]::WriteAllLines($logPath, $outputLines, $utf8NoBom)
+$preflightEvidence = Resolve-PreflightEvidence -OutputLines $outputLines
 $preflightPassed = (
   $exitCode -eq 0 -and
-  ($outputLines -join "`n") -match
-    'v57\.62\.0 trade-import preflight PASS; apply_required= (true|false)'
+  $preflightEvidence.valid
 )
 $completedAt = [DateTimeOffset]::Now
 $logSha256 = Get-Sha256Hex -Bytes ([IO.File]::ReadAllBytes($logPath))
 $receipt = [ordered]@{
-  schema = 'equora-v57.62.0-production-preflight-receipt-v1'
+  schema = 'equora-v57.62.0-production-preflight-receipt-v2'
   startedAt = $startedAt.ToString('o')
   completedAt = $completedAt.ToString('o')
   mode = 'ExecuteReadOnly'
@@ -657,6 +753,11 @@ $receipt = [ordered]@{
   psqlVersion = $psqlVersion
   forcedDefaultTransactionReadOnly = $true
   psqlExitCode = $exitCode
+  preflightEvidenceValid = $preflightEvidence.valid
+  preflightApplyRequired = $preflightEvidence.applyRequired
+  preflightTradesCount = $preflightEvidence.tradesCount
+  preflightBatchesCount = $preflightEvidence.batchesCount
+  preflightEvidenceErrors = @($preflightEvidence.errors)
   preflightPassed = $preflightPassed
   logFile = [IO.Path]::GetFileName($logPath)
   logSha256 = $logSha256
