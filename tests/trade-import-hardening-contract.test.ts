@@ -31,6 +31,7 @@ const powershellExecutables =
 const normalizePowerShellDiagnostic = (output: string) =>
   output
     .replace(/\u001B\[[0-?]*[ -/]*[@-~]/gu, "")
+    .replace(/\s+\|\s+/gu, " ")
     .replace(/\s+/gu, " ")
     .trim();
 const windowsUnsafePathAliases = (target: string, shortNameAlias: string) => {
@@ -1838,7 +1839,7 @@ describe("trade import hardening release package", () => {
   it("normalizes ANSI-decorated wrapped PowerShell diagnostics", () => {
     const decoratedDiagnostic =
       "\u001B[31;1mExecuteReadOnly is supported only on the reviewed Windows\u001B[0m\n" +
-      "\u001B[31;1mprocess-isolation profile.\u001B[0m";
+      "\u001B[31;1m | \u001B[31;1mprocess-isolation profile.\u001B[0m";
 
     expect(normalizePowerShellDiagnostic(decoratedDiagnostic)).toContain(
       "ExecuteReadOnly is supported only on the reviewed Windows process-isolation profile.",
