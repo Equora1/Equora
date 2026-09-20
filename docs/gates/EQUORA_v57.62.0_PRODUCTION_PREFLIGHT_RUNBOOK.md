@@ -1,6 +1,6 @@
 # Equora v57.62.0 — Production-Preflight-Runbook
 
-Stand: 2026-09-17
+Stand: 2026-09-19
 Status: **LOKAL VORBEREITET / HOSTED-SUPABASE-PREFLIGHT NICHT AUSGEFÜHRT**
 
 ## 1. Zweck und harte Grenze
@@ -155,6 +155,8 @@ Erwartet werden:
 
 - `sqlFileCount = 7`;
 - alle sieben normalisierten SHA-256-Werte stimmen;
+- `preflightExecutionTransport = "stdin-with-inlined-verifier"` sowie SHA-256
+  und Bytezahl der exakten späteren stdin-Nutzlast sind vorhanden;
 - `hostedSupabaseAccessed = false`;
 - `databaseMutationAttempted = false`.
 
@@ -181,12 +183,20 @@ Vorbedingungen:
   als nichtleere Datei außerhalb des Repositorys; unter Windows ist nur ein
   normaler laufwerksqualifizierter Langpfad auf einem bereiten festen lokalen
   Laufwerk zulässig; sein absoluter Pfad wird nur über
-  `EQUORA_SUPABASE_SSL_ROOT_CERT` übergeben;
+  `EQUORA_SUPABASE_SSL_ROOT_CERT` übergeben; sein SHA-256 muss unabhängig aus
+  derselben konkret freigegebenen Quelle ermittelt und separat als
+  `ExpectedSslRootCertificateSha256` übergeben werden;
 - absoluter Evidence-Ordner außerhalb des Repositorys; unter Windows ebenfalls
   als normaler laufwerksqualifizierter Langpfad auf einem bereiten festen
   lokalen Laufwerk; Repository-Root, Unterordner, Dateisystem-Root, Junction,
   symbolischer Link, UNC-/Netzlaufwerk, Namespace-, `SUBST`-/DOS-Device- und
   8.3-Kurznamenpfade sind unzulässig;
+- absoluter, separat freigegebener nativer `psql`-Pfad und vorab unabhängig
+  ermittelter SHA-256 derselben Binärdatei; unter Windows sind nur `.exe` auf
+  einem bereiten festen lokalen Laufwerk ohne Reparse-/Symlink-Komponente
+  zulässig; zusätzlich muss der kanonische SHA-256 des vollständigen direkten
+  `psql`-Bundleverzeichnisses separat als `ExpectedPsqlBundleSha256` freigegeben
+  sein;
 - genau ein Operator, ein unabhängiger Beobachter, kein paralleles DDL.
 
 Beispiel mit absichtlich nicht ausgefülltem Evidence-Ziel:
@@ -195,6 +205,10 @@ Beispiel mit absichtlich nicht ausgefülltem Evidence-Ziel:
 $approvedHead = '<EXAKTER_FREIGEGEBENER_40_STELLIGER_COMMIT>'
 $approvedDatabaseHost = '<EXAKTER_HOST_AUS_DEM_SUPABASE_CONNECT_DIALOG>'
 $evidenceRoot = '<ABSOLUTER_ORDNER_AUSSERHALB_DES_REPOSITORYS>'
+$approvedPsqlPath = '<ABSOLUTER_FREIGEGEBENER_PSQL-PFAD>'
+$approvedPsqlSha256 = '<FREIGEGEBENER_64-HEX-SHA256>'
+$approvedPsqlBundleSha256 = '<FREIGEGEBENER_BUNDLE-MANIFEST-SHA256>'
+$approvedSslRootSha256 = '<FREIGEGEBENER_ROOT-ZERTIFIKAT-SHA256>'
 
 powershell.exe -NoProfile -ExecutionPolicy Bypass `
   -File .\scripts\run-v57.62.0-production-preflight.ps1 `
@@ -202,11 +216,17 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass `
   -ExpectedHead $approvedHead `
   -ExpectedProjectRef 'rrkfdprhqilvicjbgfcn' `
   -ExpectedDatabaseHost $approvedDatabaseHost `
-  -EvidenceDirectory $evidenceRoot
+  -EvidenceDirectory $evidenceRoot `
+  -PsqlExecutablePath $approvedPsqlPath `
+  -ExpectedPsqlSha256 $approvedPsqlSha256 `
+  -ExpectedPsqlBundleSha256 $approvedPsqlBundleSha256 `
+  -ExpectedSslRootCertificateSha256 $approvedSslRootSha256
 ```
 
 Der Runner:
 
+- lässt `ExecuteReadOnly` ausschließlich auf dem geprüften Windows-Profil zu;
+  andere Plattformen brechen vor Credentialverarbeitung und Prozessstart ab;
 - akzeptiert nur den bekannten Equora-Production-Project-Ref;
 - verlangt exakte Übereinstimmung von URL-Host und separat freigegebenem Host;
 - akzeptiert Direct ausschließlich als `db.<Project-Ref>.supabase.co:5432` mit
@@ -217,19 +237,95 @@ Der Runner:
   sind für diesen Lauf ausgeschlossen;
 - akzeptiert ausschließlich Datenbank `postgres`;
 - übergibt das Passwort nicht als Kommandozeilenargument;
-- setzt `PGPASSWORD` nur für die Lebensdauer des `psql`-Kindprozesses und stellt
-  den vorherigen Prozesswert im `finally` wieder her;
-- erzwingt `sslmode=verify-full` und bindet das explizite Root-Zertifikat über
-  das nur temporär gesetzte `PGSSLROOTCERT`; `sslmode=require` ist unzulässig;
+- lehnt Steuerzeichen in den percent-dekodierten URL-Credentials fail-closed ab;
+- verwirft das geerbte Kindprozess-Environment vollständig, übernimmt nur die
+  begründete Betriebssystem-Allowlist `SystemRoot`, `WINDIR`,
+  `TEMP`/`TMP`/`TMPDIR`, `LANG`/`LC_*` und `TZ` und setzt danach ausschließlich
+  die vier für `psql` erforderlichen `PG*`-Werte sowie einen auf das gebundene
+  Bundleverzeichnis, `System32` und den Windows-Ordner begrenzten `PATH`;
+  insbesondere können keine ambienten `PGSERVICE*`-,
+  `PGPASSFILE`-, Client-Key- oder fachfremden Credential-Variablen in den
+  Kindprozess gelangen;
+- erzwingt `sslmode=verify-full`, liest das freigegebene Root-Zertifikat einmal,
+  vergleicht die Bytes vor Prozessstart mit dem separat freigegebenen Sollhash
+  und übergibt ausschließlich deren
+  temporäre, owner-only geschützte Kopie über `PGSSLROOTCERT`;
+  `sslmode=require` ist unzulässig;
 - startet `psql` mit `-X`, `--no-psqlrc`, `ON_ERROR_STOP=1` und erzwungener
   read-only Sitzung;
-- führt den manifestgebundenen Preflight über genau ein `-f` aus und gibt danach
-  im selben `psql`-Prozess die bereits per `\gset` erhobenen Werte über genau ein
-  nachgeschaltetes `-c \echo` maschinenlesbar aus; es entsteht weder eine zweite
-  Datenbanksitzung noch ein zusätzlicher SQL-Aufruf;
-- protokolliert absoluten `psql`-Pfad, `psql --version`, Verbindungstyp und den
-  SHA-256 des Root-Zertifikats, jedoch weder Zertifikatspfad noch Passwort;
-- schreibt Log und Receipt nur in den externen Evidence-Ordner;
+- erzeugt `psql` unter Windows mit `CreateProcessW(..., CREATE_SUSPENDED)` und
+  einer expliziten, nur stdin/stdout/stderr umfassenden Handle-Liste, weist den
+  noch suspendierten Root dem Kill-on-close-Job zu, beweist die Mitgliedschaft
+  und ruft erst danach `ResumeThread` auf; bei jedem Zuweisungsfehler wird der
+  noch nicht ausgeführte Root beendet und sein Ende nachgewiesen;
+- startet `psql` damit über eine explizite native Prozessgrenze, erfasst `stdout` und
+  `stderr` getrennt und wertet den nativen Exitcode unabhängig von
+  `$ErrorActionPreference` aus; für das Evidence-Log werden zuerst die
+  vollständigen `stdout`- und anschließend die vollständigen `stderr`-Zeilen
+  deterministisch zusammengeführt;
+- akzeptiert unter Windows keinen `.cmd`-/`.bat`-Wrapper als `psql`, sondern
+  verlangt einen direkt gestarteten nativen Prozess; dadurch entsteht keine
+  zweite `cmd.exe`-Parsing- oder Metazeichengrenze;
+- verwendet keine `PATH`-Discovery für `psql`, sondern bindet den explizit
+  freigegebenen absoluten Pfad an den freigegebenen SHA-256. Zusätzlich werden
+  sämtliche regulären Dateien im direkten Bundleverzeichnis ordinal sortiert
+  als `Dateiname<TAB>Bytezahl<TAB>SHA-256<LF>` kanonisiert und gegen den separat
+  freigegebenen Bundlehash geprüft. Aus den bereits geöffneten und gehashten
+  Bytes wird im owner-only Evidence-Laufordner ein neuer Ausführungssnapshot
+  aufgebaut, erneut vollständig gegen Executable- und Bundlehash geprüft und
+  danach so gehärtet, dass ein realer Dateierstellungsversuch des Runner-Tokens
+  unmittelbar vor Prozessstart mit `UnauthorizedAccessException` scheitern
+  muss.
+  Die Snapshotdateien bleiben während des Prozesses zusätzlich über Read-Handles
+  gegen Schreiben und Löschen gesperrt; ausschließlich aus diesem Snapshot wird
+  gestartet und dessen Verzeichnis steht als erster und einziger nicht zum
+  Betriebssystem gehörender Eintrag im Kindprozess-`PATH`. Diese Grenze schützt
+  nicht vor einem bösartigen Prozess unter derselben Windows-Identität: Der
+  Verzeichniseigentümer könnte die DACL erneut ändern und könnte ohnehin die
+  im Parentprozess gehaltenen Zugangsdaten untersuchen. Ein solcher
+  Same-Identity-Angreifer ist deshalb ausdrücklich nicht Teil dieses
+  Ausführungsmodells. Das v5-Receipt setzt
+  `psqlDependencySetBound=true`,
+  `psqlExecutionSnapshotWriteDeniedAtLaunch=true` und
+  `psqlExecutionSnapshotSameIdentityAdversaryExcluded=true`; außerdem nennt es
+  Bundlehash und Dateizahl;
+- führt keinen separaten `psql --version`-Prozess aus. Das v5-Receipt setzt
+  `psqlVersion=null` und `psqlVersionProbeAttempted=false`, statt eine
+  unzureichend geschützte Versionsprobe als Evidence auszugeben;
+- begrenzt den eigentlichen Preflight standardmäßig auf 75 Sekunden; der Wert
+  ist nur zwischen einer und 120 Sekunden konfigurierbar. Die gemeinsame
+  Hostdeadline beginnt vor `CreateProcessW` und umfasst damit auch den
+  asynchronen stdin-Write. Ein Kind, das stdin nicht liest, kann die Deadline
+  nicht umgehen. Es gibt keinen `taskkill`-Fallback;
+- terminiert nach Root-Ende oder Timeout den gesamten Job, prüft dessen aktive
+  Prozesszahl bis auf null, beweist das Root-Ende und schließt das Job-Handle
+  fehlergeprüft. Jeder Zuweisungs-, Terminierungs-, Leerstands-, Handle- oder
+  Streamfehler macht den Lauf fail-closed; erst danach werden Log und Receipt
+  abgeschlossen;
+- ersetzt im Speicher exakt den einen manifestgebundenen
+  `\ir verify-v57.62.0-trade-import.sql`-Include durch die ebenfalls
+  manifestgebundenen Verifierbytes, lehnt andere als die explizit erlaubten
+  `psql`-Metakommandos ab und übergibt die exakten zusammengesetzten Bytes über
+  stdin mit `-f -`; SHA-256 und Bytezahl dieser Nutzlast stehen im v5-Receipt;
+- gibt im selben `psql`-Prozess die bereits per `\gset` erhobenen Werte über
+  genau ein nachgeschaltetes `-c \echo` maschinenlesbar aus; es entsteht weder
+  eine zweite Datenbanksitzung noch ein zusätzlicher SQL-Aufruf;
+- protokolliert den absoluten freigegebenen `psql`-Quellpfad getrennt vom
+  tatsächlich ausgeführten absoluten Snapshotpfad und dessen relativem
+  Laufordnerpfad sowie Binär- und Bundle-SHA-256, Dateizahl, Prozessgrenze,
+  Verbindungstyp und erwarteten und tatsächlichen Root-Zertifikat-SHA-256,
+  jedoch weder
+  Zertifikatspfad noch Passwort;
+- wertet ausschließlich das intern gehaltene, unveränderte `stdout` aus und
+  redigiert vor jeder Persistenz das exakte Passwort, die vollständige
+  Connection-URL sowie Eingabe- und aufgelösten Zertifikatspfad aus beiden
+  Kindprozess-Ausgabekanälen; unterschiedliche gleich lange Secrets bleiben
+  eigenständige Redaktionswerte;
+- erzeugt je Lauf einen nicht vorhersagbaren owner-only geschützten Unterordner
+  im externen Evidence-Root und reserviert Log, temporäres Receipt und
+  Zertifikatskopie mit `CreateNew`; erst ein vollständig geschriebenes und auf
+  Datenträger geflushtes `receipt.pending` wird atomar in `receipt.json`
+  umbenannt. `receiptComplete=true` ist der Abschlussmarker;
 - führt ausschließlich den Preflight aus und setzt im Receipt
   `deploymentAttempted=false` sowie `activationAttempted=false`.
 
@@ -242,9 +338,17 @@ EQUORA_V5762_PREFLIGHT_EVIDENCE trades_count=<non-negative-int64> batches_count=
 Der Runner akzeptiert genau eine solche Zeile und genau eine Abschlusszeile. Er
 lehnt fehlende, doppelte, syntaktisch abweichende, negative oder übergroße
 Zähler sowie widersprüchliche `apply_required`-Werte fail-closed ab. Das Receipt
-mit Schema `equora-v57.62.0-production-preflight-receipt-v2` speichert
+mit Schema `equora-v57.62.0-production-preflight-receipt-v5` speichert
 `preflightApplyRequired`, `preflightTradesCount`, `preflightBatchesCount`,
-`preflightEvidenceValid` und etwaige `preflightEvidenceErrors`.
+`preflightEvidenceValid`, etwaige `preflightEvidenceErrors`, `psqlSha256`,
+`psqlBinding`, `psqlDependencySetBound=true`, `psqlBundleSha256`,
+`psqlBundleFileCount`, `executedSqlSha256`, `executedSqlBytes`, `logBytes`,
+`nativeProcessFailed`, `processCleanupVerified`, `receiptComplete` und die
+verwendete Prozessbaumgrenze.
+
+Evidence- und Abschlusszeile werden ausschließlich aus `stdout` ausgewertet.
+`stderr` bleibt vollständig redigierte Diagnose-Evidence im Log, kann aber
+weder Counts noch `apply_required` noch einen PASS autorisieren.
 
 Diese Ausgabe erfolgt ausschließlich durch die Runner-Orchestrierung. Die sieben
 SQL-Artefakte und ihre bestehende SHA-256-Manifestbindung bleiben bytegleich.
@@ -264,11 +368,23 @@ SQL-Artefakte und ihre bestehende SHA-256-Manifestbindung bleiben bytegleich.
 - vorhandene v57.61.0-Basistabellen und Importfunktion;
 - bei bereits vorhandenem v57.62.0-Marker exakter Fingerprint, vollständiger
   Verifier-PASS und Gate weiterhin `enabled=false`, `activated_at=null`;
-- im v2-Receipt protokollierte Trade- und Batch-Baselinecounts.
+- im v5-Receipt protokollierte Trade- und Batch-Baselinecounts sowie die
+  exakte stdin-SQL-Hashbindung.
 
 Jeder Fehler, Timeout, Hashunterschied, falsche Targetbindung, Teilzustand,
 unbekannte Migration, aktives Gate oder fehlende Evidence führt zu `NO_GO`.
 Danach keine automatische Wiederholung, keinen Deploy und keinen Restore starten.
+
+Eine Warn- oder Fehlerzeile auf `stderr` darf den Runner insbesondere unter
+Windows PowerShell 5.1 nicht vor der Log- und Receipt-Erzeugung abbrechen.
+`stderr` bei Exitcode `0` bleibt Evidence und kann bei ansonsten gültigem
+Preflight akzeptiert werden; ein von null verschiedener Exitcode bleibt immer
+`NO_GO`, wird aber mit Log, Hash und v5-Receipt nachvollziehbar abgeschlossen.
+Native Start-, Job-, Kill- oder Streamfehler werden ohne Kindprozess-Fehltext
+als `EQUORA_NATIVE_PROCESS_FAILURE`, Exitcode `-3` und fail-closed v5-Receipt
+abgeschlossen. Nach einer Timeout-Terminierung besitzen Prozessende und
+Streamschluss jeweils eine zusätzliche feste Obergrenze; die Prozessenden teilen
+sich dabei ein einziges Fünf-Sekunden-Budget.
 
 ## 8. Späterer Deploy-Stoppunkt
 
@@ -294,7 +410,19 @@ sql_manifest_sha256 = <64-hex>
 ssl_mode = verify-full
 ssl_root_certificate_sha256 = <64-hex>
 psql_path = <absolute-path>
-psql_version = <psql-version-output>
+psql_approved_source_path = <absolute-approved-source-path>
+psql_executed_snapshot_path = <absolute-executed-snapshot-path>
+psql_executed_snapshot_relative_path = psql-execution-snapshot/<filename>
+psql_sha256 = <64-hex>
+psql_binding = sha256-readonly-execution-snapshot-v3
+psql_bundle_sha256 = <64-hex>
+psql_bundle_file_count = <integer>
+psql_dependency_set_bound = true
+psql_execution_snapshot_write_denied_at_launch = true
+psql_execution_snapshot_same_identity_adversary_excluded = true
+psql_version_probe_attempted = false
+executed_sql_sha256 = <64-hex>
+executed_sql_bytes = <integer>
 operator = <name-or-role>
 observer = <name-or-role>
 maintenance_window_utc = <start/end>

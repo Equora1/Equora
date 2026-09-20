@@ -1,6 +1,6 @@
 # Equora v57.62.0 — Dateiimport-Release-Gate
 
-Stand: 2026-09-14
+Stand: 2026-09-19
 Status: **PR #14 GEMERGT / VERCEL-PRODUCTION GRÜN / HOSTED-SUPABASE-PREFLIGHT NOCH NICHT AUSGEFÜHRT**
 
 ## 1. Ziel und belastbarer Iststand
@@ -27,7 +27,7 @@ erneut gegen Supabase verifizierte Behauptung.
 Die Abschnitte 6 bis 22 bleiben unverändert als chronologische historische
 Snapshots erhalten. Ihre damaligen Stop- und NO-GO-Aussagen beschreiben den
 jeweiligen Zwischenstand und nicht den aktuellen Post-Merge-Zustand. Der
-aktuelle Status und die verbleibenden Gates stehen in Abschnitt 23.
+aktuelle Status und die verbleibenden Gates stehen in Abschnitt 27.
 
 ## 2. Gebundener Releasevertrag
 
@@ -1137,3 +1137,419 @@ ready_for_review_merge = not_authorized
 Dieser Block stoppt weiterhin vor Staging, Commit, Push, jeder Änderung an
 Draft-PR #15 und vor jedem Hosted-Supabase-, Production-, Broker-, Credential-,
 Cron-, Capture- oder Importzugriff.
+
+## 25. PowerShell-5.1-sichere native Preflight-Evidence
+
+Der Live-PR-Review des unveränderten Draft-PR-Heads
+`89b2ec1aaae31ed13df62ca8a4afa47d2cb554ae` bestätigte den vorherigen
+Baselinecount-Befund als geschlossen. A3 und A5 erteilten GO ohne offene P0–P2;
+A4 meldete jedoch einen neuen P2 im Windows-PowerShell-5.1-Ausführungspfad.
+
+Der Befund war reproduzierbar: Bei globalem `$ErrorActionPreference = 'Stop'`
+wandelte die direkte native Ausführung mit `2>&1` bereits eine gewöhnliche
+`stderr`-Zeile in eine terminierende `RemoteException` um. Der Runner verließ
+dadurch den Aufruf nach dem Environment-`finally`, aber vor Evidence-Log,
+Log-Hash, Parser und v2-Receipt. PowerShell 7 erfasste dieselbe Ausgabe dagegen
+wie vorgesehen. Die grüne Linux-CI konnte diese Windows-5.1-Semantik nicht
+abdecken.
+
+Der lokale Kandidat vom 2026-09-18 schließt ausschließlich diese
+Orchestrierungslücke:
+
+1. `psql --version` und der eigentliche Preflight laufen über
+   `System.Diagnostics.Process` mit deaktiviertem Shell-Execute;
+2. `stdout` und `stderr` werden asynchron und getrennt gelesen, anschließend
+   deterministisch in dieser Reihenfolge für das Evidence-Log gebunden;
+3. der native Exitcode wird direkt vom Kindprozess übernommen und nicht aus
+   `$LASTEXITCODE` oder PowerShell-Fehlerobjekten abgeleitet;
+4. ein synthetischer `stderr`-Hinweis mit Exitcode `0` muss in PowerShell 5.1
+   und 7 ein gültiges, hashgebundenes Receipt erzeugen;
+5. ein synthetischer `stderr`-Fehler mit Exitcode `17` muss in beiden
+   Laufzeiten fail-closed bleiben, zugleich aber Log, korrekten Log-Hash und
+   v2-Receipt erzeugen;
+6. Positiv- und sämtliche Negativszenarien prüfen Passwort- und
+   Zertifikatspfad-Nichtausgabe; zusätzlich ist der gültige
+   `apply_required=false`-Pfad verhaltensgebunden.
+
+Die sieben Production-SQL-Dateien und ihr Manifest bleiben bytegleich. Der
+lokale SQL-Manifest-SHA-256 lautet weiterhin
+`F9B2A60A0A64F5AE0722C2871F252245810831A72EB35BC33A2D1181598E37F2`.
+
+Auf dem ungestagten Kandidaten bestanden:
+
+- fokussiert `1` Vitest-Datei mit `50/50` Tests;
+- vollständig `38/38` Vitest-Dateien mit `806/806` Tests;
+- TypeScript `--noEmit`, Release-Check und Next.js-Production-Build;
+- `ValidateLocal` unter Windows PowerShell 5.1 und PowerShell 7, jeweils mit
+  `7/7` unveränderten SQL-Manifestpfaden und ohne Hosted-Supabase-Zugriff;
+- der gepinnte, netzwerkisolierte PostgreSQL-17.6-Harness einschließlich
+  Negativ-, Re-Deploy-, ACL-/RLS-, Persistenz- und Konkurrenzprüfungen sowie
+  anschließender Entfernung der disposable Testdatenbank.
+
+Der hierfür kurz gestartete vorhandene Testcontainer wurde anschließend wieder
+in seinen vorherigen gestoppten Zustand versetzt. Es erfolgte kein Hosted-
+Supabase-, Production-, Broker-, Credential-, Cron-, Capture- oder echter
+Importzugriff. Ein externer npm-Advisory-Audit ist kein Bestandteil dieses
+lokalen Blocks; Dependencydateien sind unverändert.
+
+Der erste unabhängige Review dieses Zwischenstands erteilte noch kein GO. A3
+fand einen unsicheren `.cmd`-/`.bat`-Fallback, A4 eine fehlende Host-Deadline
+und nicht technisch erzwungene Secret-Nichtausgabe, A5 zusätzlich eine
+unzulässige Evidence-Auswertung aus `stderr` sowie eine zu schwache Bindung der
+lokalen Gate-Claims. Die oben genannten Gate-Ergebnisse sind deshalb nur
+Evidence des verworfenen Zwischenstands und kein Stagingbeleg.
+
+Die reviewbedingte Folgekorrektur bleibt in denselben vier Repositorypfaden:
+
+1. Windows akzeptiert nur einen direkten nativen `psql`-Prozess; der Test baut
+   dafür zur Laufzeit einen lokalen nativen Shim statt eines `.cmd`-Wrappers;
+2. Versions- und Preflight-Prozess besitzen begrenzte Host-Deadlines; ein
+   synthetischer Hänger muss innerhalb einer zusätzlichen Test-Deadline mit
+   Exitcode `-2`, Log, Hash und Receipt enden;
+3. der Kindprozess erbt weder Connection-URL noch Zertifikat-Eingabepfad;
+   sein Parent-Environment wird vollständig durch eine kleine Betriebssystem-
+   Allowlist ersetzt und ausschließlich erforderliche `PG*`-Werte werden am
+   Kindprozess gesetzt; Poison-Proben für `PGSERVICEFILE`, `PGPASSFILE`,
+   `PGSSLKEY` und ein fachfremdes Secret müssen deren Abwesenheit bestätigen;
+4. Passwort, Connection-URL und Zertifikatspfad werden aus `stdout` und
+   `stderr` vor jeder Evidence-Verarbeitung redigiert; Positiv- und
+   Negativszenarien geben die Werte absichtlich aus und verlangen ausschließlich
+   `[REDACTED]` im Log;
+5. Evidence- und PASS-Records werden nur aus `stdout` akzeptiert; formal
+   gültige Records ausschließlich auf `stderr` müssen fail-closed bleiben;
+6. das endgültige externe Gate-Receipt muss den SHA-256 des finalen
+   Scope-Manifests sowie vorhandene Logdateien mit SHA-256, Exitcode und
+   Tool-/Laufzeitangaben binden. Zusammenfassende PASS-Claims ohne vorhandene
+   Logbindung sind unzulässig.
+
+Die erste Folge-Evidence wurde im Review erneut als unzureichend verworfen,
+weil mehrere gebundene Dateien nur verdichtete PASS-Zeilen statt vollständiger,
+kanalgetrennter Prozessausgaben enthielten. Der nächste Evidence-Satz muss daher
+für jedes Gate den vollständigen `stdout` und `stderr` speichern; leere Kanäle
+werden ausdrücklich als leer markiert. Zusammenfassungen bleiben nur additive
+Metadaten.
+
+Nach dieser Folgekorrektur sind sämtliche lokalen Gates, ein neues
+Vier-Pfade-Manifest, gebundene Gate-Logs und A3/A4/A5 auf exakt denselben Bytes
+erneut erforderlich. Die bisherigen Manifest-/Receipt-Hashes sind verworfen.
+
+```text
+snapshot = 2026-09-18_local_ps51_native_process_candidate
+base_head = 89b2ec1aaae31ed13df62ca8a4afa47d2cb554ae
+pr15 = open_draft_unchanged
+candidate_scope = four_unstaged_paths
+production_sql_manifest = unchanged_seven_of_seven
+local_gates = prior_intermediate_pass_final_rerun_required
+a3_a4_a5_candidate_review = prior_no_go_remediated_rereview_required
+production_preflight = not_executed
+production_deploy_default_off = not_authorized
+database_gate_activation = not_authorized
+restore = not_authorized
+broker_cron_capture_import = not_authorized
+ready_for_review_merge = not_authorized
+```
+
+Dieser Kandidat bleibt bis zu Scope-/Hash-/Secret-/Claim-Prüfung und drei
+unabhängigen A3/A4/A5-GO-Voten auf exakt denselben Bytes **NO-GO**. Der Block
+stoppt vor Staging, Commit, Push, Änderung an Draft-PR #15 und jedem externen
+oder produktiven Schreibzugriff.
+
+### Dritter Reviewzyklus: Binärbindung, Prozessbaum und Redaktionsvertrag
+
+Der vollständig loggebundene v3-Zwischenstand bestand die lokalen Gates, erhielt
+aber erneut kein gemeinsames Review-GO. A5 bestätigte Hash-, Evidence- und
+Claim-Bindung mit einem nicht blockierenden Zeitstempelhinweis. A3 und A4
+fanden vier offene P2-Sicherheitslücken:
+
+1. `psql` wurde noch über den ersten nativen `PATH`-Treffer ausgewählt und war
+   vor der Übergabe des Production-Passworts weder an einen freigegebenen
+   absoluten Pfad noch an einen Binär-SHA-256 gebunden;
+2. der Timeout beendete nur den direkten Prozess, nicht technisch erzwungen
+   dessen Descendants mit geerbten Ausgabekanälen;
+3. percent-dekodierte Credentials konnten Steuerzeichen enthalten und dadurch
+   die erst nach Zeilentrennung ausgeführte Redaktion umgehen;
+4. `Sort-Object -Property Length -Unique` entfernte unterschiedliche Secrets
+   gleicher Länge, sodass eines unredigiert bleiben konnte.
+
+Die begrenzte Folgekorrektur bleibt im bestehenden Vier-Pfade-Scope:
+
+- `ExecuteReadOnly` verlangt einen absoluten `PsqlExecutablePath` und einen
+  separat freigegebenen `ExpectedPsqlSha256`; Windows akzeptiert nur eine
+  direkte `.exe` ohne Reparse-/Symlink-Komponente. Pfad und Hash werden vor der
+  Versionsprobe und unmittelbar vor dem geheimnistragenden Lauf geprüft und im
+  v3-Receipt gebunden. Freie `PATH`-Discovery entfällt.
+- Der geheimnistragende Windows-Prozess wird einem Kill-on-close-Job-Object
+  zugewiesen. Wenn ein äußerer Host-Job keine Verschachtelung zulässt, beendet
+  ein umgebungsbereinigter `taskkill.exe /T /F`-Fallback den Timeout-Prozessbaum.
+  Timeout und normaler Elternprozessabschluss schließen die verfügbare Grenze,
+  beenden verbliebene Descendants und begrenzen anschließend Prozess- und
+  Streamabschluss. Native Orchestrierungsfehler erzeugen ein redigiertes
+  Fehlerlog und ein fail-closed Receipt statt eines Abbruchs vor
+  der Evidence-Erzeugung.
+- URL-Credentials mit C0-/DEL-Steuerzeichen werden nach dem Percent-Decoding
+  abgelehnt. Persistierte Ausgabe wird mit allen Secretwerten nach Länge
+  sortiert, aber nicht anhand der Länge dedupliziert.
+- Der Parser wertet ausschließlich intern gehaltenes unverändertes `stdout`
+  aus; ausschließlich persistierte beziehungsweise ausgegebene Inhalte werden
+  redigiert. Damit kann ein Secretwert wie `true` keinen gültigen Record mehr
+  vor der fachlichen Auswertung zerstören.
+- Regressionen binden Hash-Mismatch, relative Pfade, CR/LF-Credentials,
+  verschiedene gleich lange Secrets, Protokolltoken-Kollision und einen
+  tatsächlich hängenden Descendant unter Windows PowerShell 5.1 und
+  PowerShell 7.
+
+Diese Aussagen beschreiben den Remediationkandidaten, noch keine bestandenen
+Gates. Vor jeder Stagingentscheidung sind erneut fokussierter und vollständiger
+Testlauf, Typecheck, Release-Check, Build, beide PowerShell-Laufzeiten, der
+isolierte PostgreSQL-Harness, neue vollständige Raw-Logs, ein neues
+Vier-Pfade-Manifest und A3/A4/A5-GO auf exakt denselben Bytes erforderlich.
+Alle v3-Zwischenhashes sind verworfen.
+
+### Vierter Validierungszyklus: Descendant vor Root terminieren
+
+Der erste fokussierte Lauf des dritten Remediationkandidaten bestand 50 von 51
+Tests, scheiterte aber beim Entfernen seines temporären Harness-Verzeichnisses.
+Die read-only Prozessinventur bestätigte zwei verwaiste synthetische
+`fake-psql`-Nodeprozesse aus zwei vorherigen Läufen. Beide Prozesse gehörten
+eindeutig zu den lokalen `equora-preflight-execute-*`-Fixtures; sie wurden
+gezielt beendet und nur ihre beiden validierten temporären Verzeichnisse
+entfernt. Produkt-, Broker- oder Hosted-Supabase-Prozesse waren nicht betroffen.
+
+Der Befund war ein echtes P2 und kein Cleanup-Problem: Der Fallback beendete den
+Root-Prozess, bevor alle zuvor ermittelten Descendants nachweisbar geschlossen
+waren. Ein danach verwaister Prozess konnte nicht mehr zuverlässig über die
+Parent-Beziehung zugeordnet werden. Zusätzlich war `process.kill(pid, 0)` unter
+der lokalen Windows-Berechtigungsgrenze kein eindeutiger Abwesenheitsnachweis.
+
+Die begrenzte Korrektur ändert ausschließlich Runner, Regression und die beiden
+zugehörigen Dokumentationspfade:
+
+1. der Windows-Fallback ermittelt die Descendants bei noch vorhandenem Root,
+   beendet sie in umgekehrter Reihenfolge mit begrenztem `WaitForExit` und
+   terminiert erst danach den Root-Prozess;
+2. der Regressionstest prüft die tatsächliche Windows-Prozessliste über das
+   feste Systemprogramm `tasklist.exe` und akzeptiert keinen bloßen
+   Berechtigungsfehler mehr als Abwesenheitsbeleg;
+3. der Temp-Ordner wird weiterhin nur nach bestätigtem Prozessende entfernt.
+
+Nach der Korrektur bestand der fokussierte Lauf 51/51 Tests und hinterließ
+weder einen neuen `fake-psql`-Prozess noch sein temporäres Harness-Verzeichnis.
+Der anschließende Diagnose-Gatesatz bestand außerdem 38/38 Vitest-Dateien mit
+807/807 Tests, Typecheck, Release-Check, Next.js-Production-Build,
+`ValidateLocal` unter Windows PowerShell 5.1 und PowerShell 7 sowie den
+netzwerkisolierten PostgreSQL-17.6-Harness. Die disposable Testdatenbank wurde
+entfernt; der bereits vor dem Lauf laufende attestierte Container blieb
+`running`, `healthy` und `NetworkMode=none`.
+
+Weil diese Dokumentation danach präzisiert wurde, ist der Diagnose-Gatesatz
+kein finaler Stagingbeleg. Sämtliche Gates, vollständige Raw-Logs, Scope-
+Manifest und A3/A4/A5 müssen den nun endgültigen Vier-Pfade-Snapshot erneut
+binden. Bis dahin bleibt **NO-GO**; Staging, Commit, Push, PR-Änderungen sowie
+Hosted-Supabase-, Production-, Broker-, Credential-, Cron-, Capture- und echte
+Importaktionen bleiben außerhalb dieses Blocks.
+
+## 26. Fünfter Reviewzyklus und stdin-/Handle-Remediation vom 2026-09-19
+
+Der vierte Kandidat wurde nach vollständigen lokalen Gates unter dem externen
+Evidence-Manifest
+`7D7C43F2F3816D3A79FC4B98C97848C87DE5F2E67D3EA24BBA91516D001DE65C`
+unabhängig geprüft. A5 erteilte im eigenen Claim-/Scope-Umfang GO; A3 und A4
+erteilten NO-GO. Damit ist dieses Manifest verworfen und kein Stagingbeleg.
+
+Die blockierenden Befunde betrafen insbesondere:
+
+1. einen noch unsicheren Timeout-/Fallbackpfad und zu schwache
+   Prozessabwesenheitsassertionen;
+2. das erneute Öffnen bereits gehashter SQL-, Zertifikats- und
+   `psql`-Pfade zwischen Prüfung und tatsächlicher Nutzung;
+3. vorhersagbare beziehungsweise nicht exklusiv reservierte Evidence-Dateien;
+4. eine zusätzliche, nicht hinreichend gebundene `psql --version`-Ausführung.
+
+Der fünfte lokale Kandidat bleibt auf denselben vier ungestagten Pfaden und
+setzt die Remediation wie folgt um:
+
+- Die normalisierten manifestgebundenen Preflight- und Verifierbytes werden im
+  Speicher zu genau einer Nutzlast zusammengesetzt. Andere als die explizit
+  erlaubten `psql`-Metakommandos sind unzulässig. Die exakten Bytes werden über
+  stdin mit `-f -` übertragen und im v4-Receipt durch SHA-256 und Bytezahl
+  gebunden; ein SQL-Pfad wird nach der Prüfung nicht erneut geöffnet.
+- Das freigegebene native `psql` wird über einen offenen Read-Handle gehasht und
+  bis zum Lauf gegen Schreiben und Löschen gehalten. Der Receipt begrenzt den
+  Claim ausdrücklich mit `psqlDependencySetBound=false`; transitive DLLs und
+  weitere Laufzeitabhängigkeiten sind nicht kryptografisch gebunden.
+- Das Root-Zertifikat wird einmal gelesen und gehasht. Aus denselben Bytes
+  entsteht innerhalb des owner-only geschützten Evidence-Laufordners eine
+  temporäre `CreateNew`-Kopie, die während des Prozesses offen bleibt und danach
+  entfernt wird.
+- Jeder Lauf erhält einen GUID-basierten owner-only Evidence-Unterordner. Log,
+  Receipt und Zertifikatskopie werden mit `CreateNew` reserviert; vorhandene
+  Dateien werden nicht überschrieben.
+- Der separate Versionsprobeprozess entfällt. Das v4-Receipt dokumentiert
+  `psqlVersion=null` und `psqlVersionProbeAttempted=false`.
+- Unter Windows muss die Kill-on-close-Job-Zuweisung gelingen, bevor SQL-Bytes
+  geschrieben werden. Es gibt keinen `taskkill`-Fallback. Beim Timeout werden
+  Descendants bei noch vorhandenem Root ermittelt, über offene Prozesshandles
+  gegen PID-Wiederverwendung gebunden, nach Schließen des Jobs zusammen mit dem
+  Root nötigenfalls beendet und innerhalb eines gemeinsamen Fünf-Sekunden-
+  Budgets auf Ende geprüft.
+- Der Regressionstest verlangt vollständigen `tasklist.exe /NH /FO CSV`-
+  Erfolg, leeres `stderr`, keinen Signalabbruch und die Abwesenheit sowohl des
+  synthetischen Roots als auch seines Kindes. Er bindet zusätzlich stdin-Hash,
+  stdin-Bytezahl, Zertifikatskopie, `CreateNew`-Evidence und das v4-Schema.
+
+Der fokussierte Vertrag bestand nach dieser Korrektur unter Windows PowerShell
+5.1 und PowerShell 7 mit **51/51 Tests**. Dieser Lauf ist noch kein finaler
+Stagingbeleg. Vollständige Vitest-Suite, Typecheck, Release-Check,
+Production-Build, beide `ValidateLocal`-Runtimes, der netzwerkisolierte
+PostgreSQL-17.6-Harness, vollständige Raw-Logs, neues Vier-Pfade-Manifest sowie
+neue unabhängige A3/A4/A5-Voten müssen exakt denselben finalen Snapshot binden.
+
+Das verbleibende Prozessmodell ist im Review ausdrücklich zu bewerten:
+`System.Diagnostics.Process.Start()` erzeugt den Root vor der Job-Zuweisung.
+Der Runner übergibt bis zur erfolgreichen Zuweisung keine SQL-Bytes und beendet
+den Root bei Zuweisungsfehler fail-closed; ein vollständig suspendierter
+`CreateProcess`-Start ist jedoch nicht implementiert. Ebenso ist nur die
+`psql`-Hauptdatei, nicht ihr gesamter Dependencysatz, hashgebunden. Diese
+Begrenzungen dürfen weder im Receipt noch in einer Freigabe überbehauptet werden.
+
+Bis zu drei unabhängigen GO-Voten ohne offene P0–P2 bleibt der Kandidat
+**NO-GO**. Es erfolgten weder Staging, Commit, Push oder PR-Änderung noch ein
+Hosted-Supabase-, Production-, Broker-, Credential-, Cron-, Capture- oder echter
+Importzugriff.
+
+## 27. Sechster Reviewzyklus und suspendierte Prozessgrenze vom 2026-09-19
+
+Der unveränderte fünfte Kandidat wurde als Vier-Pfade-Snapshot unter Manifest
+`1B59B97BDB13B76B9DD887BCE17AAA0E9930DE584539AE3D657CE32453DB0EF0`
+geprüft. A5 erteilte GO ohne offene P0–P2-Befunde. A3 und A4 erteilten dagegen
+NO-GO. Blockierend waren ein vor der Job-Zuweisung bereits laufender,
+credentialtragender Prozess, eine erst nach synchronem stdin-Write beginnende
+Hostdeadline, nicht verbindlich nachgewiesenes Cleanup und ein nicht gegen einen
+separat freigegebenen Sollwert geprüfter TLS-Root-Trust-Anker. Das Manifest ist
+damit verworfen und kein Stagingbeleg.
+
+Der sechste lokale Kandidat bleibt auf denselben vier ungestagten Pfaden und
+schließt diese Fehlergrenzen wie folgt:
+
+- Unter Windows erzeugt `CreateProcessW(..., CREATE_SUSPENDED)` den nativen
+  Root mit einer expliziten stdin/stdout/stderr-Handle-Liste. Der Root wird dem
+  vorkonfigurierten Kill-on-close-Job zugewiesen und seine Mitgliedschaft wird
+  geprüft, bevor `ResumeThread` erstmals Zielcode ausführen lässt.
+- Die gemeinsame Deadline beginnt vor der Prozesserzeugung. stdin wird auf
+  einem eigenen Worker geschrieben; ein Prozess, der stdin nicht liest, wird
+  mitsamt seinem Prozessbaum nach Ablauf der Deadline beendet.
+- Nach Root-Ende oder Timeout wird der Job vollständig terminiert, auf null
+  aktive Prozesse geprüft, das Root-Ende nachgewiesen und das Job-Handle
+  fehlergeprüft geschlossen. Zuweisungs- und Cleanupfehler führen fail-closed zu
+  `nativeProcessFailed=true`.
+- Der Root-Zertifikat-Snapshot wird vor Prozessstart exakt gegen
+  `ExpectedSslRootCertificateSha256` geprüft. Das v5-Receipt bindet erwarteten
+  und tatsächlichen Hash.
+- Alle regulären Dateien des direkten `psql`-Bundleverzeichnisses werden in
+  einem kanonischen Manifest gehasht und gegen `ExpectedPsqlBundleSha256`
+  geprüft. Ihre Read-Handles bleiben bis nach dem Lauf offen; der Kindprozess-
+  `PATH` ist auf dieses Bundle, `System32` und den Windows-Ordner begrenzt.
+- Das Receipt wird nicht mehr vor Prozessstart unter seinem endgültigen Namen
+  angelegt. Erst vollständig geschriebene und geflushte Bytes werden als
+  `receipt.pending` exklusiv reserviert und atomar nach `receipt.json`
+  verschoben; `receiptComplete=true` markiert den Abschluss.
+
+Vor der abschließenden Dokument-Synchronisierung bestanden der fokussierte
+Vertrag mit **51/51 Tests**, die vollständige Suite mit **807/807 Tests**,
+Typecheck, Release-Check, Production-Build, beide `ValidateLocal`-Runtimes und
+der gepinnte netzwerkisolierte PostgreSQL-17.6-Harness. Der Harness entfernte
+seine disposable Datenbank und stellte den zuvor gestoppten Containerzustand
+`exited` wieder her. Diese Vorprüfung bindet wegen der anschließenden Aufnahme
+dieses Abschnitts ausdrücklich noch nicht die finalen Dokumentbytes.
+
+Als Staginggrundlage gilt ausschließlich eine nach dieser Dokument-
+Synchronisierung erzeugte v7-Evidence mit exakt vier Pfadhashes, vollständigen
+Raw-Logs, reproduzierbar gebundenem Secret-Scan und drei unabhängigen GO-Voten
+ohne offene P0–P2. Bis dahin bleibt der Kandidat **NO-GO**. Staging, Commit,
+Push, PR-Änderungen sowie Hosted-Supabase-, Production-, Broker-, Credential-,
+Cron-, Capture- und echte Importaktionen bleiben außerhalb dieses Blocks.
+
+## 28. Siebter Reviewzyklus und gebundener Ausführungssnapshot vom 2026-09-20
+
+Die v7-Evidence des sechsten Kandidaten wurde auf identischen Anfangs- und
+Endhashes unabhängig geprüft. A5 erteilte GO ohne offene P0–P3-Befunde. A3 und
+A4 erteilten NO-GO. Blockierend waren insbesondere ein nicht gegen spätere
+Dateierstellung geschütztes `psql`-Bundleverzeichnis, ein doppelter ambienter
+und eingeschränkter Kindprozess-`PATH` sowie der nicht vollständig geprüfte
+Terminationserfolg des noch suspendierten Roots. A4 bewertete die ersten beiden
+Befunde als P1. Dieses v7-Manifest ist damit verworfen und kein Stagingbeleg.
+
+Der siebte lokale Kandidat bleibt auf denselben vier ungestagten Pfaden und
+setzt die konsolidierte Remediation wie folgt um:
+
+- Der Windows-Environmentblock wird aus einem case-insensitiven Dictionary
+  gebildet. `PATH` wird nicht mehr aus dem Parent übernommen, jeder Variablenname
+  kommt höchstens einmal vor und der Fake-Prozess bestätigt den exakten
+  dreiteiligen eingeschränkten Suchpfad.
+- Ein Zuweisungsfehler prüft sowohl `TerminateProcess` als auch das exakte
+  `WAIT_OBJECT_0`. Die bereits von `CreateProcessW` gelieferte Root-PID wird in
+  der fail-closed Diagnose gebunden; die Regression weist anschließend genau
+  diese PID als abwesend nach.
+- Aus den bereits geöffneten und gehashten Quell-Bundlebytes entsteht im
+  owner-only Laufordner ein neuer Snapshot. Dieser wird erneut gegen
+  Executable- und Bundlehash geprüft, gegen weitere Dateierstellung gehärtet
+  und während der Ausführung zusätzlich über Read-Leases gehalten. `psql`
+  startet ausschließlich aus diesem Snapshot. Eine Regression legt nach der
+  Quellinventur eine zusätzliche `late-added.dll` an und beweist, dass sie nicht
+  im gestarteten Snapshot vorhanden ist.
+- `ExecuteReadOnly` ist technisch auf das geprüfte Windows-Profil begrenzt und
+  bricht auf anderen Plattformen vor Credentialverarbeitung und Prozessstart
+  ab.
+- Die Close-Fault-Injection greift nun innerhalb der geprüften Close-Grenze vor
+  dem nativen Handleabschluss; das Handle bleibt für den äußeren Cleanup erhalten.
+- Die drei veralteten Runbook-Verweise wurden von v4 auf das aktuelle
+  v5-Receipt korrigiert.
+
+Der fokussierte Vertrag bestand nach diesen Änderungen mit **51/51 Tests**. Das
+ist noch kein finaler Stagingbeleg. Erforderlich bleiben die vollständige lokale
+Gatematrix, neue Raw-Logs, neue Evidence-/Manifesthashes und ein gemeinsamer
+A3/A4/A5-Re-Review exakt dieses neuen Vier-Pfade-Snapshots. Bis dahin bleibt der
+Kandidat **NO-GO**; Staging, Commit, Push, PR-Änderungen sowie Hosted-Supabase-,
+Production-, Broker-, Credential-, Cron-, Capture- und echte Importaktionen
+bleiben außerhalb dieses Blocks.
+
+## 29. Achter Reviewzyklus und begrenzte v9-Remediation vom 2026-09-20
+
+Der unveränderte siebte Kandidat wurde unter Manifest
+`19EB2477D500828C6CE512EA3C7554DE6A2FEC51D83B1AC8A263BED4343EECF9`
+und Receipt
+`98AABF4E435359390E784F0B4C36B336719F9DF18258190509012BC8439263E5`
+unabhängig geprüft. A5 erteilte GO. A3 und A4 erteilten NO-GO; damit ist die
+v8-Evidence verworfen und kein Stagingbeleg.
+
+Die begrenzte v9-Remediation bleibt auf denselben vier ungestagten Pfaden und
+adressiert die Befunde wie folgt:
+
+- Der umfangreiche erfolgreiche `ExecuteReadOnly`-Regressionstest läuft nur
+  noch auf Windows. Ein eigener Nicht-Windows-Test verlangt den frühen
+  fail-closed Abbruch vor Evidence-Erzeugung und bildet damit den Linux-CI-
+  Vertrag explizit ab.
+- Die Snapshot-DACL wird nicht mehr als allgemeiner Schutz vor Manipulation
+  bezeichnet. Das Receipt belegt ausschließlich den unmittelbar vor
+  Prozessstart gescheiterten Schreibversuch. Ein bösartiger Prozess unter
+  derselben Windows-Identität ist ausdrücklich aus dem Threat Model
+  ausgeschlossen, weil diese Identität die DACL erneut ändern und bereits die
+  im Parentprozess gehaltenen Zugangsdaten untersuchen könnte.
+- Das Receipt trennt den freigegebenen `psql`-Quellpfad vom tatsächlich
+  ausgeführten Snapshotpfad und dessen relativem Laufordnerpfad. Die
+  Evidence-Vorlage verwendet die aktuelle Bindung
+  `sha256-readonly-execution-snapshot-v3` und dokumentiert die begrenzte
+  Schutzbehauptung.
+- Die Close-Fault-Injection simuliert nun einen nativen `CloseHandle=false`-
+  Rückgabewert innerhalb der geprüften Grenze; Best-Effort-Cleanup versucht
+  einen fehlgeschlagenen Handleabschluss erneut.
+- Job- und Root-Ende teilen sich auch in der Implementierung ein einziges
+  Fünf-Sekunden-Cleanupbudget.
+
+Diese Korrekturen sind erst dann eine Staginggrundlage, wenn die vollständige
+lokale Gatematrix, neue Raw-Logs, neue Evidence-/Manifesthashes und drei
+unabhängige A3/A4/A5-GO-Voten ohne offene P0-P2 exakt denselben finalen
+Vier-Pfade-Snapshot binden. Bis dahin bleibt der Kandidat **NO-GO**. Staging,
+Commit, Push, PR-Änderungen sowie Hosted-Supabase-, Production-, Broker-,
+Credential-, Cron-, Capture- und echte Importaktionen bleiben außerhalb dieses
+Blocks.
