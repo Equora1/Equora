@@ -1,6 +1,18 @@
-import { readFileSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdtempSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { createHash } from "node:crypto";
-import { resolve } from "node:path";
+import { spawnSync } from "node:child_process";
+import { tmpdir } from "node:os";
+import { dirname, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   BROKER_FILE_IMPORT_CAPABILITY_CONTRACT_VERSION,
@@ -12,6 +24,71 @@ import { csvImportPresets } from "../lib/utils/trade-import";
 const root = process.cwd();
 const source = (path: string) =>
   readFileSync(resolve(root, path), "utf8");
+const powershellExecutables =
+  process.platform === "win32"
+    ? ["powershell.exe", "pwsh.exe"]
+    : ["pwsh"];
+const normalizePowerShellDiagnostic = (output: string) =>
+  output
+    .replace(/\u001B\[[0-?]*[ -/]*[@-~]/gu, "")
+    .replace(/\s+\|\s+/gu, " ")
+    .replace(/\s+/gu, " ")
+    .trim();
+const windowsUnsafePathAliases = (target: string, shortNameAlias: string) => {
+  if (process.platform !== "win32") {
+    return [];
+  }
+  const driveMatch = /^([A-Za-z]):[\\/](.*)$/u.exec(target);
+  if (!driveMatch) {
+    throw new Error("Expected a drive-qualified Windows test path.");
+  }
+  return [
+    "\\\\?\\" + target,
+    "\\\\.\\" + target,
+    "\\??\\" + target,
+    "\\\\localhost\\" + driveMatch[1] + "$\\" + driveMatch[2],
+    shortNameAlias,
+  ];
+};
+const invokeRunnerFunction = (
+  shell: string,
+  functionName: string,
+  parameters: Record<string, string>,
+) => {
+  const harness = [
+    "$tokens = $null",
+    "$errors = $null",
+    "$runnerPath = $env:EQUORA_TEST_RUNNER",
+    "$functionName = $env:EQUORA_TEST_FUNCTION",
+    "$script:RepositoryRoot = $env:EQUORA_TEST_REPOSITORY_ROOT",
+    "$ast = [System.Management.Automation.Language.Parser]::ParseFile($runnerPath, [ref]$tokens, [ref]$errors)",
+    "if ($errors.Count -ne 0) { throw 'Runner parse failed' }",
+    "foreach ($requiredFunction in @('Test-FullyQualifiedPath', 'Get-Sha256Hex', 'Get-Sha256HexFromStream', 'Get-WindowsDosDeviceTarget', 'Assert-TrustedWindowsDriveDescriptor', 'Assert-TrustedWindowsDrive', 'Resolve-TrustedPsqlExecutable', $functionName) | Select-Object -Unique) { $functionAst = $ast.Find({ param($node) $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $requiredFunction }, $true); if ($null -eq $functionAst) { throw ('Runner function not found: ' + $requiredFunction) }; Invoke-Expression $functionAst.Extent.Text }",
+    "$parameterObject = $env:EQUORA_TEST_PARAMETERS | ConvertFrom-Json",
+    "$functionParameters = @{}",
+    "$parameterObject.PSObject.Properties | ForEach-Object { $functionParameters[$_.Name] = [string]$_.Value }",
+    "try { & $functionName @functionParameters | ConvertTo-Json -Compress -Depth 5; exit 0 } catch { [Console]::Error.WriteLine($_.Exception.Message); exit 1 }",
+  ].join("; ");
+
+  return spawnSync(
+    shell,
+    ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", harness],
+    {
+      cwd: root,
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        EQUORA_TEST_RUNNER: resolve(
+          root,
+          "scripts/run-v57.62.0-production-preflight.ps1",
+        ),
+        EQUORA_TEST_FUNCTION: functionName,
+        EQUORA_TEST_PARAMETERS: JSON.stringify(parameters),
+        EQUORA_TEST_REPOSITORY_ROOT: root,
+      },
+    },
+  );
+};
 
 describe("trade import hardening release package", () => {
   const sqlPath =
@@ -26,6 +103,23 @@ describe("trade import hardening release package", () => {
   const releaseGate = source(
     "docs/gates/EQUORA_v57.62.0_FILE_IMPORT_RELEASE_GATE.md",
   );
+  const productionPreflightRunbook = source(
+    "docs/gates/EQUORA_v57.62.0_PRODUCTION_PREFLIGHT_RUNBOOK.md",
+  );
+  const productionPreflightRunner = source(
+    "scripts/run-v57.62.0-production-preflight.ps1",
+  );
+  const ciWorkflow = source(".github/workflows/ci.yml");
+  const productionSqlManifest = JSON.parse(
+    source("docs/gates/EQUORA_v57.62.0_PRODUCTION_SQL_MANIFEST.json"),
+  ) as {
+    schema: string;
+    sourceCommit: string;
+    sourceTree: string;
+    algorithm: string;
+    fileCount: number;
+    files: Array<{ path: string; normalizedBytes: number; sha256: string }>;
+  };
   const action = source("app/actions/trade-import.ts");
   const panel = source("components/trades/trade-import-panel.tsx");
   const share = source("app/actions/shared-trades.ts");
@@ -179,7 +273,7 @@ describe("trade import hardening release package", () => {
       releaseGate.indexOf("## 8. Lokaler PostgreSQL-Abschluss"),
     );
     expect(releaseGate).toContain(
-      "Status: **DRAFT-PR-REMEDIATION / NO-GO für Staging, Push, PR-Änderung oder Merge**",
+      "Status: **PR #14 GEMERGT / VERCEL-PRODUCTION GRÜN / HOSTED-SUPABASE-PREFLIGHT NOCH NICHT AUSGEFÜHRT**",
     );
     expect(historicalEvidence).toContain("Fokussierte statische Verträge: **PASS, 42/42**");
     expect(historicalEvidence).toContain("777/777 Tests");
@@ -197,6 +291,1795 @@ describe("trade import hardening release package", () => {
     );
     expect(releaseGate).not.toContain("produktiver Dateiimport ist aktiviert");
   });
+
+  it("prepares a hash-bound read-only production preflight without authorizing deployment", () => {
+    expect(productionSqlManifest.schema).toBe(
+      "equora-v57.62.0-production-sql-manifest-v1",
+    );
+    expect(productionSqlManifest.fileCount).toBe(7);
+    expect(productionSqlManifest.files).toHaveLength(7);
+    expect(productionSqlManifest.sourceCommit).toBe(
+      "889a145e3443e52e5298ae945f53e3a8f44dc50b",
+    );
+    expect(productionSqlManifest.sourceTree).toBe(
+      "0868907cd1fb05abdd9072541f6b24f05bff3196",
+    );
+    expect(productionSqlManifest.algorithm).toBe(
+      "SHA-256 over file bytes after replacing CRLF with LF; lone CR and all other bytes are preserved",
+    );
+    expect(
+      productionSqlManifest.files.map(({ path }) => path).sort(),
+    ).toEqual(
+      [
+        "supabase/activate-v57.62.0-trade-import.sql",
+        "supabase/deactivate-v57.62.0-trade-import.sql",
+        "supabase/deploy-v57.62.0-trade-import.sql",
+        "supabase/postflight-v57.62.0-trade-import.sql",
+        "supabase/preflight-v57.62.0-trade-import.sql",
+        "supabase/schema-patch-v57.62.0-trade-import-hardening.sql",
+        "supabase/verify-v57.62.0-trade-import.sql",
+      ].sort(),
+    );
+
+    for (const entry of productionSqlManifest.files) {
+      const normalizedSource = source(entry.path).replace(/\r\n/gu, "\n");
+      expect(Buffer.byteLength(normalizedSource, "utf8")).toBe(
+        entry.normalizedBytes,
+      );
+      expect(
+        createHash("sha256").update(normalizedSource, "utf8").digest("hex"),
+      ).toBe(entry.sha256.toLowerCase());
+    }
+
+    expect(productionPreflightRunner).toContain(
+      "[ValidateSet('ValidateLocal', 'ExecuteReadOnly')]",
+    );
+    expect(productionPreflightRunner).toContain(
+      "EQUORA_SUPABASE_DATABASE_URL",
+    );
+    expect(productionPreflightRunner).toContain(
+      "EQUORA_SUPABASE_SSL_ROOT_CERT",
+    );
+    expect(productionPreflightRunner).toContain(
+      "ExpectedDatabaseHost",
+    );
+    expect(productionPreflightRunner).toContain(
+      "sslmode=verify-full",
+    );
+    expect(productionPreflightRunner).toContain(
+      "PGSSLROOTCERT",
+    );
+    expect(productionPreflightRunner).toContain(
+      "psqlPath = $psqlExecutionSnapshot.path",
+    );
+    expect(productionPreflightRunner).toContain(
+      "psqlApprovedSourcePath = $psqlExecutable.path",
+    );
+    expect(productionPreflightRunner).toContain(
+      "psqlExecutedSnapshotPath = $psqlExecutionSnapshot.path",
+    );
+    expect(productionPreflightRunner).toContain(
+      "psqlSha256 = $psqlExecutable.sha256",
+    );
+    expect(productionPreflightRunner).toContain(
+      "psqlExecutionSnapshotWriteDeniedAtLaunch = $true",
+    );
+    expect(productionPreflightRunner).toContain(
+      "psqlExecutionSnapshotSameIdentityAdversaryExcluded = $true",
+    );
+    expect(productionPreflightRunner).toContain(
+      "ExpectedPsqlSha256",
+    );
+    expect(productionPreflightRunner).toContain(
+      "ExpectedPsqlBundleSha256",
+    );
+    expect(productionPreflightRunner).toContain(
+      "ExpectedSslRootCertificateSha256",
+    );
+    expect(productionPreflightRunner).not.toContain(
+      "Get-Command psql",
+    );
+    expect(productionPreflightRunner).toContain(
+      "psqlVersion = $psqlVersion",
+    );
+    expect(productionPreflightRunner).toContain(
+      "equora-v57.62.0-production-preflight-receipt-v5",
+    );
+    expect(productionPreflightRunner).toContain(
+      "Resolve-PreflightEvidence -OutputLines $evidenceOutputLines",
+    );
+    expect(productionPreflightRunner).toContain(
+      "preflightApplyRequired = $preflightEvidence.applyRequired",
+    );
+    expect(productionPreflightRunner).toContain(
+      "preflightTradesCount = $preflightEvidence.tradesCount",
+    );
+    expect(productionPreflightRunner).toContain(
+      "preflightBatchesCount = $preflightEvidence.batchesCount",
+    );
+    expect(productionPreflightRunner).toContain(
+      "default_transaction_read_only=on",
+    );
+    expect(productionPreflightRunner).toContain(
+      "EvidenceDirectory must be outside the repository",
+    );
+    expect(productionPreflightRunner).toContain(
+      "$manifestRepositoryPrefix",
+    );
+    expect(productionPreflightRunner).toContain(
+      "[IO.Path]::DirectorySeparatorChar",
+    );
+    expect(productionPreflightRunner).not.toContain(
+      "$script:RepositoryRoot.TrimEnd('\\') + '\\'",
+    );
+    expect(productionPreflightRunner).toContain(
+      "deploymentAttempted = $false",
+    );
+    expect(productionPreflightRunner).toContain(
+      "activationAttempted = $false",
+    );
+    expect(productionPreflightRunner).toContain(
+      "$script:PreflightRelativePath = 'supabase/preflight-v57.62.0-trade-import.sql'",
+    );
+    expect(
+      productionPreflightRunner.match(/'-f', '-'/gu),
+    ).toHaveLength(1);
+    expect(productionPreflightRunner).toContain(
+      "-StandardInputBytes $preflightExecutionBytes",
+    );
+    expect(
+      productionPreflightRunner.match(/'-c', \$preflightEvidenceCommand/gu),
+    ).toHaveLength(1);
+    expect(productionPreflightRunner).not.toMatch(
+      /'-f'\s+.*(?:deploy|activate|deactivate)-v57\.62\.0/gu,
+    );
+
+    expect(productionPreflightRunbook).toContain("GO_PREFLIGHT_READ_ONLY");
+    expect(productionPreflightRunbook).toContain(
+      "equora-v57.62.0-production-preflight-receipt-v5",
+    );
+    expect(productionPreflightRunbook).toContain(
+      "EQUORA_V5762_PREFLIGHT_EVIDENCE",
+    );
+    expect(productionPreflightRunbook).toContain("GO_DEPLOY_DEFAULT_OFF");
+    expect(productionPreflightRunbook).toContain(
+      "Datenbankbackups enthalten nur Storage-",
+    );
+    expect(productionPreflightRunbook).toContain(
+      "Ein Plattform-Restore ist die letzte Maßnahme",
+    );
+    expect(productionPreflightRunbook).toContain(
+      "HOSTED-SUPABASE-PREFLIGHT NICHT AUSGEFÜHRT",
+    );
+    expect(releaseGate).toContain(
+      "production_preflight = not_executed",
+    );
+    expect(releaseGate).toContain(
+      "database_gate_activation = not_authorized",
+    );
+  });
+
+  it("fetches the exact main baseline before the release test suite", () => {
+    const fetchStep = "- name: Fetch main baseline";
+    const fetchCommand =
+      "git fetch --no-tags --depth=1 origin +refs/heads/main:refs/remotes/origin/main";
+    const testStep = "- name: Run test suite";
+
+    expect(ciWorkflow).toContain("persist-credentials: false");
+    expect(ciWorkflow).toContain(fetchStep);
+    expect(ciWorkflow).toContain(fetchCommand);
+    expect(ciWorkflow.indexOf(fetchStep)).toBeLessThan(
+      ciWorkflow.indexOf(testStep),
+    );
+    expect(ciWorkflow).not.toContain("fetch-depth: 0");
+  });
+
+  it(
+    "accepts only exact direct and shared session-pooler production targets",
+    () => {
+      const projectRef = "rrkfdprhqilvicjbgfcn";
+      const directHost = `db.${projectRef}.supabase.co`;
+      const poolerHost = "aws-0-eu-central-1.pooler.supabase.com";
+      const syntheticPassword = ["synthetic", "test", "password"].join("-");
+      const connectionUrl = (
+        user: string,
+        host: string,
+        port = 5432,
+        database = "postgres",
+      ) =>
+        [
+          "postgresql://",
+          user,
+          ":",
+          syntheticPassword,
+          "@",
+          host,
+          ":",
+          String(port),
+          "/",
+          database,
+        ].join("");
+      const validate = (
+        shell: string,
+        candidateUrl: string,
+        expectedDatabaseHost: string,
+      ) =>
+        invokeRunnerFunction(shell, "Resolve-ProductionConnectionTarget", {
+          ConnectionUrl: candidateUrl,
+          ExpectedProjectRef: projectRef,
+          ExpectedDatabaseHost: expectedDatabaseHost,
+        });
+
+      const rejectedTargets = [
+        [
+          connectionUrl("postgres", "db.otherprojectref1234.supabase.co"),
+          directHost,
+          "Database URL host does not match ExpectedDatabaseHost",
+        ],
+        [
+          connectionUrl(`postgres.${projectRef}`, "arbitrary.supabase.com"),
+          "arbitrary.supabase.com",
+          "not an accepted direct or shared session-pooler identity",
+        ],
+        [
+          connectionUrl(
+            `postgres.${projectRef}`,
+            "db.otherprojectref1234.supabase.co",
+          ),
+          "db.otherprojectref1234.supabase.co",
+          "not an accepted direct or shared session-pooler identity",
+        ],
+        [
+          connectionUrl(`postgres.${projectRef}`, poolerHost),
+          "aws-1-us-east-1.pooler.supabase.com",
+          "Database URL host does not match ExpectedDatabaseHost",
+        ],
+        [
+          connectionUrl(`postgres.${projectRef}`, directHost),
+          directHost,
+          "not an accepted direct or shared session-pooler identity",
+        ],
+        [
+          connectionUrl("postgres", directHost, 6543),
+          directHost,
+          "requires direct or shared session-pooler port 5432",
+        ],
+        [
+          connectionUrl("postgres", directHost, 5432, "other"),
+          directHost,
+          "requires database postgres",
+        ],
+        ...["first%0Asecond", "first%0Dsecond", "first%0D%0Asecond"].map(
+          (encodedPassword) =>
+            [
+              connectionUrl("postgres", directHost).replace(
+                syntheticPassword,
+                encodedPassword,
+              ),
+              directHost,
+              "credentials must not contain control characters",
+            ] as const,
+        ),
+      ] as const;
+
+      for (const shell of powershellExecutables) {
+        const direct = validate(
+          shell,
+          connectionUrl("postgres", directHost),
+          directHost,
+        );
+        expect(direct.status, `${shell}: ${direct.stderr}`).toBe(0);
+        expect(direct.stdout).toContain('"connectionType":"direct"');
+
+        const pooler = validate(
+          shell,
+          connectionUrl(`postgres.${projectRef}`, poolerHost),
+          poolerHost,
+        );
+        expect(pooler.status, `${shell}: ${pooler.stderr}`).toBe(0);
+        expect(pooler.stdout).toContain(
+          '"connectionType":"shared_session_pooler"',
+        );
+
+        for (const [
+          candidateUrl,
+          expectedDatabaseHost,
+          expectedError,
+        ] of rejectedTargets) {
+          const result = validate(
+            shell,
+            candidateUrl,
+            expectedDatabaseHost,
+          );
+          expect(result.status, shell).not.toBe(0);
+          expect(`${result.stdout}\n${result.stderr}`).toContain(expectedError);
+        }
+      }
+    },
+    45_000,
+  );
+
+  it(
+    "binds the native psql executable to an explicit absolute path and SHA-256",
+    () => {
+      const temporaryRoot = mkdtempSync(resolve(tmpdir(), "equora-psql-bind-"));
+      const executablePath = resolve(
+        temporaryRoot,
+        process.platform === "win32" ? "psql.exe" : "psql",
+      );
+      const executableBytes = Buffer.from("synthetic native psql bytes\n", "utf8");
+      writeFileSync(executablePath, executableBytes);
+      const expectedSha256 = createHash("sha256")
+        .update(executableBytes)
+        .digest("hex")
+        .toUpperCase();
+      const expectedBundleSha256 = createHash("sha256")
+        .update(
+          `${process.platform === "win32" ? "psql.exe" : "psql"}\t` +
+            `${executableBytes.length}\t${expectedSha256}\n`,
+          "utf8",
+        )
+        .digest("hex")
+        .toUpperCase();
+
+      try {
+        for (const shell of powershellExecutables) {
+          const accepted = invokeRunnerFunction(
+            shell,
+            "Resolve-TrustedPsqlExecutable",
+            { Path: executablePath, ExpectedSha256: expectedSha256 },
+          );
+          expect(accepted.status, `${shell}: ${accepted.stderr}`).toBe(0);
+          expect(accepted.stdout).toContain(expectedSha256);
+
+          const acceptedBundle = invokeRunnerFunction(
+            shell,
+            "Resolve-TrustedPsqlBundle",
+            {
+              Path: executablePath,
+              ExpectedExecutableSha256: expectedSha256,
+              ExpectedBundleSha256: expectedBundleSha256,
+            },
+          );
+          expect(acceptedBundle.status, `${shell}: ${acceptedBundle.stderr}`).toBe(
+            0,
+          );
+          expect(acceptedBundle.stdout).toContain(expectedBundleSha256);
+
+          const mismatchedBundle = invokeRunnerFunction(
+            shell,
+            "Resolve-TrustedPsqlBundle",
+            {
+              Path: executablePath,
+              ExpectedExecutableSha256: expectedSha256,
+              ExpectedBundleSha256: "0".repeat(64),
+            },
+          );
+          expect(mismatchedBundle.status, shell).not.toBe(0);
+          expect(`${mismatchedBundle.stdout}\n${mismatchedBundle.stderr}`).toContain(
+            "does not match ExpectedPsqlBundleSha256",
+          );
+
+          const mismatched = invokeRunnerFunction(
+            shell,
+            "Resolve-TrustedPsqlExecutable",
+            { Path: executablePath, ExpectedSha256: "0".repeat(64) },
+          );
+          expect(mismatched.status, shell).not.toBe(0);
+          expect(`${mismatched.stdout}\n${mismatched.stderr}`).toContain(
+            "does not match ExpectedPsqlSha256",
+          );
+
+          const relative = invokeRunnerFunction(
+            shell,
+            "Resolve-TrustedPsqlExecutable",
+            { Path: "psql.exe", ExpectedSha256: expectedSha256 },
+          );
+          expect(relative.status, shell).not.toBe(0);
+          expect(`${relative.stdout}\n${relative.stderr}`).toContain(
+            "fully qualified absolute path",
+          );
+        }
+      } finally {
+        rmSync(temporaryRoot, { recursive: true, force: true });
+      }
+    },
+    45_000,
+  );
+
+  it(
+    "rejects repository and linked evidence paths while allowing an external absolute path",
+    () => {
+      const runner = resolve(
+        root,
+        "scripts/run-v57.62.0-production-preflight.ps1",
+      );
+      const environment = { ...process.env };
+      delete environment.EQUORA_SUPABASE_DATABASE_URL;
+      delete environment.EQUORA_SUPABASE_SSL_ROOT_CERT;
+      const runValidation = (shell: string, evidenceDirectory: string) =>
+        spawnSync(
+          shell,
+          [
+            "-NoLogo",
+            "-NoProfile",
+            "-NonInteractive",
+            ...(process.platform === "win32"
+              ? ["-ExecutionPolicy", "Bypass"]
+              : []),
+            "-File",
+            runner,
+            "-Mode",
+            "ValidateLocal",
+            "-EvidenceDirectory",
+            evidenceDirectory,
+          ],
+          {
+            cwd: root,
+            encoding: "utf8",
+            env: environment,
+          },
+        );
+      const output = (result: ReturnType<typeof runValidation>) =>
+        `${result.stdout}\n${result.stderr}`;
+      const temporaryRoot = mkdtempSync(
+        resolve(tmpdir(), "equora-preflight-evidence-"),
+      );
+
+      try {
+        const repositoryLink = resolve(temporaryRoot, "repository-link");
+        symlinkSync(
+          root,
+          repositoryLink,
+          process.platform === "win32" ? "junction" : "dir",
+        );
+
+        for (const shell of powershellExecutables) {
+          const relative = runValidation(shell, "relative-evidence");
+          expect(relative.status, shell).not.toBe(0);
+          expect(output(relative)).toContain("fully qualified absolute path");
+
+          const repositoryRoot = runValidation(shell, root);
+          expect(repositoryRoot.status, shell).not.toBe(0);
+          expect(output(repositoryRoot)).toContain(
+            "EvidenceDirectory must be outside the repository",
+          );
+
+          const repositoryChild = runValidation(
+            shell,
+            resolve(root, "evidence"),
+          );
+          expect(repositoryChild.status, shell).not.toBe(0);
+          expect(output(repositoryChild)).toContain(
+            "EvidenceDirectory must be outside the repository",
+          );
+
+          const external = runValidation(shell, temporaryRoot);
+          expect(external.status, `${shell}: ${output(external)}`).toBe(0);
+          expect(external.stdout).toMatch(
+            /"evidenceDirectoryValidated"\s*:\s*true/u,
+          );
+          expect(external.stdout).toMatch(
+            /"hostedSupabaseAccessed"\s*:\s*false/u,
+          );
+
+          const linkedChild = runValidation(
+            shell,
+            resolve(repositoryLink, "linked-evidence"),
+          );
+          expect(linkedChild.status, shell).not.toBe(0);
+          expect(output(linkedChild)).toContain(
+            "must not traverse a reparse point or symbolic link",
+          );
+
+          for (const unsafeAlias of windowsUnsafePathAliases(
+            resolve(root, "adversarial-evidence"),
+            resolve(root, "..", "EQUORA~1", "adversarial-evidence"),
+          )) {
+            const aliased = runValidation(shell, unsafeAlias);
+            expect(
+              aliased.status,
+              shell + ": " + unsafeAlias,
+            ).not.toBe(0);
+            expect(output(aliased)).toContain(
+              "fully qualified absolute path",
+            );
+          }
+        }
+      } finally {
+        rmSync(temporaryRoot, { recursive: true, force: true });
+      }
+    },
+    40_000,
+  );
+
+  it(
+    "fails closed and receipts machine-readable ExecuteReadOnly evidence",
+    () => {
+      if (process.platform !== "win32") {
+        return;
+      }
+      const temporaryRoot = mkdtempSync(
+        resolve(tmpdir(), "equora-preflight-execute-"),
+      );
+      const fixtureRoot = resolve(temporaryRoot, "repository");
+      const fakeBin = resolve(temporaryRoot, "fake-bin");
+      const certificatePath = resolve(temporaryRoot, "root.crt");
+      const fakePsqlScript = resolve(fakeBin, "fake-psql.cjs");
+      const fakePsqlControl = resolve(fakeBin, "runtime-control.txt");
+      const syntheticPassword = "synthetic-preflight-password";
+      const projectRef = "rrkfdprhqilvicjbgfcn";
+      const databaseHost = `db.${projectRef}.supabase.co`;
+      const fixtureFiles = [
+        "scripts/run-v57.62.0-production-preflight.ps1",
+        "docs/gates/EQUORA_v57.62.0_PRODUCTION_SQL_MANIFEST.json",
+        ...productionSqlManifest.files.map(({ path }) => path),
+      ];
+      const git = (args: string[]) =>
+        spawnSync("git", args, {
+          cwd: fixtureRoot,
+          encoding: "utf8",
+        });
+      const assertGit = (args: string[]) => {
+        const result = git(args);
+        expect(
+          result.status,
+          `git ${args.join(" ")}: ${result.stdout}\n${result.stderr}`,
+        ).toBe(0);
+        return result;
+      };
+
+      mkdirSync(fixtureRoot, { recursive: true });
+      mkdirSync(fakeBin, { recursive: true });
+      for (const relativePath of fixtureFiles) {
+        const destination = resolve(fixtureRoot, relativePath);
+        mkdirSync(dirname(destination), { recursive: true });
+        writeFileSync(destination, readFileSync(resolve(root, relativePath)));
+      }
+      writeFileSync(certificatePath, "synthetic-root-certificate\n");
+      const certificateSha256 = createHash("sha256")
+        .update(readFileSync(certificatePath))
+        .digest("hex")
+        .toUpperCase();
+      writeFileSync(
+        fakePsqlScript,
+        [
+          'const fs = require("node:fs");',
+          'const path = require("node:path");',
+          'const crypto = require("node:crypto");',
+          "const args = process.argv.slice(2);",
+          'if (args.length === 1 && args[0] === "--version") {',
+          '  console.log("psql (PostgreSQL) 17.6");',
+          "  process.exit(0);",
+          "}",
+          "const control = fs",
+          '  .readFileSync(path.join(__dirname, "runtime-control.txt"), "utf8")',
+          '  .split(/\\r?\\n/u);',
+          "const scenario = control[2];",
+          "const capturePath = control[3];",
+          "const stdinBytes = fs.readFileSync(0);",
+          'if (scenario === "late-source-addition") {',
+          '  fs.writeFileSync(path.join(control[4], "late-added.dll"), "not-approved");',
+          "}",
+          "const capture = {",
+          "  pid: process.pid,",
+          "  parentPid: process.ppid,",
+          "  args,",
+          "  stdinBytes: stdinBytes.length,",
+          '  stdinSha256: crypto.createHash("sha256").update(stdinBytes).digest("hex").toUpperCase(),',
+          "  pgpassword: process.env.PGPASSWORD,",
+          "  pgoptions: process.env.PGOPTIONS,",
+          "  pgappname: process.env.PGAPPNAME,",
+          "  pgsslrootcert: process.env.PGSSLROOTCERT,",
+          "  path: process.env.PATH,",
+          "  cwd: process.cwd(),",
+          "  cwdFiles: fs.readdirSync(process.cwd()).sort(),",
+          "  databaseUrl: process.env.EQUORA_SUPABASE_DATABASE_URL ?? null,",
+          "  sslRootInput: process.env.EQUORA_SUPABASE_SSL_ROOT_CERT ?? null,",
+          "  pgservicefile: process.env.PGSERVICEFILE ?? null,",
+          "  pgpassfile: process.env.PGPASSFILE ?? null,",
+          "  pgsslkey: process.env.PGSSLKEY ?? null,",
+          "  unrelatedSecret: process.env.EQUORA_UNRELATED_SECRET ?? null,",
+          "};",
+          "fs.writeFileSync(",
+          "  capturePath,",
+          "  JSON.stringify(capture),",
+          ");",
+          "const record =",
+          '  "EQUORA_V5762_PREFLIGHT_EVIDENCE " +',
+          '  "trades_count=42 batches_count=7 apply_required=true";',
+          "const completion =",
+          '  "v57.62.0 trade-import preflight PASS; apply_required= true";',
+          "let stdoutLines;",
+          "let stderrLines = [];",
+          "let exitCode = 0;",
+          "switch (scenario) {",
+          '  case "success":',
+          '  case "late-source-addition":',
+          "    stdoutLines = [record, completion];",
+          "    break;",
+          '  case "success-apply-not-required":',
+          "    stdoutLines = [",
+          '      "EQUORA_V5762_PREFLIGHT_EVIDENCE " +',
+          '        "trades_count=42 batches_count=7 apply_required=false",',
+          '      "v57.62.0 trade-import preflight PASS; apply_required= false",',
+          "    ];",
+          "    break;",
+          '  case "stderr-success":',
+          "    stdoutLines = [record, completion];",
+          '    stderrLines = ["synthetic psql warning on stderr"];',
+          "    break;",
+          '  case "secret-output-success":',
+          '  case "equal-length-secret-output":',
+          "    stdoutLines = [",
+          "      record,",
+          "      completion,",
+          '      "password=" + process.env.PGPASSWORD,',
+          "    ];",
+          '    stderrLines = ["certificate=" + process.env.PGSSLROOTCERT];',
+          "    break;",
+          '  case "protocol-token-secret":',
+          "    stdoutLines = [record, completion];",
+          "    break;",
+          '  case "stderr-only-evidence":',
+          "    stdoutLines = [];",
+          "    stderrLines = [record, completion];",
+          "    break;",
+          '  case "missing-record":',
+          "    stdoutLines = [completion];",
+          "    break;",
+          '  case "duplicate-record":',
+          "    stdoutLines = [record, record, completion];",
+          "    break;",
+          '  case "negative-count":',
+          "    stdoutLines = [",
+          '      "EQUORA_V5762_PREFLIGHT_EVIDENCE " +',
+          '        "trades_count=-1 batches_count=7 apply_required=true",',
+          "      completion,",
+          "    ];",
+          "    break;",
+          '  case "overflow-count":',
+          "    stdoutLines = [",
+          '      "EQUORA_V5762_PREFLIGHT_EVIDENCE " +',
+          '        "trades_count=9223372036854775808 " +',
+          '        "batches_count=7 apply_required=true",',
+          "      completion,",
+          "    ];",
+          "    break;",
+          '  case "apply-mismatch":',
+          "    stdoutLines = [",
+          "      record,",
+          '      "v57.62.0 trade-import preflight PASS; apply_required= false",',
+          "    ];",
+          "    break;",
+          '  case "missing-completion":',
+          "    stdoutLines = [record];",
+          "    break;",
+          '  case "exit-failure":',
+          "    stdoutLines = [record, completion];",
+          "    exitCode = 17;",
+          "    break;",
+          '  case "stderr-failure":',
+          "    stdoutLines = [record, completion];",
+          '    stderrLines = ["synthetic psql error on stderr"];',
+          "    exitCode = 17;",
+          "    break;",
+          '  case "secret-output-failure":',
+          "    stdoutLines = [",
+          "      record,",
+          "      completion,",
+          '      "password=" + process.env.PGPASSWORD,',
+          "    ];",
+          '    stderrLines = ["certificate=" + process.env.PGSSLROOTCERT];',
+          "    exitCode = 17;",
+          "    break;",
+          '  case "hang":',
+          "    stdoutLines = [];",
+          "    setTimeout(() => {}, 300_000);",
+          "    break;",
+          "  default:",
+          '    throw new Error("Unknown fake psql scenario: " + scenario);',
+          "}",
+          'process.stdout.write(stdoutLines.join("\\n") + "\\n");',
+          'if (stderrLines.length > 0) {',
+          '  process.stderr.write(stderrLines.join("\\n") + "\\n");',
+          "}",
+          'if (scenario !== "hang") process.exit(exitCode);',
+          "",
+        ].join("\n"),
+      );
+
+      const fakePsqlExecutable = resolve(
+        fakeBin,
+        process.platform === "win32" ? "psql.exe" : "psql",
+      );
+      if (process.platform === "win32") {
+        const shimSource = resolve(temporaryRoot, "fake-psql-shim.cs");
+        const compilerScript = resolve(temporaryRoot, "compile-fake-psql.ps1");
+        writeFileSync(
+          shimSource,
+          [
+            "using System;",
+            "using System.Diagnostics;",
+            "using System.IO;",
+            "using System.Text;",
+            "using System.Threading;",
+            "public static class EquoraFakePsqlShim",
+            "{",
+            "  private static string Quote(string value)",
+            "  {",
+            '    if (value.Length == 0) return "\\\"\\\"";',
+            '    if (value.IndexOfAny(new[] { \' \', \'\\t\', \'\\n\', \'\\v\', \'\\\"\' }) < 0) return value;',
+            "    var result = new StringBuilder();",
+            '    result.Append(\'\\\"\');',
+            "    var backslashes = 0;",
+            "    foreach (var character in value)",
+            "    {",
+            "      if (character == '\\\\') { backslashes += 1; continue; }",
+            "      if (character == '\"')",
+            "      {",
+            "        result.Append('\\\\', (backslashes * 2) + 1);",
+            "        result.Append(character);",
+            "        backslashes = 0;",
+            "        continue;",
+            "      }",
+            "      if (backslashes > 0) result.Append('\\\\', backslashes);",
+            "      backslashes = 0;",
+            "      result.Append(character);",
+            "    }",
+            "    if (backslashes > 0) result.Append('\\\\', backslashes * 2);",
+            '    result.Append(\'\\\"\');',
+            "    return result.ToString();",
+            "  }",
+            "  public static int Main(string[] args)",
+            "  {",
+            '    var control = File.ReadAllLines(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "runtime-control.txt"));',
+            "    var node = control[0];",
+            "    var script = control[1];",
+            "    var scenario = control[2];",
+            "    var capturePath = control[3];",
+            '    if (scenario == "no-stdin" || scenario == "root-exit-child-hang")',
+            "    {",
+            '      if (scenario == "root-exit-child-hang") using (var input = Console.OpenStandardInput()) input.CopyTo(Stream.Null);',
+            '      var childInfo = new ProcessStartInfo(node, "-e \\\"setInterval(function () {}, 300000)\\\"");',
+            "      childInfo.UseShellExecute = false;",
+            "      var child = Process.Start(childInfo);",
+            '      File.WriteAllText(capturePath, "{\\\"pid\\\":" + child.Id + ",\\\"parentPid\\\":" + Process.GetCurrentProcess().Id + "}");',
+            '      if (scenario == "no-stdin") { Thread.Sleep(300000); return 23; }',
+            '      Console.WriteLine("EQUORA_V5762_PREFLIGHT_EVIDENCE trades_count=42 batches_count=7 apply_required=true");',
+            '      Console.WriteLine("v57.62.0 trade-import preflight PASS; apply_required= true");',
+            "      return 0;",
+            "    }",
+            "    var command = new StringBuilder(Quote(script));",
+            "    foreach (var argument in args) command.Append(' ').Append(Quote(argument));",
+            "    var startInfo = new ProcessStartInfo(node, command.ToString());",
+            "    startInfo.UseShellExecute = false;",
+            "    var process = Process.Start(startInfo);",
+            "    process.WaitForExit();",
+            "    return process.ExitCode;",
+            "  }",
+            "}",
+            "",
+          ].join("\n"),
+        );
+        writeFileSync(
+          compilerScript,
+          [
+            "param([string]$SourcePath, [string]$OutputPath)",
+            "$ErrorActionPreference = 'Stop'",
+            "Add-Type -Path $SourcePath -OutputAssembly $OutputPath -OutputType ConsoleApplication",
+            "",
+          ].join("\r\n"),
+        );
+        const compilation = spawnSync(
+          "powershell.exe",
+          [
+            "-NoLogo",
+            "-NoProfile",
+            "-NonInteractive",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            compilerScript,
+            "-SourcePath",
+            shimSource,
+            "-OutputPath",
+            fakePsqlExecutable,
+          ],
+          { encoding: "utf8", timeout: 30_000 },
+        );
+        expect(
+          compilation.status,
+          `${compilation.stdout}\n${compilation.stderr}`,
+        ).toBe(0);
+        expect(compilation.error).toBeUndefined();
+        expect(readFileSync(fakePsqlExecutable).length).toBeGreaterThan(0);
+      } else {
+        writeFileSync(
+          fakePsqlExecutable,
+          [
+            "#!/bin/sh",
+            'control="$(dirname "$0")/runtime-control.txt"',
+            'node_path="$(sed -n \'1p\' "$control")"',
+            'script_path="$(sed -n \'2p\' "$control")"',
+            'exec "$node_path" "$script_path" "$@"',
+            "",
+          ].join("\n"),
+        );
+        chmodSync(fakePsqlExecutable, 0o755);
+      }
+      const fakePsqlSha256 = createHash("sha256")
+        .update(readFileSync(fakePsqlExecutable))
+        .digest("hex")
+        .toUpperCase();
+
+      try {
+        assertGit(["init", "--quiet"]);
+        assertGit(["config", "user.name", "Equora Test"]);
+        assertGit(["config", "user.email", "equora-test@example.invalid"]);
+        assertGit(["config", "core.autocrlf", "false"]);
+        assertGit(["add", "."]);
+        assertGit([
+          "-c",
+          "commit.gpgsign=false",
+          "commit",
+          "--quiet",
+          "-m",
+          "test fixture",
+        ]);
+        const headResult = assertGit(["rev-parse", "HEAD"]);
+        const fixtureHead = headResult.stdout.trim();
+        assertGit([
+          "update-ref",
+          "refs/remotes/origin/main",
+          fixtureHead,
+        ]);
+
+        const originalPath = process.env.PATH ?? "";
+        const baseEnvironment = Object.fromEntries(
+          Object.entries(process.env).filter(
+            ([name]) => name.toUpperCase() !== "PATH",
+          ),
+        ) as NodeJS.ProcessEnv;
+        baseEnvironment.PGSERVICEFILE = resolve(
+          temporaryRoot,
+          "poison-service.conf",
+        );
+        baseEnvironment.PGPASSFILE = resolve(temporaryRoot, "poison-pgpass");
+        baseEnvironment.PGSSLKEY = resolve(temporaryRoot, "poison-client.key");
+        baseEnvironment.EQUORA_UNRELATED_SECRET = "synthetic-unrelated-secret";
+        const runScenario = (
+          shell: string,
+          scenario: string,
+          scenarioPassword = syntheticPassword,
+          environmentOverrides: Record<string, string | undefined> = {},
+          expectCapture = true,
+          runLabel = scenario,
+        ) => {
+          const shellName = shell.replace(/[^A-Za-z0-9]/gu, "-");
+          const evidenceDirectory = resolve(
+            temporaryRoot,
+            `evidence-${shellName}-${runLabel}`,
+          );
+          const capturePath = resolve(
+            temporaryRoot,
+            `capture-${shellName}-${runLabel}.json`,
+          );
+          mkdirSync(evidenceDirectory, { recursive: true });
+          writeFileSync(
+            fakePsqlControl,
+            [process.execPath, fakePsqlScript, scenario, capturePath, fakeBin].join(
+              "\n",
+            ),
+          );
+          const bundleManifest = readdirSync(fakeBin)
+            .sort()
+            .map((name) => {
+              const bytes = readFileSync(resolve(fakeBin, name));
+              const sha256 = createHash("sha256")
+                .update(bytes)
+                .digest("hex")
+                .toUpperCase();
+              return `${name}\t${bytes.length}\t${sha256}\n`;
+            })
+            .join("");
+          const fakePsqlBundleSha256 = createHash("sha256")
+            .update(bundleManifest, "utf8")
+            .digest("hex")
+            .toUpperCase();
+          const scenarioStartedAt = Date.now();
+          const result = spawnSync(
+            shell,
+            [
+              "-NoLogo",
+              "-NoProfile",
+              "-NonInteractive",
+              ...(process.platform === "win32"
+                ? ["-ExecutionPolicy", "Bypass"]
+                : []),
+              "-File",
+              resolve(
+                fixtureRoot,
+                "scripts/run-v57.62.0-production-preflight.ps1",
+              ),
+              "-Mode",
+              "ExecuteReadOnly",
+              "-ExpectedHead",
+              fixtureHead,
+              "-ExpectedProjectRef",
+              projectRef,
+              "-ExpectedDatabaseHost",
+              databaseHost,
+              "-EvidenceDirectory",
+              evidenceDirectory,
+              "-PsqlExecutablePath",
+              fakePsqlExecutable,
+              "-ExpectedPsqlSha256",
+              fakePsqlSha256,
+              "-ExpectedPsqlBundleSha256",
+              fakePsqlBundleSha256,
+              "-ExpectedSslRootCertificateSha256",
+              certificateSha256,
+              "-PsqlTimeoutSeconds",
+              "2",
+            ],
+            {
+              cwd: fixtureRoot,
+              encoding: "utf8",
+              timeout: 30_000,
+              env: {
+                ...baseEnvironment,
+                PATH: originalPath,
+                EQUORA_SUPABASE_DATABASE_URL:
+                  `postgresql://postgres:${scenarioPassword}` +
+                  `@${databaseHost}:5432/postgres`,
+                EQUORA_SUPABASE_SSL_ROOT_CERT: certificatePath,
+                ...environmentOverrides,
+              },
+            },
+          );
+          const elapsedMilliseconds = Date.now() - scenarioStartedAt;
+          expect(
+            result.error,
+            `${shell}/${scenario}: ${String(result.error)}`,
+          ).toBeUndefined();
+          const runDirectories = readdirSync(evidenceDirectory, {
+            withFileTypes: true,
+          }).filter((entry) => entry.isDirectory());
+          expect(
+            runDirectories,
+            `${shell}/${scenario}: ${result.stdout}\n${result.stderr}`,
+          ).toHaveLength(1);
+          const runDirectory = resolve(
+            evidenceDirectory,
+            runDirectories[0].name,
+          );
+          const receiptName = readdirSync(runDirectory).find((name) =>
+            name === "receipt.json",
+          );
+          expect(
+            receiptName,
+            `${shell}/${scenario}: ${result.stdout}\n${result.stderr}`,
+          ).toBeDefined();
+          const receiptPath = resolve(runDirectory, receiptName!);
+          const receipt = JSON.parse(readFileSync(receiptPath, "utf8")) as {
+            schema: string;
+            preflightEvidenceValid: boolean;
+            preflightApplyRequired: boolean | null;
+            preflightTradesCount: number | null;
+            preflightBatchesCount: number | null;
+            preflightEvidenceErrors: string[];
+            preflightPassed: boolean;
+            psqlExitCode: number;
+            psqlTimedOut: boolean;
+            psqlTimeoutSeconds: number;
+            psqlSha256: string;
+            psqlVersion: null;
+            psqlVersionProbeAttempted: boolean;
+            psqlBinding: string;
+            psqlDependencySetBound: boolean;
+            psqlExecutionSnapshotWriteDeniedAtLaunch: boolean;
+            psqlExecutionSnapshotSameIdentityAdversaryExcluded: boolean;
+            psqlApprovedSourcePath: string;
+            psqlExecutedSnapshotPath: string;
+            psqlExecutedSnapshotRelativePath: string;
+            psqlBundleSha256: string;
+            psqlBundleFileCount: number;
+            expectedSslRootCertificateSha256: string;
+            sslRootCertificateSha256: string;
+            sqlTransport: string;
+            executedSqlPath: null;
+            executedSqlSha256: string;
+            executedSqlBytes: number;
+            nativeProcessFailed: boolean;
+            nativeProcessFailureReason: string | null;
+            processTreeBoundary: string | null;
+            processCleanupVerified: boolean;
+            logFile: string;
+            logBytes: number;
+            logSha256: string;
+            receiptComplete: boolean;
+          };
+          const logPath = resolve(runDirectory, receipt.logFile);
+          const logBytes = readFileSync(logPath);
+          expect(
+            existsSync(capturePath),
+            `${shell}/${scenario}: ${result.stdout}\n${result.stderr}\n` +
+              JSON.stringify(receipt),
+          ).toBe(expectCapture);
+          const captured = (expectCapture
+            ? JSON.parse(readFileSync(capturePath, "utf8"))
+            : null) as {
+            pid: number;
+            parentPid: number;
+            args: string[];
+            stdinBytes: number;
+            stdinSha256: string;
+            pgpassword: string;
+            pgoptions: string;
+            pgappname: string;
+            pgsslrootcert: string;
+            path: string;
+            cwd: string;
+            cwdFiles: string[];
+            databaseUrl: string | null;
+            sslRootInput: string | null;
+            pgservicefile: string | null;
+            pgpassfile: string | null;
+            pgsslkey: string | null;
+            unrelatedSecret: string | null;
+          } | null;
+          return {
+            result,
+            receipt,
+            logBytes,
+            captured,
+            runDirectory,
+            elapsedMilliseconds,
+            fakePsqlBundleSha256,
+          };
+        };
+
+        const expectProcessIdsStopped = (pids: number[]) => {
+          if (process.platform === "win32") {
+            const tasklist = spawnSync(
+              resolve(
+                process.env.SystemRoot ?? "C:\\Windows",
+                "System32",
+                "tasklist.exe",
+              ),
+              ["/NH", "/FO", "CSV"],
+              { encoding: "utf8", timeout: 5_000 },
+            );
+            expect(tasklist.error).toBeUndefined();
+            expect(tasklist.status).toBe(0);
+            expect(tasklist.signal).toBeNull();
+            expect(tasklist.stderr).toBe("");
+            const runningPids = new Set(
+              tasklist.stdout
+                .split(/\r?\n/u)
+                .map((line) => /^"(?:[^"]|"")*","([0-9]+)",/u.exec(line)?.[1])
+                .filter((pid): pid is string => pid !== undefined)
+                .map((pid) => Number.parseInt(pid, 10)),
+            );
+            for (const pid of pids) expect(runningPids.has(pid)).toBe(false);
+          } else {
+            for (const pid of pids) expect(() => process.kill(pid, 0)).toThrow();
+          }
+        };
+        const expectCapturedProcessesStopped = (
+          captured: { pid: number; parentPid: number },
+        ) => expectProcessIdsStopped([captured.pid, captured.parentPid]);
+
+        const normalizeLf = (bytes: Buffer) =>
+          Buffer.from(bytes.toString("utf8").replaceAll("\r\n", "\n"), "utf8");
+        const preflightBytes = normalizeLf(
+          readFileSync(
+            resolve(fixtureRoot, "supabase/preflight-v57.62.0-trade-import.sql"),
+          ),
+        );
+        const verifierBytes = normalizeLf(
+          readFileSync(
+            resolve(fixtureRoot, "supabase/verify-v57.62.0-trade-import.sql"),
+          ),
+        );
+        const expectedExecutedSqlBytes = Buffer.from(
+          preflightBytes
+            .toString("utf8")
+            .replace(
+              "\\ir verify-v57.62.0-trade-import.sql",
+              () => verifierBytes.toString("utf8").replace(/\n+$/u, ""),
+            ),
+          "utf8",
+        );
+        const expectedExecutedSqlSha256 = createHash("sha256")
+          .update(expectedExecutedSqlBytes)
+          .digest("hex")
+          .toUpperCase();
+
+        for (const shell of powershellExecutables) {
+          const success = runScenario(shell, "success");
+          expect(
+            success.result.status,
+            `${shell}: ${success.result.stdout}\n${success.result.stderr}\n` +
+              JSON.stringify(success.receipt),
+          ).toBe(0);
+          expect(success.receipt).toMatchObject({
+            schema: "equora-v57.62.0-production-preflight-receipt-v5",
+            preflightEvidenceValid: true,
+            preflightApplyRequired: true,
+            preflightTradesCount: 42,
+            preflightBatchesCount: 7,
+            preflightEvidenceErrors: [],
+            preflightPassed: true,
+            psqlExitCode: 0,
+            psqlTimedOut: false,
+            psqlTimeoutSeconds: 2,
+            psqlSha256: fakePsqlSha256,
+            psqlVersion: null,
+            psqlVersionProbeAttempted: false,
+            psqlBinding: "sha256-readonly-execution-snapshot-v3",
+            psqlDependencySetBound: true,
+            psqlExecutionSnapshotWriteDeniedAtLaunch: true,
+            psqlExecutionSnapshotSameIdentityAdversaryExcluded: true,
+            psqlApprovedSourcePath: fakePsqlExecutable,
+            psqlExecutedSnapshotPath: resolve(
+              success.runDirectory,
+              "psql-execution-snapshot",
+              "psql.exe",
+            ),
+            psqlExecutedSnapshotRelativePath:
+              "psql-execution-snapshot/psql.exe",
+            psqlBundleSha256: success.fakePsqlBundleSha256,
+            psqlBundleFileCount: 3,
+            expectedSslRootCertificateSha256: certificateSha256,
+            sslRootCertificateSha256: certificateSha256,
+            sqlTransport: "stdin",
+            executedSqlPath: null,
+            executedSqlSha256: expectedExecutedSqlSha256,
+            executedSqlBytes: expectedExecutedSqlBytes.length,
+            nativeProcessFailed: false,
+            nativeProcessFailureReason: null,
+            processCleanupVerified: true,
+            receiptComplete: true,
+          });
+          expect(success.receipt.processTreeBoundary).toBe(
+            process.platform === "win32"
+              ? "windows_suspended_kill_on_close_job"
+              : "direct_process",
+          );
+          expect(success.receipt.logBytes).toBe(success.logBytes.length);
+          expect(success.receipt.logSha256).toBe(
+            createHash("sha256")
+              .update(success.logBytes)
+              .digest("hex")
+              .toUpperCase(),
+          );
+          expect(success.captured?.pgpassword).toBe(syntheticPassword);
+          expect(success.captured?.pgoptions).toContain(
+            "default_transaction_read_only=on",
+          );
+          expect(success.captured?.pgappname).toBe(
+            "equora_v5762_readonly_preflight",
+          );
+          expect(success.captured?.pgsslrootcert).toBe(
+            resolve(success.runDirectory, "root-certificate.snapshot"),
+          );
+          expect(success.captured?.path.toLowerCase()).toBe(
+            [
+              resolve(success.runDirectory, "psql-execution-snapshot"),
+              resolve(process.env.SystemRoot ?? "C:\\Windows", "System32"),
+              process.env.SystemRoot ?? "C:\\Windows",
+            ]
+              .join(";")
+              .toLowerCase(),
+          );
+          expect(success.captured?.path).not.toContain(originalPath);
+          expect(existsSync(success.captured!.pgsslrootcert)).toBe(false);
+          expect(success.captured?.databaseUrl).toBeNull();
+          expect(success.captured?.sslRootInput).toBeNull();
+          expect(success.captured?.pgservicefile).toBeNull();
+          expect(success.captured?.pgpassfile).toBeNull();
+          expect(success.captured?.pgsslkey).toBeNull();
+          expect(success.captured?.unrelatedSecret).toBeNull();
+          expect(
+            success.captured?.args.filter((arg) => arg === "-f"),
+          ).toHaveLength(1);
+          const fileIndex = success.captured!.args.indexOf("-f");
+          const commandIndex = success.captured!.args.indexOf("-c");
+          expect(commandIndex).toBeGreaterThan(fileIndex);
+          expect(success.captured!.args[fileIndex + 1]).toBe("-");
+          expect(success.captured!.stdinBytes).toBe(expectedExecutedSqlBytes.length);
+          expect(success.captured!.stdinSha256).toBe(expectedExecutedSqlSha256);
+          expect(success.captured!.args[commandIndex + 1]).toBe(
+            "\\echo EQUORA_V5762_PREFLIGHT_EVIDENCE " +
+              "trades_count=:v5762_pre_trades_count " +
+              "batches_count=:v5762_pre_batches_count " +
+              "apply_required=:v5762_apply_required",
+          );
+          const publicEvidence = [
+            success.result.stdout,
+            success.result.stderr,
+            JSON.stringify(success.receipt),
+            success.logBytes.toString("utf8"),
+          ].join("\n");
+          expect(publicEvidence).not.toContain(syntheticPassword);
+          expect(publicEvidence).not.toContain(certificatePath);
+          if (process.platform === "win32") {
+            const aclResult = spawnSync(
+              shell,
+              [
+                "-NoLogo",
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                [
+                  "$directory = [IO.DirectoryInfo]::new($env:EQUORA_TEST_ACL_PATH)",
+                  "$getAcl = $directory.GetType().GetMethod('GetAccessControl', [type[]]@())",
+                  "$acl = if ($null -ne $getAcl) { $getAcl.Invoke($directory, @()) } else { [IO.FileSystemAclExtensions]::GetAccessControl($directory) }",
+                  "$sidType = [Security.Principal.SecurityIdentifier]",
+                  "$rules = @($acl.GetAccessRules($true, $true, $sidType) | ForEach-Object { [pscustomobject]@{ sid = $_.IdentityReference.Value; inherited = $_.IsInherited; type = $_.AccessControlType.ToString() } })",
+                  "[pscustomobject]@{ owner = $acl.GetOwner($sidType).Value; protected = $acl.AreAccessRulesProtected; rules = $rules } | ConvertTo-Json -Compress -Depth 4",
+                ].join("; "),
+              ],
+              {
+                encoding: "utf8",
+                timeout: 10_000,
+                env: {
+                  ...baseEnvironment,
+                  PATH: originalPath,
+                  EQUORA_TEST_ACL_PATH: success.runDirectory,
+                },
+              },
+            );
+            expect(
+              aclResult.status,
+              `${shell}/acl: ${aclResult.stdout}\n${aclResult.stderr}`,
+            ).toBe(0);
+            const acl = JSON.parse(aclResult.stdout) as {
+              owner: string;
+              protected: boolean;
+              rules: Array<{ sid: string; inherited: boolean; type: string }>;
+            };
+            expect(acl.protected).toBe(true);
+            expect(acl.rules).toEqual([
+              { sid: acl.owner, inherited: false, type: "Allow" },
+            ]);
+          }
+
+          for (const scenario of [
+            "success-apply-not-required",
+            "stderr-success",
+            "secret-output-success",
+          ]) {
+            const accepted = runScenario(shell, scenario);
+            expect(
+              accepted.result.status,
+              `${shell}/${scenario}: ${accepted.result.stdout}\n${accepted.result.stderr}`,
+            ).toBe(0);
+            expect(accepted.receipt.preflightPassed, scenario).toBe(true);
+            expect(accepted.receipt.psqlExitCode, scenario).toBe(0);
+            expect(accepted.receipt.preflightEvidenceValid, scenario).toBe(true);
+            expect(accepted.receipt.logSha256, scenario).toBe(
+              createHash("sha256")
+                .update(accepted.logBytes)
+                .digest("hex")
+                .toUpperCase(),
+            );
+            if (scenario === "success-apply-not-required") {
+              expect(accepted.receipt.preflightApplyRequired).toBe(false);
+            } else if (scenario === "stderr-success") {
+              expect(accepted.logBytes.toString("utf8")).toContain(
+                "synthetic psql warning on stderr",
+              );
+            } else {
+              expect(accepted.logBytes.toString("utf8")).toContain(
+                "password=[REDACTED]",
+              );
+              expect(accepted.logBytes.toString("utf8")).toContain(
+                "certificate=[REDACTED]",
+              );
+            }
+            const acceptedPublicEvidence = [
+              accepted.result.stdout,
+              accepted.result.stderr,
+              JSON.stringify(accepted.receipt),
+              accepted.logBytes.toString("utf8"),
+            ].join("\n");
+            expect(acceptedPublicEvidence, scenario).not.toContain(
+              syntheticPassword,
+            );
+            expect(acceptedPublicEvidence, scenario).not.toContain(
+              certificatePath,
+            );
+          }
+
+          const equalLengthPassword = "P".repeat(certificatePath.length);
+          const equalLengthSecrets = runScenario(
+            shell,
+            "equal-length-secret-output",
+            equalLengthPassword,
+          );
+          expect(
+            equalLengthSecrets.result.status,
+            `${shell}/equal-length-secret-output: ` +
+              `${equalLengthSecrets.result.stdout}\n${equalLengthSecrets.result.stderr}`,
+          ).toBe(0);
+          expect(equalLengthSecrets.receipt.preflightPassed).toBe(true);
+          expect(equalLengthSecrets.logBytes.toString("utf8")).toContain(
+            "password=[REDACTED]",
+          );
+          expect(equalLengthSecrets.logBytes.toString("utf8")).toContain(
+            "certificate=[REDACTED]",
+          );
+          const equalLengthPublicEvidence = [
+            equalLengthSecrets.result.stdout,
+            equalLengthSecrets.result.stderr,
+            JSON.stringify(equalLengthSecrets.receipt),
+            equalLengthSecrets.logBytes.toString("utf8"),
+          ].join("\n");
+          expect(equalLengthPublicEvidence).not.toContain(equalLengthPassword);
+          expect(equalLengthPublicEvidence).not.toContain(certificatePath);
+
+          const protocolTokenSecret = runScenario(
+            shell,
+            "protocol-token-secret",
+            "true",
+          );
+          expect(
+            protocolTokenSecret.result.status,
+            `${shell}/protocol-token-secret: ` +
+              `${protocolTokenSecret.result.stdout}\n${protocolTokenSecret.result.stderr}`,
+          ).toBe(0);
+          expect(protocolTokenSecret.receipt.preflightPassed).toBe(true);
+          expect(protocolTokenSecret.receipt.preflightEvidenceValid).toBe(true);
+          expect(protocolTokenSecret.logBytes.toString("utf8")).toContain(
+            "apply_required=[REDACTED]",
+          );
+
+          for (const scenario of [
+            "missing-record",
+            "duplicate-record",
+            "negative-count",
+            "overflow-count",
+            "apply-mismatch",
+            "missing-completion",
+            "exit-failure",
+            "stderr-failure",
+            "stderr-only-evidence",
+            "secret-output-failure",
+          ]) {
+            const rejected = runScenario(shell, scenario);
+            expect(rejected.result.status, `${shell}/${scenario}`).not.toBe(0);
+            expect(rejected.receipt.preflightPassed, scenario).toBe(false);
+            expect(rejected.receipt.logSha256, scenario).toBe(
+              createHash("sha256")
+                .update(rejected.logBytes)
+                .digest("hex")
+                .toUpperCase(),
+            );
+            if (
+              scenario === "exit-failure" ||
+              scenario === "stderr-failure" ||
+              scenario === "secret-output-failure"
+            ) {
+              expect(rejected.receipt.psqlExitCode).toBe(17);
+            } else {
+              expect(
+                rejected.receipt.preflightEvidenceValid,
+                scenario,
+              ).toBe(false);
+              expect(
+                rejected.receipt.preflightEvidenceErrors.length,
+                scenario,
+              ).toBeGreaterThan(0);
+            }
+            if (scenario === "stderr-failure") {
+              expect(rejected.logBytes.toString("utf8")).toContain(
+                "synthetic psql error on stderr",
+              );
+            }
+            if (scenario === "secret-output-failure") {
+              expect(rejected.logBytes.toString("utf8")).toContain(
+                "password=[REDACTED]",
+              );
+              expect(rejected.logBytes.toString("utf8")).toContain(
+                "certificate=[REDACTED]",
+              );
+            }
+            const rejectedPublicEvidence = [
+              rejected.result.stdout,
+              rejected.result.stderr,
+              JSON.stringify(rejected.receipt),
+              rejected.logBytes.toString("utf8"),
+            ].join("\n");
+            expect(rejectedPublicEvidence, scenario).not.toContain(
+              syntheticPassword,
+            );
+            expect(rejectedPublicEvidence, scenario).not.toContain(
+              certificatePath,
+            );
+          }
+
+          const timedOut = runScenario(shell, "hang");
+          expect(timedOut.result.status, `${shell}/hang`).not.toBe(0);
+          expect(timedOut.receipt).toMatchObject({
+            preflightPassed: false,
+            psqlExitCode: -2,
+            psqlTimedOut: true,
+            psqlTimeoutSeconds: 2,
+            nativeProcessFailed: false,
+          });
+          expect(timedOut.receipt.logSha256).toBe(
+            createHash("sha256")
+              .update(timedOut.logBytes)
+              .digest("hex")
+              .toUpperCase(),
+          );
+          expect(timedOut.logBytes.toString("utf8")).toContain(
+            "EQUORA_NATIVE_PROCESS_TIMEOUT after 2s",
+          );
+          expectCapturedProcessesStopped(timedOut.captured!);
+          const timeoutPublicEvidence = [
+            timedOut.result.stdout,
+            timedOut.result.stderr,
+            JSON.stringify(timedOut.receipt),
+            timedOut.logBytes.toString("utf8"),
+          ].join("\n");
+          expect(timeoutPublicEvidence).not.toContain(syntheticPassword);
+          expect(timeoutPublicEvidence).not.toContain(certificatePath);
+
+          if (process.platform === "win32") {
+            const blockedStdin = runScenario(shell, "no-stdin");
+            expect(blockedStdin.result.status, `${shell}/no-stdin`).not.toBe(0);
+            expect(blockedStdin.elapsedMilliseconds).toBeLessThan(12_000);
+            expect(blockedStdin.receipt).toMatchObject({
+              preflightPassed: false,
+              psqlExitCode: -2,
+              psqlTimedOut: true,
+              processCleanupVerified: true,
+            });
+            expectCapturedProcessesStopped(blockedStdin.captured!);
+
+            const rootExitWithChild = runScenario(
+              shell,
+              "root-exit-child-hang",
+            );
+            expect(
+              rootExitWithChild.result.status,
+              `${shell}/root-exit-child-hang: ${rootExitWithChild.result.stderr}`,
+            ).toBe(0);
+            expect(rootExitWithChild.receipt).toMatchObject({
+              preflightPassed: true,
+              processCleanupVerified: true,
+            });
+            expectCapturedProcessesStopped(rootExitWithChild.captured!);
+
+            const assignmentFailure = runScenario(
+              shell,
+              "success",
+              syntheticPassword,
+              { EQUORA_PREFLIGHT_TEST_FORCE_JOB_ASSIGNMENT_FAILURE: "1" },
+              false,
+              "assignment-failure",
+            );
+            expect(
+              assignmentFailure.result.status,
+              `${shell}/assignment-failure`,
+            ).not.toBe(0);
+            expect(assignmentFailure.captured).toBeNull();
+            expect(assignmentFailure.receipt).toMatchObject({
+              preflightPassed: false,
+              nativeProcessFailed: true,
+              processCleanupVerified: false,
+            });
+            expect(assignmentFailure.logBytes.toString("utf8")).toContain(
+              "Injected native job-assignment failure before target-code execution",
+            );
+            const assignmentPidMatch = /root PID=([0-9]+)/u.exec(
+              assignmentFailure.logBytes.toString("utf8"),
+            );
+            expect(assignmentPidMatch).not.toBeNull();
+            expectProcessIdsStopped([
+              Number.parseInt(assignmentPidMatch![1], 10),
+            ]);
+
+            const closeFailure = runScenario(
+              shell,
+              "success",
+              syntheticPassword,
+              { EQUORA_PREFLIGHT_TEST_FORCE_JOB_CLOSE_FAILURE: "1" },
+              true,
+              "close-failure",
+            );
+            expect(
+              closeFailure.result.status,
+              `${shell}/close-failure`,
+            ).not.toBe(0);
+            expect(closeFailure.receipt).toMatchObject({
+              preflightPassed: false,
+              nativeProcessFailed: true,
+              processCleanupVerified: false,
+            });
+            expect(closeFailure.logBytes.toString("utf8")).toContain(
+              "Injected native job-close verification failure",
+            );
+            expectCapturedProcessesStopped(closeFailure.captured!);
+
+            const lateSourceAddition = runScenario(
+              shell,
+              "late-source-addition",
+            );
+            expect(lateSourceAddition.result.status).toBe(0);
+            expect(lateSourceAddition.captured?.cwd.toLowerCase()).toBe(
+              resolve(
+                lateSourceAddition.runDirectory,
+                "psql-execution-snapshot",
+              ).toLowerCase(),
+            );
+            expect(lateSourceAddition.captured?.cwdFiles).not.toContain(
+              "late-added.dll",
+            );
+            expect(existsSync(resolve(fakeBin, "late-added.dll"))).toBe(true);
+            rmSync(resolve(fakeBin, "late-added.dll"), { force: true });
+          }
+        }
+      } finally {
+        rmSync(temporaryRoot, {
+          recursive: true,
+          force: true,
+          maxRetries: 10,
+          retryDelay: 100,
+        });
+      }
+    },
+    180_000,
+  );
+
+  it("normalizes ANSI-decorated wrapped PowerShell diagnostics", () => {
+    const decoratedDiagnostic =
+      "\u001B[31;1mExecuteReadOnly is supported only on the reviewed Windows\u001B[0m\n" +
+      "\u001B[31;1m | \u001B[31;1mprocess-isolation profile.\u001B[0m";
+
+    expect(normalizePowerShellDiagnostic(decoratedDiagnostic)).toContain(
+      "ExecuteReadOnly is supported only on the reviewed Windows process-isolation profile.",
+    );
+  });
+
+  it("rejects ExecuteReadOnly before evidence creation outside Windows", () => {
+    if (process.platform === "win32") {
+      return;
+    }
+
+    const temporaryRoot = mkdtempSync(
+      resolve(tmpdir(), "equora-preflight-nonwindows-"),
+    );
+    const evidenceDirectory = resolve(temporaryRoot, "evidence");
+
+    try {
+      const result = spawnSync(
+        "pwsh",
+        [
+          "-NoLogo",
+          "-NoProfile",
+          "-NonInteractive",
+          "-File",
+          resolve(root, "scripts/run-v57.62.0-production-preflight.ps1"),
+          "-Mode",
+          "ExecuteReadOnly",
+          "-EvidenceDirectory",
+          evidenceDirectory,
+        ],
+        {
+          cwd: root,
+          encoding: "utf8",
+          timeout: 30_000,
+        },
+      );
+
+      expect(result.error).toBeUndefined();
+      expect(result.status).not.toBe(0);
+      expect(
+        normalizePowerShellDiagnostic(`${result.stdout}\n${result.stderr}`),
+      ).toContain(
+        "ExecuteReadOnly is supported only on the reviewed Windows process-isolation profile.",
+      );
+      expect(existsSync(evidenceDirectory)).toBe(false);
+    } finally {
+      rmSync(temporaryRoot, { recursive: true, force: true });
+    }
+  });
+
+  it(
+    "accepts only ready fixed non-aliased Windows drive descriptors",
+    () => {
+      if (process.platform !== "win32") {
+        return;
+      }
+
+      const baseParameters = {
+        ValueName: "EvidenceDirectory",
+        DriveRoot: "C:\\",
+        DriveType: "Fixed",
+        IsReady: "true",
+        DosDeviceTarget: "\\Device\\HarddiskVolume3",
+        RepositoryDriveRoot: "C:\\",
+        RepositoryDosDeviceTarget: "\\Device\\HarddiskVolume3",
+      };
+      const validate = (
+        shell: string,
+        overrides: Partial<typeof baseParameters>,
+      ) =>
+        invokeRunnerFunction(
+          shell,
+          "Assert-TrustedWindowsDriveDescriptor",
+          { ...baseParameters, ...overrides },
+        );
+
+      for (const shell of powershellExecutables) {
+        const accepted = validate(shell, {});
+        expect(accepted.status, shell + ": " + accepted.stderr).toBe(0);
+
+        const rejectedDescriptors = [
+          [
+            {
+              DriveRoot: "Z:\\",
+              DriveType: "Network",
+              DosDeviceTarget: "\\Device\\Mup\\server\\share",
+            },
+            "ready fixed local drive",
+          ],
+          [
+            {
+              DriveRoot: "D:\\",
+              DriveType: "CDRom",
+              IsReady: "false",
+              DosDeviceTarget: "\\Device\\CdRom0",
+            },
+            "ready fixed local drive",
+          ],
+          [
+            {
+              IsReady: "false",
+            },
+            "ready fixed local drive",
+          ],
+          [
+            {
+              DriveRoot: "Z:\\",
+              DosDeviceTarget: "\\??\\C:\\repository",
+            },
+            "must not use a SUBST or DOS-device alias",
+          ],
+          [
+            {
+              DriveRoot: "Z:\\",
+              DosDeviceTarget: "\\DosDevices\\C:\\repository",
+            },
+            "must not use a SUBST or DOS-device alias",
+          ],
+          [
+            {
+              DriveRoot: "Z:\\",
+              DosDeviceTarget: "\\Device\\HarddiskVolume3",
+            },
+            "must not alias the repository volume",
+          ],
+          [
+            {
+              DriveRoot: "Z:\\",
+              DosDeviceTarget:
+                "\\Device\\HarddiskVolume3\\Users\\matth\\.codex\\worktrees\\866e",
+            },
+            "must not alias the repository volume",
+          ],
+          [
+            {
+              DosDeviceTarget: "C:\\unexpected-target",
+            },
+            "must resolve directly to a recognized local device",
+          ],
+        ] as const;
+
+        for (const [overrides, expectedError] of rejectedDescriptors) {
+          const rejected = validate(shell, overrides);
+          expect(rejected.status, shell).not.toBe(0);
+          expect(rejected.stdout + "\n" + rejected.stderr).toContain(
+            expectedError,
+          );
+        }
+      }
+    },
+    30_000,
+  );
+
+  it(
+    "validates trusted root certificates under every supported PowerShell runtime",
+    () => {
+      const temporaryRoot = mkdtempSync(
+        resolve(tmpdir(), "equora-preflight-certificate-"),
+      );
+      const validCertificate = resolve(temporaryRoot, "root-ca.pem");
+      const emptyCertificate = resolve(temporaryRoot, "empty-ca.pem");
+      const missingCertificate = resolve(temporaryRoot, "missing-ca.pem");
+      const certificateBytes = Buffer.from(
+        "synthetic Equora root certificate fixture\n",
+        "utf8",
+      );
+      writeFileSync(validCertificate, certificateBytes);
+      writeFileSync(emptyCertificate, "");
+
+      try {
+        const repositoryLink = resolve(temporaryRoot, "repository-link");
+        symlinkSync(
+          root,
+          repositoryLink,
+          process.platform === "win32" ? "junction" : "dir",
+        );
+        const expectedSha256 = createHash("sha256")
+          .update(certificateBytes)
+          .digest("hex")
+          .toUpperCase();
+        const validate = (
+          shell: string,
+          path: string,
+          expectedCertificateSha256 = expectedSha256,
+        ) =>
+          invokeRunnerFunction(shell, "Resolve-TrustedRootCertificate", {
+            Path: path,
+            ExpectedSha256: expectedCertificateSha256,
+          });
+
+        for (const shell of powershellExecutables) {
+          const valid = validate(shell, validCertificate);
+          expect(valid.status, `${shell}: ${valid.stderr}`).toBe(0);
+          expect(valid.stdout).toContain(expectedSha256);
+          expect(valid.stdout).toContain(validCertificate.replace(/\\/gu, "\\\\"));
+
+          const mismatched = validate(shell, validCertificate, "0".repeat(64));
+          expect(mismatched.status, shell).not.toBe(0);
+          expect(`${mismatched.stdout}\n${mismatched.stderr}`).toContain(
+            "does not match ExpectedSslRootCertificateSha256",
+          );
+
+          for (const malformed of ["", "A".repeat(63), "G".repeat(64)]) {
+            const rejectedHash = validate(shell, validCertificate, malformed);
+            expect(rejectedHash.status, `${shell}/${malformed}`).not.toBe(0);
+            expect(`${rejectedHash.stdout}\n${rejectedHash.stderr}`).toContain(
+              "must be exactly 64 hexadecimal characters",
+            );
+          }
+
+          const rejectedCertificates = [
+            ["relative-ca.pem", "fully qualified absolute path"],
+            [missingCertificate, "must reference an existing file"],
+            [emptyCertificate, "must not be empty"],
+            [resolve(root, "package.json"), "must be outside the repository"],
+            [
+              resolve(repositoryLink, "package.json"),
+              "must not traverse a reparse point or symbolic link",
+            ],
+            ...windowsUnsafePathAliases(
+              resolve(root, "package.json"),
+              resolve(root, "..", "EQUORA~1", "package.json"),
+            ).map(
+              (path) =>
+                [path, "fully qualified absolute path"] as const,
+            ),
+          ] as const;
+
+          for (const [path, expectedError] of rejectedCertificates) {
+            const result = validate(shell, path);
+            expect(result.status, shell).not.toBe(0);
+            expect(`${result.stdout}\n${result.stderr}`).toContain(expectedError);
+          }
+        }
+      } finally {
+        rmSync(temporaryRoot, { recursive: true, force: true });
+      }
+    },
+    30_000,
+  );
 
   it("uses durable owner-bound account identities instead of editable labels as keys", () => {
     expect(sql).toContain(

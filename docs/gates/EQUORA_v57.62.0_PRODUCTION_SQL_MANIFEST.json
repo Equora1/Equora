@@ -1,0 +1,51 @@
+{
+  "schema": "equora-v57.62.0-production-sql-manifest-v1",
+  "sourceCommit": "889a145e3443e52e5298ae945f53e3a8f44dc50b",
+  "sourceTree": "0868907cd1fb05abdd9072541f6b24f05bff3196",
+  "algorithm": "SHA-256 over file bytes after replacing CRLF with LF; lone CR and all other bytes are preserved",
+  "fileCount": 7,
+  "files": [
+    {
+      "path": "supabase/preflight-v57.62.0-trade-import.sql",
+      "normalizedBytes": 6172,
+      "sha256": "A071AFD7E1B7D34D91DA05238C00BE68D259E572598657E202C8890507CA5279"
+    },
+    {
+      "path": "supabase/deploy-v57.62.0-trade-import.sql",
+      "normalizedBytes": 446,
+      "sha256": "7B619C44CA73718B2050D9516A2F912ED1BCA1E44401763484E244D6E4866A95"
+    },
+    {
+      "path": "supabase/postflight-v57.62.0-trade-import.sql",
+      "normalizedBytes": 1897,
+      "sha256": "0E7800E9A3CE69B392EAD61F637860EC874D2EC995ED7D5E165550D2EB69168B"
+    },
+    {
+      "path": "supabase/schema-patch-v57.62.0-trade-import-hardening.sql",
+      "normalizedBytes": 48505,
+      "sha256": "D0091D9C6E1DAFD3AD4DB49FC4FFDB49B1E8540D26EA209AD8BFE12235DD9D25"
+    },
+    {
+      "path": "supabase/verify-v57.62.0-trade-import.sql",
+      "normalizedBytes": 50866,
+      "sha256": "6C7D95820F8490254C697FEB8A10DF7F53774D55FECD9B67012E9A0ACADB744E"
+    },
+    {
+      "path": "supabase/activate-v57.62.0-trade-import.sql",
+      "normalizedBytes": 3917,
+      "sha256": "B23476EA10924A472948B2D9BEDA09B34D29290A1E9A18312E996C672C03DAAE"
+    },
+    {
+      "path": "supabase/deactivate-v57.62.0-trade-import.sql",
+      "normalizedBytes": 8405,
+      "sha256": "370338976CA190019A117632E44B8A6FD263BC0D28BF6995FB73A96890F13813"
+    }
+  ],
+  "executionBoundary": {
+    "preflight": "read-only and separately authorized",
+    "deployment": "not authorized by this manifest",
+    "activation": "not authorized by this manifest",
+    "deactivation": "operational artifact only; no invocation authorized",
+    "hostedSupabase": "not accessed while creating this manifest"
+  }
+}
