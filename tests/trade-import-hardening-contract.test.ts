@@ -28,6 +28,11 @@ const powershellExecutables =
   process.platform === "win32"
     ? ["powershell.exe", "pwsh.exe"]
     : ["pwsh"];
+const normalizePowerShellDiagnostic = (output: string) =>
+  output
+    .replace(/\u001B\[[0-?]*[ -/]*[@-~]/gu, "")
+    .replace(/\s+/gu, " ")
+    .trim();
 const windowsUnsafePathAliases = (target: string, shortNameAlias: string) => {
   if (process.platform !== "win32") {
     return [];
@@ -1830,6 +1835,16 @@ describe("trade import hardening release package", () => {
     180_000,
   );
 
+  it("normalizes ANSI-decorated wrapped PowerShell diagnostics", () => {
+    const decoratedDiagnostic =
+      "\u001B[31;1mExecuteReadOnly is supported only on the reviewed Windows\u001B[0m\n" +
+      "\u001B[31;1mprocess-isolation profile.\u001B[0m";
+
+    expect(normalizePowerShellDiagnostic(decoratedDiagnostic)).toContain(
+      "ExecuteReadOnly is supported only on the reviewed Windows process-isolation profile.",
+    );
+  });
+
   it("rejects ExecuteReadOnly before evidence creation outside Windows", () => {
     if (process.platform === "win32") {
       return;
@@ -1863,7 +1878,9 @@ describe("trade import hardening release package", () => {
 
       expect(result.error).toBeUndefined();
       expect(result.status).not.toBe(0);
-      expect(`${result.stdout}\n${result.stderr}`).toContain(
+      expect(
+        normalizePowerShellDiagnostic(`${result.stdout}\n${result.stderr}`),
+      ).toContain(
         "ExecuteReadOnly is supported only on the reviewed Windows process-isolation profile.",
       );
       expect(existsSync(evidenceDirectory)).toBe(false);
