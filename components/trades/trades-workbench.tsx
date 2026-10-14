@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from
 import { useRouter, useSearchParams } from 'next/navigation'
 import { deleteTradeEntry } from '@/app/actions/trades'
 import { TradeDetailDrawer } from '@/components/trades/trade-detail-drawer'
+import { TradeCurrencyQualityPanel } from '@/components/trades/trade-currency-quality-panel'
 import type { TradeDetail, Trade } from '@/lib/types/trade'
 import type { TradeTag } from '@/lib/types/tag'
 import type { SavedReviewSession } from '@/lib/types/review-session'
@@ -15,6 +16,7 @@ import { getTradeAccountLabel } from '@/lib/utils/account-context'
 import { brokerFileImportCapability } from '@/lib/utils/broker-file-import-capability'
 import { createTradeTableDateRange, getTradeTableDateRangeError } from '@/lib/utils/trade-table-date-range'
 import { buildTradeTableHref } from '@/lib/utils/trade-table-query'
+import { summarizeTradeCurrencyQuality } from '@/lib/utils/currency'
 import {
   buildTradeTagMap,
   buildTradeTableView,
@@ -243,6 +245,7 @@ export function TradesWorkbench({
   )
 
   const activeFilterCount = countActiveTradeTableFilters(filters)
+  const currencyQuality = useMemo(() => summarizeTradeCurrencyQuality(tradeItems), [tradeItems])
   const dateRangeError = getTradeTableDateRangeError(filters)
   const listSummary = useMemo(
     () => ({
@@ -371,6 +374,8 @@ export function TradesWorkbench({
         <MetricTile label="Unvollständig" value={String(listSummary.incomplete)} tone="text-orange-100" />
         <MetricTile label="Mit Evidence" value={String(listSummary.screenshots)} tone="text-sky-200" />
       </div>
+
+      <TradeCurrencyQualityPanel summary={currencyQuality} selected={filters.currencyCheck} onChange={value => updateFilter('currencyCheck', value)} />
 
       <StreakPulseCard streak={streak} tone={streakTone} />
 

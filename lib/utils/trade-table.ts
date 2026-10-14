@@ -3,7 +3,9 @@ import { getTradeAccountLabel } from '@/lib/utils/account-context'
 import { DEFAULT_TRADE_TIMEZONE, getTradeDateKey, resolveTradeOccurredAt } from '@/lib/utils/trade-time'
 import { getTradeTableDateRangeError } from '@/lib/utils/trade-table-date-range'
 import type { TradeTag } from '@/lib/types/tag'
-import { resolveTradeMonetaryScope } from '@/lib/utils/currency'
+import { getTradeCurrencyStatusForTrade, resolveTradeMonetaryScope } from '@/lib/utils/currency'
+
+export type TradeCurrencyCheck = 'Alle' | 'Prüfen' | 'Fehlt' | 'Nicht unterstützt'
 
 export type TradeTableFilters = {
   search: string
@@ -23,6 +25,7 @@ export type TradeTableFilters = {
   outcome: 'Alle' | 'Gewinner' | 'Verlierer' | 'Breakeven'
   direction: 'Alle' | 'Long' | 'Short' | 'Neutral'
   status: 'Alle' | 'Offen' | 'Geschlossen' | 'Unvollständig' | 'Vollständig'
+  currencyCheck: TradeCurrencyCheck
 }
 
 export type TradeTableSort =
@@ -85,6 +88,7 @@ export function createDefaultTradeTableFilters(): TradeTableFilters {
     outcome: 'Alle',
     direction: 'Alle',
     status: 'Alle',
+    currencyCheck: 'Alle',
   }
 }
 
@@ -130,6 +134,11 @@ export function filterTradeTableRows(trades: Trade[], tradeTagMap: Record<string
       (filters.tagging === 'Getaggt' && tags.length > 0) ||
       (filters.tagging === 'Ungetaggt' && tags.length === 0)
     const matchesRequiredTags = filters.requiredTags.length === 0 || filters.requiredTags.every((tag) => tags.includes(tag))
+    const currencyStatus = getTradeCurrencyStatusForTrade(trade)
+    const matchesCurrency = filters.currencyCheck === 'Alle'
+      || (filters.currencyCheck === 'Prüfen' && currencyStatus !== 'known')
+      || (filters.currencyCheck === 'Fehlt' && currencyStatus === 'missing')
+      || (filters.currencyCheck === 'Nicht unterstützt' && currencyStatus === 'unsupported')
 
     return (
       matchesSearch &&
@@ -146,7 +155,8 @@ export function filterTradeTableRows(trades: Trade[], tradeTagMap: Record<string
       matchesRequiredTags &&
       matchesOutcome &&
       matchesDirection &&
-      matchesStatus
+      matchesStatus &&
+      matchesCurrency
     )
   })
 }
@@ -223,6 +233,7 @@ export function countActiveTradeTableFilters(filters: TradeTableFilters) {
     filters.outcome,
     filters.direction,
     filters.status,
+    filters.currencyCheck,
   ]
 
   count += singularValues.filter((value) => value !== 'Alle').length

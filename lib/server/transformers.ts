@@ -5,6 +5,7 @@ import { formatTradeDateLabel } from '@/lib/utils/date-format'
 import { deriveTradeKillZoneLabel, deriveTradeSessionLabel, formatTradeTimeLabel, resolveTradeOccurredAtFromRow } from '@/lib/utils/trade-time'
 import { buildTradeImportSourceFacts, extractTradeImportMeta } from '@/lib/utils/trade-import-meta'
 import { getTradeAccountLabel } from '@/lib/utils/account-context'
+import { getTradeCurrencyStatus } from '@/lib/utils/currency'
 import {
   getTradeCaptureResultLabel,
   getTradeCaptureStatusLabel,
@@ -94,7 +95,7 @@ export function mapTradeRowToTrade(row: TradeRow, mediaRows: TradeMediaRow[] = [
     tradeOccurredAt,
     market: row.market,
     setup: linkedSetup?.title ?? row.setup,
-    result: metrics.netPnL !== null ? formatCurrency(metrics.netPnL, 0, metrics.accountCurrency) : captureResult ? getTradeCaptureResultLabel(captureResult) : '—',
+    result: metrics.netPnL !== null ? formatCurrency(metrics.netPnL, 0, row.account_currency) : captureResult ? getTradeCaptureResultLabel(captureResult) : '—',
     r: formatRMultiple(metrics.rValue),
     emotion: row.emotion ?? '—',
     quality: (row.quality ?? 'B-Setup') as Trade['quality'],
@@ -132,6 +133,7 @@ export function mapTradeRowToTrade(row: TradeRow, mediaRows: TradeMediaRow[] = [
     accountLabel: getTradeAccountLabel({ accountLabel: row.account_label, accountTemplate: (row.account_template ?? 'manual') as Trade['accountTemplate'] }),
     marketTemplate: (row.market_template ?? 'manual') as Trade['marketTemplate'],
     accountCurrency: metrics.accountCurrency,
+    accountCurrencyStatus: getTradeCurrencyStatus(row.account_currency),
     positionSize: metrics.positionSize,
     pointValue: metrics.pointValue,
     fees: metrics.fees,
@@ -243,7 +245,7 @@ export function mapTradeRowToTradeDetail(row: TradeRow, mediaRows: TradeMediaRow
     result: formatRMultiple(metrics.rValue),
     pnl:
       metrics.netPnL !== null
-        ? `${formatCurrency(metrics.netPnL, 0, metrics.accountCurrency)}${partialPlan.hasRemainder ? ' bisher realisiert · Rest läuft' : ''}`
+        ? `${formatCurrency(metrics.netPnL, 0, row.account_currency)}${partialPlan.hasRemainder ? ' bisher realisiert · Rest läuft' : ''}`
         : captureResult
           ? `${getTradeCaptureResultLabel(captureResult)} · Schnellerfassung`
           : 'Kein P&L hinterlegt',

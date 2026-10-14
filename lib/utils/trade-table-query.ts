@@ -4,6 +4,7 @@ const sortValues: TradeTableSort[] = ['newest', 'oldest', 'pnl-desc', 'pnl-asc',
 const enumValues = {
   tagging: ['Alle', 'Getaggt', 'Ungetaggt'], outcome: ['Alle', 'Gewinner', 'Verlierer', 'Breakeven'],
   direction: ['Alle', 'Long', 'Short', 'Neutral'], status: ['Alle', 'Offen', 'Geschlossen', 'Unvollständig', 'Vollständig'],
+  currencyCheck: ['Alle', 'Prüfen', 'Fehlt', 'Nicht unterstützt'],
 }
 
 export function parseTradeTableQuery(params: URLSearchParams) {
