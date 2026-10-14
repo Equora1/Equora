@@ -18,6 +18,7 @@ import { normalizeTradeDate } from "@/lib/utils/calendar";
 import { measurePerformance } from "@/lib/server/performance";
 import { signSetupMediaRows, signTradeMediaRows } from "@/lib/server/media-access";
 import { DASHBOARD_TRADE_WINDOW_LIMIT } from "@/lib/utils/dashboard";
+import { collectJournalRows, type JournalRowPage } from '@/lib/server/collect-journal-rows';
 
 export type JournalSnapshot = {
   tradeRows: TradeRow[];
@@ -921,6 +922,57 @@ export function getTradesSnapshotServer(
     tradeOffset: pagination?.offset,
     diagnosticRoute: '/trades',
   }), { route: '/trades', meta: { limit: pagination?.limit ?? 0, offset: pagination?.offset ?? 0 } })
+}
+
+// Whole-journal workspace reads are separate from dashboard/review window reads.
+// All filters use the same transformed Trade semantics before client pagination.
+export async function getTradesWorkspaceSnapshotServer(userId?: string | null) {
+  type WorkspaceSnapshot = JournalSnapshot & {
+    availability: DashboardJournalSnapshot['availability'];
+    tradeMediaCounts: Record<string, number>;
+  };
+  const unavailable = (): WorkspaceSnapshot => ({ ...getEmptySnapshot(), availability: 'unavailable', tradeMediaCounts: {} });
+  if (!hasSupabaseClientEnv()) {
+    const snapshot = getMockSnapshot();
+    const counts: Record<string, number> = {};
+    for (const row of snapshot.tradeMediaRows) counts[row.trade_id] = (counts[row.trade_id] ?? 0) + 1;
+    return { ...snapshot, availability: 'ready', tradeMediaCounts: counts } satisfies WorkspaceSnapshot;
+  }
+  try {
+    if (!userId) return { ...unavailable(), availability: 'unauthenticated' } satisfies WorkspaceSnapshot;
+    const supabase = hasSupabaseServerEnv() ? createSupabaseServerClient() : await createSupabaseAuthServerClient();
+    const owner = userId;
+    const tradeRows = await collectJournalRows<TradeRow>(async (from, to) => {
+      const query = (columns: string) => supabase.from('trades').select(columns, { count: 'exact' }).eq('user_id', owner).order('id').range(from, to);
+      let response = await query(TRADE_DETAIL_SELECT_COLUMNS);
+      if (isMissingColumnError(response.error?.message, 'import_batch_id')) response = await query(TRADE_DETAIL_SELECT_COLUMNS_LEGACY);
+      return response as unknown as JournalRowPage<TradeRow>;
+    }, 10_000);
+    const readRelated = <T extends { id: string }>(table: string, columns: string) => collectJournalRows<T>(async (from, to) => (
+      await supabase.from(table).select(columns, { count: 'exact' }).eq('user_id', owner).order('id').range(from, to)
+    ) as unknown as JournalRowPage<T>, 100_000);
+    const [tags, links, media, setups] = await Promise.all([
+      readRelated<TradeTag>('trade_tags', TRADE_TAG_SELECT_COLUMNS),
+      readRelated<SetupTradeLinkRow>('setup_trade_links', SETUP_LINK_SELECT_COLUMNS),
+      readRelated<{ id: string; trade_id: string }>('trade_media', 'id,trade_id'),
+      collectJournalRows<SetupRow>(async (from, to) => {
+        let response = await supabase.from('setups').select(SETUP_SELECT_COLUMNS, { count: 'exact' }).or(`user_id.eq.${owner},is_master.eq.true`).order('id').range(from, to);
+        if (isMissingColumnError(response.error?.message, 'is_master')) response = await supabase.from('setups').select(SETUP_SELECT_COLUMNS_LEGACY, { count: 'exact' }).eq('user_id', owner).order('id').range(from, to);
+        return response as unknown as JournalRowPage<SetupRow>;
+      }, 10_000),
+    ]);
+    const tradeIds = new Set(tradeRows.map(row => row.id));
+    const tradeMediaCounts: Record<string, number> = {};
+    for (const row of media) if (tradeIds.has(row.trade_id)) tradeMediaCounts[row.trade_id] = (tradeMediaCounts[row.trade_id] ?? 0) + 1;
+    return {
+      ...getEmptySnapshot(), tradeRows: tradeRows.map(row => ({ ...row, screenshot_url: null })), tradeTags: tags.filter(row => tradeIds.has(row.trade_id)),
+      setupTradeLinkRows: links.filter(row => tradeIds.has(row.trade_id)), setupRows: setups,
+      availability: 'ready', tradeMediaCounts,
+    } satisfies WorkspaceSnapshot;
+  } catch (error) {
+    console.error('Global journal workspace unavailable:', error instanceof Error ? error.message : 'JOURNAL_READ_FAILED');
+    return unavailable();
+  }
 }
 
 export function getShareSnapshotServer(userId?: string | null) {

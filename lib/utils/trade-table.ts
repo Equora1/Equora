@@ -1,10 +1,14 @@
 import type { Trade } from '@/lib/types/trade'
 import { getTradeAccountLabel } from '@/lib/utils/account-context'
-import { resolveTradeOccurredAt } from '@/lib/utils/trade-time'
+import { DEFAULT_TRADE_TIMEZONE, getTradeDateKey, resolveTradeOccurredAt } from '@/lib/utils/trade-time'
+import { getTradeTableDateRangeError } from '@/lib/utils/trade-table-date-range'
 import type { TradeTag } from '@/lib/types/tag'
+import { resolveTradeMonetaryScope } from '@/lib/utils/currency'
 
 export type TradeTableFilters = {
   search: string
+  dateFrom: string
+  dateTo: string
   market: string
   account: string
   setup: string
@@ -49,7 +53,7 @@ function hasDefinedPnL(trade: Trade) {
 
 export function getTradeWeekdayLabel(trade: Trade) {
   const date = new Date(resolveTradeOccurredAt(trade))
-  return new Intl.DateTimeFormat('de-DE', { weekday: 'long' }).format(date)
+  return new Intl.DateTimeFormat('de-DE', { weekday: 'long', timeZone: DEFAULT_TRADE_TIMEZONE }).format(date)
 }
 
 export function buildTradeTagMap(tradeTags: TradeTag[]) {
@@ -65,6 +69,8 @@ export function buildTradeTagMap(tradeTags: TradeTag[]) {
 export function createDefaultTradeTableFilters(): TradeTableFilters {
   return {
     search: '',
+    dateFrom: '',
+    dateTo: '',
     market: 'Alle',
     account: 'Alle',
     setup: 'Alle',
@@ -83,15 +89,22 @@ export function createDefaultTradeTableFilters(): TradeTableFilters {
 }
 
 export function filterTradeTableRows(trades: Trade[], tradeTagMap: Record<string, string[]>, filters: TradeTableFilters) {
-  const searchTerm = filters.search.trim().toLowerCase()
+  const searchTerms = filters.search.trim().toLowerCase().split(/\s+/).filter(Boolean)
+  if (getTradeTableDateRangeError(filters)) return []
+  const hasDateRange = Boolean(filters.dateFrom || filters.dateTo)
 
   return trades.filter((trade) => {
+    if (hasDateRange) {
+      const dateKey = getTradeDateKey(resolveTradeOccurredAt(trade))
+      if (!dateKey || (filters.dateFrom && dateKey < filters.dateFrom) || (filters.dateTo && dateKey > filters.dateTo)) return false
+    }
     const tags = tradeTagMap[trade.id] ?? []
-    const matchesSearch =
-      !searchTerm ||
-      [trade.market, getTradeAccountLabel(trade), trade.setup, trade.emotion, trade.session, trade.concept, trade.result, trade.r, getTradeWeekdayLabel(trade), ...tags]
+    const searchableValues = searchTerms.length
+      ? [trade.market, getTradeAccountLabel(trade), trade.setup, trade.emotion, trade.session, trade.concept, trade.result, trade.r, getTradeWeekdayLabel(trade), ...tags]
         .filter(Boolean)
-        .some((value) => value.toLowerCase().includes(searchTerm))
+        .map((value) => value.toLowerCase())
+      : []
+    const matchesSearch = searchTerms.every((term) => searchableValues.some((value) => value.includes(term)))
 
     const matchesOutcome =
       filters.outcome === 'Alle' ||
@@ -166,6 +179,10 @@ export function sortTradeTableRows(trades: Trade[], sort: TradeTableSort) {
   return rows
 }
 
+export function resolveTradeTableSort(trades: Trade[], sort: TradeTableSort): TradeTableSort {
+  return (sort === 'pnl-desc' || sort === 'pnl-asc') && !resolveTradeMonetaryScope(trades).isComparable ? 'newest' : sort
+}
+
 export function summarizeTrades(trades: Trade[]): TradeTableSummary {
   const pnlKnownTrades = trades.filter((trade) => hasDefinedPnL(trade))
   const winners = pnlKnownTrades.filter((trade) => (trade.netPnL ?? 0) > 0).length
@@ -189,6 +206,7 @@ export function countActiveTradeTableFilters(filters: TradeTableFilters) {
   let count = 0
 
   if (filters.search.trim().length > 0) count += 1
+  if (filters.dateFrom || filters.dateTo) count += 1
   if (filters.requiredTags.length > 0) count += 1
 
   const singularValues = [
@@ -210,4 +228,24 @@ export function countActiveTradeTableFilters(filters: TradeTableFilters) {
   count += singularValues.filter((value) => value !== 'Alle').length
 
   return count
+}
+
+export function paginateTradeTableRows<T>(rows: T[], requestedPage: number, pageSize: number) {
+  if (!Number.isSafeInteger(pageSize) || pageSize < 1) throw new Error('INVALID_TRADE_PAGE_SIZE')
+  const totalPages = Math.max(1, Math.ceil(rows.length / pageSize))
+  const safePage = Number.isSafeInteger(requestedPage) && requestedPage > 0 ? requestedPage : 1
+  const page = Math.min(safePage, totalPages)
+  return { rows: rows.slice((page - 1) * pageSize, page * pageSize), page, totalPages, totalMatches: rows.length }
+}
+
+export function buildTradeTableView(
+  trades: Trade[], tradeTagMap: Record<string, string[]>, filters: TradeTableFilters,
+  sort: TradeTableSort, requestedPage: number, pageSize: number, reviewTradeIds?: readonly string[],
+) {
+  const filtered = filterTradeTableRows(trades, tradeTagMap, filters)
+  const reviewSet = reviewTradeIds === undefined ? undefined : new Set(reviewTradeIds)
+  const eligible = reviewSet ? filtered.filter(trade => reviewSet.has(trade.id)) : filtered
+  const effectiveSort = resolveTradeTableSort(eligible, sort)
+  const matches = sortTradeTableRows(eligible, effectiveSort)
+  return { ...paginateTradeTableRows(matches, requestedPage, pageSize), matches, effectiveSort, canSortByPnL: resolveTradeTableSort(eligible, 'pnl-desc') === 'pnl-desc' }
 }

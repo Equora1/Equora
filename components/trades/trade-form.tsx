@@ -1144,7 +1144,7 @@ export function TradeForm({
       }
 
       if (isEditMode && tradeId) {
-        router.push(`/trades?tradeId=${encodeURIComponent(tradeId)}`)
+        router.push(cancelHref ?? `/trades?tradeId=${encodeURIComponent(tradeId)}`)
         router.refresh()
         return
       }

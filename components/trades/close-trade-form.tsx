@@ -60,7 +60,7 @@ export function CloseTradeForm({
       setStatus(result.message)
       if (!result.success) return
 
-      router.push(`/trades?tradeId=${encodeURIComponent(tradeId)}`)
+      router.push(cancelHref)
       router.refresh()
     })
   }
