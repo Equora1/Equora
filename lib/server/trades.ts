@@ -1,4 +1,4 @@
-import { getJournalSnapshotServer, TRADE_DETAIL_SELECT_COLUMNS } from '@/lib/server/journal'
+import { getJournalSnapshotServer, TRADE_DETAIL_SELECT_COLUMNS, OWNED_TRADE_TAG_SELECT_COLUMNS } from '@/lib/server/journal'
 import { hasSupabaseClientEnv, hasSupabaseServerEnv } from '@/lib/supabase/config'
 import { createSupabaseAuthServerClient } from '@/lib/supabase/server-auth'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
@@ -169,8 +169,8 @@ export async function getTradeTagsServer(
 
   const { data, error, count } = await supabase
     .from('trade_tags')
-    .select('id,trade_id,user_id,created_at,tag', requireComplete ? { count: 'exact' } : undefined)
-    .eq('user_id', userId)
+    .select(OWNED_TRADE_TAG_SELECT_COLUMNS, requireComplete ? { count: 'exact' } : undefined)
+    .eq('trades.user_id', userId)
     .eq('trade_id', tradeId)
     .order('created_at', { ascending: true })
 

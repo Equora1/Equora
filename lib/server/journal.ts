@@ -440,7 +440,8 @@ const SETUP_SELECT_COLUMNS_LEGACY = SETUP_SELECT_COLUMNS.split(",")
   .join(",");
 
 const SETUP_LINK_SELECT_COLUMNS = "id,setup_id,trade_id,user_id,created_at";
-const TRADE_TAG_SELECT_COLUMNS = "id,trade_id,user_id,created_at,tag";
+const TRADE_TAG_SELECT_COLUMNS = "id,trade_id,created_at,tag";
+export const OWNED_TRADE_TAG_SELECT_COLUMNS = `${TRADE_TAG_SELECT_COLUMNS},trades!inner(user_id)`;
 const TRADE_MEDIA_SELECT_COLUMNS =
   "id,trade_id,user_id,created_at,storage_path,public_url,file_name,mime_type,byte_size,sort_order,is_primary";
 const SETUP_MEDIA_SELECT_COLUMNS =
@@ -952,7 +953,10 @@ export async function getTradesWorkspaceSnapshotServer(userId?: string | null) {
       await supabase.from(table).select(columns, { count: 'exact' }).eq('user_id', owner).order('id').range(from, to)
     ) as unknown as JournalRowPage<T>, 100_000);
     const [tags, links, media, setups] = await Promise.all([
-      readRelated<TradeTag>('trade_tags', TRADE_TAG_SELECT_COLUMNS),
+      collectJournalRows<TradeTag>(async (from, to) => (
+        await supabase.from('trade_tags').select(OWNED_TRADE_TAG_SELECT_COLUMNS, { count: 'exact' })
+          .eq('trades.user_id', owner).order('id').range(from, to)
+      ) as unknown as JournalRowPage<TradeTag>, 100_000),
       readRelated<SetupTradeLinkRow>('setup_trade_links', SETUP_LINK_SELECT_COLUMNS),
       readRelated<{ id: string; trade_id: string }>('trade_media', 'id,trade_id'),
       collectJournalRows<SetupRow>(async (from, to) => {

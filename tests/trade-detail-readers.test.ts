@@ -4,16 +4,18 @@ vi.mock('@/lib/supabase/config', () => ({ hasSupabaseClientEnv: () => mock.confi
 vi.mock('@/lib/supabase/server', () => ({ createSupabaseServerClient: mock.client }))
 vi.mock('@/lib/supabase/server-auth', () => ({ createSupabaseAuthServerClient: mock.client }))
 vi.mock('@/lib/server/media-access', () => ({ signTradeMediaRows: mock.sign }))
-vi.mock('@/lib/server/journal', () => ({ TRADE_DETAIL_SELECT_COLUMNS: 'id', getJournalSnapshotServer: async () => ({ tradeRows: [], tradeTags: [{ id: 'demo-tag', trade_id: 'a', tag: 'Plan' }], tradeMediaRows: [{ id: 'demo-media', trade_id: 'a' }] }) }))
+vi.mock('@/lib/server/performance', () => ({ measurePerformance: (_name: string, _kind: string, run: () => unknown) => run() }))
+vi.mock('@/lib/server/journal', async importOriginal => ({ ...await importOriginal<typeof import('@/lib/server/journal')>(), getJournalSnapshotServer: async () => ({ tradeRows: [], tradeTags: [{ id: 'demo-tag', trade_id: 'a', tag: 'Plan' }], tradeMediaRows: [{ id: 'demo-media', trade_id: 'a' }] }) }))
 import { getTradeMediaServer, getTradeTagsServer } from '@/lib/server/trades'
 
 let response: { data: unknown[] | null; count: number | null; error: { message: string } | null }
 let filters: Array<[string, string]>
 let selectOptions: unknown
+let selectColumns: string
 beforeEach(() => {
-  mock.configured = true; mock.server = true; filters = []; selectOptions = undefined
+  mock.configured = true; mock.server = true; filters = []; selectOptions = undefined; selectColumns = ''
   response = { data: [], count: 0, error: null }
-  const query = { select: (_columns: string, options: unknown) => { selectOptions = options; return query }, eq: (key: string, value: string) => { filters.push([key, value]); return query }, order: () => query, then: (resolve: (value: unknown) => unknown) => Promise.resolve(resolve(response)) }
+  const query = { select: (columns: string, options: unknown) => { selectColumns = columns; selectOptions = options; return query }, eq: (key: string, value: string) => { filters.push([key, value]); return query }, order: () => query, then: (resolve: (value: unknown) => unknown) => Promise.resolve(resolve(response)) }
   mock.client.mockReset().mockReturnValue({ from: () => query })
   mock.sign.mockReset().mockImplementation((_client, rows) => rows)
 })
@@ -21,7 +23,8 @@ beforeEach(() => {
 describe('complete detail reads before editing', () => {
   it.each([['tags', getTradeTagsServer], ['media', getTradeMediaServer]] as const)('%s read binds owner and trade and requests an exact count', async (_label, reader) => {
     expect(await reader('a', 'owner', true)).toEqual([])
-    expect(filters).toEqual([['user_id', 'owner'], ['trade_id', 'a']])
+    expect(filters).toEqual([[_label === 'tags' ? 'trades.user_id' : 'user_id', 'owner'], ['trade_id', 'a']])
+    if (_label === 'tags') expect(selectColumns).toBe('id,trade_id,created_at,tag,trades!inner(user_id)')
     expect(selectOptions).toEqual({ count: 'exact' })
   })
   it.each([['tags', getTradeTagsServer], ['media', getTradeMediaServer]] as const)('%s query error is not mistaken for an empty collection', async (_label, reader) => {

@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { readFileSync } from 'node:fs'
 
 const mocks = vi.hoisted(() => ({ configured: true, server: true, client: vi.fn() }))
 vi.mock('@/lib/supabase/config', () => ({ hasSupabaseClientEnv: () => mocks.configured, hasSupabaseServerEnv: () => mocks.server }))
@@ -9,7 +10,7 @@ vi.mock('@/lib/server/media-access', () => ({ signTradeMediaRows: vi.fn(), signS
 import { getTradesWorkspaceSnapshotServer } from '@/lib/server/journal'
 
 type Row = { id: string; user_id?: string; trade_id?: string; is_master?: boolean; [key: string]: unknown }
-type Call = { table: string; columns: string; count?: string; owner?: string; master?: string; order?: string; from: number; to: number }
+type Call = { table: string; columns: string; count?: string; owner?: string; ownerColumn?: string; master?: string; order?: string; from: number; to: number }
 let tables: Record<string, Row[]>
 let calls: Call[]
 let failTable: string | undefined
@@ -19,7 +20,7 @@ class Query {
   call: Call
   constructor(table: string) { this.call = { table, columns: '', from: 0, to: 499 } }
   select(columns: string, options: { count?: string }) { this.call.columns = columns; this.call.count = options.count; return this }
-  eq(column: string, owner: string) { if (column !== 'user_id') throw Error('Unexpected scope'); this.call.owner = owner; return this }
+  eq(column: string, owner: string) { if (column !== 'user_id' && column !== 'trades.user_id') throw Error('Unexpected scope'); this.call.owner = owner; this.call.ownerColumn = column; return this }
   or(master: string) { this.call.master = master; return this }
   order(column: string) { this.call.order = column; return this }
   range(from: number, to: number) { this.call.from = from; this.call.to = to; return this }
@@ -27,10 +28,16 @@ class Query {
     calls.push({ ...this.call })
     const c = this.call
     if (c.table === failTable) return Promise.resolve(resolve({ data: null, count: null, error: { message: 'test failure' } }))
+    // Actual schema: tags belong to a trade; trade_tags has no user_id column.
+    if (c.table === 'trade_tags' && (c.ownerColumn === 'user_id' || /\buser_id\b/.test(c.columns.replace('trades!inner(user_id)', '')))) {
+      return Promise.resolve(resolve({ data: null, count: null, error: { message: 'column trade_tags.user_id does not exist' } }))
+    }
     if (legacy && ((c.table === 'trades' && c.columns.split(',').includes('import_batch_id')) || (c.table === 'setups' && c.columns.split(',').includes('is_master')))) {
       return Promise.resolve(resolve({ data: null, count: null, error: { message: `column ${c.table === 'trades' ? 'import_batch_id' : 'is_master'} missing` } }))
     }
-    const data = (tables[c.table] ?? []).filter(row => c.owner ? row.user_id === c.owner : row.user_id === 'owner-a' || row.is_master === true)
+    const data = (tables[c.table] ?? []).filter(row => c.table === 'trade_tags'
+      ? c.ownerColumn === 'trades.user_id' && c.columns.includes('trades!inner(user_id)') && tables.trades.some(trade => trade.id === row.trade_id && trade.user_id === c.owner)
+      : c.owner ? row.user_id === c.owner : row.user_id === 'owner-a' || row.is_master === true)
     return Promise.resolve(resolve({ data: data.slice(c.from, Math.min(c.to + 1, c.from + 100)), count: data.length, error: null }))
   }
 }
@@ -42,11 +49,23 @@ beforeEach(() => {
 })
 
 describe('whole-journal server workspace wiring', () => {
+  it('uses the declared tag columns and binds ownership through the parent trade', async () => {
+    const schema = readFileSync(new URL('../supabase/schema.sql', import.meta.url), 'utf8')
+    const definition = schema.match(/create table if not exists public\.trade_tags \(([\s\S]*?)\n\);/)![1]
+    const columns = [...definition.matchAll(/^\s+([a-z_]+)\s/gm)].map(match => match[1])
+    expect(columns).not.toContain('user_id')
+    expect(definition).toContain('references public.trades (id)')
+    expect((await getTradesWorkspaceSnapshotServer('owner-a')).availability).toBe('ready')
+    const query = calls.find(call => call.table === 'trade_tags')!
+    expect(query.ownerColumn).toBe('trades.user_id')
+    expect(query.columns).toContain('trades!inner(user_id)')
+    expect(query.columns.replace(',trades!inner(user_id)', '').split(',').every(column => columns.includes(column))).toBe(true)
+  })
   it('loads all owned trades and related tags beyond 1000, excluding other owners', async () => {
     tables.trades = Array.from({ length: 1103 }, (_, i) => ({ id: `t-${i}`, user_id: 'owner-a' }))
     tables.trades.push({ id: 'foreign', user_id: 'owner-b' })
-    tables.trade_tags = Array.from({ length: 1103 }, (_, i) => ({ id: `tag-${i}`, trade_id: `t-${i}`, user_id: 'owner-a', tag: 'Plan' }))
-    tables.trade_tags.push({ id: 'foreign-tag', trade_id: 'foreign', user_id: 'owner-b', tag: 'Hidden' })
+    tables.trade_tags = Array.from({ length: 1103 }, (_, i) => ({ id: `tag-${i}`, trade_id: `t-${i}`, tag: 'Plan' }))
+    tables.trade_tags.push({ id: 'foreign-tag', trade_id: 'foreign', tag: 'Hidden' })
     tables.trade_media = [{ id: 'm1', trade_id: 't-1102', user_id: 'owner-a' }, { id: 'm2', trade_id: 't-1102', user_id: 'owner-a' }]
     tables.setups = [{ id: 'owned', user_id: 'owner-a' }, { id: 'shared', user_id: 'owner-b', is_master: true }, { id: 'private', user_id: 'owner-b' }]
     const result = await getTradesWorkspaceSnapshotServer('owner-a')
