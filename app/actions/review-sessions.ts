@@ -39,7 +39,7 @@ function buildMockSession(input: SaveReviewSessionInput): SavedReviewSession {
     netPnL: input.netPnL ?? 0,
     currency,
     monetaryScopeKind,
-    averageR: input.averageR ?? 0,
+    averageR: input.averageR ?? null,
     winRate: input.winRate ?? 0,
     winners: input.winners ?? 0,
     losers: input.losers ?? 0,

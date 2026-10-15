@@ -345,7 +345,7 @@ describe('v57.60.1 application safety contracts', () => {
     expect(recentTrades).toContain('lg:grid-cols-[0.85fr_1fr_1fr_0.8fr_0.7fr_0.7fr]')
     expect(recentTrades).toContain('getTradeTrustMeta(trade)')
     expect(recentTrades).toContain('getDashboardRObservation(trade)')
-    expect(dashboardModel).toContain("source === 'realized' || source === 'realized_partial' || source === 'manual'")
+    expect(dashboardModel).toContain('getDocumentedTradeRValue(trade)')
     expect(dashboardModel).toContain("if (availability === 'unavailable') return 'unavailable'")
     expect(dashboardModel).toContain("if (trustedTradeCount === 0) return 'Keine belastbaren Abschlüsse'")
     expect(dashboardModel).toContain("if (scopeKind === 'mixed') return 'Mehrere Währungen ohne Umrechnungskurs'")

@@ -1,5 +1,6 @@
 'use client'
 
+import { formatRMultiple } from '@/lib/utils/calculations'
 import Link from 'next/link'
 import type { ReactNode } from 'react'
 import { useMemo, useState } from 'react'
@@ -123,7 +124,7 @@ export function ReviewRhythmCard({
               <MetricCard label="Trades" value={String(weeklySnapshot.sessionDraft.tradeCount)} tone="text-white" />
               <MetricCard label="P&L" value={weeklySnapshot.sessionDraft.monetaryScopeKind === 'single' ? formatCurrency(weeklySnapshot.sessionDraft.netPnL, 0, weeklySnapshot.sessionDraft.currency) : 'Gesperrt'} tone={weeklySnapshot.sessionDraft.monetaryScopeKind === 'single' && weeklySnapshot.sessionDraft.netPnL >= 0 ? 'text-emerald-300' : weeklySnapshot.sessionDraft.monetaryScopeKind === 'single' && weeklySnapshot.sessionDraft.netPnL < 0 ? 'text-red-300' : 'text-orange-100'} />
               <MetricCard label="Winrate" value={`${formatPlainNumber(weeklySnapshot.sessionDraft.winRate, 0)}%`} tone="text-orange-100/90" />
-              <MetricCard label="Ø R" value={`${formatPlainNumber(weeklySnapshot.sessionDraft.averageR, 2)}R`} tone={weeklySnapshot.sessionDraft.averageR >= 0 ? 'text-emerald-300' : 'text-red-300'} />
+              <MetricCard label="Ø R" value={formatRMultiple(weeklySnapshot.sessionDraft.averageR)} tone={weeklySnapshot.sessionDraft.averageR === null ? 'text-white/55' : weeklySnapshot.sessionDraft.averageR >= 0 ? 'text-emerald-300' : 'text-red-300'} />
             </div>
           </WidePanel>
 

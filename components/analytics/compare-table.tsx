@@ -1,3 +1,4 @@
+import { formatRMultiple } from '@/lib/utils/calculations'
 import { FuturisticCard } from '@/components/ui/futuristic-card'
 import type { CompareResult } from '@/lib/utils/compare'
 import { formatMoney } from '@/lib/utils/currency'
@@ -29,7 +30,7 @@ export function CompareTable({ title, rows }: { title: string; rows: CompareResu
               <span className="font-medium text-white">{row.label}</span>
               <span className="text-white/65">{row.totalTrades}</span>
               <span className={row.winRate >= 50 ? 'text-emerald-300' : 'text-red-300'}>{row.winRate.toFixed(1)}%</span>
-              <span className={row.avgR >= 0 ? 'text-emerald-300' : 'text-red-300'}>{row.avgR >= 0 ? '+' : ''}{row.avgR.toFixed(2)}R</span>
+              <span className={row.avgR === null ? 'text-white/55' : row.avgR >= 0 ? 'text-emerald-300' : 'text-red-300'}>{formatRMultiple(row.avgR)}</span>
               <span className={row.netPnL >= 0 ? 'text-emerald-300' : 'text-red-300'}>{row.currency ? formatMoney(row.netPnL, row.currency) : '—'}</span>
               <span className="text-white/65">{row.profitFactor === Infinity ? '∞' : row.profitFactor.toFixed(2)}</span>
             </div>

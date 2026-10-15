@@ -7,7 +7,7 @@ type SetupBucket = {
   setup: string
   trades: Trade[]
   netPnL: number
-  averageR: number
+  averageR: number | null
   winRate: number
 }
 

@@ -1,5 +1,6 @@
 'use client'
 
+import { formatRMultiple } from '@/lib/utils/calculations'
 import Link from 'next/link'
 import { useEffect, useMemo, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
@@ -134,7 +135,7 @@ export function DailyNoteFlowCard({
                 <div className="flex items-center justify-between gap-3"><span>Setup</span><span className="text-white">{summary.dominantSetup ?? '—'}</span></div>
                 <div className="flex items-center justify-between gap-3"><span>Emotion</span><span className="text-white">{summary.strongestEmotion ?? '—'}</span></div>
                 <div className="flex items-center justify-between gap-3"><span>Wins / Losses</span><span className="text-white">{summary.winCount} / {summary.lossCount}</span></div>
-                <div className="flex items-center justify-between gap-3"><span>Ø R</span><span className="text-white">{formatPlainNumber(summary.averageR, 2)}R</span></div>
+                <div className="flex items-center justify-between gap-3"><span>Ø R</span><span className="text-white">{formatRMultiple(summary.averageR)}</span></div>
               </div>
             </div>
           </div>

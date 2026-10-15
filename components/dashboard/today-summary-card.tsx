@@ -11,7 +11,7 @@ export function TodaySummaryCard({ trades, dailyNotes }: { trades: Trade[]; dail
   const todaysTrades = trades.filter((trade) => toLocalDateKey(resolveTradeOccurredAt(trade)) === todayKey)
   const trustedToday = getTrustedTrades(todaysTrades)
   const metrics = getCoreMetrics(trustedToday)
-  const documentedRCount = trustedToday.filter(hasDocumentedR).length
+  const documentedRCount = metrics.rCount
   const note = dailyNotes.find((entry) => toLocalDateKey(entry.trade_date) === todayKey)
   const headline = buildTodayHeadline(todaysTrades.length, trustedToday.length, metrics.netPnL, metrics.monetaryScope.isComparable)
   const closingLine = buildClosingLine(todaysTrades.length, trustedToday.length, metrics.netPnL, metrics.monetaryScope.isComparable)
@@ -63,11 +63,6 @@ function TodayStat({ label, value, detail, tone = 'neutral' }: { label: string; 
       <p className="mt-1 text-xs leading-5 text-white/50">{detail}</p>
     </div>
   )
-}
-
-function hasDocumentedR(trade: Trade) {
-  if (trade.rValue !== null && trade.rValue !== undefined && Number.isFinite(trade.rValue)) return true
-  return typeof trade.r === 'string' ? trade.r.trim().length > 0 : trade.r !== null && trade.r !== undefined
 }
 
 function buildTodayHeadline(todayTrades: number, trustedTrades: number, netPnL: number, moneyComparable: boolean) {

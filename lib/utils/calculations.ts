@@ -333,7 +333,8 @@ export function formatCurrency(value: number, fractionDigits = 0, currency?: str
   return formatMoney(value, currency, fractionDigits)
 }
 
-export function formatRMultiple(value: number, fractionDigits = 2): string {
+export function formatRMultiple(value: number | null | undefined, fractionDigits = 2): string {
+  if (value === null || value === undefined || !Number.isFinite(value)) return 'R offen'
   const formatter = new Intl.NumberFormat('de-DE', {
     minimumFractionDigits: fractionDigits,
     maximumFractionDigits: fractionDigits,
@@ -981,7 +982,7 @@ export type TradeComputation = {
   slippage: number
   priceMove: number | null
   multiplier: number | null
-  rValue: number
+  rValue: number | null
   realizedRValue: number | null
   plannedRValue: number | null
   priceRisk: number | null
@@ -1207,10 +1208,10 @@ export function computeTradeMetrics({
       : null
   const derivedR = realizedR ?? plannedR
   const manualR = derivedR === null ? legacyStoredR : null
-  const rValue = derivedR ?? manualR ?? 0
+  const rValue = derivedR ?? manualR
   const rSource =
     realizedR !== null
-      ? partialPlan.hasRemainder
+      ? partialPlan.count > 0 && partialPlan.hasRemainder
         ? 'realized_partial'
         : 'realized'
       : plannedR !== null
@@ -1218,7 +1219,7 @@ export function computeTradeMetrics({
         : manualR !== null
           ? 'manual'
           : 'missing'
-  const pnlBasedRiskAmount = effectiveNetPnL !== null && rValue !== 0 ? Math.abs(effectiveNetPnL / rValue) : null
+  const pnlBasedRiskAmount = effectiveNetPnL !== null && rValue !== null && rValue !== 0 ? Math.abs(effectiveNetPnL / rValue) : null
   const riskAmount = stopRiskAmount ?? pnlBasedRiskAmount
   const plannedRiskAmount =
     accountSizeValue !== null && accountSizeValue > 0 && riskPercentValue !== null && riskPercentValue > 0

@@ -6,6 +6,7 @@ import { deriveTradeKillZoneLabel, deriveTradeSessionLabel, formatTradeTimeLabel
 import { buildTradeImportSourceFacts, extractTradeImportMeta } from '@/lib/utils/trade-import-meta'
 import { getTradeAccountLabel } from '@/lib/utils/account-context'
 import { getTradeCurrencyStatus } from '@/lib/utils/currency'
+import { formatTradeRValue } from '@/lib/utils/trade-r'
 import {
   getTradeCaptureResultLabel,
   getTradeCaptureStatusLabel,
@@ -96,7 +97,7 @@ export function mapTradeRowToTrade(row: TradeRow, mediaRows: TradeMediaRow[] = [
     market: row.market,
     setup: linkedSetup?.title ?? row.setup,
     result: metrics.netPnL !== null ? formatCurrency(metrics.netPnL, 0, row.account_currency) : captureResult ? getTradeCaptureResultLabel(captureResult) : '—',
-    r: formatRMultiple(metrics.rValue),
+    r: formatTradeRValue(metrics.rValue, metrics.rSource),
     emotion: row.emotion ?? '—',
     quality: (row.quality ?? 'B-Setup') as Trade['quality'],
     session: resolvedSession,
@@ -242,7 +243,7 @@ export function mapTradeRowToTradeDetail(row: TradeRow, mediaRows: TradeMediaRow
   return {
     title: `${row.market} ${linkedSetup?.title ?? row.setup}`,
     date: `${formatTradeDateLabel(tradeOccurredAt)}${resolvedSession ? ` · ${resolvedSession}` : ''}`,
-    result: formatRMultiple(metrics.rValue),
+    result: formatTradeRValue(metrics.rValue, metrics.rSource),
     pnl:
       metrics.netPnL !== null
         ? `${formatCurrency(metrics.netPnL, 0, row.account_currency)}${partialPlan.hasRemainder ? ' bisher realisiert · Rest läuft' : ''}`

@@ -1,3 +1,4 @@
+import { getTradeRValue, summarizeTradeR } from '@/lib/utils/trade-r'
 import type { Trade } from '@/lib/types/trade'
 import { getTradeAccountLabel } from '@/lib/utils/account-context'
 import { DEFAULT_TRADE_TIMEZONE, getTradeDateKey, resolveTradeOccurredAt } from '@/lib/utils/trade-time'
@@ -46,7 +47,8 @@ export type TradeTableSummary = {
   losers: number
   breakeven: number
   netPnL: number
-  averageR: number
+  averageR: number | null
+  rCount: number
   winnerRate: number
 }
 
@@ -173,9 +175,13 @@ export function sortTradeTableRows(trades: Trade[], sort: TradeTableSort) {
       case 'pnl-asc':
         return (left.netPnL ?? 0) - (right.netPnL ?? 0)
       case 'r-desc':
-        return (right.rValue ?? 0) - (left.rValue ?? 0)
-      case 'r-asc':
-        return (left.rValue ?? 0) - (right.rValue ?? 0)
+      case 'r-asc': {
+        const leftR = getTradeRValue(left)
+        const rightR = getTradeRValue(right)
+        if (leftR === null) return rightR === null ? 0 : 1
+        if (rightR === null) return -1
+        return sort === 'r-desc' ? rightR - leftR : leftR - rightR
+      }
       case 'market-asc':
         return left.market.localeCompare(right.market, 'de')
       case 'setup-asc':
@@ -199,7 +205,7 @@ export function summarizeTrades(trades: Trade[]): TradeTableSummary {
   const losers = pnlKnownTrades.filter((trade) => (trade.netPnL ?? 0) < 0).length
   const breakeven = pnlKnownTrades.filter((trade) => trade.netPnL === 0).length
   const netPnL = pnlKnownTrades.reduce((sum, trade) => sum + (trade.netPnL ?? 0), 0)
-  const averageR = trades.length ? trades.reduce((sum, trade) => sum + (trade.rValue ?? 0), 0) / trades.length : 0
+  const { averageR, rCount } = summarizeTradeR(trades)
 
   return {
     totalTrades: trades.length,
@@ -208,6 +214,7 @@ export function summarizeTrades(trades: Trade[]): TradeTableSummary {
     breakeven,
     netPnL,
     averageR,
+    rCount,
     winnerRate: pnlKnownTrades.length ? (winners / pnlKnownTrades.length) * 100 : 0,
   }
 }

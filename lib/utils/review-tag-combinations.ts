@@ -34,10 +34,10 @@ export function buildTagCombinations(tradesCurrent: Trade[], tradeTags: TradeTag
     return right.metrics.totalTrades - left.metrics.totalTrades
   })[0]
   const unstablePair = [...pairs]
-    .filter((pair) => pair.metrics.totalTrades >= 2)
+    .filter((pair) => pair.metrics.totalTrades >= 2 && pair.metrics.averageR !== null)
     .sort((left, right) => {
-      const leftScore = left.metrics.winRate - Math.abs(left.metrics.averageR) * 10
-      const rightScore = right.metrics.winRate - Math.abs(right.metrics.averageR) * 10
+      const leftScore = left.metrics.winRate - Math.abs(left.metrics.averageR!) * 10
+      const rightScore = right.metrics.winRate - Math.abs(right.metrics.averageR!) * 10
       return leftScore - rightScore
     })[0]
 

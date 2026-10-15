@@ -1,5 +1,6 @@
 'use client'
 
+import { formatRMultiple } from '@/lib/utils/calculations'
 import { useMemo, useState, type ReactNode } from 'react'
 import { CompareAndConquer } from '@/components/analytics/compare-and-conquer'
 import { FilterDeck } from '@/components/analytics/filter-deck'
@@ -359,7 +360,7 @@ export function StatistikWorkbench({ trades, tradeTags, setupTitles, initialLaye
         <div className="mt-7 grid gap-6 lg:grid-cols-3">
           <MetricCard label="P&L" value={metrics.monetaryScope.isComparable ? formatCurrency(metrics.netPnL, metrics.currency) : 'Gesperrt'} detail={activeAccount ? activeAccount.label : `${trustedTrades.length} Trades`} tone={metrics.monetaryScope.isComparable ? 'text-emerald-300' : 'text-orange-200'} />
           <MetricCard label="Winrate" value={formatPercent(metrics.winRate)} detail={activeAccount ? `${activeAccount.trades} Konto-Trades` : bestEmotion ? bestEmotion.emotion : `${trustedTrades.length} belastbare Trades`} tone="text-white" />
-          <MetricCard label="Erwartung" value={`${metrics.expectancyR >= 0 ? '+' : ''}${metrics.expectancyR.toFixed(2)}R`} detail={bestMarket ? bestMarket[0] : scopePeriodLabel} tone="text-orange-200" />
+          <MetricCard label="Ø Ergebnis in R" value={formatRMultiple(metrics.expectancyR)} detail={`${metrics.rCount} von ${trustedTrades.length} Abschlüssen mit R-Wert`} tone="text-orange-200" />
         </div>
 
         {!metrics.monetaryScope.isComparable && metrics.monetaryScope.kind !== 'empty' ? (
@@ -721,7 +722,7 @@ function SetupPerformanceRowCard({ row }: { row: SetupPerformanceRow }) {
           <InlineMetric label="P&L" value={formatRowMoney(row.netPnL, row.trades, row.currency)} valueClassName={pnlClass} />
           <InlineMetric label="Winrate" value={hasEvidence ? `${row.winRate.toFixed(0)}%` : '—'} />
           <InlineMetric label="PF" value={hasEvidence ? formatProfitFactor(row.profitFactor) : '—'} />
-          <InlineMetric label="Ø R" value={hasEvidence && row.riskCoverage > 0 ? `${row.averageR >= 0 ? '+' : ''}${row.averageR.toFixed(2)}R` : hasEvidence ? 'R offen' : '—'} />
+          <InlineMetric label="Ø R" value={hasEvidence && row.averageR !== null ? formatRMultiple(row.averageR) : hasEvidence ? 'R offen' : '—'} />
           <InlineMetric label="Evidenz" value={getAnalyticsBucketEvidenceLabel(row.trades)} small />
         </div>
       </div>

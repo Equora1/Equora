@@ -40,7 +40,7 @@ export function mapReviewSessionRow(
         : row.monetary_scope_kind === 'empty' || row.monetary_scope_kind === 'mixed'
           ? row.monetary_scope_kind
           : 'unknown',
-    averageR: parseTradingNumber(row.average_r) ?? 0,
+    averageR: parseTradingNumber(row.average_r),
     winRate: parseTradingNumber(row.win_rate) ?? 0,
     winners: row.winners ?? 0,
     losers: row.losers ?? 0,

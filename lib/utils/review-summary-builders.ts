@@ -42,7 +42,7 @@ export function buildSummary(statsCurrent: ReturnType<typeof getCoreMetrics>, st
     {
       label: 'Erwartung',
       value: statsCurrent.monetaryScope.isComparable ? formatCurrency(statsCurrent.expectancy, 0, statsCurrent.currency) : 'Gesperrt',
-      hint: `${formatRMultiple(statsCurrent.expectancyR)} je Trade`,
+      hint: `${formatRMultiple(statsCurrent.expectancyR)} · ${statsCurrent.rCount} von ${statsCurrent.totalTrades} Trades mit Ergebnis-R`,
       tone: statsCurrent.expectancy >= 0 ? ('emerald' as const) : ('red' as const),
     },
     {
@@ -153,7 +153,7 @@ export function buildWeakSpots(tradesCurrent: Trade[], tradeTags: TradeTag[]): R
   const tagCoverage = getTagCoverage(tradesCurrent, tradeTags)
 
   const hasMeaningfulWeakSetup = Boolean(
-    worstSetup && (worstSetup.metrics.netPnL < 0 || worstSetup.metrics.averageR < 0 || worstSetup.metrics.winRate < 50)
+    worstSetup && (worstSetup.metrics.netPnL < 0 || (worstSetup.metrics.averageR !== null && worstSetup.metrics.averageR < 0) || worstSetup.metrics.winRate < 50)
   )
   const hasMeaningfulWeakDay = Boolean(worstWeekday && worstWeekday.metrics.netPnL < 0)
   const negativeTagLead = negativeTags.find((tag) => tag.netPnL < 0)
@@ -290,7 +290,7 @@ export function buildPlaybook(tradesCurrent: Trade[], tradeTags: TradeTag[], tra
     actions.push(`Nach ${metrics.longestLossStreak} Verlusten in Folge automatisch Cooldown oder halbe Positionsgröße.`)
   }
 
-  if (metrics.averageR < 0.5) {
+  if (metrics.averageR !== null && metrics.averageR < 0.5) {
     actions.push('Gewinner aktiver managen: Teilgewinnstruktur prüfen und nicht zu früh Luft abdrehen.')
   }
 

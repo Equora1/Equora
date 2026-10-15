@@ -228,7 +228,7 @@ export function ReviewSessionsHub({
       right,
       isMonetaryComparable,
       netPnLDelta: left.netPnL - right.netPnL,
-      averageRDelta: left.averageR - right.averageR,
+      averageRDelta: left.averageR !== null && right.averageR !== null ? left.averageR - right.averageR : null,
       winRateDelta: left.winRate - right.winRate,
       tradeCountDelta: left.tradeCount - right.tradeCount,
       sharedTags: left.topTags.filter((tag) => rightTags.has(tag)),
@@ -546,7 +546,7 @@ export function ReviewSessionsHub({
                   <MetricTile label="Zeitraum" value={selectedSession.periodPreset ?? 'frei'} tone="text-white" />
                   <MetricTile label="Pinning" value={selectedSession.isPinned ? 'Angepinnt' : 'Normal'} tone={selectedSession.isPinned ? 'text-emerald-300' : 'text-white/80'} />
                   <MetricTile label="P&L" value={formatSessionPnL(selectedSession)} tone={selectedSession.monetaryScopeKind !== 'single' ? 'text-orange-100' : selectedSession.netPnL >= 0 ? 'text-emerald-300' : 'text-red-300'} />
-                  <MetricTile label="Ø R" value={formatRMultiple(selectedSession.averageR)} tone={selectedSession.averageR >= 0 ? 'text-emerald-300' : 'text-red-300'} />
+                  <MetricTile label="Ø R" value={formatRMultiple(selectedSession.averageR)} tone={selectedSession.averageR === null ? 'text-white/55' : selectedSession.averageR >= 0 ? 'text-emerald-300' : 'text-red-300'} />
                   <MetricTile label="Win Rate" value={`${formatPlainNumber(selectedSession.winRate, 1)}%`} tone={selectedSession.winRate >= 50 ? 'text-emerald-300' : 'text-orange-200'} />
                   <MetricTile label="Trades" value={String(selectedSession.tradeCount)} tone="text-white" />
                 </div>
@@ -576,7 +576,7 @@ export function ReviewSessionsHub({
                 </div>
                 <div className="grid gap-3 md:grid-cols-4">
                   <MetricTile label="Δ P&L" value={comparison.isMonetaryComparable ? formatCurrency(comparison.netPnLDelta, 0, comparison.left.currency) : 'Gesperrt'} tone={!comparison.isMonetaryComparable ? 'text-orange-100' : comparison.netPnLDelta >= 0 ? 'text-emerald-300' : 'text-red-300'} />
-                  <MetricTile label="Δ Ø R" value={formatRMultiple(comparison.averageRDelta)} tone={comparison.averageRDelta >= 0 ? 'text-emerald-300' : 'text-red-300'} />
+                  <MetricTile label="Δ Ø R" value={formatRMultiple(comparison.averageRDelta)} tone={comparison.averageRDelta === null ? 'text-white/55' : comparison.averageRDelta >= 0 ? 'text-emerald-300' : 'text-red-300'} />
                   <MetricTile label="Δ Win Rate" value={`${formatPlainNumber(comparison.winRateDelta, 1)} pp`} tone={comparison.winRateDelta >= 0 ? 'text-emerald-300' : 'text-red-300'} />
                   <MetricTile label="Δ Trades" value={String(comparison.tradeCountDelta)} tone={comparison.tradeCountDelta >= 0 ? 'text-emerald-300' : 'text-red-300'} />
                 </div>

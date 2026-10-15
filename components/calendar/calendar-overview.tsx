@@ -1,5 +1,7 @@
 'use client'
 
+import { summarizeTradeR } from '@/lib/utils/trade-r'
+import { formatRMultiple } from '@/lib/utils/calculations'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useEffect, useMemo, useState, useTransition } from 'react'
@@ -82,9 +84,7 @@ export function CalendarOverview({
       .filter((trade) => trade.netPnL !== null && trade.netPnL !== undefined || trade.plannedRiskAmount || trade.riskAmount || trade.marginUsed)
       .map((trade) => trade.accountCurrency),
   )
-  const selectedAvgR = selectedTrades.length
-    ? selectedTrades.reduce((sum, trade) => sum + (trade.rValue ?? 0), 0) / selectedTrades.length
-    : 0
+  const selectedAvgR = summarizeTradeR(selectedTrades).averageR
   const selectedSetups = Array.from(new Set(selectedSummary?.setups ?? []))
   const selectedScreenshots = selectedTrades.filter((trade) => trade.screenshotUrl)
   const selectedPlannedRisk = selectedTrades.reduce((sum, trade) => sum + Math.abs(trade.plannedRiskAmount ?? 0), 0)
@@ -242,7 +242,7 @@ export function CalendarOverview({
               <p className="text-[10px] uppercase tracking-[0.24em] text-white/35">Tag im Überblick</p>
               <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
                 <MetricTile label="P&amp;L" value={selectedMonetaryScope.isComparable ? formatCurrency(selectedNetPnL, 0, selectedMonetaryScope.currency) : 'Gesperrt'} tone={selectedMonetaryScope.isComparable ? selectedNetPnL >= 0 ? 'emerald' : 'red' : 'neutral'} />
-                <MetricTile label="Ø R" value={`${selectedAvgR >= 0 ? '+' : ''}${selectedAvgR.toFixed(2)}R`} tone={selectedAvgR >= 0 ? 'emerald' : 'red'} />
+                <MetricTile label="Ø R" value={formatRMultiple(selectedAvgR)} tone={selectedAvgR === null ? 'neutral' : selectedAvgR >= 0 ? 'emerald' : 'red'} />
                 <MetricTile label="Offen" value={String(selectedSummary.openTradeCount)} tone={selectedSummary.openTradeCount ? 'emerald' : 'neutral'} />
                 <MetricTile label="Bilder" value={String(selectedSummary.screenshotTradeCount)} tone={selectedSummary.screenshotTradeCount ? 'orange' : 'neutral'} />
               </div>

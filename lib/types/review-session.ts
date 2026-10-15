@@ -19,7 +19,7 @@ export type SavedReviewSession = {
   netPnL: number
   currency: TradeCurrency | null
   monetaryScopeKind: MonetaryScopeKind
-  averageR: number
+  averageR: number | null
   winRate: number
   winners: number
   losers: number

@@ -80,7 +80,7 @@ export type Trade = {
   slippage?: number | null
   fundingRateBps?: number | null
   fundingIntervals?: number | null
-  rValue?: number
+  rValue?: number | null
   rMultiple?: number | null
   priceRisk?: number | null
   plannedReward?: number | null

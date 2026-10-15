@@ -1,5 +1,6 @@
 'use client'
 
+import { getTradeRValue } from '@/lib/utils/trade-r'
 import React from 'react'
 import Link from 'next/link'
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from 'react'
@@ -447,13 +448,13 @@ export function TradesWorkbench({
                 if (typeof window === 'undefined') return
 
                 const headers = [
-                  'account', 'asset', 'date', 'session', 'grund', 'strategie', 'status', 'trade_state', 'trust', 'direction', 'result', 'net_pnl', 'r_value', 'has_screenshot', 'tag_count', 'trade_id',
+                  'account', 'asset', 'date', 'session', 'grund', 'strategie', 'status', 'trade_state', 'trust', 'direction', 'result', 'net_pnl', 'r_value', 'r_source', 'has_screenshot', 'tag_count', 'trade_id',
                 ]
                 const rows = displayedTrades.map((trade) => {
                   const tags = tradeTagMap[trade.id] ?? []
                   const trustMeta = getTradeTrustMeta(trade)
                   const status = trade.captureResult === 'open' ? 'Offen' : trade.captureStatus === 'incomplete' ? 'Unvollständig' : 'Geschlossen'
-                  return [getTradeAccountLabel(trade), trade.market, trade.date, trade.session || '', trade.concept || trade.emotion || '', trade.setup || '', status, trade.captureStatus || '', trustMeta.shortLabel, trade.direction || '', trade.result || '', trade.netPnL ?? '', trade.rValue ?? '', (trade.screenshotCount ?? 0) > 0 ? 'yes' : 'no', tags.length, trade.id].map(escapeCsvCell).join(',')
+                  return [getTradeAccountLabel(trade), trade.market, trade.date, trade.session || '', trade.concept || trade.emotion || '', trade.setup || '', status, trade.captureStatus || '', trustMeta.shortLabel, trade.direction || '', trade.result || '', trade.netPnL ?? '', getTradeRValue(trade) ?? '', trade.rSource ?? '', (trade.screenshotCount ?? 0) > 0 ? 'yes' : 'no', tags.length, trade.id].map(escapeCsvCell).join(',')
                 })
                 const csv = [headers.join(','), ...rows].join('\n')
                 const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
