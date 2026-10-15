@@ -856,15 +856,7 @@ export function getDashboardSnapshotServer(userId?: string | null) {
 }
 
 export function getStatisticsSnapshotServer(userId?: string | null) {
-  return measurePerformance('snapshot.statistics.total', 'page', () => getJournalSnapshotServer(userId, {
-    includeTradeTags: true,
-    includeTradeMedia: false,
-    includeSetupRows: true,
-    includeSetupMedia: false,
-    includeSetupTradeLinks: true,
-    includeDailyNotes: false,
-    diagnosticRoute: '/statistik',
-  }), { route: '/statistik' })
+  return measurePerformance('snapshot.statistics.total', 'page', () => loadCompleteJournalSnapshotServer(userId, false), { route: '/statistik' })
 }
 
 export function getCalendarSnapshotServer(
@@ -925,18 +917,26 @@ export function getTradesSnapshotServer(
   }), { route: '/trades', meta: { limit: pagination?.limit ?? 0, offset: pagination?.offset ?? 0 } })
 }
 
-// Whole-journal workspace reads are separate from dashboard/review window reads.
-// All filters use the same transformed Trade semantics before client pagination.
-export async function getTradesWorkspaceSnapshotServer(userId?: string | null) {
+// Whole-journal reads are shared by the trade list and statistics. Dashboard and
+// review window reads retain their own contracts. Counts verify collection;
+// multiple requests do not constitute a transactional point-in-time snapshot.
+export function getTradesWorkspaceSnapshotServer(userId?: string | null) {
+  return loadCompleteJournalSnapshotServer(userId, true);
+}
+
+async function loadCompleteJournalSnapshotServer(userId: string | null | undefined, includeMediaCounts: boolean) {
   type WorkspaceSnapshot = JournalSnapshot & {
     availability: DashboardJournalSnapshot['availability'];
     tradeMediaCounts: Record<string, number>;
   };
   const unavailable = (): WorkspaceSnapshot => ({ ...getEmptySnapshot(), availability: 'unavailable', tradeMediaCounts: {} });
   if (!hasSupabaseClientEnv()) {
-    const snapshot = getMockSnapshot();
+    const snapshot = includeMediaCounts ? getMockSnapshot() : getMockSnapshotForOptions({
+      includeTradeTags: true, includeTradeMedia: false, includeSetupRows: true,
+      includeSetupMedia: false, includeSetupTradeLinks: true, includeDailyNotes: false,
+    });
     const counts: Record<string, number> = {};
-    for (const row of snapshot.tradeMediaRows) counts[row.trade_id] = (counts[row.trade_id] ?? 0) + 1;
+    if (includeMediaCounts) for (const row of snapshot.tradeMediaRows) counts[row.trade_id] = (counts[row.trade_id] ?? 0) + 1;
     return { ...snapshot, availability: 'ready', tradeMediaCounts: counts } satisfies WorkspaceSnapshot;
   }
   try {
@@ -958,7 +958,7 @@ export async function getTradesWorkspaceSnapshotServer(userId?: string | null) {
           .eq('trades.user_id', owner).order('id').range(from, to)
       ) as unknown as JournalRowPage<TradeTag>, 100_000),
       readRelated<SetupTradeLinkRow>('setup_trade_links', SETUP_LINK_SELECT_COLUMNS),
-      readRelated<{ id: string; trade_id: string }>('trade_media', 'id,trade_id'),
+      includeMediaCounts ? readRelated<{ id: string; trade_id: string }>('trade_media', 'id,trade_id') : Promise.resolve([]),
       collectJournalRows<SetupRow>(async (from, to) => {
         let response = await supabase.from('setups').select(SETUP_SELECT_COLUMNS, { count: 'exact' }).or(`user_id.eq.${owner},is_master.eq.true`).order('id').range(from, to);
         if (isMissingColumnError(response.error?.message, 'is_master')) response = await supabase.from('setups').select(SETUP_SELECT_COLUMNS_LEGACY, { count: 'exact' }).eq('user_id', owner).order('id').range(from, to);
@@ -974,7 +974,7 @@ export async function getTradesWorkspaceSnapshotServer(userId?: string | null) {
       availability: 'ready', tradeMediaCounts,
     } satisfies WorkspaceSnapshot;
   } catch (error) {
-    console.error('Global journal workspace unavailable:', error instanceof Error ? error.message : 'JOURNAL_READ_FAILED');
+    console.error('Complete journal snapshot unavailable:', error instanceof Error ? error.message : 'JOURNAL_READ_FAILED');
     return unavailable();
   }
 }
