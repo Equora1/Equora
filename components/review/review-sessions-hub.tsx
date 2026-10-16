@@ -344,8 +344,9 @@ export function ReviewSessionsHub({
       <div className="rounded-3xl border border-orange-400/15 bg-white/5 p-5 shadow-2xl">
         <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
           <div>
-            <p className="text-xs uppercase tracking-[0.25em] text-white/45">Sessions</p>
-            <h2 className="mt-2 text-2xl font-semibold text-orange-300">Sessions</h2>
+            <p className="text-xs uppercase tracking-[0.25em] text-white/45">Review-Sammlungen</p>
+            <h2 className="mt-2 text-2xl font-semibold text-orange-300">Review-Sammlungen</h2>
+            <p className="mt-3 max-w-2xl text-sm leading-6 text-white/60">Öffne gespeicherte Reviews, ergänze deine Notizen und vergleiche ausgewählte Sammlungen.</p>
           </div>
           <div className="flex flex-wrap items-center gap-3">
             <span className="rounded-full border border-orange-400/20 bg-orange-400/10 px-3 py-1 text-xs text-orange-100/80">{visibleSessions.length} sichtbar · {totalSessions} gesamt</span>
@@ -401,7 +402,7 @@ export function ReviewSessionsHub({
           <div className="rounded-3xl border border-orange-400/15 bg-white/5 p-5 shadow-2xl">
             <div className="flex items-center justify-between gap-3">
               <div>
-                <h3 className="text-lg font-semibold text-white">Sessions</h3>
+                <h3 className="text-lg font-semibold text-white">Review-Sammlungen</h3>
               </div>
               <Link href="/trades" className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-white/70 transition hover:border-white/20 hover:text-white">Trades</Link>
             </div>
@@ -552,7 +553,7 @@ export function ReviewSessionsHub({
                 </div>
 
                 <div className="mt-4 rounded-2xl border border-white/10 bg-black/25 p-4">
-                  <p className="text-xs uppercase tracking-[0.22em] text-white/35">Labels</p>
+                  <p className="text-xs uppercase tracking-[0.22em] text-white/35">Stichwörter</p>
                   <div className="mt-3 flex flex-wrap gap-2">
                     {selectedSession.labels.length ? selectedSession.labels.map((label) => <span key={`${selectedSession.id}-${label}`} className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-white/70">{label}</span>) : <span className="text-sm text-white/40">Keine Labels.</span>}
                   </div>

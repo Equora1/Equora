@@ -182,7 +182,7 @@ export function TradeDetailCard({
     { label: 'Teilprofit-Abdeckung', value: detail?.partialExitCoverageLabel },
     { label: 'Realisiert', value: detail?.partialExitRealizedLabel },
     { label: 'Rest', value: detail?.partialExitRemainingLabel },
-    { label: 'Ø Exit', value: detail?.effectiveExitLabel },
+    { label: 'Gespeicherter Ausstieg', value: detail?.effectiveExitLabel },
     { label: 'Größe', value: detail?.sizeLabel },
     { label: 'Risiko', value: detail?.riskPlanLabel },
     { label: 'Kontorisiko', value: detail?.accountRiskLabel },

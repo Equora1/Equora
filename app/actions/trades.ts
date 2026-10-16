@@ -722,13 +722,17 @@ export async function closeTradeEntry(input: CloseTradeInput) {
 
     const { data: trade, error: tradeError } = await supabase
       .from('trades')
-      .select('id, user_id, market, setup, notes, account_currency')
+      .select('id, user_id, market, setup, notes, account_currency, partial_exits')
       .eq('id', input.tradeId)
       .eq('user_id', user.id)
       .maybeSingle()
 
     if (tradeError || !trade) {
       return { success: false, mode: 'supabase' as const, message: 'Trade nicht gefunden oder kein Zugriff.' }
+    }
+
+    if (Array.isArray(trade.partial_exits) && trade.partial_exits.length > 0) {
+      return { success: false, mode: 'supabase' as const, message: 'Dieser Trade enthält Teilverkäufe. Bitte über „Bearbeiten“ die Ausstiegspreise prüfen und die Position vollständig schließen.' }
     }
 
     const timestamp = new Date().toISOString()

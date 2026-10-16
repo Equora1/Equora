@@ -19,6 +19,8 @@ import {
   getTradeMarketTemplatePreset,
   normalizeInstrumentType,
   deriveEffectiveExitFromPartialExitLegs,
+  restoreRemainderExitFromStoredAverage,
+  parseTradingNumber,
   buildQuickPnLPreview,
   deriveMarginUsed,
   derivePartialExitPnL,
@@ -98,7 +100,7 @@ function getReviewLayerProgress(values: string[]) {
   return {
     completed,
     total: values.length,
-    label: completed === values.length ? 'Review-Snapshot steht' : `${completed}/${values.length} Signale gesetzt`,
+    label: completed === values.length ? 'Review-Angaben vollständig' : `${completed}/${values.length} Signale gesetzt`,
   }
 }
 
@@ -254,7 +256,15 @@ export function TradeForm({
   const [entryValue, setEntryValue] = useState(stringifyInitialValue(initialValues?.entry))
   const [stopLossValue, setStopLossValue] = useState(stringifyInitialValue(initialValues?.stopLoss))
   const [takeProfitValue, setTakeProfitValue] = useState(stringifyInitialValue(initialValues?.takeProfit))
-  const [exitValue, setExitValue] = useState(stringifyInitialValue(initialValues?.exit))
+  const initialPartialExits = [
+      { percent: initialValues?.partialExit1Percent, price: initialValues?.partialExit1Price },
+      { percent: initialValues?.partialExit2Percent, price: initialValues?.partialExit2Price },
+      { percent: initialValues?.partialExit3Percent, price: initialValues?.partialExit3Price },
+  ]
+  const initialPartialPlan = getPartialExitPlanInfo({ exit: initialValues?.exit, partialExits: initialPartialExits })
+  const needsExitBasis = isEditMode && initialPartialPlan.count > 0 && initialPartialPlan.hasRemainder && parseTradingNumber(initialValues?.exit) !== null
+  const [exitBasis, setExitBasis] = useState<'unconfirmed' | 'remainder' | 'average'>(needsExitBasis ? 'unconfirmed' : 'remainder')
+  const [exitValue, setExitValue] = useState(needsExitBasis ? '' : stringifyInitialValue(initialValues?.exit))
   const [partialExit1Percent, setPartialExit1Percent] = useState(stringifyInitialValue(initialValues?.partialExit1Percent))
   const [partialExit1Price, setPartialExit1Price] = useState(stringifyInitialValue(initialValues?.partialExit1Price))
   const [partialExit2Percent, setPartialExit2Percent] = useState(stringifyInitialValue(initialValues?.partialExit2Percent))
@@ -370,7 +380,7 @@ export function TradeForm({
     })
     const summary = formatPartialExitSummary(partialExits)
     const plan = getPartialExitPlanInfo({ exit: exitValue, partialExits })
-    const sizePlan = getPartialExitSizePlan({ positionSize: derivedPositionSize, partialExits })
+    const sizePlan = getPartialExitSizePlan({ positionSize: derivedPositionSize, partialExits, exit: exitValue })
     const realizedPnL = derivePartialExitPnL({
       instrumentType,
       entry: entryValue,
@@ -1081,13 +1091,18 @@ export function TradeForm({
   }
 
   function handleSubmit(formData: FormData) {
+    if (needsExitBasis && exitBasis === 'unconfirmed') {
+      setStatus('Bitte kläre zuerst, ob der gespeicherte Ausstiegspreis den letzten Teilverkauf oder den Durchschnitt aller Verkäufe beschreibt.')
+      return
+    }
     const basePayload = buildTradePayload(formData)
     const partialSummary = partialExitPreview.summary
     const noteParts = [basePayload.notes.trim(), partialSummary ? `Teilverkäufe: ${partialSummary}` : ''].filter(Boolean)
     const payload = {
       ...basePayload,
       tradeOccurredAt: basePayload.tradeOccurredAt.trim() || new Date().toISOString(),
-      exit: partialExitPreview.effectiveExit !== null ? String(partialExitPreview.effectiveExit) : basePayload.exit,
+      // Send the final remainder price. The server action computes the stored average exactly once.
+      exit: basePayload.exit,
       notes: noteParts.join('\n\n'),
     }
     const validation = validateTradeCaptureInput(payload)
@@ -1658,6 +1673,23 @@ export function TradeForm({
         <div className="space-y-4">
           <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
             <p className="text-xs uppercase tracking-[0.2em] text-white/45">Preise &amp; Plan</p>
+            {needsExitBasis ? <div className="mt-4 rounded-2xl border border-orange-300/25 bg-orange-400/5 p-4">
+              <label className="block text-sm text-orange-50">
+                Gespeicherten Ausstiegspreis prüfen: {stringifyInitialValue(initialValues?.exit)}
+                <select value={exitBasis} onChange={(event) => {
+                  const basis = event.target.value as typeof exitBasis
+                  setExitBasis(basis)
+                  setExitValue(basis === 'average'
+                    ? stringifyInitialValue(restoreRemainderExitFromStoredAverage({ exit: initialValues?.exit, partialExits: initialPartialExits }))
+                    : basis === 'remainder' ? stringifyInitialValue(initialValues?.exit) : '')
+                }} className="mt-2 w-full rounded-xl border border-white/15 bg-black p-3 text-white">
+                  <option value="unconfirmed">Bitte anhand deiner Abrechnung zuordnen</option>
+                  <option value="remainder">Preis des letzten Verkaufs der Restposition</option>
+                  <option value="average">Durchschnittspreis aller Verkäufe</option>
+                </select>
+              </label>
+              <p className="mt-2 text-xs leading-5 text-white/60">Bei älteren Teilverkäufen ist die Preisart nicht eindeutig hinterlegt. Wähle sie anhand deiner Unterlagen; Equora nimmt keine automatische Zuordnung vor.</p>
+            </div> : null}
             <div className="mt-4 grid gap-4 md:grid-cols-2">
               <ControlledInput
                 name="entry"

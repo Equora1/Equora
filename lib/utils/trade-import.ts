@@ -585,7 +585,7 @@ export const csvImportPresets: CsvImportPreset[] = [
     label: "Kraken Spot",
     badge: "Spot",
     description:
-      "Preset für Kraken-Ledger oder Trade-Export mit Pair, Time, Type, Price, Volume und Fee.",
+      "Dateivorlage für Kraken-Kontobuchungen oder Trade-Exporte mit Markt, Zeit, Richtung, Preis, Menge und Gebühr.",
     helper:
       "Spot-Import als Ausführungsbasis. Fehlendes P&L bleibt bewusst prüfpflichtig.",
     defaultSetup: "Kraken Spot Import",

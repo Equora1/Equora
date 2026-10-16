@@ -12,7 +12,7 @@ import { AppIcon } from '@/components/ui/app-icon'
 import { FuturisticCard } from '@/components/ui/futuristic-card'
 import type { Trade } from '@/lib/types/trade'
 import { formatCurrency, formatPartialExitCoverageLabel, formatPlainNumber, getPartialExitPlanInfo } from '@/lib/utils/calculations'
-import { buildCalendarSummary, getDateKeyFromDate, normalizeTradeDate } from '@/lib/utils/calendar'
+import { buildCalendarSummary, getCalendarFeaturedResult, getDateKeyFromDate, normalizeTradeDate } from '@/lib/utils/calendar'
 import { resolveTradeOccurredAt } from '@/lib/utils/trade-time'
 import { getMonetaryScopeMessage, resolveMonetaryScope } from '@/lib/utils/currency'
 
@@ -95,6 +95,7 @@ export function CalendarOverview({
   const selectedRiskCoverageLabel = selectedTrades.length ? `${selectedRiskCoverageCount}/${selectedTrades.length}` : '0/0'
   const selectedHighestRiskPercent = selectedTrades.reduce((best, trade) => trade.actualRiskPercent !== null && trade.actualRiskPercent !== undefined ? Math.max(best, trade.actualRiskPercent) : best, 0)
   const featuredTrade = selectedScreenshots[0] ?? selectedTrades[0]
+  const featuredResult = featuredTrade ? getCalendarFeaturedResult(featuredTrade) : null
   const featuredTradeStatus = featuredTrade
     ? featuredTrade.captureResult === 'open'
       ? 'Offen'
@@ -104,7 +105,7 @@ export function CalendarOverview({
     : null
   const featuredEntry = featuredTrade ? (featuredTrade as Trade & { entry?: string | number | null }).entry : null
   const featuredPartialPlan = featuredTrade ? getPartialExitPlanInfo({ exit: featuredTrade.effectiveExit ?? null, partialExits: featuredTrade.partialExits ?? [] }) : null
-  const featuredPartialLabel = featuredPartialPlan && featuredPartialPlan.count ? formatPartialExitCoverageLabel(featuredPartialPlan.coveredPercent, featuredPartialPlan.remainderPercent) : null
+  const featuredPartialLabel = featuredPartialPlan && featuredPartialPlan.count ? formatPartialExitCoverageLabel(featuredPartialPlan.coveredPercent, featuredPartialPlan.remainderPercent, featuredPartialPlan.hasOpenRemainder) : null
   const remainingScreenshotTrades = selectedScreenshots.filter((trade) => trade.id !== featuredTrade?.id)
   const selectedTradeIdsParam = selectedTrades.map((trade) => trade.id).join('|')
   const selectedTradesHref = selectedTrades.length
@@ -140,6 +141,7 @@ export function CalendarOverview({
           title="Monat"
           badge={`${monthSummaries.length} aktive Tage`}
         />
+        <p className="mb-5 text-sm leading-6 text-white/60">Wähle einen Monat und einen Tag, um deine Trades und Tagesergebnisse nachzusehen.</p>
 
         <div className="grid gap-5 xl:grid-cols-[1.05fr_0.95fr]">
           <div className="rounded-3xl border border-orange-400/15 bg-black/25 p-5">
@@ -221,7 +223,7 @@ export function CalendarOverview({
                       <MetricTile label="Asset" value={featuredTrade.market || '—'} tone="neutral" />
                       <MetricTile label="Session" value={featuredTrade.session || '—'} tone="neutral" />
                       <MetricTile label="Entry" value={featuredEntry !== undefined && featuredEntry !== null ? String(featuredEntry) : '—'} tone="neutral" />
-                      <MetricTile label={featuredPartialPlan?.count ? 'Ø Exit' : 'P&L'} value={featuredPartialPlan?.count && featuredPartialPlan.effectiveExit !== null ? formatPlainNumber(featuredPartialPlan.effectiveExit, 4) : featuredTrade.netPnL !== undefined && featuredTrade.netPnL !== null ? formatCurrency(featuredTrade.netPnL, 2, featuredTrade.accountCurrency) : '—'} tone={featuredPartialPlan?.count ? 'orange' : featuredTrade.netPnL === undefined || featuredTrade.netPnL === null ? 'neutral' : featuredTrade.netPnL >= 0 ? 'emerald' : 'red'} />
+                      <MetricTile label={featuredResult!.label} value={featuredResult!.value} tone={featuredPartialPlan?.count ? 'orange' : featuredTrade.netPnL === undefined || featuredTrade.netPnL === null ? 'neutral' : featuredTrade.netPnL >= 0 ? 'emerald' : 'red'} />
                     </div>
                     <div className="mt-4 flex flex-wrap gap-2 text-xs text-white/55">
                       <span className="rounded-full border border-white/10 bg-white/[0.03] px-3 py-1.5">Konzept: {featuredTrade.concept || '—'}</span>
@@ -318,7 +320,7 @@ export function CalendarOverview({
                           <span>Session: {trade.session || '—'}</span>
                           <span>P&amp;L: {trade.netPnL === undefined || trade.netPnL === null ? '—' : formatCurrency(trade.netPnL, 2, trade.accountCurrency)}</span>
                           <span>Risk: {trade.actualRiskPercent !== null && trade.actualRiskPercent !== undefined ? `${formatPlainNumber(trade.actualRiskPercent, 2)}% Konto` : trade.marginUsed ? `${formatCurrency(trade.marginUsed, 0, trade.accountCurrency)} Margin` : '—'}</span>
-                          {trade.partialExitCoveragePercent ? <span>TP: {formatPartialExitCoverageLabel(trade.partialExitCoveragePercent, trade.partialExitRemainderPercent ?? null)}</span> : null}
+                          {trade.partialExitCoveragePercent ? <span>TP: {formatPartialExitCoverageLabel(trade.partialExitCoveragePercent, trade.partialExitRemainderPercent ?? null, trade.partialExitHasOpenRemainder)}</span> : null}
                         </div>
                       </div>
 

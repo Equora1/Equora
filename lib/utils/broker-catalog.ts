@@ -199,7 +199,7 @@ export const brokerCatalog: readonly BrokerCatalogEntry[] = Object.freeze([
       },
     ],
     supportNote:
-      `Dateiprofile gebaut. ${brokerFileImportCapability.blockedReason} Die Read-only-Runtime bleibt separat freigabepflichtig.`,
+      `Dateiprofile gebaut. ${brokerFileImportCapability.blockedReason} Der Brokerabruf muss gesondert freigeschaltet werden.`,
     entryKind: "broker",
   }),
   freezeBroker({

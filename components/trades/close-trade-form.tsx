@@ -36,6 +36,17 @@ export function CloseTradeForm({
   const [status, setStatus] = useState('')
   const [isPending, startTransition] = useTransition()
 
+  if ((trade?.partialExits?.length ?? 0) > 0) {
+    return <section className="rounded-3xl border border-orange-300/20 bg-black/20 p-5">
+      <h2 className="text-xl font-semibold text-white">Teilverkäufe vollständig abschließen</h2>
+      <p className="mt-3 text-sm leading-6 text-white/65">Prüfe die einzelnen Ausstiegspreise in der vollständigen Bearbeitung. Der verkürzte Dialog kann Teilverkäufe nicht sicher zuordnen.</p>
+      <div className="mt-4 flex flex-wrap gap-3">
+        {editHref ? <a href={editHref} className="eq-button-primary rounded-xl px-4 py-3">Trade bearbeiten</a> : null}
+        <a href={cancelHref} className="rounded-xl border border-white/15 px-4 py-3 text-white/70">Zurück</a>
+      </div>
+    </section>
+  }
+
   const managementSummary = trade
     ? [
         { label: 'Bereits realisiert', value: trade.partialExitCoveragePercent ? `${Math.round(trade.partialExitCoveragePercent)}%` : 'Noch nichts' },

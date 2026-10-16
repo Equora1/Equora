@@ -334,10 +334,10 @@ export function TradesWorkbench({
     <section className="rounded-3xl border border-orange-400/15 bg-white/[0.045] p-4 shadow-2xl sm:p-5">
       <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
         <div className="max-w-3xl">
-          <p className="text-[10px] uppercase tracking-[0.24em] text-[#b09a7a]">Journal Workspace</p>
-          <h1 className="mt-2 text-2xl font-semibold text-orange-50 sm:text-3xl">Trade Journal</h1>
+          <p className="text-[10px] uppercase tracking-[0.24em] text-[#b09a7a]">Deine Trades</p>
+          <h1 className="mt-2 text-2xl font-semibold text-orange-50 sm:text-3xl">Trade-Journal</h1>
           <p className="mt-2 max-w-2xl text-sm leading-6 text-white/50">
-            Trades prüfen, filtern und direkt im Detail bearbeiten. Herkunft, Vollständigkeit und berechnete Werte bleiben sichtbar getrennt.
+            Trades prüfen, filtern und direkt im Detail bearbeiten. Fehlende Angaben und die Herkunft deiner Ergebnisse bleiben erkennbar.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -373,7 +373,7 @@ export function TradesWorkbench({
         <MetricTile label="Treffer" value={String(displayedTrades.length)} tone="text-white" />
         <MetricTile label="Offen" value={String(listSummary.open)} tone="text-emerald-200" />
         <MetricTile label="Unvollständig" value={String(listSummary.incomplete)} tone="text-orange-100" />
-        <MetricTile label="Mit Evidence" value={String(listSummary.screenshots)} tone="text-sky-200" />
+        <MetricTile label="Mit Bild" value={String(listSummary.screenshots)} tone="text-sky-200" />
       </div>
 
       <TradeCurrencyQualityPanel summary={currencyQuality} selected={filters.currencyCheck} onChange={value => updateFilter('currencyCheck', value)} />

@@ -93,8 +93,8 @@ export function DailyNoteFlowCard({
   return (
     <FuturisticCard glow={glow} className={compact ? 'p-5' : 'p-6'}>
       <SectionHeader
-        eyebrow="Daily Note"
-        title={summary.existingNote ? 'Daily Note aktualisieren' : 'Daily Note schreiben'}
+        eyebrow="Tagesnotiz"
+        title={summary.existingNote ? 'Tagesnotiz aktualisieren' : 'Tagesnotiz schreiben'}
         copy={summary.copy}
         badge={`${summary.dateKey} · ${dayBadge}`}
       />
@@ -255,7 +255,7 @@ export function DailyNoteFlowCard({
 
           <div className="flex flex-wrap items-center justify-between gap-3">
             <p className={`text-sm ${status ? (status.ok ? 'text-emerald-300' : 'text-orange-200') : 'text-white/45'}`}>
-              {status?.text ?? (isMock ? 'Im Demo-Modus ist die Daily Note sichtbar, aber nicht schreibbar.' : 'Daily Notes werden user-gebunden gespeichert.')}
+              {status?.text ?? (isMock ? 'Im Demo-Modus ist die Tagesnotiz sichtbar, aber nicht schreibbar.' : 'Tagesnotizen werden in deinem Nutzerkonto gespeichert.')}
             </p>
 
             <div className="flex flex-wrap gap-3">
@@ -275,7 +275,7 @@ export function DailyNoteFlowCard({
                 disabled={isPending || isMock}
                 className="rounded-full border border-orange-400/25 bg-orange-400/10 px-4 py-2 text-sm font-medium text-orange-100 transition hover:border-orange-400/40 hover:bg-orange-400/14 disabled:cursor-not-allowed disabled:opacity-60"
               >
-                {isPending ? 'Speichert...' : summary.existingNote ? 'Daily Note aktualisieren' : 'Daily Note speichern'}
+                {isPending ? 'Speichert...' : summary.existingNote ? 'Tagesnotiz aktualisieren' : 'Tagesnotiz speichern'}
               </button>
             </div>
           </div>
