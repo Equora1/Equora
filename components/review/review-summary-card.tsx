@@ -1,4 +1,5 @@
 'use client'
+import { getSavedReviewRState } from '@/lib/utils/review-snapshot-summary'
 
 import Link from 'next/link'
 import { useEffect, useMemo, useState, useTransition } from 'react'
@@ -29,6 +30,7 @@ type ActionView = 'bridge' | 'engine' | 'errors'
 function normalizeSavedSession(session: SavedReviewSession): SavedReviewSession {
   return {
     ...session,
+    ...getSavedReviewRState(session),
     labels: Array.isArray(session.labels) ? session.labels.filter(Boolean) : [],
     sessionStatus: session.sessionStatus ?? 'open',
     isPinned: Boolean(session.isPinned),

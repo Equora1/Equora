@@ -5,6 +5,11 @@ export type ReviewSessionPeriodPreset = '7d' | '14d' | '30d' | '90d'
 export type ReviewSessionStatus = 'open' | 'watch' | 'closed'
 
 export type SavedReviewSession = {
+  calculationVerified?: boolean
+  calculationVersion?: string | null
+  rCount?: number | null
+  excludedRCount?: number | null
+  legacyAverageR?: number | null
   id: string
   title: string
   note: string
