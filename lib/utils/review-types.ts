@@ -119,7 +119,7 @@ export type ReviewSnapshot = {
     netPnL: number
     currency: TradeCurrency | null
     monetaryScopeKind: MonetaryScopeKind
-    averageR: number
+    averageR: number | null
     winRate: number
     winners: number
     losers: number
@@ -166,6 +166,6 @@ export type ReviewBucket = {
     winRate: number
     totalTrades: number
     profitFactor: number
-    averageR: number
+    averageR: number | null
   }
 }

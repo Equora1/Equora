@@ -1,5 +1,6 @@
 'use client'
 
+import { getTradeRValue, formatTradeRValue } from '@/lib/utils/trade-r'
 import { useMemo, type ReactNode } from 'react'
 import { SetupImageLightbox } from '@/components/setups/setup-image-lightbox'
 import type { SetupDetail } from '@/lib/types/setup'
@@ -158,7 +159,7 @@ export function SetupDetailCard({ title, data, linkedTrades, performance }: { ti
                       <span className={trade.netPnL === undefined || trade.netPnL === null ? 'text-[#998a72]' : trade.netPnL >= 0 ? 'text-[#f0a855]' : 'text-red-300'}>
                         {formatPnL(trade.netPnL)}
                       </span>
-                      <p className="mt-1 text-[11px] text-white/35">{trade.rMultiple ?? trade.rValue ? formatRMultiple(trade.rMultiple ?? trade.rValue ?? 0) : 'R offen'}</p>
+                      <p className="mt-1 text-[11px] text-white/35">{formatTradeRValue(getTradeRValue(trade), trade.rSource ?? 'missing')}</p>
                     </div>
                   </div>
                 </div>

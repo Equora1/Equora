@@ -1,3 +1,4 @@
+import { formatRMultiple } from '@/lib/utils/calculations'
 import { FuturisticCard } from '@/components/ui/futuristic-card'
 import type { CompareResult } from '@/lib/utils/compare'
 import { formatMoney } from '@/lib/utils/currency'
@@ -6,9 +7,7 @@ function formatPnL(row: CompareResult) {
   return row.currency ? formatMoney(row.netPnL, row.currency) : '—'
 }
 
-function formatR(value: number) {
-  return `${value >= 0 ? '+' : ''}${value.toFixed(2)}R`
-}
+const formatR = formatRMultiple
 
 export function CompareSummary({ rows }: { rows: CompareResult[] }) {
   const best = rows[0]

@@ -1,3 +1,4 @@
+import { getTradeRValue } from '@/lib/utils/trade-r'
 import type { SetupMediaRow, SetupRow, SetupTradeLinkRow } from '@/lib/types/db'
 import type { SavedSetup, SavedSetupMedia, SetupDetail, SetupImageItem, SetupLibraryItem } from '@/lib/types/setup'
 import type { Trade } from '@/lib/types/trade'
@@ -26,8 +27,8 @@ export type SetupPerformanceRow = {
   grossLoss: number
   totalCosts: number
   averageCost: number
-  averageR: number
-  expectancyR: number
+  averageR: number | null
+  expectancyR: number | null
   wins: number
   losses: number
   breakeven: number
@@ -56,8 +57,8 @@ export function getTradesForSetupTitle(title: string, trades: Trade[], savedSetu
 
 function getSetupVerdict(metrics: ReturnType<typeof getCoreMetrics>, tradeCount: number) {
   if (tradeCount === 0) return 'Noch nicht gehandelt.'
-  if (metrics.netPnL > 0 && metrics.expectancyR > 0) return 'Trägt aktuell.'
-  if (metrics.netPnL < 0 && metrics.expectancyR < 0) return 'Kostet aktuell.'
+  if (metrics.netPnL > 0 && metrics.expectancyR !== null && metrics.expectancyR > 0) return 'Trägt aktuell.'
+  if (metrics.netPnL < 0 && metrics.expectancyR !== null && metrics.expectancyR < 0) return 'Kostet aktuell.'
   if (metrics.netPnL > 0) return 'P&L positiv, Ausführung prüfen.'
   if (metrics.netPnL < 0) return 'P&L negativ, Regel prüfen.'
   return 'Neutral. Mehr Daten nötig.'
@@ -80,10 +81,7 @@ function getTradePnL(trade: Trade): number | null {
 }
 
 function getTradeR(trade: Trade): number | null {
-  if (trade.rMultiple !== undefined && trade.rMultiple !== null) return trade.rMultiple
-  if (trade.rValue !== undefined && trade.rValue !== null) return trade.rValue
-  const parsed = Number(String(trade.r ?? '').replace(',', '.').replace(/[^0-9.+-]/g, ''))
-  return Number.isFinite(parsed) ? parsed : null
+  return getTradeRValue(trade)
 }
 
 function getTradeTimestamp(trade: Trade) {

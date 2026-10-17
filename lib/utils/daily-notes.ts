@@ -57,7 +57,7 @@ export type DailyNoteFlowSummary = {
   totalTrades: number
   trustedPnL: number
   monetaryScope: MonetaryScope
-  averageR: number
+  averageR: number | null
   winCount: number
   lossCount: number
   trustedCoverage: number
@@ -200,7 +200,7 @@ function buildTitleSuggestion(dateKey: string, trustedPnL: number, dominantSetup
 function buildNoteStarter(input: {
   totalTrades: number
   trustedPnL: number
-  averageR: number
+  averageR: number | null
   dominantSetup: string | null
   strongestEmotion: string | null
   incompleteTrades: number
@@ -215,7 +215,7 @@ function buildNoteStarter(input: {
   const lines = [
     `Heute standen ${totalTrades} Trade${totalTrades === 1 ? '' : 's'} im Journal.${dominantSetup ? ` Das prägende Setup war ${dominantSetup}.` : ''}`,
     monetaryScope.isComparable
-      ? `Belastbare P&L: ${formatCurrency(trustedPnL, 0, monetaryScope.currency)}${Number.isFinite(averageR) ? ` bei Ø ${formatPlainNumber(averageR, 2)}R.` : '.'}`
+      ? `Belastbare P&L: ${formatCurrency(trustedPnL, 0, monetaryScope.currency)}${averageR !== null && Number.isFinite(averageR) ? ` bei Ø ${formatPlainNumber(averageR, 2)}R.` : '.'}`
       : getMonetaryScopeMessage(monetaryScope),
     strongestEmotion ? `Emotional war der Tag vor allem ${strongestEmotion.toLowerCase()}.` : null,
     incompleteTrades > 0 ? `${incompleteTrades} Quick Capture${incompleteTrades === 1 ? '' : 's'} sollte${incompleteTrades === 1 ? '' : 'n'} noch vervollständigt werden.` : null,
@@ -232,9 +232,7 @@ export function buildDailyNoteFlowSummary(trades: Trade[], dailyNotes: DailyNote
   const parsedExistingNote = parseDailyNoteStorage(existingNote?.note)
   const metrics = getCoreMetrics(trustedTrades)
   const trustedPnL = metrics.netPnL
-  const averageR = trustedTrades.length
-    ? trustedTrades.reduce((sum, trade) => sum + (trade.rValue ?? 0), 0) / trustedTrades.length
-    : 0
+  const averageR = metrics.averageR
   const winCount = trustedTrades.filter((trade) => (trade.netPnL ?? 0) > 0).length
   const lossCount = trustedTrades.filter((trade) => (trade.netPnL ?? 0) < 0).length
   const completeTrades = dayTrades.filter((trade) => trade.captureStatus === 'complete').length

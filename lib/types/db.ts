@@ -205,6 +205,9 @@ export type SharedTradeSubmissionRow = {
 }
 
 export type ReviewSessionRow = {
+  calculation_version?: string | null
+  r_count?: number | null
+  excluded_r_count?: number | null
   id: string
   user_id?: string | null
   title: string

@@ -80,7 +80,7 @@ export type Trade = {
   slippage?: number | null
   fundingRateBps?: number | null
   fundingIntervals?: number | null
-  rValue?: number
+  rValue?: number | null
   rMultiple?: number | null
   priceRisk?: number | null
   plannedReward?: number | null
@@ -110,6 +110,7 @@ export type Trade = {
   accountTemplate?: TradeAccountTemplate
   marketTemplate?: TradeMarketTemplate
   accountCurrency?: TradeCurrency | null
+  accountCurrencyStatus?: 'known' | 'missing' | 'unsupported'
   positionSize?: number | null
   pointValue?: number | null
   instrumentType?: TradeInstrumentType

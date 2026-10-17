@@ -2,6 +2,7 @@ import type { DailyNoteRow } from '@/lib/types/db'
 import type { Trade } from '@/lib/types/trade'
 import type { TradeTag } from '@/lib/types/tag'
 import { getCoreMetrics } from '@/lib/utils/analytics'
+import { buildReviewSnapshotSummary } from '@/lib/utils/review-snapshot-summary'
 import { buildTagStats } from '@/lib/utils/tag-analytics'
 import { resolveTradeOccurredAt } from '@/lib/utils/trade-time'
 
@@ -103,16 +104,6 @@ export function buildReviewSnapshot(
           headline: metricsCurrent.monetaryScope.kind === 'empty' ? 'Trades erfasst, P&L noch offen' : 'Geld-Auswertung wegen Währungsdaten gesperrt',
           summary: getMonetaryScopeMessage(metricsCurrent.monetaryScope),
         }
-  const rankedTrades = monetaryAvailable
-    ? [...tradesCurrent].sort((left, right) => (right.netPnL ?? 0) - (left.netPnL ?? 0))
-    : []
-  const topTags = Array.from(tagsCurrent.reduce<Map<string, number>>((counts, item) => {
-    counts.set(item.tag, (counts.get(item.tag) ?? 0) + 1)
-    return counts
-  }, new Map()))
-    .sort((left, right) => right[1] - left[1])
-    .slice(0, 5)
-    .map(([tag]) => tag)
   const unavailableSignal = [{
     label: 'Geld-Auswertung',
     value: metricsCurrent.monetaryScope.kind === 'empty' ? 'P&L offen' : 'Gesperrt',
@@ -147,20 +138,7 @@ export function buildReviewSnapshot(
     importInsights: monetaryAvailable ? buildReviewImportInsights(tradesCurrent) : [],
     reviewLayer: buildReviewLayerSnapshot(tradesCurrent),
     sessionDraft: {
-      tradeIds: tradesCurrent.map((trade) => trade.id),
-      tradeCount: metricsCurrent.totalTrades,
-      visibleTradeCount: metricsCurrent.totalTrades,
-      netPnL: metricsCurrent.netPnL,
-      currency: metricsCurrent.currency,
-      monetaryScopeKind: metricsCurrent.monetaryScope.kind,
-      averageR: metricsCurrent.averageR,
-      winRate: metricsCurrent.winRate,
-      winners: metricsCurrent.winners,
-      losers: metricsCurrent.losers,
-      breakeven: metricsCurrent.breakeven,
-      topTags,
-      bestTradeId: rankedTrades[0]?.id ?? null,
-      worstTradeId: rankedTrades[rankedTrades.length - 1]?.id ?? null,
+      ...buildReviewSnapshotSummary(tradesCurrent, tagsCurrent),
     },
   }
 }

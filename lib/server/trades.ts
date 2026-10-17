@@ -1,4 +1,4 @@
-import { getJournalSnapshotServer, TRADE_DETAIL_SELECT_COLUMNS } from '@/lib/server/journal'
+import { getJournalSnapshotServer, TRADE_DETAIL_SELECT_COLUMNS, OWNED_TRADE_TAG_SELECT_COLUMNS } from '@/lib/server/journal'
 import { hasSupabaseClientEnv, hasSupabaseServerEnv } from '@/lib/supabase/config'
 import { createSupabaseAuthServerClient } from '@/lib/supabase/server-auth'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
@@ -121,7 +121,9 @@ export async function getTradeMediaCountsServer(
 export async function getTradeMediaServer(
   tradeId: string,
   userId?: string | null,
+  requireComplete = false,
 ): Promise<TradeMediaRow[]> {
+  if (requireComplete && hasSupabaseClientEnv() && !userId) throw new Error('Trade media owner required')
   if (!hasSupabaseClientEnv() || !userId) {
     const snapshot = await getJournalSnapshotServer(userId)
     return snapshot.tradeMediaRows.filter((row) => row.trade_id === tradeId)
@@ -131,18 +133,21 @@ export async function getTradeMediaServer(
     ? createSupabaseServerClient()
     : await createSupabaseAuthServerClient()
 
-  const { data, error } = await supabase
+  const { data, error, count } = await supabase
     .from('trade_media')
-    .select('id,trade_id,user_id,created_at,storage_path,public_url,file_name,mime_type,byte_size,sort_order,is_primary')
+    .select('id,trade_id,user_id,created_at,storage_path,public_url,file_name,mime_type,byte_size,sort_order,is_primary', requireComplete ? { count: 'exact' } : undefined)
     .eq('user_id', userId)
     .eq('trade_id', tradeId)
     .order('sort_order', { ascending: true })
     .order('created_at', { ascending: true })
 
   if (error) {
+    if (requireComplete) throw new Error('Trade media could not be loaded completely')
     console.error('Trade media fetch failed:', error.message)
     return []
   }
+
+  if (requireComplete && (!Array.isArray(data) || count !== data.length)) throw new Error('Trade media response incomplete')
 
   return signTradeMediaRows(supabase, (data ?? []) as TradeMediaRow[], userId)
 }
@@ -150,7 +155,9 @@ export async function getTradeMediaServer(
 export async function getTradeTagsServer(
   tradeId: string,
   userId?: string | null,
+  requireComplete = false,
 ): Promise<TradeTag[]> {
+  if (requireComplete && hasSupabaseClientEnv() && !userId) throw new Error('Trade tag owner required')
   if (!hasSupabaseClientEnv() || !userId) {
     const snapshot = await getJournalSnapshotServer(userId)
     return snapshot.tradeTags.filter((row) => row.trade_id === tradeId)
@@ -160,17 +167,20 @@ export async function getTradeTagsServer(
     ? createSupabaseServerClient()
     : await createSupabaseAuthServerClient()
 
-  const { data, error } = await supabase
+  const { data, error, count } = await supabase
     .from('trade_tags')
-    .select('id,trade_id,user_id,created_at,tag')
-    .eq('user_id', userId)
+    .select(OWNED_TRADE_TAG_SELECT_COLUMNS, requireComplete ? { count: 'exact' } : undefined)
+    .eq('trades.user_id', userId)
     .eq('trade_id', tradeId)
     .order('created_at', { ascending: true })
 
   if (error) {
+    if (requireComplete) throw new Error('Trade tags could not be loaded completely')
     console.error('Trade tags fetch failed:', error.message)
     return []
   }
+
+  if (requireComplete && (!Array.isArray(data) || count !== data.length)) throw new Error('Trade tag response incomplete')
 
   return (data ?? []) as TradeTag[]
 }

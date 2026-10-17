@@ -24,8 +24,8 @@ const catalogFilters: readonly Readonly<{
   label: string
 }>[] = Object.freeze([
   Object.freeze({ key: 'all', label: 'Alle Wege' }),
-  Object.freeze({ key: 'file_upload', label: 'Dateiprofil gebaut' }),
-  Object.freeze({ key: 'controlled_candidate', label: 'API-Kandidat' }),
+  Object.freeze({ key: 'file_upload', label: 'Dateivorlage vorbereitet' }),
+  Object.freeze({ key: 'controlled_candidate', label: 'Direkte Verbindung in Vorbereitung' }),
 ])
 
 const plannedPlatformFamilies = Object.freeze(
@@ -60,17 +60,17 @@ export function BrokerOnboardingCatalog() {
         <div className="flex flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
           <div className="max-w-3xl">
             <p className="eq-display text-[0.58rem] text-[#b09a7a]">Brokerkatalog</p>
-            <h3 className="mt-2 text-2xl font-semibold text-white">Ein Katalog, wenige technische Familien</h3>
+            <h3 className="mt-2 text-2xl font-semibold text-white">Finde deinen Broker oder deine Plattform</h3>
             <p className="mt-3 text-sm leading-6 text-white/58">
-              Brokername, Plattformfamilie und Importprofil sind getrennt. So kann eine gemeinsame Plattform später
-              mehrere Broker abdecken. Die Parserprofile sind gebaut. {brokerFileImportCapability.blockedReason}
+              Prüfe, welche Dateivorlagen vorbereitet sind und welche direkten Verbindungen noch geplant werden.
+              {brokerFileImportCapability.blockedReason}
             </p>
           </div>
           <div className="grid w-full grid-cols-2 gap-2 sm:w-auto sm:min-w-[24rem] sm:grid-cols-4 xl:flex-none">
             <CatalogMetric value={brokerCatalogSummary.brokerCount} label="Broker" />
             <CatalogMetric value={brokerCatalogSummary.platformCount} label="Plattform" />
-            <CatalogMetric value={brokerCatalogSummary.builtFileProfileCount} label="Parserprofile" />
-            <CatalogMetric value={brokerCatalogSummary.plannedSharedFamilyCount} label="Familien geplant" />
+            <CatalogMetric value={brokerCatalogSummary.builtFileProfileCount} label="Dateivorlagen" />
+            <CatalogMetric value={brokerCatalogSummary.plannedSharedFamilyCount} label="Plattformen geplant" />
           </div>
         </div>
 
@@ -228,7 +228,7 @@ function BrokerCatalogCard({ broker }: { broker: BrokerCatalogEntry }) {
             href="#broker-connections"
             className="inline-flex rounded-full border border-white/9 bg-white/[0.025] px-3.5 py-2 text-xs text-white/55 transition hover:border-white/16 hover:text-white/80"
           >
-            Kandidat prüfen
+            Verbindungsstatus ansehen
           </a>
         ) : null}
       </div>
@@ -246,9 +246,9 @@ function MethodBadge({
   const label = connectorKind === 'file_upload' && availability === 'available'
     ? 'Dateiimport verfügbar'
     : connectorKind === 'file_upload' && availability === 'controlled_candidate'
-      ? 'Dateiprofil gebaut'
+      ? 'Dateivorlage vorbereitet'
     : connectorKind === 'direct_api' && availability === 'controlled_candidate'
-      ? 'API-Kandidat'
+      ? 'Direkte Verbindung in Vorbereitung'
       : availability === 'planned'
         ? 'Geplant'
         : 'Plattform-Sync'

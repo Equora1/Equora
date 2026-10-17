@@ -1,16 +1,15 @@
 import type { Trade } from '@/lib/types/trade'
 import {
-  calculateAverageR,
   calculateProfitFactor,
   calculateWinRate,
   formatCurrency,
   formatRMultiple,
   parseTradingNumber,
-  parseR,
 } from '@/lib/utils/calculations'
 import { deriveTradeKillZoneLabel, deriveTradeSessionLabel, getTradeHourInTimezone, resolveTradeOccurredAt } from '@/lib/utils/trade-time'
 import { resolveMonetaryScope, type MonetaryScope } from '@/lib/utils/currency'
 import { MIN_ANALYTICS_BUCKET_SIZE } from '@/lib/utils/statistics-scope'
+import { summarizeTradeR } from '@/lib/utils/trade-r'
 
 export type TimeWindowPerformanceRow = {
   key: string
@@ -116,24 +115,8 @@ function resolvePnLCurrencyScope(trades: Trade[]) {
   return resolveMonetaryScope(getTradesWithResolvedPnL(trades).map((trade) => trade.accountCurrency))
 }
 
-function getTradeRValue(trade: Trade): number {
-  return trade.rValue ?? parseR(trade.r)
-}
-
-function getTradeRValueOrNull(trade: Trade): number | null {
-  if (trade.rValue !== null && trade.rValue !== undefined && Number.isFinite(trade.rValue)) return trade.rValue
-  const rawR = typeof trade.r === 'string' ? trade.r.trim() : trade.r
-  if (rawR === null || rawR === undefined || rawR === '') return null
-  const parsed = parseR(rawR)
-  return Number.isFinite(parsed) ? parsed : null
-}
-
 function getAverageDocumentedR(trades: Trade[]): { averageR: number | null; rCount: number } {
-  const rValues = trades
-    .map((trade) => getTradeRValueOrNull(trade))
-    .filter((value): value is number => value !== null)
-  if (!rValues.length) return { averageR: null, rCount: 0 }
-  return { averageR: rValues.reduce((sum, value) => sum + value, 0) / rValues.length, rCount: rValues.length }
+  return summarizeTradeR(trades)
 }
 
 function sortTradesChronologically(trades: Trade[]) {
@@ -327,11 +310,11 @@ export function getCoreMetrics(trades: Trade[]) {
   const grossProfit = monetaryScope.isComparable ? getGrossProfit(trades) : 0
   const grossLoss = monetaryScope.isComparable ? getGrossLoss(trades) : 0
   const netPnL = grossProfit + grossLoss
-  const averageR = calculateAverageR(trades.map((trade) => getTradeRValue(trade)))
+  const { averageR, rCount } = summarizeTradeR(trades)
   const avgWinner = monetaryScope.isComparable && winners.length ? grossProfit / winners.length : 0
   const avgLoser = monetaryScope.isComparable && losers.length ? grossLoss / losers.length : 0
   const expectancy = monetaryScope.isComparable && resolvedTrades.length ? netPnL / resolvedTrades.length : 0
-  const expectancyR = trades.length ? trades.reduce((sum, trade) => sum + getTradeRValue(trade), 0) / trades.length : 0
+  const expectancyR = averageR
 
   return {
     totalTrades: trades.length,
@@ -340,6 +323,7 @@ export function getCoreMetrics(trades: Trade[]) {
     breakeven,
     winRate: calculateWinRate(resolvedTrades.length, winners.length),
     averageR,
+    rCount,
     profitFactor: monetaryScope.isComparable ? calculateProfitFactor(grossProfit, grossLoss) : 0,
     netPnL,
     grossProfit,

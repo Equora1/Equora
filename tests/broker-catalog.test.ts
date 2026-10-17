@@ -30,10 +30,10 @@ describe("provider-neutral broker catalog", () => {
       catalogAvailability: "controlled_candidate",
       previewHref: "/trades?capture=import#trade-editor",
       previewActionLabel: "Datei prüfen",
-      blockedActionLabel: "DB-Gate ausstehend",
+      blockedActionLabel: "Übernahme noch nicht verfügbar",
     });
     expect(Object.isFrozen(brokerFileImportCapability)).toBe(true);
-    expect(brokerFileImportCapability.blockedReason).toContain("v57.62.0");
+    expect(brokerFileImportCapability.requiredMigration).toBe("v57.62.0");
     expect(getBrokerFileImportPreviewHref()).toBe(
       brokerFileImportCapability.previewHref,
     );
@@ -116,7 +116,7 @@ describe("provider-neutral broker catalog", () => {
         )
         .every((broker) =>
           broker.supportNote.includes(
-            brokerFileImportCapability.requiredMigration,
+            brokerFileImportCapability.blockedReason,
           ),
         ),
     ).toBe(true);

@@ -73,7 +73,7 @@ export async function getBrokerSyncSnapshotServer(userId?: string | null): Promi
   if (!hasSupabaseClientEnv()) {
     return emptySnapshot({
       source: 'demo',
-      notice: 'Demo-Modus: Für eine echte MEXC-Verbindung müssen zuerst die Supabase-Variablen hinterlegt werden.',
+      notice: 'Demo: Brokerverbindungen sind in dieser Umgebung noch nicht eingerichtet.',
     })
   }
 
@@ -112,7 +112,7 @@ export async function getBrokerSyncSnapshotServer(userId?: string | null): Promi
       if (isMissingBrokerSchemaError(connectionsResponse.error)) {
         return emptySnapshot({
           schemaState: 'missing',
-          notice: 'Die erforderliche Broker-Grundlage fehlt im aktiven Datenbankvertrag. Es wurde keine Migration ausgeführt.',
+          notice: 'Die Brokerverwaltung ist in dieser Umgebung noch nicht eingerichtet. Bitte wende dich an die Administration.',
         })
       }
 

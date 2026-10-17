@@ -5,6 +5,8 @@ import { formatTradeDateLabel } from '@/lib/utils/date-format'
 import { deriveTradeKillZoneLabel, deriveTradeSessionLabel, formatTradeTimeLabel, resolveTradeOccurredAtFromRow } from '@/lib/utils/trade-time'
 import { buildTradeImportSourceFacts, extractTradeImportMeta } from '@/lib/utils/trade-import-meta'
 import { getTradeAccountLabel } from '@/lib/utils/account-context'
+import { getTradeCurrencyStatus } from '@/lib/utils/currency'
+import { formatTradeRValue } from '@/lib/utils/trade-r'
 import {
   getTradeCaptureResultLabel,
   getTradeCaptureStatusLabel,
@@ -24,6 +26,7 @@ import {
   formatRMultiple,
   getPartialExitPlanInfo,
   getPartialExitSizePlan,
+  parseTradingNumber,
   getAccountTemplateLabel,
   getBrokerProfileLabel,
   getCostProfileLabel,
@@ -39,6 +42,28 @@ function getTradeScreenshotUrls(row: TradeRow, mediaRows: TradeMediaRow[] = []) 
   const mediaUrls = mediaRows.map((media) => media.public_url).filter(Boolean)
   const fallback = row.screenshot_url ? [row.screenshot_url] : []
   return mediaUrls.length ? mediaUrls : fallback
+}
+
+// Existing rows do not identify whether exit is a remainder price or a weighted average.
+// Keep explicit manual P&L, but do not promote an ambiguous execution calculation to a result.
+function guardStoredPartialExit(metrics: ReturnType<typeof computeTradeMetrics>, row: TradeRow) {
+  const plan = getPartialExitPlanInfo({ exit: row.exit, partialExits: row.partial_exits ?? [] })
+  const ambiguous = plan.count > 0 && plan.hasRemainder && parseTradingNumber(row.exit) !== null
+  if (ambiguous) {
+    metrics.rValue = null
+    metrics.rSource = 'missing'
+    metrics.autoNetPnL = null
+    metrics.grossPnL = null
+    if (metrics.priceRisk === null || metrics.positionSize === null || metrics.positionSize <= 0
+      || (['futures', 'forex', 'cfd'].includes(metrics.instrumentType) && metrics.pointValue === null)) {
+      metrics.riskAmount = null
+    }
+    if (metrics.pnlSource === 'derived') {
+      metrics.netPnL = null
+      metrics.pnlSource = 'missing'
+    }
+  }
+  return ambiguous
 }
 
 export function mapTradeRowToTrade(row: TradeRow, mediaRows: TradeMediaRow[] = [], linkedSetup: LinkedSetupReference | null = null): Trade {
@@ -75,6 +100,7 @@ export function mapTradeRowToTrade(row: TradeRow, mediaRows: TradeMediaRow[] = [
     partialExits: partialExits ?? [],
   })
 
+  const ambiguousPartialExit = guardStoredPartialExit(metrics, row)
   const captureStatus = normalizeTradeCaptureStatus(row.capture_status)
   const captureResult = normalizeTradeCaptureResult(row.capture_result) ?? inferTradeCaptureResultFromPnL(metrics.netPnL)
 
@@ -82,7 +108,7 @@ export function mapTradeRowToTrade(row: TradeRow, mediaRows: TradeMediaRow[] = [
   const importMeta = extractTradeImportMeta(row.notes)
 
   const partialPlan = getPartialExitPlanInfo({ exit: row.exit, partialExits: partialExits ?? [] })
-  const partialSizePlan = getPartialExitSizePlan({ positionSize: metrics.positionSize, partialExits: partialExits ?? [] })
+  const partialSizePlan = getPartialExitSizePlan({ positionSize: metrics.positionSize, partialExits: partialExits ?? [], exit: row.exit })
   const tradeOccurredAt = resolveTradeOccurredAtFromRow(row)
   const resolvedSession = row.session?.trim() || deriveTradeSessionLabel(tradeOccurredAt)
   const resolvedKillZone = deriveTradeKillZoneLabel(tradeOccurredAt)
@@ -94,8 +120,8 @@ export function mapTradeRowToTrade(row: TradeRow, mediaRows: TradeMediaRow[] = [
     tradeOccurredAt,
     market: row.market,
     setup: linkedSetup?.title ?? row.setup,
-    result: metrics.netPnL !== null ? formatCurrency(metrics.netPnL, 0, metrics.accountCurrency) : captureResult ? getTradeCaptureResultLabel(captureResult) : '—',
-    r: formatRMultiple(metrics.rValue),
+    result: metrics.netPnL !== null ? formatCurrency(metrics.netPnL, 0, row.account_currency) : captureResult ? getTradeCaptureResultLabel(captureResult) : '—',
+    r: ambiguousPartialExit ? 'R-Zuordnung prüfen' : formatTradeRValue(metrics.rValue, metrics.rSource),
     emotion: row.emotion ?? '—',
     quality: (row.quality ?? 'B-Setup') as Trade['quality'],
     session: resolvedSession,
@@ -120,8 +146,8 @@ export function mapTradeRowToTrade(row: TradeRow, mediaRows: TradeMediaRow[] = [
     partialExitRemainderPercent: partialPlan.count ? partialPlan.remainderPercent : null,
     partialExitRealizedSize: partialPlan.count ? partialSizePlan.realizedSize : null,
     partialExitRemainingSize: partialPlan.count ? partialSizePlan.remainingSize : null,
-    partialExitHasOpenRemainder: partialPlan.count ? partialSizePlan.hasOpenRemainder : false,
-    effectiveExit: partialPlan.effectiveExit,
+    partialExitHasOpenRemainder: partialPlan.hasOpenRemainder,
+    effectiveExit: parseTradingNumber(row.exit) ?? partialPlan.effectiveExit,
     direction: metrics.direction,
     rSource: metrics.rSource,
     pnlSource: metrics.pnlSource,
@@ -132,6 +158,7 @@ export function mapTradeRowToTrade(row: TradeRow, mediaRows: TradeMediaRow[] = [
     accountLabel: getTradeAccountLabel({ accountLabel: row.account_label, accountTemplate: (row.account_template ?? 'manual') as Trade['accountTemplate'] }),
     marketTemplate: (row.market_template ?? 'manual') as Trade['marketTemplate'],
     accountCurrency: metrics.accountCurrency,
+    accountCurrencyStatus: getTradeCurrencyStatus(row.account_currency),
     positionSize: metrics.positionSize,
     pointValue: metrics.pointValue,
     fees: metrics.fees,
@@ -167,6 +194,8 @@ export function mapTradeRowToTrade(row: TradeRow, mediaRows: TradeMediaRow[] = [
 }
 
 export function mapTradeRowToTradeDetail(row: TradeRow, mediaRows: TradeMediaRow[] = [], linkedSetup: LinkedSetupReference | null = null): TradeDetail {
+  // Keep the stored unit for display: normalization must not hide unsupported currencies.
+  const displayCurrency = row.account_currency
   const partialExits = Array.isArray(row.partial_exits) ? row.partial_exits : []
   const metrics = computeTradeMetrics({
     pnl: row.net_pnl,
@@ -200,32 +229,33 @@ export function mapTradeRowToTradeDetail(row: TradeRow, mediaRows: TradeMediaRow
     partialExits,
   })
 
+  const ambiguousPartialExit = guardStoredPartialExit(metrics, row)
   const captureStatus = normalizeTradeCaptureStatus(row.capture_status)
   const captureResult = normalizeTradeCaptureResult(row.capture_result) ?? inferTradeCaptureResultFromPnL(metrics.netPnL)
 
   const costParts = [
     `${getCostProfileLabel(metrics.costProfile)} Profil`,
     `Broker ${getBrokerProfileLabel(metrics.brokerProfile)}`,
-    metrics.fees !== null ? `Kommission ${formatCurrency(metrics.fees, 0, metrics.accountCurrency)}` : null,
-    metrics.exchangeFees !== null ? `Börse ${formatCurrency(metrics.exchangeFees, 0, metrics.accountCurrency)}` : null,
-    metrics.fundingFees !== null ? `Funding ${formatCurrency(metrics.fundingFees, 0, metrics.accountCurrency)}` : null,
+    metrics.fees !== null ? `Kommission ${formatCurrency(metrics.fees, 0, displayCurrency)}` : null,
+    metrics.exchangeFees !== null ? `Börse ${formatCurrency(metrics.exchangeFees, 0, displayCurrency)}` : null,
+    metrics.fundingFees !== null ? `Funding ${formatCurrency(metrics.fundingFees, 0, displayCurrency)}` : null,
     metrics.fundingRateBps !== null ? `Funding-Rate ${formatPlainNumber(metrics.fundingRateBps, 2)} bps` : null,
-    metrics.spreadCost !== null ? `Spread ${formatCurrency(metrics.spreadCost, 0, metrics.accountCurrency)}` : null,
-    metrics.slippage !== null ? `Slippage ${formatCurrency(metrics.slippage, 0, metrics.accountCurrency)}` : null,
-    metrics.totalCosts ? `Total ${formatCurrency(metrics.totalCosts, 0, metrics.accountCurrency)}` : `Total ${formatCurrency(0, 0, metrics.accountCurrency)}`,
+    metrics.spreadCost !== null ? `Spread ${formatCurrency(metrics.spreadCost, 0, displayCurrency)}` : null,
+    metrics.slippage !== null ? `Slippage ${formatCurrency(metrics.slippage, 0, displayCurrency)}` : null,
+    metrics.totalCosts ? `Gesamt ${formatCurrency(metrics.totalCosts, 0, displayCurrency)}` : `Gesamt ${formatCurrency(0, 0, displayCurrency)}`,
   ].filter(Boolean)
 
   const sizeParts = [
-    metrics.positionSize !== null ? `Size ${formatPlainNumber(metrics.positionSize, 2)}` : null,
+    metrics.positionSize !== null ? `Menge ${formatPlainNumber(metrics.positionSize, 2)}` : null,
     metrics.pointValue !== null ? `Punktwert ${formatPlainNumber(metrics.pointValue, 2)}` : null,
     metrics.quoteAsset ? `Quote ${metrics.quoteAsset}` : null,
   ].filter(Boolean)
 
   const marginParts = [
-    metrics.marginUsed !== null ? `Margin ${formatPlainNumber(metrics.marginUsed, 2)}${metrics.accountCurrency ? ` ${metrics.accountCurrency}` : ''}` : null,
+    metrics.marginUsed !== null ? `Margin ${formatCurrency(metrics.marginUsed, 2, displayCurrency)}` : null,
     metrics.leverage !== null ? `Hebel ${formatPlainNumber(metrics.leverage, 2)}x` : null,
-    metrics.exposure !== null ? `Exposure ${formatPlainNumber(metrics.exposure, 2)}${metrics.accountCurrency ? ` ${metrics.accountCurrency}` : ''}` : null,
-    metrics.accountSize !== null ? `Konto ${formatPlainNumber(metrics.accountSize, 2)}${metrics.accountCurrency ? ` ${metrics.accountCurrency}` : ''}` : null,
+    metrics.exposure !== null ? `Positionswert ${formatCurrency(metrics.exposure, 2, displayCurrency)}` : null,
+    metrics.accountSize !== null ? `Konto ${formatCurrency(metrics.accountSize, 2, displayCurrency)}` : null,
   ].filter(Boolean)
 
   const screenshotUrls = getTradeScreenshotUrls(row, mediaRows)
@@ -234,17 +264,20 @@ export function mapTradeRowToTradeDetail(row: TradeRow, mediaRows: TradeMediaRow
   const tradeOccurredAt = resolveTradeOccurredAtFromRow(row)
   const resolvedSession = row.session?.trim() || deriveTradeSessionLabel(tradeOccurredAt)
   const resolvedKillZone = deriveTradeKillZoneLabel(tradeOccurredAt)
-  const partialSizePlan = getPartialExitSizePlan({ positionSize: metrics.positionSize, partialExits })
+  const partialSizePlan = getPartialExitSizePlan({ positionSize: metrics.positionSize, partialExits, exit: row.exit })
   const partialExitsLabel = partialPlan.count ? formatPartialExitSummary(partialExits) : null
+  const hasOpenRemainder = partialPlan.hasOpenRemainder
 
   return {
     title: `${row.market} ${linkedSetup?.title ?? row.setup}`,
     date: `${formatTradeDateLabel(tradeOccurredAt)}${resolvedSession ? ` · ${resolvedSession}` : ''}`,
-    result: formatRMultiple(metrics.rValue),
+    result: ambiguousPartialExit ? 'R-Zuordnung prüfen' : formatTradeRValue(metrics.rValue, metrics.rSource),
     pnl:
       metrics.netPnL !== null
-        ? `${formatCurrency(metrics.netPnL, 0, metrics.accountCurrency)}${partialPlan.hasRemainder ? ' bisher realisiert · Rest läuft' : ''}`
-        : captureResult
+        ? `${formatCurrency(metrics.netPnL, 0, displayCurrency)}${hasOpenRemainder ? ' bisher realisiert · Restposition offen' : ''}`
+        : ambiguousPartialExit
+          ? 'Ergebniszuordnung prüfen'
+          : captureResult
           ? `${getTradeCaptureResultLabel(captureResult)} · Schnellerfassung`
           : 'Kein P&L hinterlegt',
     emotion: row.emotion ?? '—',
@@ -270,10 +303,10 @@ export function mapTradeRowToTradeDetail(row: TradeRow, mediaRows: TradeMediaRow
     riskReward:
       metrics.riskRewardRatio !== null ? `${formatPlainNumber(metrics.riskRewardRatio)} : 1 geplant` : 'Kein sauberes CRV ableitbar',
     riskAmount:
-      metrics.riskAmount !== null ? formatCurrency(metrics.riskAmount, 0, metrics.accountCurrency) : 'Nicht sicher berechenbar',
+      metrics.riskAmount !== null ? formatCurrency(metrics.riskAmount, 0, displayCurrency) : 'Nicht sicher berechenbar',
     riskPlanLabel:
       metrics.riskPercent !== null
-        ? `${formatPlainNumber(metrics.riskPercent, 2)}% geplant${metrics.plannedRiskAmount !== null ? ` · ${formatCurrency(metrics.plannedRiskAmount, 0, metrics.accountCurrency)}` : ''}`
+        ? `${formatPlainNumber(metrics.riskPercent, 2)}% geplant${metrics.plannedRiskAmount !== null ? ` · ${formatCurrency(metrics.plannedRiskAmount, 0, displayCurrency)}` : ''}`
         : metrics.accountSize !== null
           ? 'Kontogröße da, aber noch kein geplantes Risiko gesetzt'
           : 'Kontogröße optional. Mit Konto + Risiko % wird der Plan sichtbar',
@@ -296,35 +329,37 @@ export function mapTradeRowToTradeDetail(row: TradeRow, mediaRows: TradeMediaRow
               ? 'R aus TP grob abgeleitet'
               : 'Kein R-Wert vorhanden',
     pnlSourceLabel:
-      captureStatus === 'incomplete'
-        ? 'Schnellerfassung ohne belastbare P&L. Dieser Trade kann jetzt im Edit-Flow vervollständigt werden.'
+      ambiguousPartialExit
+        ? 'Bei diesen Teilverkäufen ist die Art des gespeicherten Ausstiegspreises nicht nachweisbar. Automatische Abschlusswerte und R werden deshalb nicht ausgewertet. Ein manuell hinterlegtes Ergebnis bleibt sichtbar. Prüfe die Preise über „Bearbeiten“ anhand deiner Unterlagen.'
+        : captureStatus === 'incomplete'
+        ? 'Schnellerfassung ohne belastbare P&L. Öffne „Bearbeiten“, um die Angaben zu ergänzen.'
         : metrics.pnlSource === 'manual'
           ? 'P&L manuell hinterlegt'
           : metrics.pnlSource === 'override'
-            ? `Auto-Netto ${metrics.autoNetPnL !== null ? formatCurrency(metrics.autoNetPnL, 0, metrics.accountCurrency) : '—'} wurde manuell überschrieben`
+            ? `Auto-Netto ${metrics.autoNetPnL !== null ? formatCurrency(metrics.autoNetPnL, 0, displayCurrency) : '—'} wurde manuell überschrieben`
             : metrics.pnlSource === 'derived'
-              ? partialPlan.hasRemainder
-                ? 'P&L bisher aus bereits realisierten Teilverkäufen, Size und Kosten hergeleitet'
-                : 'P&L aus Entry, Exit, Size und Kosten hergeleitet'
+              ? hasOpenRemainder
+                ? 'P&L bisher aus erfassten Teilverkäufen, Positionsgröße und Kosten berechnet'
+                : 'P&L aus Einstieg, Ausstieg, Positionsgröße und Kosten berechnet'
               : 'P&L noch nicht belastbar berechenbar',
     pnlModeLabel: getPnLModeLabel(metrics.pnlMode),
     instrumentLabel: getInstrumentLabel(metrics.instrumentType),
     costLabel: costParts.join(' · '),
     costProfileLabel: `Kostenprofil: ${getCostProfileLabel(metrics.costProfile)}`,
     brokerProfileLabel: `Brokerprofil: ${getBrokerProfileLabel(metrics.brokerProfile)}`,
-    accountTemplateLabel: `Account: ${getAccountTemplateLabel(row.account_template)}`,
+    accountTemplateLabel: `Kontovorlage: ${getAccountTemplateLabel(row.account_template)}`,
     accountLabel: getTradeAccountLabel({ accountLabel: row.account_label, accountTemplate: (row.account_template ?? 'manual') as Trade['accountTemplate'] }),
-    marketTemplateLabel: `Markt-Template: ${getMarketTemplateLabel(row.market_template)}`,
+    marketTemplateLabel: `Marktvorlage: ${getMarketTemplateLabel(row.market_template)}`,
     userCostProfileLabel: row.user_cost_profile_id ? 'Eigenes Nutzer-Kostenprofil aktiv' : undefined,
-    sizeLabel: sizeParts.length ? sizeParts.join(' · ') : 'Keine Size-/Punktwertdaten hinterlegt',
+    sizeLabel: sizeParts.length ? sizeParts.join(' · ') : 'Keine Positionsgröße oder Punktwertangabe hinterlegt',
     marginLabel: marginParts.length ? marginParts.join(' · ') : 'Noch keine Margin-/Hebelbasis hinterlegt',
     partialExitsLabel: partialExitsLabel ?? undefined,
-    partialExitCoverageLabel: partialPlan.count ? formatPartialExitCoverageLabel(partialPlan.coveredPercent, partialPlan.remainderPercent) : undefined,
+    partialExitCoverageLabel: partialPlan.count ? formatPartialExitCoverageLabel(partialPlan.coveredPercent, partialPlan.remainderPercent, hasOpenRemainder) : undefined,
     partialExitRealizedLabel: partialPlan.count ? formatPartialExitRealizedLabel(partialPlan.coveredPercent, partialSizePlan.realizedSize) : undefined,
-    partialExitRemainingLabel: partialPlan.count ? formatPartialExitRemainingLabel(partialPlan.remainderPercent, partialSizePlan.remainingSize) : undefined,
-    partialExitStateLabel: partialPlan.count ? (partialSizePlan.hasOpenRemainder ? 'Teilprofit aktiv · Restposition läuft weiter' : 'Teilprofit komplett abgeschlossen') : undefined,
-    effectiveExitLabel: partialPlan.effectiveExit !== null ? `${formatPlainNumber(partialPlan.effectiveExit, 4)} Ø Exit` : undefined,
-    executionLabel: metrics.grossPnL !== null ? `Brutto ${formatCurrency(metrics.grossPnL, 0, metrics.accountCurrency)} → Netto ${metrics.netPnL !== null ? formatCurrency(metrics.netPnL, 0, metrics.accountCurrency) : '—'}${metrics.pnlSource === 'override' && metrics.autoNetPnL !== null ? ` (Auto ${formatCurrency(metrics.autoNetPnL, 0, metrics.accountCurrency)})` : ''} · ${getExecutionTypeLabel(metrics.executionType)} · ${getFundingDirectionLabel(metrics.fundingDirection)}` : 'Keine belastbare Ausführungsrechnung möglich',
+    partialExitRemainingLabel: partialPlan.count ? (hasOpenRemainder ? formatPartialExitRemainingLabel(partialPlan.remainderPercent, partialSizePlan.remainingSize) : 'Keine offene Restposition') : undefined,
+    partialExitStateLabel: partialPlan.count ? (hasOpenRemainder ? 'Teilverkäufe erfasst · Restposition offen' : 'Position vollständig geschlossen') : undefined,
+    effectiveExitLabel: (parseTradingNumber(row.exit) ?? partialPlan.effectiveExit) !== null ? `${formatPlainNumber((parseTradingNumber(row.exit) ?? partialPlan.effectiveExit)!, 4)} gespeicherter Exit` : undefined,
+    executionLabel: metrics.grossPnL !== null ? `Brutto ${formatCurrency(metrics.grossPnL, 0, displayCurrency)} → Netto ${metrics.netPnL !== null ? formatCurrency(metrics.netPnL, 0, displayCurrency) : '—'}${metrics.pnlSource === 'override' && metrics.autoNetPnL !== null ? ` (Auto ${formatCurrency(metrics.autoNetPnL, 0, displayCurrency)})` : ''} · ${getExecutionTypeLabel(metrics.executionType)} · ${getFundingDirectionLabel(metrics.fundingDirection)}` : 'Keine belastbare Ausführungsrechnung möglich',
     cryptoLabel: metrics.instrumentType === 'crypto' ? `Krypto-Modus: ${getCryptoMarketTypeLabel(metrics.cryptoMarketType)}${metrics.quoteAsset ? ` · Quote ${metrics.quoteAsset}` : ''}${metrics.leverage !== null ? ` · Hebel ${formatPlainNumber(metrics.leverage, 2)}x` : ''}${metrics.executionType ? ` · ${getExecutionTypeLabel(metrics.executionType)}` : ''}${metrics.fundingDirection ? ` · ${getFundingDirectionLabel(metrics.fundingDirection)}` : ''}` : undefined,
     captureStatusLabel: getTradeCaptureStatusLabel(captureStatus),
     sessionLabel: resolvedSession,

@@ -1,4 +1,5 @@
 'use client'
+import { getSavedReviewRState, getSavedReviewRValue, haveComparableReviewCalculations, isCurrentReviewCalculation } from '@/lib/utils/review-snapshot-summary'
 
 import Link from 'next/link'
 import { useEffect, useMemo, useState, useTransition, type ChangeEvent, type ReactNode } from 'react'
@@ -31,6 +32,7 @@ const REVIEW_SESSION_STORAGE_KEY = 'equora-review-sessions'
 function normalizeSavedSession(session: SavedReviewSession): SavedReviewSession {
   return {
     ...session,
+    ...getSavedReviewRState(session),
     labels: Array.isArray(session.labels) ? session.labels.filter(Boolean) : [],
     sessionStatus: session.sessionStatus ?? 'open',
     isPinned: Boolean(session.isPinned),
@@ -218,7 +220,8 @@ export function ReviewSessionsHub({
     const rightTags = new Set(right.topTags)
     const leftTradeIds = new Set(left.tradeIds)
     const rightTradeIds = new Set(right.tradeIds)
-    const isMonetaryComparable = left.monetaryScopeKind === 'single'
+    const calculationsComparable = haveComparableReviewCalculations(left, right)
+    const isMonetaryComparable = calculationsComparable && left.monetaryScopeKind === 'single'
       && right.monetaryScopeKind === 'single'
       && Boolean(left.currency)
       && left.currency === right.currency
@@ -228,8 +231,8 @@ export function ReviewSessionsHub({
       right,
       isMonetaryComparable,
       netPnLDelta: left.netPnL - right.netPnL,
-      averageRDelta: left.averageR - right.averageR,
-      winRateDelta: left.winRate - right.winRate,
+      averageRDelta: calculationsComparable && left.averageR !== null && right.averageR !== null ? left.averageR - right.averageR : null,
+      winRateDelta: calculationsComparable ? left.winRate - right.winRate : null,
       tradeCountDelta: left.tradeCount - right.tradeCount,
       sharedTags: left.topTags.filter((tag) => rightTags.has(tag)),
       uniqueLeftTags: left.topTags.filter((tag) => !rightTags.has(tag)),
@@ -344,8 +347,9 @@ export function ReviewSessionsHub({
       <div className="rounded-3xl border border-orange-400/15 bg-white/5 p-5 shadow-2xl">
         <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
           <div>
-            <p className="text-xs uppercase tracking-[0.25em] text-white/45">Sessions</p>
-            <h2 className="mt-2 text-2xl font-semibold text-orange-300">Sessions</h2>
+            <p className="text-xs uppercase tracking-[0.25em] text-white/45">Review-Sammlungen</p>
+            <h2 className="mt-2 text-2xl font-semibold text-orange-300">Review-Sammlungen</h2>
+            <p className="mt-3 max-w-2xl text-sm leading-6 text-white/60">Öffne gespeicherte Reviews, ergänze deine Notizen und vergleiche ausgewählte Sammlungen.</p>
           </div>
           <div className="flex flex-wrap items-center gap-3">
             <span className="rounded-full border border-orange-400/20 bg-orange-400/10 px-3 py-1 text-xs text-orange-100/80">{visibleSessions.length} sichtbar · {totalSessions} gesamt</span>
@@ -401,7 +405,7 @@ export function ReviewSessionsHub({
           <div className="rounded-3xl border border-orange-400/15 bg-white/5 p-5 shadow-2xl">
             <div className="flex items-center justify-between gap-3">
               <div>
-                <h3 className="text-lg font-semibold text-white">Sessions</h3>
+                <h3 className="text-lg font-semibold text-white">Review-Sammlungen</h3>
               </div>
               <Link href="/trades" className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-white/70 transition hover:border-white/20 hover:text-white">Trades</Link>
             </div>
@@ -546,13 +550,18 @@ export function ReviewSessionsHub({
                   <MetricTile label="Zeitraum" value={selectedSession.periodPreset ?? 'frei'} tone="text-white" />
                   <MetricTile label="Pinning" value={selectedSession.isPinned ? 'Angepinnt' : 'Normal'} tone={selectedSession.isPinned ? 'text-emerald-300' : 'text-white/80'} />
                   <MetricTile label="P&L" value={formatSessionPnL(selectedSession)} tone={selectedSession.monetaryScopeKind !== 'single' ? 'text-orange-100' : selectedSession.netPnL >= 0 ? 'text-emerald-300' : 'text-red-300'} />
-                  <MetricTile label="Ø R" value={formatRMultiple(selectedSession.averageR)} tone={selectedSession.averageR >= 0 ? 'text-emerald-300' : 'text-red-300'} />
+                  <MetricTile label="Ø R" value={formatRMultiple(getSavedReviewRValue(selectedSession))} tone="text-white/80" />
                   <MetricTile label="Win Rate" value={`${formatPlainNumber(selectedSession.winRate, 1)}%`} tone={selectedSession.winRate >= 50 ? 'text-emerald-300' : 'text-orange-200'} />
                   <MetricTile label="Trades" value={String(selectedSession.tradeCount)} tone="text-white" />
                 </div>
 
                 <div className="mt-4 rounded-2xl border border-white/10 bg-black/25 p-4">
-                  <p className="text-xs uppercase tracking-[0.22em] text-white/35">Labels</p>
+                  <p className="text-sm text-white/65">{isCurrentReviewCalculation(selectedSession)
+                    ? `${selectedSession.rCount} von ${selectedSession.tradeCount} Trades mit dokumentiertem R-Ergebnis.`
+                    : 'Die Berechnungsgrundlage dieses Reviews ist nicht vollständig dokumentiert. Aktuelle Kennzahlenvergleiche sind deshalb nicht verfügbar.'}</p>
+                  {!isCurrentReviewCalculation(selectedSession) && selectedSession.legacyAverageR !== null && selectedSession.legacyAverageR !== undefined
+                    ? <p className="mt-2 text-xs text-white/50">Gespeicherter R-Wert: {formatRMultiple(selectedSession.legacyAverageR)}. Dieser Wert wird nicht als aktuelles dokumentiertes Ergebnis eingeordnet.</p> : null}
+                  <p className="mt-3 text-xs uppercase tracking-[0.22em] text-white/35">Stichwörter</p>
                   <div className="mt-3 flex flex-wrap gap-2">
                     {selectedSession.labels.length ? selectedSession.labels.map((label) => <span key={`${selectedSession.id}-${label}`} className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-white/70">{label}</span>) : <span className="text-sm text-white/40">Keine Labels.</span>}
                   </div>
@@ -576,8 +585,8 @@ export function ReviewSessionsHub({
                 </div>
                 <div className="grid gap-3 md:grid-cols-4">
                   <MetricTile label="Δ P&L" value={comparison.isMonetaryComparable ? formatCurrency(comparison.netPnLDelta, 0, comparison.left.currency) : 'Gesperrt'} tone={!comparison.isMonetaryComparable ? 'text-orange-100' : comparison.netPnLDelta >= 0 ? 'text-emerald-300' : 'text-red-300'} />
-                  <MetricTile label="Δ Ø R" value={formatRMultiple(comparison.averageRDelta)} tone={comparison.averageRDelta >= 0 ? 'text-emerald-300' : 'text-red-300'} />
-                  <MetricTile label="Δ Win Rate" value={`${formatPlainNumber(comparison.winRateDelta, 1)} pp`} tone={comparison.winRateDelta >= 0 ? 'text-emerald-300' : 'text-red-300'} />
+                  <MetricTile label="Δ Ø R" value={formatRMultiple(comparison.averageRDelta)} tone={comparison.averageRDelta === null ? 'text-white/55' : comparison.averageRDelta >= 0 ? 'text-emerald-300' : 'text-red-300'} />
+                  <MetricTile label="Δ Win Rate" value={comparison.winRateDelta === null ? 'Nicht vergleichbar' : `${formatPlainNumber(comparison.winRateDelta, 1)} pp`} tone={comparison.winRateDelta === null ? 'text-white/55' : comparison.winRateDelta >= 0 ? 'text-emerald-300' : 'text-red-300'} />
                   <MetricTile label="Δ Trades" value={String(comparison.tradeCountDelta)} tone={comparison.tradeCountDelta >= 0 ? 'text-emerald-300' : 'text-red-300'} />
                 </div>
                 <div className="grid gap-3 md:grid-cols-3">
