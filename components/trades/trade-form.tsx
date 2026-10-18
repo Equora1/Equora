@@ -11,7 +11,7 @@ import { TradeTagSelector } from '@/components/trades/trade-tag-selector'
 import { SnippingAssistCard } from '@/components/trades/snipping-assist-dynamic'
 import { ChartUploadAdvanced } from '@/components/uploads/chart-upload-advanced'
 import { uploadTradeScreenshots } from '@/lib/supabase/storage'
-import { SUPPORTED_TRADE_CURRENCIES } from '@/lib/utils/currency'
+import { normalizeTradeCurrency, SUPPORTED_TRADE_CURRENCIES } from '@/lib/utils/currency'
 import {
   getTradeAccountTemplatePreset,
   getTradeBrokerProfilePreset,
@@ -1362,12 +1362,13 @@ export function TradeForm({
               <ControlledSelect
                 name="account_currency"
                 label="Ergebniswährung"
-                options={SUPPORTED_TRADE_CURRENCIES.map((currency) => currency)}
-                values={SUPPORTED_TRADE_CURRENCIES.map((currency) => currency)}
-                value={accountCurrency}
+                options={['Bitte wählen', ...SUPPORTED_TRADE_CURRENCIES]}
+                values={['', ...SUPPORTED_TRADE_CURRENCIES]}
+                value={normalizeTradeCurrency(accountCurrency) ?? ''}
                 onChange={(event) => setAccountCurrency(event.target.value)}
               />
             </div>
+            {accountCurrency && !normalizeTradeCurrency(accountCurrency) ? <p className="text-xs text-orange-100">Die gespeicherte Währung wird nicht unterstützt. Bitte wähle die Währung laut Abrechnung.</p> : null}
             {isEditMode && tradeId ? <SaveTradeCurrencyOnly tradeId={tradeId} currency={accountCurrency} disabled={isPending} onBusyChange={setCurrencySaving} /> : null}
           </section>
 

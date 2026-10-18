@@ -11,10 +11,29 @@ import { TradeCurrencyCorrection, SaveTradeCurrencyOnly } from '@/components/tra
 import { TradeForm } from '@/components/trades/trade-form'
 
 const props = { markets: ['BTCUSDT.P'], setups: ['Test'], emotions: [], biases: ['Long', 'Short'], ruleFlags: [], tagOptions: [], mode: 'edit' as const, tradeId: '00000000-0000-0000-0000-000000000001' }
-function renderForm(pnlMode: 'manual' | 'auto' = 'manual') {
-  return renderToStaticMarkup(<TradeForm {...props} initialValues={{ market: 'BTCUSDT.P', setup: 'Test', netPnL: '0', accountCurrency: '', pnlMode, bias: 'Long', entry: '', exit: '', notes: 'Vorhandene Notiz', tradeOccurredAt: '2026-10-18T12:00' }} />)
+function renderForm(pnlMode: 'manual' | 'auto' = 'manual', accountCurrency = '') {
+  return renderToStaticMarkup(<TradeForm {...props} initialValues={{ market: 'BTCUSDT.P', setup: 'Test', netPnL: '0', accountCurrency, pnlMode, bias: 'Long', entry: '', exit: '', notes: 'Vorhandene Notiz', tradeOccurredAt: '2026-10-18T12:00' }} />)
 }
 describe('currency correction and progressive trade form', () => {
+  it.each(['', '   ', 'JPY'])('renders an unconfirmed selection instead of EUR for %j', accountCurrency => {
+    const html = renderForm('manual', accountCurrency)
+    const select = html.match(/<select name="account_currency"[\s\S]*?<\/select>/)![0]
+    expect(select).toMatch(/<option[^>]*value=""[^>]*selected=""[^>]*>Bitte wählen<\/option>/)
+    expect(select).not.toMatch(/<option[^>]*value="EUR"[^>]*selected=""/)
+    expect(html).toMatch(/<button[^>]*disabled=""[^>]*>Nur Währung speichern<\/button>/)
+    if (accountCurrency.trim()) expect(html).toContain('Die gespeicherte Währung wird nicht unterstützt')
+  })
+  it.each(['EUR', 'USD', 'GBP', 'USDT', 'USDC', 'usdt'])('retains a supported stored currency for %s', accountCurrency => {
+    const html = renderForm('manual', accountCurrency)
+    const select = html.match(/<select name="account_currency"[\s\S]*?<\/select>/)![0]
+    expect(select).toContain('value="'+accountCurrency.toUpperCase()+'"')
+    expect(select).not.toMatch(/<option[^>]*value=""[^>]*selected=""/)
+    expect(html).not.toMatch(/<button[^>]*disabled=""[^>]*>Nur Währung speichern<\/button>/)
+  })
+  it('keeps unsupported currency-only saves disabled', () => {
+    expect(renderToStaticMarkup(<SaveTradeCurrencyOnly tradeId={props.tradeId} currency="JPY" />)).toMatch(/<button[^>]*disabled=""[^>]*>Nur Währung speichern<\/button>/)
+  })
+
   it('prevents a bulk change alongside an editor with unsaved values', () => {
     const html = renderToStaticMarkup(<TradeCurrencyCorrection editingTrade />)
     expect(html).toContain('Beende zuerst')

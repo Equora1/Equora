@@ -3,7 +3,7 @@
 import React, { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { previewTradeCurrencyCorrection, applyTradeCurrencyCorrection } from '@/app/actions/trade-currency'
-import { SUPPORTED_TRADE_CURRENCIES } from '@/lib/utils/currency'
+import { normalizeTradeCurrency, SUPPORTED_TRADE_CURRENCIES } from '@/lib/utils/currency'
 import type { CurrencyCorrectionScope, CurrencyCorrectionSummary } from '@/lib/utils/trade-currency-correction'
 
 type Preview = { token: string; summary: CurrencyCorrectionSummary }
@@ -64,9 +64,9 @@ export function TradeCurrencyCorrection({ editingTrade = false }: { editingTrade
       {preview ? <div className="space-y-3 rounded-xl border border-orange-300/25 p-4" aria-live="polite">
         <p className="text-sm text-white">{preview.summary.changes} Trades auf {currency} setzen · {preview.summary.total} insgesamt</p>
         <ul className="space-y-1 text-sm text-white/70">
-          <li>{preview.summary.missing} fehlende Währungen ergänzen</li>
-          <li>{preview.summary.replacements} vorhandene Währungsangaben ersetzen</li>
-          <li>{preview.summary.alreadyCorrect} Trades haben bereits {currency}</li>
+          <li>{preview.summary.missing} {preview.summary.missing === 1 ? 'fehlende Währung' : 'fehlende Währungen'} ergänzen</li>
+          <li>{preview.summary.replacements} {preview.summary.replacements === 1 ? 'vorhandene Währungsangabe' : 'vorhandene Währungsangaben'} ersetzen</li>
+          <li>{preview.summary.alreadyCorrect} {preview.summary.alreadyCorrect === 1 ? 'Trade hat' : 'Trades haben'} bereits {currency}</li>
         </ul>
         {preview.summary.changes ? <>
           <label className="flex items-start gap-3 text-sm leading-6 text-white/80">
@@ -100,7 +100,7 @@ export function SaveTradeCurrencyOnly({ tradeId, currency, disabled = false, onB
     })
   }
   return <div className="mt-3 space-y-2">
-    <button type="button" disabled={disabled || pending || !currency} onClick={save} className={button}>{pending ? 'Speichert…' : 'Nur Währung speichern'}</button>
+    <button type="button" disabled={disabled || pending || !normalizeTradeCurrency(currency)} onClick={save} className={button}>{pending ? 'Speichert…' : 'Nur Währung speichern'}</button>
     <p className="text-xs leading-5 text-white/60">Keine Entry- oder Exit-Preise nötig. Weitere Formulareingaben bleiben ungespeichert.</p>
     {message ? <p role="status" className="text-sm text-orange-100">{message}</p> : null}
   </div>
