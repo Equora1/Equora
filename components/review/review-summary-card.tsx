@@ -281,7 +281,7 @@ export function ReviewSummaryCard({
       <details className="group/session rounded-3xl border border-white/10 bg-black/25 p-5">
         <summary className="flex cursor-pointer list-none items-center justify-between gap-4">
           <div>
-            <p className="text-[10px] uppercase tracking-[0.24em] text-white/35">Session</p>
+            <p className="text-[10px] uppercase tracking-[0.24em] text-white/35">Review</p>
             <h2 className="mt-2 text-xl font-semibold text-white">Review sichern</h2>
           </div>
           <span className="rounded-full border border-white/10 bg-white/[0.03] px-4 py-2 text-xs uppercase tracking-[0.22em] text-white/55 transition group-open/session:border-orange-400/20 group-open/session:text-orange-100"><span className="group-open/session:hidden">Anzeigen</span><span className="hidden group-open/session:inline">Ausblenden</span></span>
@@ -295,15 +295,15 @@ export function ReviewSummaryCard({
                 <h3 className="mt-2 text-lg font-semibold text-white">Review sichern</h3>
               </div>
               <Link href={`/review-sessions?type=review&periodPreset=${snapshot.periodPreset}`} className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-white/70 transition hover:border-white/20 hover:text-white">
-                Sessions
+                Review-Sammlung
               </Link>
             </div>
-            <div className="mt-4 grid gap-3 lg:grid-cols-[1fr_0.85fr]">
-              <label className="rounded-2xl border border-white/10 bg-black/25 p-3">
+            <div className="mt-4 grid gap-3">
+              <label className="min-w-0 rounded-2xl border border-white/10 bg-black/25 p-3">
                 <span className="text-[10px] uppercase tracking-[0.2em] text-white/35">Titel</span>
                 <input value={sessionTitle} onChange={(event) => setSessionTitle(event.target.value)} className="mt-2 w-full rounded-2xl border border-orange-400/15 bg-orange-400/5 px-4 py-3 text-sm text-white outline-none placeholder:text-white/30" />
               </label>
-              <label className="rounded-2xl border border-white/10 bg-black/25 p-3">
+              <label className="min-w-0 rounded-2xl border border-white/10 bg-black/25 p-3">
                 <span className="text-[10px] uppercase tracking-[0.2em] text-white/35">Notiz</span>
                 <textarea value={sessionNote} onChange={(event) => setSessionNote(event.target.value)} rows={3} className="mt-2 w-full rounded-2xl border border-orange-400/15 bg-orange-400/5 px-4 py-3 text-sm text-white outline-none placeholder:text-white/30" placeholder="Ein Satz reicht." />
               </label>
@@ -319,7 +319,7 @@ export function ReviewSummaryCard({
           <div className="rounded-3xl border border-white/10 bg-black/40 p-4">
             <div className="flex items-center justify-between gap-3">
               <div>
-                <p className="text-xs uppercase tracking-[0.22em] text-white/40">Sessions</p>
+                <p className="text-xs uppercase tracking-[0.22em] text-white/40">Gespeicherte Reviews</p>
                 <h3 className="mt-2 text-lg font-semibold text-white">Archiv</h3>
               </div>
               <span className="rounded-full border border-emerald-400/20 bg-emerald-400/10 px-2.5 py-1 text-[11px] text-emerald-300">{relatedSessions.length} aktiv</span>

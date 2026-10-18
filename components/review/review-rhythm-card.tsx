@@ -145,7 +145,7 @@ export function ReviewRhythmCard({
                 Trades
               </Link>
               <Link href="/review-sessions" className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-white/75 transition hover:border-white/20 hover:text-white">
-                Sessions
+                Review-Sammlung
               </Link>
             </div>
           </WidePanel>

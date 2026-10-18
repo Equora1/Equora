@@ -99,22 +99,22 @@ export function buildReviewLayerSnapshot(tradesCurrent: Trade[]): ReviewLayerSna
   const headline = !totalTrades
     ? 'Noch keine Review-Signale im Zeitraum'
     : coverage >= 70
-      ? 'Der Verhaltensprüfung liefert schon belastbare Verhaltenstrends'
+      ? 'Die Verhaltensprüfung liefert schon belastbare Verhaltenstrends'
       : coverage >= 35
-        ? 'Der Verhaltensprüfung zeigt erste Verhaltensmuster'
-        : 'Der Verhaltensprüfung ist noch punktuell, aber schon nützlich'
+        ? 'Die Verhaltensprüfung zeigt erste Verhaltensmuster'
+        : 'Die Verhaltensprüfung ist noch punktuell, aber schon nützlich'
 
   const summary = !totalTrades
     ? 'Sobald Trades im Zeitraum liegen, verdichtet Equora hier Regelspur, Replizierbarkeit, Zustand und Lerneffekte.'
     : reviewedTrades.length === 0
-      ? 'Noch kein Trade im Zeitraum wurde im Verhaltensprüfung nachgezogen. Genau dort werden aus Fakten echte Verhaltenssignale.'
-      : `${reviewedTrades.length} von ${totalTrades} Trades tragen Review-Signale. ${ruleNo > 0 ? `${ruleNo} Trades fallen klar als Regelbruch auf.` : repeatYes > 0 ? `${repeatYes} Trades sehen nach replizierbarem Kernmaterial aus.` : 'Der Layer zeigt erste Muster für Verhalten und P&L.'}`
+      ? 'Für diesen Zeitraum fehlen noch Angaben zu deinen Entscheidungen. Ergänze sie in den Tradedetails, um Verhaltensmuster zu erkennen.'
+      : `${reviewedTrades.length} von ${totalTrades} Trades tragen Review-Signale. ${ruleNo > 0 ? `${ruleNo} Trades fallen klar als Regelbruch auf.` : repeatYes > 0 ? `${repeatYes} Trades sehen nach replizierbarem Kernmaterial aus.` : 'Die Angaben zeigen erste Muster in deinen Entscheidungen.'}`
 
   const checklist = [
-    coverage < 70 ? 'Offene Trades im Edit-Flow kurz mit Review-Signalen nachziehen' : null,
-    ruleNo > 0 ? `Regelbruch-Setups aus ${ruleNo} Trades vor dem nächsten Entry aktiv gegenprüfen` : null,
+    coverage < 70 ? 'Fehlende Angaben zu deinen Entscheidungen in den Tradedetails ergänzen' : null,
+    ruleNo > 0 ? `Regelbruch-Setups aus ${ruleNo} Trades vor dem nächsten Einstieg prüfen` : null,
     repeatYes > 0 ? `${repeatYes} replizierbare Trades als Referenz offen halten` : null,
-    dominantState ? `Vor dem Open auf Zustand „${dominantState[0]}“ achten` : null,
+    dominantState ? `Vor dem Einstieg auf Zustand „${dominantState[0]}“ achten` : null,
     latestLesson ? shortenReviewText(latestLesson, 100) : null,
   ].filter(Boolean) as string[]
 

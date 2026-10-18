@@ -278,7 +278,7 @@ export function TradeLedgerCapture({
           </span>
           <h2 className="mt-3 text-xl font-semibold text-orange-50">Schnellerfassung</h2>
           <p className="mt-1 text-sm text-white/45">Erfasse mehrere Trades zeilenweise. Öffne dafür die Tabelle.</p>
-          <p className="mt-1 text-xs leading-5 text-white/35">P&amp;L wird ausschließlich als manueller Kontowährungswert gespeichert; aus Entry, Exit und Größe wird hier kein Brokerergebnis behauptet.</p>
+          <p className="mt-1 text-xs leading-5 text-white/35">Trage das Ergebnis in der Währung deines Kontos ein. In der Schnellerfassung wird es nicht aus den Kursen und der Positionsgröße berechnet.</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {brokerFileImportCapability.previewEnabled ? (

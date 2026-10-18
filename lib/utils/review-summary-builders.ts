@@ -28,7 +28,7 @@ export function buildSummary(statsCurrent: ReturnType<typeof getCoreMetrics>, st
       tone: statsCurrent.monetaryScope.isComparable && statsCurrent.netPnL >= 0 ? ('emerald' as const) : ('orange' as const),
     },
     {
-      label: 'Win Rate',
+      label: 'Trefferquote',
       value: `${clampNumber(statsCurrent.winRate)}%`,
       hint: `${formatDelta(winRateDelta, ' pp')} bei ${statsCurrent.totalTrades} Trades`,
       tone: statsCurrent.winRate >= 50 ? ('emerald' as const) : ('orange' as const),
@@ -106,7 +106,7 @@ export function buildTopPerformers(tradesCurrent: Trade[], tradeTags: TradeTag[]
       ? {
           label: 'Bestes Setup',
           value: bestSetup.key,
-          detail: `${money(bestSetup.metrics.netPnL)} · ${clampNumber(bestSetup.metrics.winRate)}% Win Rate · ${formatRMultiple(bestSetup.metrics.averageR)}`,
+          detail: `${money(bestSetup.metrics.netPnL)} · ${clampNumber(bestSetup.metrics.winRate)}% Trefferquote · ${formatRMultiple(bestSetup.metrics.averageR)}`,
           href: buildTradesHref({ setup: bestSetup.key, reviewFocus: `Review Drilldown · Bestes Setup: ${bestSetup.key}` }),
         }
       : null,
@@ -130,7 +130,7 @@ export function buildTopPerformers(tradesCurrent: Trade[], tradeTags: TradeTag[]
       ? {
           label: 'Bester Tag-Cluster',
           value: positiveTags[0].tag,
-          detail: `${money(positiveTags[0].netPnL)} · ${clampNumber(positiveTags[0].winRate)}% Win Rate in ${positiveTags[0].totalTrades} Trades.`,
+          detail: `${money(positiveTags[0].netPnL)} · ${clampNumber(positiveTags[0].winRate)}% Trefferquote in ${positiveTags[0].totalTrades} Trades.`,
           href: buildTradesHref({ tag: positiveTags[0].tag, reviewFocus: `Review Drilldown · Bester Tag-Cluster: ${positiveTags[0].tag}` }),
         }
       : null,
@@ -163,7 +163,7 @@ export function buildWeakSpots(tradesCurrent: Trade[], tradeTags: TradeTag[]): R
       ? {
           label: 'Schwächstes Setup',
           value: worstSetup.key,
-          detail: `${money(worstSetup.metrics.netPnL)} · ${clampNumber(worstSetup.metrics.winRate)}% Win Rate.`,
+          detail: `${money(worstSetup.metrics.netPnL)} · ${clampNumber(worstSetup.metrics.winRate)}% Trefferquote.`,
           href: buildTradesHref({ setup: worstSetup.key, reviewFocus: `Review Drilldown · Schwächstes Setup: ${worstSetup.key}` }),
         }
       : null,
@@ -221,7 +221,7 @@ export function buildPatterns(tradesCurrent: Trade[], tradeTags: TradeTag[], tra
     .sort((left, right) => left.pnlDelta - right.pnlDelta)[0]
 
   if (aSetups.length && nonASetups.length) {
-    patterns.push(`A-Setups lieferten ${money(aMetrics.netPnL)} bei ${clampNumber(aMetrics.winRate)}% Win Rate, der Rest ${money(nonAMetrics.netPnL)}.`)
+    patterns.push(`A-Setups lieferten ${money(aMetrics.netPnL)} bei ${clampNumber(aMetrics.winRate)}% Trefferquote, der Rest ${money(nonAMetrics.netPnL)}.`)
   }
 
   const patienceTag = tagStats.find((tag) => hasKeywordMatch(tag.tag, PROCESS_TAG_KEYWORDS))

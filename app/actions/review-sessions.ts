@@ -78,17 +78,17 @@ export async function saveReviewSession(
   }
 
   if (!title) {
-    return { success: false, message: 'Bitte einen Titel für das Mini-Review vergeben.' }
+    return { success: false, message: 'Bitte einen Titel für das Review vergeben.' }
   }
 
   if (tradeIds.length === 0) {
-    return { success: false, message: 'Es gibt keine Spotlight-Trades zum Speichern.' }
+    return { success: false, message: 'Es gibt keine ausgewählten Trades zum Speichern.' }
   }
 
   if (!hasSupabaseClientEnv()) {
     return {
       success: true,
-      message: `Demo-Flow aktiv. Mini-Review „${title}“ lokal bereit zum Sichern.`,
+      message: `Demo-Modus: Review „${title}“ lokal bereit zum Sichern.`,
       session: buildMockSession({ ...input, title, tradeIds, labels }),
     }
   }
@@ -131,7 +131,7 @@ export async function saveReviewSession(
 
     return {
       success: true,
-      message: `Mini-Review „${title}“ gespeichert.`,
+      message: `Review „${title}“ gespeichert.`,
       session: mapReviewSessionRow(data as ReviewSessionRow, 'supabase'),
     }
   } catch (error) {
@@ -151,11 +151,11 @@ export async function updateReviewSession(
   const title = input.title.trim()
 
   if (!title) {
-    return { success: false, message: 'Bitte einen Titel für das Mini-Review vergeben.' }
+    return { success: false, message: 'Bitte einen Titel für das Review vergeben.' }
   }
 
   if (!hasSupabaseClientEnv()) {
-    return { success: false, message: 'Demo-Flow aktiv. Lokale Sessions werden direkt im Browser aktualisiert.' }
+    return { success: false, message: 'Demo-Modus: Lokale Reviews werden direkt im Browser aktualisiert.' }
   }
 
   try {
@@ -183,7 +183,7 @@ export async function updateReviewSession(
       .single()
 
     if (error || !data) {
-      return { success: false, message: 'Mini-Review konnte nicht aktualisiert werden.' }
+      return { success: false, message: 'Review konnte nicht aktualisiert werden.' }
     }
 
     revalidatePath('/trades')
@@ -192,11 +192,11 @@ export async function updateReviewSession(
 
     return {
       success: true,
-      message: `Mini-Review „${title}“ aktualisiert.`,
+      message: `Review „${title}“ aktualisiert.`,
       session: mapReviewSessionRow(data as ReviewSessionRow, 'supabase'),
     }
   } catch {
-    return { success: false, message: 'Mini-Review konnte nicht aktualisiert werden.' }
+    return { success: false, message: 'Review konnte nicht aktualisiert werden.' }
   }
 }
 
@@ -208,7 +208,7 @@ export async function deleteReviewSession(
   }
 
   if (!hasSupabaseClientEnv()) {
-    return { success: false, message: 'Demo-Flow aktiv. Lokale Sessions werden direkt im Browser entfernt.' }
+    return { success: false, message: 'Demo-Modus: Lokale Reviews werden direkt im Browser entfernt.' }
   }
 
   try {
@@ -224,7 +224,7 @@ export async function deleteReviewSession(
     const { error } = await supabase.from('review_sessions').delete().eq('id', sessionId).eq('user_id', user.id)
 
     if (error) {
-      return { success: false, message: 'Mini-Review konnte nicht gelöscht werden.' }
+      return { success: false, message: 'Review konnte nicht gelöscht werden.' }
     }
 
     revalidatePath('/trades')
@@ -233,10 +233,10 @@ export async function deleteReviewSession(
 
     return {
       success: true,
-      message: 'Mini-Review gelöscht.',
+      message: 'Review gelöscht.',
       deletedId: sessionId,
     }
   } catch {
-    return { success: false, message: 'Mini-Review konnte nicht gelöscht werden.' }
+    return { success: false, message: 'Review konnte nicht gelöscht werden.' }
   }
 }
