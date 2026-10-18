@@ -12,6 +12,7 @@ import { resolveTradeOccurredAt } from '@/lib/utils/trade-time'
 import { buildReviewSnapshots, type ReviewPeriodPreset } from '@/lib/utils/review'
 import type { Trade } from '@/lib/types/trade'
 import { measurePerformance, measurePerformanceSync } from '@/lib/server/performance'
+import { getBerlinTodayDateKey } from '@/lib/utils/daily-notes'
 
 export const dynamic = 'force-dynamic'
 
@@ -21,6 +22,7 @@ export default async function ReviewPage({
   searchParams?: Promise<Record<string, string | string[] | undefined>>
 }) {
   const params = (await searchParams) ?? {}
+  const referenceDateKey = getBerlinTodayDateKey()
   const initialPreset = (typeof params.periodPreset === 'string' && ['7d', '14d', '30d', '90d'].includes(params.periodPreset) ? params.periodPreset : '7d') as ReviewPeriodPreset
   const access = await getJournalAccess()
   const snapshot = await getReviewSnapshotServer(access.user?.id)
@@ -44,7 +46,7 @@ export default async function ReviewPage({
         <ReviewStartPanel trades={trades} />
         <ReviewEmptyStateCard trades={trades} />
 
-        <ReviewSummaryCard snapshots={reviewSnapshots} savedSessions={savedSessions} source={snapshot.source} initialPreset={initialPreset} />
+        <ReviewSummaryCard snapshots={reviewSnapshots} savedSessions={savedSessions} source={snapshot.source} initialPreset={initialPreset} referenceDateKey={referenceDateKey} />
 
         <details className="group rounded-[34px] border border-white/10 bg-black/20 p-7 xl:p-9">
           <summary className="flex cursor-pointer list-none items-center justify-between gap-4">
@@ -55,7 +57,7 @@ export default async function ReviewPage({
             <ToggleLabel />
           </summary>
           <div className="mt-7">
-            <ReviewRhythmCard trades={trades} weeklySnapshot={reviewSnapshots['7d']} />
+            <ReviewRhythmCard trades={trades} weeklySnapshot={reviewSnapshots['7d']} referenceDateKey={referenceDateKey} />
           </div>
         </details>
       </div>

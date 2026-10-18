@@ -19,6 +19,7 @@ import { formatCurrency } from '@/lib/utils/calculations'
 import { getReviewPeriodPresetLabel, REVIEW_PERIOD_OPTIONS } from '@/lib/utils/review'
 import { buildReviewActionPlan } from '@/lib/utils/review-to-action'
 import type { ReviewPeriodPreset, ReviewSnapshotCollection } from '@/lib/utils/review'
+import { buildReviewTitle } from '@/lib/utils/review-display'
 
 const REVIEW_SESSION_STORAGE_KEY = 'equora-review-sessions'
 
@@ -41,10 +42,6 @@ function mergeSavedSessions(...groups: SavedReviewSession[][]) {
   const merged = new Map<string, SavedReviewSession>()
   groups.flat().forEach((session) => merged.set(session.id, normalizeSavedSession(session)))
   return Array.from(merged.values()).sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime())
-}
-
-function buildReviewTitle(snapshotLabel: string) {
-  return `Review ${snapshotLabel} · ${new Date().toLocaleDateString('de-DE')}`
 }
 
 function toneClasses(tone: 'emerald' | 'red' | 'orange') {
@@ -74,18 +71,20 @@ export function ReviewSummaryCard({
   savedSessions = [],
   source,
   initialPreset = '7d',
+  referenceDateKey,
 }: {
   snapshots: ReviewSnapshotCollection
   savedSessions?: SavedReviewSession[]
   source: 'supabase' | 'mock'
   initialPreset?: ReviewPeriodPreset
+  referenceDateKey: string
 }) {
   const [activePreset, setActivePreset] = useState<ReviewPeriodPreset>(initialPreset)
   const [activeDeepSection, setActiveDeepSection] = useState<DeepSection>('result')
   const [activePerformanceView, setActivePerformanceView] = useState<PerformanceView>('top')
   const [activeTagView, setActiveTagView] = useState<TagView>('radar')
   const [activeActionView, setActiveActionView] = useState<ActionView>('engine')
-  const [sessionTitle, setSessionTitle] = useState(buildReviewTitle(getReviewPeriodPresetLabel(snapshots['7d'] ?? { periodPreset: '7d', periodPresetLabel: '7 Tage' })))
+  const [sessionTitle, setSessionTitle] = useState(() => buildReviewTitle(getReviewPeriodPresetLabel(snapshots[initialPreset] ?? snapshots['7d']), referenceDateKey))
   const [sessionNote, setSessionNote] = useState('')
   const [saveStatus, setSaveStatus] = useState('')
   const [localSessions, setLocalSessions] = useState<SavedReviewSession[]>(savedSessions)
@@ -127,8 +126,8 @@ export function ReviewSummaryCard({
   }, [initialPreset])
 
   useEffect(() => {
-    setSessionTitle(buildReviewTitle(snapshotPresetLabel))
-  }, [snapshotPresetLabel])
+    setSessionTitle(buildReviewTitle(snapshotPresetLabel, referenceDateKey))
+  }, [snapshotPresetLabel, referenceDateKey])
 
   useEffect(() => {
     if (source !== 'mock' || typeof window === 'undefined') return
@@ -165,7 +164,7 @@ export function ReviewSummaryCard({
 
     startSaving(async () => {
       const result = await persistReviewSession({
-        title: sessionTitle.trim() || buildReviewTitle(snapshotPresetLabel),
+        title: sessionTitle.trim() || buildReviewTitle(snapshotPresetLabel, referenceDateKey),
         note: sessionNote,
         focusTitle: actionPlan.headline,
         focusDescription: actionPlan.dailyFocusSuggestion,

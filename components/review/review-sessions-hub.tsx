@@ -16,6 +16,7 @@ import type {
 } from '@/lib/types/review-session'
 import { formatCurrency, formatPlainNumber, formatRMultiple } from '@/lib/utils/calculations'
 import { REVIEW_PERIOD_OPTIONS } from '@/lib/utils/review-types'
+import { formatReviewSavedDate, formatReviewSavedDay } from '@/lib/utils/review-display'
 
 type ReviewSessionsHubProps = {
   initialSessions: SavedReviewSession[]
@@ -59,14 +60,6 @@ function mergeSavedSessions(...groups: SavedReviewSession[][]) {
     if (left.isPinned !== right.isPinned) return left.isPinned ? -1 : 1
     return new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime()
   })
-}
-
-function formatSavedSessionDate(value: string) {
-  return new Intl.DateTimeFormat('de-DE', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value))
-}
-
-function formatSavedSessionDay(value: string) {
-  return new Intl.DateTimeFormat('de-DE', { weekday: 'short', day: '2-digit', month: '2-digit' }).format(new Date(value))
 }
 
 function buildTradesHref(session: SavedReviewSession, source: 'supabase' | 'mock') {
@@ -251,7 +244,7 @@ export function ReviewSessionsHub({
   const timelineEntries = useMemo(() => {
     return visibleSessions.slice(0, 8).map((session) => ({
       id: session.id,
-      day: formatSavedSessionDay(session.createdAt),
+      day: formatReviewSavedDay(session.createdAt),
       title: session.title,
       status: session.sessionStatus,
       pinned: session.isPinned,
@@ -430,7 +423,7 @@ export function ReviewSessionsHub({
                             {session.periodPreset ? <span className="rounded-full border border-white/10 bg-black/30 px-2 py-0.5 text-[10px] text-white/60">{getPeriodLabel(session.periodPreset)}</span> : null}
                           </div>
                           <p className="mt-2 break-words text-sm font-medium text-white">{session.title}</p>
-                          <p className="mt-1 text-xs text-white/45">{session.periodLabel ?? formatSavedSessionDate(session.createdAt)} · {session.tradeCount} Trades</p>
+                          <p className="mt-1 text-xs text-white/45">{session.periodLabel ?? formatReviewSavedDate(session.createdAt)} · {session.tradeCount} Trades</p>
                         </div>
                         <span className={`rounded-full px-2.5 py-1 text-[11px] ${session.monetaryScopeKind !== 'single' ? 'border border-orange-400/20 bg-orange-400/10 text-orange-100' : session.netPnL >= 0 ? 'border border-emerald-400/20 bg-emerald-400/10 text-emerald-200' : 'border border-red-400/20 bg-red-400/10 text-red-200'}`}>{formatSessionPnL(session)}</span>
                       </div>

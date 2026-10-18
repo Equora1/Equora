@@ -6,30 +6,13 @@ import type { ReactNode } from 'react'
 import { useMemo, useState } from 'react'
 import type { Trade } from '@/lib/types/trade'
 import { formatCurrency, formatPlainNumber } from '@/lib/utils/calculations'
-import { getDateKeyFromDate, normalizeTradeDate } from '@/lib/utils/calendar'
-import { resolveTradeOccurredAt } from '@/lib/utils/trade-time'
-import { buildDailyNoteFlowSummary, getBerlinTodayDateKey } from '@/lib/utils/daily-notes'
+import { buildDailyNoteFlowSummary } from '@/lib/utils/daily-notes'
+import { formatReviewCalendarDay, getLatestReviewDateKey, getReviewTradeDateKey } from '@/lib/utils/review-display'
 import type { ReviewSnapshot } from '@/lib/utils/review'
 import { buildReviewCoachingBrief } from '@/lib/utils/review-coaching'
 
-function formatDateLabel(dateKey: string) {
-  return new Intl.DateTimeFormat('de-DE', {
-    weekday: 'long',
-    day: '2-digit',
-    month: 'long',
-    year: 'numeric',
-  }).format(new Date(`${dateKey}T12:00:00`))
-}
-
-function getLatestActiveDateKey(trades: Trade[]) {
-  const tradeKeys = trades.map((trade) => getDateKeyFromDate(normalizeTradeDate(resolveTradeOccurredAt(trade))))
-  const uniqueKeys = Array.from(new Set(tradeKeys)).sort()
-  return uniqueKeys.at(-1) ?? getBerlinTodayDateKey()
-}
-
-
-function getDayTitle(daySummary: ReturnType<typeof buildDailyNoteFlowSummary>) {
-  if (daySummary.dateKey === getBerlinTodayDateKey()) return 'Heute'
+function getDayTitle(daySummary: ReturnType<typeof buildDailyNoteFlowSummary>, referenceDateKey: string) {
+  if (daySummary.dateKey === referenceDateKey) return 'Heute'
   return 'Letzter aktiver Tag'
 }
 
@@ -38,13 +21,15 @@ type ReviewMode = 'day' | 'week'
 export function ReviewRhythmCard({
   trades,
   weeklySnapshot,
+  referenceDateKey,
 }: {
   trades: Trade[]
   weeklySnapshot: ReviewSnapshot
+  referenceDateKey: string
 }) {
   const [mode, setMode] = useState<ReviewMode>('day')
-  const activeDateKey = useMemo(() => getLatestActiveDateKey(trades), [trades])
-  const daySummary = useMemo(() => buildDailyNoteFlowSummary(trades, [], activeDateKey), [activeDateKey, trades])
+  const activeDateKey = useMemo(() => getLatestReviewDateKey(trades, referenceDateKey), [trades, referenceDateKey])
+  const daySummary = useMemo(() => buildDailyNoteFlowSummary(trades, [], activeDateKey, getReviewTradeDateKey), [activeDateKey, trades])
   const dayTradeIds = daySummary.dayTrades.map((trade) => trade.id).join(',')
   const dayFocusHref = dayTradeIds
     ? `/trades?reviewTradeIds=${encodeURIComponent(dayTradeIds)}&reviewFocus=${encodeURIComponent(`Tagesreview · ${activeDateKey}`)}`
@@ -86,7 +71,7 @@ export function ReviewRhythmCard({
 
       {mode === 'day' ? (
         <div className="mt-7 space-y-6">
-          <WidePanel eyebrow={getDayTitle(daySummary)} title={formatDateLabel(activeDateKey)}>
+          <WidePanel eyebrow={getDayTitle(daySummary, referenceDateKey)} title={formatReviewCalendarDay(activeDateKey)}>
             <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
               <MetricCard label="Trades" value={String(daySummary.totalTrades)} tone="text-white" />
               <MetricCard label="Belastbar" value={`${daySummary.trustedTrades.length}/${daySummary.totalTrades || 0}`} tone="text-emerald-300" />

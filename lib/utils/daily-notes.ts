@@ -225,8 +225,8 @@ function buildNoteStarter(input: {
   return lines.join(' ')
 }
 
-export function buildDailyNoteFlowSummary(trades: Trade[], dailyNotes: DailyNoteRow[], dateKey = getBerlinTodayDateKey()): DailyNoteFlowSummary {
-  const dayTrades = getTradesForDate(trades, dateKey)
+export function buildDailyNoteFlowSummary(trades: Trade[], dailyNotes: DailyNoteRow[], dateKey = getBerlinTodayDateKey(), tradeDateKey?: (trade: Trade) => string): DailyNoteFlowSummary {
+  const dayTrades = tradeDateKey ? trades.filter((trade) => tradeDateKey(trade) === dateKey) : getTradesForDate(trades, dateKey)
   const trustedTrades = getTrustedTrades(dayTrades)
   const existingNote = getDailyNoteByDate(dailyNotes, dateKey)
   const parsedExistingNote = parseDailyNoteStorage(existingNote?.note)
