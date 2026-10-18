@@ -187,7 +187,7 @@ export function buildWeakSpots(tradesCurrent: Trade[], tradeTags: TradeTag[]): R
       ? {
           label: 'Verlustserie',
           value: `${metrics.longestLossStreak} in Folge`,
-          detail: 'Hier lohnt sich ein klarer Cooldown- oder Größen-Trigger im Regelwerk.',
+          detail: 'Lege in deinen Regeln fest, wann du eine Handelspause einlegst oder deine Positionsgröße reduzierst.',
         }
       : null,
     tradesCurrent.length > 0 && tagCoverage < 70
@@ -226,7 +226,7 @@ export function buildPatterns(tradesCurrent: Trade[], tradeTags: TradeTag[], tra
 
   const patienceTag = tagStats.find((tag) => hasKeywordMatch(tag.tag, PROCESS_TAG_KEYWORDS))
   if (patienceTag) {
-    patterns.push(`Tag „${patienceTag.tag}“ zeigt ${money(patienceTag.netPnL)} und wirkt wie ein brauchbarer Prozess-Anker.`)
+    patterns.push(`Tag „${patienceTag.tag}“ zeigt ${money(patienceTag.netPnL)} im gewählten Zeitraum. Prüfe den Ablauf dahinter, bevor du daraus eine Regel ableitest.`)
   }
 
   const dangerTag = [...tagStats].sort((a, b) => a.netPnL - b.netPnL)[0]
@@ -283,11 +283,11 @@ export function buildPlaybook(tradesCurrent: Trade[], tradeTags: TradeTag[], tra
   }
 
   if (losingPairs[0] && losingPairs[0].trades.length >= 2) {
-    actions.push(`Die Verlust-Kombi „${losingPairs[0].pair}“ ist ein klarer Alarm. Für diese Paarung einen No-Trade- oder Size-Down-Trigger definieren.`)
+    actions.push(`Die Verlust-Kombi „${losingPairs[0].pair}“ ist ein klarer Alarm. Lege für diese Kombination fest, wann du auf einen Einstieg verzichtest oder die Positionsgröße reduzierst.`)
   }
 
   if (metrics.longestLossStreak >= 2) {
-    actions.push(`Nach ${metrics.longestLossStreak} Verlusten in Folge automatisch Cooldown oder halbe Positionsgröße.`)
+    actions.push(`Nach ${metrics.longestLossStreak} Verlusten in Folge eine Handelspause oder die halbe Positionsgröße nach deiner vorher festgelegten Regel.`)
   }
 
   if (metrics.averageR !== null && metrics.averageR < 0.5) {

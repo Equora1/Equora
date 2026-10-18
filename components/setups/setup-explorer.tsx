@@ -87,7 +87,7 @@ export function SetupExplorer({
       <section className="rounded-3xl border border-[#221e1a] bg-[#0d0d0d]/95 p-5 shadow-[0_20px_60px_rgba(0,0,0,0.42)] xl:p-6">
         <SectionHeader
           eyebrow="Setup-Bibliothek"
-          title="Trading-Landkarte"
+          title="Deine Setups im Überblick"
           copy=""
           badge={`${visibleSetups.length} sichtbar`}
         />
@@ -122,7 +122,7 @@ export function SetupExplorer({
             <div className="grid gap-3 lg:grid-cols-4">
               <Metric label="Trades" value={String(linkedTrades.length)} note={selectedPerformance ? `${selectedPerformance.resolvedTrades} erledigt · ${selectedPerformance.openTrades} offen` : 'Historie'} />
               <Metric label="P&L" value={selectedPerformance ? formatCurrency(selectedPerformance.netPnL, 0, selectedPerformance.currency) : '—'} note={selectedPerformance?.verdict ?? 'Noch keine Daten'} />
-              <Metric label="Winrate" value={selectedPerformance ? `${selectedPerformance.winRate.toFixed(0)}%` : '—'} note={selectedPerformance ? `${selectedPerformance.wins}W · ${selectedPerformance.losses}L · ${selectedPerformance.breakeven}BE` : 'Offen'} />
+              <Metric label="Trefferquote" value={selectedPerformance ? `${selectedPerformance.winRate.toFixed(0)}%` : '—'} note={selectedPerformance ? `${selectedPerformance.wins}W · ${selectedPerformance.losses}L · ${selectedPerformance.breakeven}BE` : 'Offen'} />
               <Metric label="PF / Ø R" value={selectedPerformance ? `${formatProfitFactor(selectedPerformance.profitFactor)} · ${formatRMultiple(selectedPerformance.averageR)}` : '—'} note={selectedPerformance ? `${selectedPerformance.riskCoverage}% Risiko dokumentiert` : 'Regel prüfen'} />
             </div>
 
@@ -187,8 +187,8 @@ export function SetupExplorer({
       <section className="rounded-3xl border border-[#221e1a] bg-[#0d0d0d]/95 p-5 shadow-[0_20px_60px_rgba(0,0,0,0.42)] xl:p-6">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
           <div>
-            <p className="text-[10px] uppercase tracking-[0.24em] text-[#998a72]">Setup-Wirkung</p>
-            <h3 className="mt-2 text-xl font-semibold text-white">Was trägt, was kostet</h3>
+            <p className="text-[10px] uppercase tracking-[0.24em] text-[#998a72]">Setup-Ergebnisse</p>
+            <h3 className="mt-2 text-xl font-semibold text-white">Ergebnisse nach Setup</h3>
           </div>
           {weakestSetup ? <div className="rounded-full border border-red-300/15 bg-red-400/[0.06] px-3 py-1 text-xs text-red-100/80">Prüfen: {weakestSetup.title}</div> : null}
         </div>

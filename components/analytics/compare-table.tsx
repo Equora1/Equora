@@ -18,7 +18,7 @@ export function CompareTable({ title, rows }: { title: string; rows: CompareResu
         <div className="grid grid-cols-6 gap-2 border-b border-white/10 bg-white/[0.03] px-4 py-3 text-[10px] uppercase tracking-[0.24em] text-white/40">
           <span>Kategorie</span>
           <span>Trades</span>
-          <span>Winrate</span>
+          <span>Trefferquote</span>
           <span>Avg R</span>
           <span>P&amp;L</span>
           <span>PF</span>

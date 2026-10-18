@@ -1226,7 +1226,7 @@ export function TradeForm({
           </ul>
         </div>
       ) : status ? (
-        <div className={`rounded-2xl border p-4 text-sm ${status.toLowerCase().includes('gespeichert') || status.toLowerCase().includes('aktualisiert') || status.toLowerCase().includes('demo-flow aktiv') ? 'border-emerald-400/20 bg-emerald-400/10 text-emerald-100' : 'border-white/10 bg-black/25 text-white/75'}`}>
+        <div className={`rounded-2xl border p-4 text-sm ${status.toLowerCase().includes('gespeichert') || status.toLowerCase().includes('aktualisiert') || status.toLowerCase().includes('Demo-Modus aktiv') ? 'border-emerald-400/20 bg-emerald-400/10 text-emerald-100' : 'border-white/10 bg-black/25 text-white/75'}`}>
           {status}
         </div>
       ) : null}

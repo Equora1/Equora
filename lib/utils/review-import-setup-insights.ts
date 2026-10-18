@@ -70,7 +70,7 @@ export function buildReviewSetupInsights(trades: Trade[]): ReviewTagRadarItem[] 
     insights.push({
       label: 'Trägt',
       value: strongest.setup,
-      detail: `${strongest.trades.length} Trades · ${money(strongest.netPnL)} · Winrate ${Math.round(strongest.winRate)}% · ØR ${formatRMultiple(strongest.averageR)}`,
+      detail: `${strongest.trades.length} Trades · ${money(strongest.netPnL)} · Trefferquote ${Math.round(strongest.winRate)}% · ØR ${formatRMultiple(strongest.averageR)}`,
       tone: toneFromPnL(strongest.netPnL),
       href: `/trades?setup=${encodeURIComponent(strongest.setup)}`,
     })

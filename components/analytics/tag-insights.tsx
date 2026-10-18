@@ -27,7 +27,7 @@ export function TagInsights({ rows }: { rows: TagStat[] }) {
               <div>
                 <p className="text-sm font-semibold text-white">{rows[0].tag}</p>
                 <p className="mt-1 text-xs text-white/45">
-                  {rows[0].totalTrades} Trades · Winrate {rows[0].winRate.toFixed(1)}% · Avg R {formatRMultiple(rows[0].avgR)}
+                  {rows[0].totalTrades} Trades · Trefferquote {rows[0].winRate.toFixed(1)}% · Avg R {formatRMultiple(rows[0].avgR)}
                 </p>
               </div>
               <span className={rows[0].netPnL >= 0 ? 'text-emerald-300' : 'text-red-300'}>
@@ -48,7 +48,7 @@ export function TagInsights({ rows }: { rows: TagStat[] }) {
                 <div>
                   <p className="text-sm font-semibold text-white">{row.tag}</p>
                   <p className="mt-1 text-xs text-white/45">
-                    {row.totalTrades} Trades · Winrate {row.winRate.toFixed(1)}% · Avg R {formatRMultiple(row.avgR)}
+                    {row.totalTrades} Trades · Trefferquote {row.winRate.toFixed(1)}% · Avg R {formatRMultiple(row.avgR)}
                   </p>
                 </div>
                 <span className={row.netPnL >= 0 ? 'text-emerald-300' : 'text-red-300'}>

@@ -73,7 +73,7 @@ export function BrokerSyncHub({ snapshot }: { snapshot: BrokerSyncSnapshot }) {
               </p>
             </div>
             <span className="w-fit rounded-full border border-[#c8823a]/25 bg-[#c8823a]/10 px-3 py-1.5 text-[10px] uppercase tracking-[0.16em] text-[#f0a855]">
-              {brokerCatalogSummary.brokerCount} Broker · {brokerCatalogSummary.platformCount} Plattform · {brokerCatalogSummary.genericFallbackCount} Fallback
+              {brokerCatalogSummary.brokerCount} Broker · {brokerCatalogSummary.platformCount} Plattform · {brokerCatalogSummary.genericFallbackCount} weitere Auswahl
             </span>
           </div>
         </div>
@@ -130,10 +130,10 @@ export function BrokerSyncHub({ snapshot }: { snapshot: BrokerSyncSnapshot }) {
               state="In der App nicht implementiert"
             />
             <PermissionCard
-              title="Provider-Schreibrechte"
-              description="Eine Nutzerbestätigung ersetzt keine vollständige technische Rechteübersicht des Providers."
+              title="Schreibrechte beim Broker"
+              description="Deine Bestätigung allein zeigt nicht, welche Schreibrechte der Broker tatsächlich erlaubt."
               state={userAttestedReadOnlyConnection
-                ? 'Laut Nutzer deaktiviert; nicht vollständig verifiziert'
+                ? 'Von dir als deaktiviert bestätigt; technisch nicht vollständig geprüft'
                 : 'Nicht vollständig technisch verifiziert'}
             />
           </div>

@@ -326,7 +326,7 @@ export function buildDynamicSetupDetail(
     playbook: row?.playbook ?? base?.playbook ?? undefined,
     performance:
       linkedTrades.length > 0
-        ? `${formatCurrency(metrics.netPnL, 0, metrics.currency)} · ${metrics.winRate.toFixed(0)}% Winrate · ${formatRMultiple(metrics.averageR)}`
+        ? `${formatCurrency(metrics.netPnL, 0, metrics.currency)} · ${metrics.winRate.toFixed(0)}% Trefferquote · ${formatRMultiple(metrics.averageR)}`
         : (base?.performance ?? 'Noch keine Performance-Daten vorhanden.'),
     bestMarket,
     bestSession,

@@ -46,7 +46,7 @@ export function buildTagCombinations(tradesCurrent: Trade[], tradeTags: TradeTag
       ? {
           label: 'Beste Kombi',
           value: bestPair.pair,
-          detail: `${money(bestPair.metrics.netPnL)} · ${clampNumber(bestPair.metrics.winRate)}% Win Rate in ${bestPair.metrics.totalTrades} Trades.`,
+          detail: `${money(bestPair.metrics.netPnL)} · ${clampNumber(bestPair.metrics.winRate)}% Trefferquote in ${bestPair.metrics.totalTrades} Trades.`,
           tone: getToneFromPnL(bestPair.metrics.netPnL),
           href: buildTradesHref({ tags: parseTagPair(bestPair.pair), reviewFocus: `Review Drilldown · Beste Kombi: ${bestPair.pair}` }),
         }
@@ -73,7 +73,7 @@ export function buildTagCombinations(tradesCurrent: Trade[], tradeTags: TradeTag
       ? {
           label: 'Volatile Kombi',
           value: unstablePair.pair,
-          detail: `${clampNumber(unstablePair.metrics.winRate)}% Win Rate bei ${formatRMultiple(unstablePair.metrics.averageR)} im Schnitt. Gute Kandidatin für einen Vor-Entry-Check.`,
+          detail: `${clampNumber(unstablePair.metrics.winRate)}% Trefferquote bei ${formatRMultiple(unstablePair.metrics.averageR)} im Schnitt. Gute Kandidatin für einen Vor-Entry-Check.`,
           tone: unstablePair.metrics.netPnL < 0 ? 'orange' : getToneFromPnL(unstablePair.metrics.netPnL),
           href: buildTradesHref({ tags: parseTagPair(unstablePair.pair), reviewFocus: `Review Drilldown · Volatile Kombi: ${unstablePair.pair}` }),
         }

@@ -273,8 +273,8 @@ export function ReviewSummaryCard({
       </section>
 
       <section className="grid gap-4 xl:grid-cols-2">
-        <InsightGroup title="Setup-Wirkung" items={snapshot.setupInsights} />
-        <InsightGroup title="Import-Qualität" items={snapshot.importInsights} />
+        <InsightGroup title="Setup-Ergebnisse" items={snapshot.setupInsights} />
+        <InsightGroup title="Daten aus Importen" items={snapshot.importInsights} />
       </section>
 
       <details className="group/session rounded-3xl border border-white/10 bg-black/25 p-5">

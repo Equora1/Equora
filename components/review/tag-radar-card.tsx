@@ -10,8 +10,8 @@ export function TagRadarCard({ items }: { items: { label: string; value: string;
   return (
     <div className="rounded-3xl border border-white/10 bg-black/40 p-4">
       <div className="mb-4 flex items-center justify-between">
-        <h3 className="text-lg font-semibold text-white">Tag Radar</h3>
-        <span className="rounded-full border border-orange-400/20 bg-orange-400/10 px-2.5 py-1 text-[11px] text-orange-100/80">Kontext funkt mit</span>
+        <h3 className="text-lg font-semibold text-white">Muster in deinen Tags</h3>
+        <span className="rounded-full border border-orange-400/20 bg-orange-400/10 px-2.5 py-1 text-[11px] text-orange-100/80">Gewählter Zeitraum</span>
       </div>
       <div className="space-y-3">
         {items.map((item) => {

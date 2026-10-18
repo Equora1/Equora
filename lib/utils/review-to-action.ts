@@ -45,9 +45,9 @@ function buildFocusSuggestion(snapshot: ReviewSnapshot) {
   if (reviewRepeatability) return `${cleanLead(reviewRepeatability.value)} bewusst als Referenz nutzen`
   if (weakSetup) return `${cleanLead(weakSetup.value)} nur mit Bestätigung handeln`
   if (negativeTrigger) return `Vor jedem Einstieg ${cleanLead(negativeTrigger.value)} gegenprüfen`
-  if (lossStreak) return 'Nach zwei roten Trades sofort in den Cooldown gehen'
+  if (lossStreak) return 'Nach zwei Verlusttrades eine Handelspause einlegen'
   if (bestSetup) return `${cleanLead(bestSetup.value)} priorisieren`
-  if (processAnchor) return `${cleanLead(processAnchor.value)} replizieren`
+  if (processAnchor) return `${cleanLead(processAnchor.value)} gezielt nachbereiten`
   return 'Selektiv bleiben und nur saubere Trigger handeln'
 }
 
@@ -130,7 +130,7 @@ export function buildReviewActionPlan(snapshot: ReviewSnapshot): ReviewActionPla
     steps.push({
       lane: 'Verhaltensprüfung',
       title: `${cleanLead(reviewStateRisk.value)} früh abbremsen`,
-      instruction: `Sobald sich ${cleanLead(reviewStateRisk.value)} zeigt, Tempo rausnehmen und nur A-Trigger handeln.`,
+      instruction: `Sobald sich ${cleanLead(reviewStateRisk.value)} zeigt, eine Pause einlegen und neue Einstiege an deinen Setup-Regeln prüfen.`,
       reason: shortenSentence(reviewStateRisk.detail),
       tone: 'red',
       href: '/trades',
@@ -182,7 +182,7 @@ export function buildReviewActionPlan(snapshot: ReviewSnapshot): ReviewActionPla
     const anchorTitle = processAnchor ? cleanLead(processAnchor.value) : 'dein sauberster Ablauf'
     steps.push({
       lane: 'Wiederholen',
-      title: processAnchor ? `${anchorTitle} als Prozess-Anker` : 'Den besten Ablauf kopieren',
+      title: processAnchor ? `Ablauf hinter ${anchorTitle} prüfen` : 'Den besten Ablauf kopieren',
       instruction: actionRule ? shortenSentence(actionRule, 160) : `Vor dem ersten Einstieg prüfen: ${anchorTitle}`,
       reason: processAnchor ? shortenSentence(processAnchor.detail) : 'Das Review markiert hier den Ablauf, den du öfter sehen willst.',
       tone: processAnchor ? 'emerald' : 'orange',
@@ -214,7 +214,7 @@ export function buildReviewActionPlan(snapshot: ReviewSnapshot): ReviewActionPla
       : 'Plan für morgen'
 
   const summary = redSteps > 0
-    ? `${focusSuggestion}. Das Review zeigt klar, wo du bremsen und wo du replizieren solltest.`
+    ? `${focusSuggestion}. Prüfe die markierten Entscheidungen und leite daraus einen konkreten nächsten Schritt ab.`
     : `${focusSuggestion}.`
 
   const checklist = Array.from(new Set([

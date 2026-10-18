@@ -140,10 +140,10 @@ function getTimeWindowSummaryLead(bestWindow: TimeWindowPerformanceRow | null, w
 
 function getTimeWindowSummaryDetail(bestWindow: TimeWindowPerformanceRow | null, weakestWindow: TimeWindowPerformanceRow | null) {
   if (bestWindow && weakestWindow && bestWindow.key !== weakestWindow.key) {
-    return `Stärkstes Fenster: ${formatCurrency(bestWindow.netPnL, bestWindow.currency)} bei ${bestWindow.winRate.toFixed(0)}% Winrate. Schwächstes Fenster: ${formatCurrency(weakestWindow.netPnL, weakestWindow.currency)}.`
+    return `Stärkstes Fenster: ${formatCurrency(bestWindow.netPnL, bestWindow.currency)} bei ${bestWindow.winRate.toFixed(0)}% Trefferquote. Schwächstes Fenster: ${formatCurrency(weakestWindow.netPnL, weakestWindow.currency)}.`
   }
 
-  if (bestWindow) return `${formatCurrency(bestWindow.netPnL, bestWindow.currency)} bei ${bestWindow.winRate.toFixed(0)}% Winrate.`
+  if (bestWindow) return `${formatCurrency(bestWindow.netPnL, bestWindow.currency)} bei ${bestWindow.winRate.toFixed(0)}% Trefferquote.`
   return 'Mehr Daten nötig.'
 }
 
@@ -219,10 +219,10 @@ function getBucketSummaryLead(bestRow: SessionPerformanceRow | null, weakestRow:
 
 function getBucketSummaryDetail(bestRow: SessionPerformanceRow | null, weakestRow: SessionPerformanceRow | null, fallback: string) {
   if (bestRow && weakestRow && bestRow.key !== weakestRow.key) {
-    return `Stärkster Block: ${formatCurrency(bestRow.netPnL, bestRow.currency)} bei ${bestRow.winRate.toFixed(0)}% Winrate. Schwächster Block: ${formatCurrency(weakestRow.netPnL, weakestRow.currency)}.`
+    return `Stärkster Block: ${formatCurrency(bestRow.netPnL, bestRow.currency)} bei ${bestRow.winRate.toFixed(0)}% Trefferquote. Schwächster Block: ${formatCurrency(weakestRow.netPnL, weakestRow.currency)}.`
   }
 
-  if (bestRow) return `${formatCurrency(bestRow.netPnL, bestRow.currency)} bei ${bestRow.winRate.toFixed(0)}% Winrate.`
+  if (bestRow) return `${formatCurrency(bestRow.netPnL, bestRow.currency)} bei ${bestRow.winRate.toFixed(0)}% Trefferquote.`
   return fallback
 }
 
@@ -326,7 +326,7 @@ export function StatistikWorkbench({ trades, tradeTags, setupTitles, initialLaye
               : 'Für diese Auswahl fehlen abgeschlossene Trades mit auswertbaren Ergebnisangaben.'}
           </h2>
           <p className="mt-3 max-w-3xl text-sm leading-7 text-white/60">
-            Es werden keine Winrate, Erwartung, Rankings oder Strategieaussagen angezeigt. Die Journalhistorie bleibt unverändert.
+            Es werden keine Trefferquote, Erwartung, Rankings oder Strategieaussagen angezeigt. Die Journalhistorie bleibt unverändert.
           </p>
           {scopeLabels.length ? (
             <button
@@ -359,7 +359,7 @@ export function StatistikWorkbench({ trades, tradeTags, setupTitles, initialLaye
 
         <div className="mt-7 grid gap-6 lg:grid-cols-3">
           <MetricCard label="P&L" value={metrics.monetaryScope.isComparable ? formatCurrency(metrics.netPnL, metrics.currency) : 'Gesperrt'} detail={activeAccount ? activeAccount.label : `${trustedTrades.length} Trades`} tone={metrics.monetaryScope.isComparable ? 'text-emerald-300' : 'text-orange-200'} />
-          <MetricCard label="Winrate" value={formatPercent(metrics.winRate)} detail={activeAccount ? `${activeAccount.trades} Konto-Trades` : bestEmotion ? bestEmotion.emotion : `${trustedTrades.length} berücksichtigte Trades`} tone="text-white" />
+          <MetricCard label="Trefferquote" value={formatPercent(metrics.winRate)} detail={activeAccount ? `${activeAccount.trades} Konto-Trades` : bestEmotion ? bestEmotion.emotion : `${trustedTrades.length} berücksichtigte Trades`} tone="text-white" />
           <MetricCard label="Ø Ergebnis in R" value={formatRMultiple(metrics.expectancyR)} detail={`${metrics.rCount} von ${trustedTrades.length} Abschlüssen mit R-Wert`} tone="text-orange-200" />
         </div>
 
@@ -674,8 +674,8 @@ function getSetupSummaryLead(bestRow: SetupPerformanceRow | null, weakestRow: Se
 }
 
 function getSetupSummaryDetail(bestRow: SetupPerformanceRow | null, weakestRow: SetupPerformanceRow | null) {
-  if (bestRow && weakestRow && bestRow.title !== weakestRow.title) return `${formatCurrency(bestRow.netPnL, bestRow.currency)} bei ${bestRow.winRate.toFixed(0)}% Winrate. PF ${formatProfitFactor(bestRow.profitFactor)}. Schwächstes Setup: ${formatCurrency(weakestRow.netPnL, weakestRow.currency)}.`
-  if (bestRow) return `${formatCurrency(bestRow.netPnL, bestRow.currency)} bei ${bestRow.winRate.toFixed(0)}% Winrate. PF ${formatProfitFactor(bestRow.profitFactor)}.`
+  if (bestRow && weakestRow && bestRow.title !== weakestRow.title) return `${formatCurrency(bestRow.netPnL, bestRow.currency)} bei ${bestRow.winRate.toFixed(0)}% Trefferquote. PF ${formatProfitFactor(bestRow.profitFactor)}. Schwächstes Setup: ${formatCurrency(weakestRow.netPnL, weakestRow.currency)}.`
+  if (bestRow) return `${formatCurrency(bestRow.netPnL, bestRow.currency)} bei ${bestRow.winRate.toFixed(0)}% Trefferquote. PF ${formatProfitFactor(bestRow.profitFactor)}.`
   return 'Erst verknüpfte Trades machen die Karte scharf.'
 }
 
@@ -720,7 +720,7 @@ function SetupPerformanceRowCard({ row }: { row: SetupPerformanceRow }) {
 
         <div className="grid gap-5 sm:grid-cols-5 xl:min-w-[640px] xl:text-right">
           <InlineMetric label="P&L" value={formatRowMoney(row.netPnL, row.trades, row.currency)} valueClassName={pnlClass} />
-          <InlineMetric label="Winrate" value={hasEvidence ? `${row.winRate.toFixed(0)}%` : '—'} />
+          <InlineMetric label="Trefferquote" value={hasEvidence ? `${row.winRate.toFixed(0)}%` : '—'} />
           <InlineMetric label="PF" value={hasEvidence ? formatProfitFactor(row.profitFactor) : '—'} />
           <InlineMetric label="Ø R" value={hasEvidence && row.averageR !== null ? formatRMultiple(row.averageR) : hasEvidence ? 'R offen' : '—'} />
           <InlineMetric label="Datengrundlage" value={getAnalyticsBucketEvidenceLabel(row.trades)} small />
@@ -803,7 +803,7 @@ function TimeWindowCard({ row }: { row: TimeWindowPerformanceRow }) {
         </div>
       </div>
       <div className="mt-5 flex flex-wrap gap-x-8 gap-y-3">
-        <InlineMetric label="Winrate" value={hasEvidence ? `${row.winRate.toFixed(0)}%` : '—'} />
+        <InlineMetric label="Trefferquote" value={hasEvidence ? `${row.winRate.toFixed(0)}%` : '—'} />
         <InlineMetric label="Ø R" value={hasEvidence ? formatAverageR(row.averageR, row.trades, row.rCount) : '—'} />
         <InlineMetric label="Datengrundlage" value={getAnalyticsBucketEvidenceLabel(row.trades)} small />
       </div>
@@ -926,7 +926,7 @@ function InsightBucketCard({ row }: { row: SessionPerformanceRow }) {
         </div>
 
         <div className="grid min-w-[210px] grid-cols-3 gap-5 text-right">
-          <InlineMetric label="Winrate" value={hasEvidence ? `${row.winRate.toFixed(0)}%` : '—'} />
+          <InlineMetric label="Trefferquote" value={hasEvidence ? `${row.winRate.toFixed(0)}%` : '—'} />
           <InlineMetric label="Ø R" value={hasEvidence ? formatAverageR(row.averageR, row.trades, row.rCount) : '—'} />
           <InlineMetric label="Datengrundlage" value={getAnalyticsBucketEvidenceLabel(row.trades)} small />
         </div>

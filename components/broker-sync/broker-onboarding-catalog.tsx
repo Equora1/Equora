@@ -120,8 +120,8 @@ export function BrokerOnboardingCatalog() {
           <div className="rounded-2xl border border-dashed border-white/12 px-5 py-8 text-center">
             <p className="text-sm font-medium text-white">Noch kein eindeutiger Treffer.</p>
             <p className="mx-auto mt-2 max-w-xl text-xs leading-5 text-white/55">
-              Nutze „Weitere Broker“ mit allgemeinem CSV-Mapping. Das erweitert den Importweg, ohne eine nicht gebaute
-              API-Verbindung zu behaupten.
+              Wähle „Weitere Broker“, um eine CSV-Datei zu prüfen und ihre Spalten zuzuordnen. Eine direkte
+              Verbindung zu deinem Broker ist damit nicht eingerichtet.
             </p>
           </div>
         )}
@@ -130,9 +130,9 @@ export function BrokerOnboardingCatalog() {
       <div className="border-t border-white/8 bg-white/[0.018] px-5 py-5 sm:px-7">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div>
-            <p className="text-sm font-medium text-white">Gemeinsame Plattformfamilien als nächster Hebel</p>
+            <p className="text-sm font-medium text-white">Weitere geplante Plattformen</p>
             <p className="mt-1 text-xs leading-5 text-white/50">
-              Reine Roadmap – derzeit keine aktive Verbindung und kein Unterstützungsversprechen.
+              Diese Verbindungen sind noch nicht verfügbar. Ob und wann sie angeboten werden, steht noch nicht fest.
             </p>
           </div>
           <div className="flex flex-wrap gap-2">

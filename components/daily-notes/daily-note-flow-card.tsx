@@ -125,7 +125,7 @@ export function DailyNoteFlowCard({
                 <MetricTile label="Trades" value={String(summary.totalTrades)} tone="text-white" />
                 <MetricTile label="mit P&L" value={`${summary.trustedTrades.length} / ${summary.totalTrades || 0}`} tone="text-emerald-300" />
                 <MetricTile label="P&L" value={summary.monetaryScope.isComparable ? formatCurrency(summary.trustedPnL, 0, summary.monetaryScope.currency) : 'Gesperrt'} tone={summary.monetaryScope.isComparable ? summary.trustedPnL >= 0 ? 'text-emerald-300' : 'text-red-300' : 'text-orange-100'} />
-                <MetricTile label="Klarheit" value={`${summary.trustedCoverage}%`} tone="text-orange-100/85" />
+                <MetricTile label="Für Kennzahlen erfasst" value={`${summary.trustedCoverage}%`} tone="text-orange-100/85" />
               </div>
             </div>
 

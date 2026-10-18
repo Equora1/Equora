@@ -532,7 +532,7 @@ export function CostProfilesHub({ initialProfiles, usageByProfileId, source }: C
               <p className="mt-2 text-sm text-white/55">
                 {selectedProfile
                   ? 'Ändere Kosten, Funding-Logik und Instrument-Kontext zentral für alle wiederkehrenden Trades.'
-                  : 'Lege ein neues Kostenprofil an, das du später direkt im Trade-Capture wiederverwenden kannst.'}
+                  : 'Lege ein Kostenprofil an, um Gebühren bei der Trade-Erfassung wiederzuverwenden.'}
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
@@ -783,7 +783,7 @@ export function CostProfilesHub({ initialProfiles, usageByProfileId, source }: C
                   <p className="mt-2">Maker/Taker, Funding, Quote Asset und Hebel bleiben zentral zusammen, statt bei jedem Trade neu zusammengeklaubt zu werden.</p>
                 </div>
                 <div className="rounded-2xl border border-white/8 bg-black/30 p-4 text-sm text-white/65">
-                  <p className="font-medium text-white">Schneller Trade-Capture</p>
+                  <p className="font-medium text-white">Schnellere Trade-Erfassung</p>
                   <p className="mt-2">Im Trade-Form wählst du später nur das Profil aus und sparst dir das Gebühren-Trommeln pro Entry.</p>
                 </div>
                 <div className="rounded-2xl border border-white/8 bg-black/30 p-4 text-sm text-white/65">
