@@ -252,30 +252,37 @@ export function ReviewSummaryCard({
               <p className="text-[10px] uppercase tracking-[0.24em] text-white/38">{item.label}</p>
               <p className="mt-3 text-3xl font-semibold tracking-tight text-white">{item.value}</p>
               <p className={`mt-2 inline-flex rounded-full border px-2.5 py-1 text-xs ${toneClasses(item.tone)}`}>{item.hint}</p>
+              {item.basis ? <p className="mt-2 text-xs leading-5 text-white/60">{item.basis}</p> : null}
             </div>
           ))}
         </div>
       </div>
 
-      <section className="grid gap-4 xl:grid-cols-3">
-        <SignalTile label="Was lief" title={bestSignal.title} detail={bestSignal.detail} tone="emerald" />
-        <SignalTile label="Was bremst" title={warningSignal.title} detail={warningSignal.detail} tone={warningTone} />
-        <SignalTile label="Nächster Schritt" title={actionPlan.dailyFocusSuggestion} detail={repeatSignal.detail} tone="orange" />
-      </section>
+      <details className="rounded-3xl border border-white/10 bg-black/20 p-5">
+        <summary className="cursor-pointer text-sm font-medium text-white">Empfehlungen und Muster</summary>
+        <div className="mt-5 space-y-5">
+          <section className="grid gap-4 xl:grid-cols-3">
+            <SignalTile label="Was lief" title={bestSignal.title} detail={bestSignal.detail} tone="emerald" />
+            <SignalTile label="Was bremst" title={warningSignal.title} detail={warningSignal.detail} tone={warningTone} />
+            <SignalTile label="Nächster Schritt" title={actionPlan.dailyFocusSuggestion} detail={repeatSignal.detail} tone="orange" />
+          </section>
 
-      <section className="rounded-3xl border border-white/10 bg-black/30 p-5">
-        <p className="text-[10px] uppercase tracking-[0.24em] text-white/35">Heute / Woche / Verhalten</p>
-        <div className="mt-4 grid gap-3 md:grid-cols-3">
-          <BulletCard title="Heute" body={actionPlan.checklist[0] ?? `P&L: ${snapshot.sessionDraft.monetaryScopeKind === 'single' ? formatCurrency(snapshot.sessionDraft.netPnL, 0, snapshot.sessionDraft.currency) : 'Gesperrt'}`} />
-          <BulletCard title="Woche" body={actionPlan.checklist[1] ?? warningSignal.title} />
-          <BulletCard title="Verhalten" body={actionPlan.checklist[2] ?? actionPlan.dailyFocusSuggestion} />
+          <section className="rounded-3xl border border-white/10 bg-black/30 p-5">
+            <p className="text-[10px] uppercase tracking-[0.24em] text-white/35">Heute / Woche / Verhalten</p>
+            <div className="mt-4 grid gap-3 md:grid-cols-3">
+              <BulletCard title="Heute" body={actionPlan.checklist[0] ?? `P&L: ${snapshot.sessionDraft.monetaryScopeKind === 'single' ? formatCurrency(snapshot.sessionDraft.netPnL, 0, snapshot.sessionDraft.currency) : 'Gesperrt'}`} />
+              <BulletCard title="Woche" body={actionPlan.checklist[1] ?? warningSignal.title} />
+              <BulletCard title="Verhalten" body={actionPlan.checklist[2] ?? actionPlan.dailyFocusSuggestion} />
+            </div>
+          </section>
+
+          <section className="grid gap-4 xl:grid-cols-2">
+            <InsightGroup title="Setup-Ergebnisse" items={snapshot.setupInsights} />
+            <InsightGroup title="Daten aus Importen" items={snapshot.importInsights} />
+          </section>
+
         </div>
-      </section>
-
-      <section className="grid gap-4 xl:grid-cols-2">
-        <InsightGroup title="Setup-Ergebnisse" items={snapshot.setupInsights} />
-        <InsightGroup title="Daten aus Importen" items={snapshot.importInsights} />
-      </section>
+      </details>
 
       <details className="group/session rounded-3xl border border-white/10 bg-black/25 p-5">
         <summary className="flex cursor-pointer list-none items-center justify-between gap-4">

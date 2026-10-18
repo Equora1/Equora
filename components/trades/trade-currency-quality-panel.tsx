@@ -21,15 +21,13 @@ export function TradeCurrencyQualityPanel({ summary, selected, onChange }: {
       <span className="text-xs text-white/50">Im gesamten Journal: {summary.needsReview} von {summary.total}</span>
     </div>
     <p className="mt-2 text-sm leading-relaxed text-white/70">
-      Für Geld-Auswertungen muss die Währung des jeweiligen Ergebnisses feststehen. Bei {summary.missing} {summary.missing === 1 ? 'Trade' : 'Trades'} fehlt sie;
-      bei {summary.unsupported} {summary.unsupported === 1 ? 'Trade' : 'Trades'} ist eine derzeit nicht unterstützte Währung gespeichert.
-      Auch abgeschlossene Trades können diese Ergänzung benötigen.
+      Bei {summary.missing} {summary.missing === 1 ? 'Trade' : 'Trades'} fehlt die Währung; {summary.unsupported} haben eine nicht unterstützte Angabe.
+      Lege sie unten gemeinsam fest oder bearbeite einen einzelnen Trade.
     </p>
-    <p className="mt-2 text-xs leading-relaxed text-white/55">
-      Öffne die betroffenen Trades und prüfe die Währung anhand deiner Konto- oder Brokerunterlagen.
-      Aus dem Marktnamen wird keine Währung übernommen. USD, USDT und USDC sind unterschiedliche Einheiten.
-      Deine Suche und die übrigen Filter bleiben erhalten.
-    </p>
+    <details className="mt-2 text-xs leading-relaxed text-white/60">
+      <summary className="cursor-pointer">Warum braucht Equora die Währung?</summary>
+      <p className="mt-2">Damit Geldbeträge richtig zusammengezählt werden. Aus dem Marktnamen wird keine Währung übernommen. USD, USDT und USDC sind unterschiedliche Einheiten.</p>
+    </details>
     <div className="mt-3 flex flex-wrap gap-2">
       {choices.map(choice => <button key={choice.value} type="button" aria-pressed={selected === choice.value}
         disabled={!choice.count && selected !== choice.value}

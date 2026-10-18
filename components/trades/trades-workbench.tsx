@@ -7,6 +7,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from
 import { useRouter, useSearchParams } from 'next/navigation'
 import { deleteTradeEntry } from '@/app/actions/trades'
 import { TradeDetailDrawer } from '@/components/trades/trade-detail-drawer'
+import { TradeCurrencyCorrection } from '@/components/trades/trade-currency-correction'
 import { TradeCurrencyQualityPanel } from '@/components/trades/trade-currency-quality-panel'
 import type { TradeDetail, Trade } from '@/lib/types/trade'
 import type { TradeTag } from '@/lib/types/tag'
@@ -377,6 +378,7 @@ export function TradesWorkbench({
       </div>
 
       <TradeCurrencyQualityPanel summary={currencyQuality} selected={filters.currencyCheck} onChange={value => updateFilter('currencyCheck', value)} />
+      <TradeCurrencyCorrection editingTrade={Boolean(searchParams.get('editTradeId') || searchParams.get('closeTradeId') || searchParams.get('capture'))} />
 
       <StreakPulseCard streak={streak} tone={streakTone} />
 

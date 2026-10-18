@@ -8,6 +8,7 @@ export type ReviewStat = {
   label: string
   value: string
   hint: string
+  basis?: string
   tone: ReviewTone
 }
 

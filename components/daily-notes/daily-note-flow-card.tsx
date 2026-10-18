@@ -118,6 +118,9 @@ export function DailyNoteFlowCard({
             </label>
           </div>
 
+          <details className="rounded-2xl border border-white/10 bg-black/20 p-4">
+            <summary className="cursor-pointer text-sm font-medium text-white">Tagesüberblick und Kennzahlen · optional</summary>
+            <div className="mt-4">
           <div className={`grid gap-4 ${compact ? 'lg:grid-cols-[1.15fr_0.85fr]' : 'lg:grid-cols-[1.1fr_0.9fr]'}`}>
             <div className="rounded-[26px] border border-orange-400/15 bg-orange-400/5 p-5">
               <p className="text-[10px] uppercase tracking-[0.24em] text-orange-100/70">Kurzstand</p>
@@ -139,6 +142,9 @@ export function DailyNoteFlowCard({
               </div>
             </div>
           </div>
+
+            </div>
+          </details>
 
           <div className={`grid gap-4 ${compact ? 'lg:grid-cols-[0.95fr_1.05fr]' : 'lg:grid-cols-2'}`}>
             <div className="rounded-[26px] border border-white/10 bg-white/[0.03] p-5">

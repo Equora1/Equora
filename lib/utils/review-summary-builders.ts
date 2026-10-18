@@ -15,6 +15,11 @@ export function buildSummary(statsCurrent: ReturnType<typeof getCoreMetrics>, st
     && statsPrevious.monetaryScope.isComparable
     && statsCurrent.currency === statsPrevious.currency
   const winRateDelta = statsCurrent.winRate - statsPrevious.winRate
+  const roundedWinRateDelta = Math.round(winRateDelta * 10) / 10
+  const winRateChange = !statsCurrent.resolvedTrades ? 'Noch kein Ergebnis vorhanden.'
+    : !statsPrevious.resolvedTrades ? 'Kein Vergleichswert vorhanden.'
+    : roundedWinRateDelta === 0 ? 'Unverändert zur Vorperiode (gerundet).'
+    : `${Math.abs(roundedWinRateDelta).toLocaleString('de-DE', { maximumFractionDigits: 1 })} Prozentpunkte ${roundedWinRateDelta < 0 ? 'weniger' : 'mehr'} · vorher ${statsPrevious.winRate.toLocaleString('de-DE', { maximumFractionDigits: 1 })} %`
   const pfDelta =
     Number.isFinite(statsCurrent.profitFactor) && Number.isFinite(statsPrevious.profitFactor)
       ? statsCurrent.profitFactor - statsPrevious.profitFactor
@@ -28,9 +33,10 @@ export function buildSummary(statsCurrent: ReturnType<typeof getCoreMetrics>, st
       tone: statsCurrent.monetaryScope.isComparable && statsCurrent.netPnL >= 0 ? ('emerald' as const) : ('orange' as const),
     },
     {
-      label: 'Trefferquote',
-      value: `${clampNumber(statsCurrent.winRate)}%`,
-      hint: `${formatDelta(winRateDelta, ' pp')} bei ${statsCurrent.totalTrades} Trades`,
+      label: 'Winrate',
+      value: statsCurrent.resolvedTrades ? `${statsCurrent.winRate.toLocaleString('de-DE', { maximumFractionDigits: 1 })} %` : '—',
+      hint: winRateChange,
+      basis: `${statsCurrent.winners} ${statsCurrent.winners === 1 ? 'Gewinn' : 'Gewinne'} · ${statsCurrent.resolvedTrades} Trades mit Ergebnis${statsCurrent.totalTrades !== statsCurrent.resolvedTrades ? ` · ${statsCurrent.totalTrades} insgesamt` : ''}`,
       tone: statsCurrent.winRate >= 50 ? ('emerald' as const) : ('orange' as const),
     },
     {

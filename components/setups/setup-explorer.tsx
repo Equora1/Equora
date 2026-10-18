@@ -136,11 +136,14 @@ export function SetupExplorer({
             ) : null}
 
             {selectedPerformance && selectedPerformance.trades > 0 ? (
-              <div className="grid gap-3 md:grid-cols-3">
-                <MiniSignal label="Stark" value={selectedPerformance.bestSession} note={selectedPerformance.bestMarket} />
-                <MiniSignal label="Prüfen" value={selectedPerformance.weakestSession} note={selectedPerformance.weakestMarket} />
-                <MiniSignal label="Kosten" value={selectedPerformance.costScopeKind === 'single' ? formatCurrency(selectedPerformance.totalCosts, 0, selectedPerformance.costCurrency) : 'Gesperrt'} note={selectedPerformance.costScopeKind === 'single' ? `${formatCurrency(selectedPerformance.averageCost, 0, selectedPerformance.costCurrency)} je Trade` : 'Währungen fehlen oder sind gemischt'} />
-              </div>
+              <details className="rounded-2xl border border-white/10 bg-black/20 p-4">
+                <summary className="cursor-pointer text-sm font-medium text-white">Weitere Setup-Auswertungen</summary>
+                <div className="mt-4 grid gap-3 md:grid-cols-3">
+                    <MiniSignal label="Stark" value={selectedPerformance.bestSession} note={selectedPerformance.bestMarket} />
+                    <MiniSignal label="Prüfen" value={selectedPerformance.weakestSession} note={selectedPerformance.weakestMarket} />
+                    <MiniSignal label="Kosten" value={selectedPerformance.costScopeKind === 'single' ? formatCurrency(selectedPerformance.totalCosts, 0, selectedPerformance.costCurrency) : 'Gesperrt'} note={selectedPerformance.costScopeKind === 'single' ? `${formatCurrency(selectedPerformance.averageCost, 0, selectedPerformance.costCurrency)} je Trade` : 'Währungen fehlen oder sind gemischt'} />
+                </div>
+              </details>
             ) : null}
 
             <div className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm leading-6 text-white/58">
