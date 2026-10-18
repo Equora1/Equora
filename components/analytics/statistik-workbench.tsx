@@ -15,6 +15,7 @@ import { filterTrades } from '@/lib/utils/filters'
 import { buildTagStats } from '@/lib/utils/tag-analytics'
 import { getTradeTrustSummary, getTrustedTrades } from '@/lib/utils/trade-trust'
 import { buildSetupPerformanceRows, type SetupPerformanceRow } from '@/lib/utils/setup-analytics'
+import { getSetupPerformanceDisplay } from '@/lib/utils/setup-performance-display'
 import { buildAccountContexts, getTradeAccountLabel } from '@/lib/utils/account-context'
 import { formatMoney, getMonetaryScopeMessage } from '@/lib/utils/currency'
 import {
@@ -674,8 +675,14 @@ function getSetupSummaryLead(bestRow: SetupPerformanceRow | null, weakestRow: Se
 }
 
 function getSetupSummaryDetail(bestRow: SetupPerformanceRow | null, weakestRow: SetupPerformanceRow | null) {
-  if (bestRow && weakestRow && bestRow.title !== weakestRow.title) return `${formatCurrency(bestRow.netPnL, bestRow.currency)} bei ${bestRow.winRate.toFixed(0)}% Trefferquote. PF ${formatProfitFactor(bestRow.profitFactor)}. Schwächstes Setup: ${formatCurrency(weakestRow.netPnL, weakestRow.currency)}.`
-  if (bestRow) return `${formatCurrency(bestRow.netPnL, bestRow.currency)} bei ${bestRow.winRate.toFixed(0)}% Trefferquote. PF ${formatProfitFactor(bestRow.profitFactor)}.`
+  if (bestRow && weakestRow && bestRow.title !== weakestRow.title) {
+    const best = getSetupPerformanceDisplay(bestRow)
+    return `${best.pnl} bei ${best.winRate} Trefferquote. PF ${best.profitFactor}. Schwächstes Setup: ${getSetupPerformanceDisplay(weakestRow).pnl}.`
+  }
+  if (bestRow) {
+    const best = getSetupPerformanceDisplay(bestRow)
+    return `${best.pnl} bei ${best.winRate} Trefferquote. PF ${best.profitFactor}.`
+  }
   return 'Erst verknüpfte Trades machen die Karte scharf.'
 }
 
@@ -686,6 +693,7 @@ function formatProfitFactor(value: number) {
 }
 
 function SetupPerformanceRowCard({ row }: { row: SetupPerformanceRow }) {
+  const display = getSetupPerformanceDisplay(row)
   const hasEvidence = hasSufficientAnalyticsBucketEvidence(row.trades)
   const evidenceTone = getAnalyticsBucketTone(row.trades, row.tone)
   const toneClass = evidenceTone === 'green'
@@ -719,9 +727,9 @@ function SetupPerformanceRowCard({ row }: { row: SetupPerformanceRow }) {
         </div>
 
         <div className="grid gap-5 sm:grid-cols-5 xl:min-w-[640px] xl:text-right">
-          <InlineMetric label="P&L" value={formatRowMoney(row.netPnL, row.trades, row.currency)} valueClassName={pnlClass} />
-          <InlineMetric label="Trefferquote" value={hasEvidence ? `${row.winRate.toFixed(0)}%` : '—'} />
-          <InlineMetric label="PF" value={hasEvidence ? formatProfitFactor(row.profitFactor) : '—'} />
+          <InlineMetric label="P&L" value={display.pnl} valueClassName={pnlClass} />
+          <InlineMetric label="Trefferquote" value={hasEvidence ? display.winRate : '—'} />
+          <InlineMetric label="PF" value={hasEvidence ? display.profitFactor : '—'} />
           <InlineMetric label="Ø R" value={hasEvidence && row.averageR !== null ? formatRMultiple(row.averageR) : hasEvidence ? 'R offen' : '—'} />
           <InlineMetric label="Datengrundlage" value={getAnalyticsBucketEvidenceLabel(row.trades)} small />
         </div>

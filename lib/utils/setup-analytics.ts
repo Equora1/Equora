@@ -3,7 +3,8 @@ import type { SetupMediaRow, SetupRow, SetupTradeLinkRow } from '@/lib/types/db'
 import type { SavedSetup, SavedSetupMedia, SetupDetail, SetupImageItem, SetupLibraryItem } from '@/lib/types/setup'
 import type { Trade } from '@/lib/types/trade'
 import { findBestMarket, getCoreMetrics } from '@/lib/utils/analytics'
-import { formatCurrency, formatRMultiple } from '@/lib/utils/calculations'
+import { parseTradingNumber } from '@/lib/utils/calculations'
+import { getSetupPerformanceDisplay } from '@/lib/utils/setup-performance-display'
 import type { TradeCurrency } from '@/lib/types/trade'
 import { resolveMonetaryScope, type MonetaryScopeKind } from '@/lib/utils/currency'
 import { MIN_ANALYTICS_BUCKET_SIZE } from '@/lib/utils/statistics-scope'
@@ -46,6 +47,7 @@ export type SetupPerformanceRow = {
   verdict: string
   guardrail: string
   currency: TradeCurrency | null
+  monetaryScopeKind: MonetaryScopeKind
   costCurrency: TradeCurrency | null
   costScopeKind: MonetaryScopeKind
 }
@@ -76,8 +78,7 @@ function getSetupGuardrail(metrics: ReturnType<typeof getCoreMetrics>, tradeCoun
 
 function getTradePnL(trade: Trade): number | null {
   if (trade.netPnL !== undefined && trade.netPnL !== null) return trade.netPnL
-  const parsed = Number(String(trade.result ?? '').replace(',', '.').replace(/[^0-9.+-]/g, ''))
-  return Number.isFinite(parsed) ? parsed : null
+  return parseTradingNumber(trade.result)
 }
 
 function getTradeR(trade: Trade): number | null {
@@ -200,6 +201,7 @@ export function buildSetupPerformanceRows(
         verdict: getSetupVerdict(metrics, setupTrades.length),
         guardrail: getSetupGuardrail(metrics, setupTrades.length),
         currency: metrics.monetaryScope.currency,
+        monetaryScopeKind: metrics.monetaryScope.kind,
         costCurrency: costSummary.monetaryScope.currency,
         costScopeKind: costSummary.monetaryScope.kind,
       } satisfies SetupPerformanceRow
@@ -293,14 +295,14 @@ export function buildDynamicSetupDetail(
   if (!base && !row && !linkedTrades.length) return undefined
 
   const metrics = getCoreMetrics(linkedTrades)
-  const bestMarket = findBestMarket(linkedTrades)?.[0] ?? base?.bestMarket ?? '—'
+  const bestMarket = findBestMarket(linkedTrades)?.[0] ?? '—'
   const bestSession =
     Object.entries(
       linkedTrades.reduce<Record<string, number>>((acc, trade) => {
         acc[trade.session] = (acc[trade.session] ?? 0) + (trade.netPnL ?? 0)
         return acc
       }, {}),
-    ).sort((a, b) => b[1] - a[1])[0]?.[0] ?? base?.bestSession ?? '—'
+    ).sort((a, b) => b[1] - a[1])[0]?.[0] ?? '—'
 
   const imageItems: SetupImageItem[] = mediaRows.length
     ? [...mediaRows]
@@ -324,10 +326,19 @@ export function buildDynamicSetupDetail(
     mistakes: row?.mistakes?.length ? row.mistakes : base?.mistakes ?? ['Noch keine typischen Fehler gesammelt.'],
     checklist: row?.checklist?.length ? row.checklist : base?.checklist ?? [],
     playbook: row?.playbook ?? base?.playbook ?? undefined,
-    performance:
-      linkedTrades.length > 0
-        ? `${formatCurrency(metrics.netPnL, 0, metrics.currency)} · ${metrics.winRate.toFixed(0)}% Trefferquote · ${formatRMultiple(metrics.averageR)}`
-        : (base?.performance ?? 'Noch keine Performance-Daten vorhanden.'),
+    performance: getSetupPerformanceDisplay({
+      trades: linkedTrades.length,
+      resolvedTrades: metrics.resolvedTrades,
+      netPnL: metrics.netPnL,
+      winRate: metrics.winRate,
+      profitFactor: metrics.profitFactor,
+      grossProfit: metrics.grossProfit,
+      grossLoss: metrics.grossLoss,
+      averageR: metrics.averageR,
+      riskCoverage: getRiskCoverage(linkedTrades),
+      currency: metrics.currency,
+      monetaryScopeKind: metrics.monetaryScope.kind,
+    }).summary,
     bestMarket,
     bestSession,
     coverImage,

@@ -6,8 +6,9 @@ import { SectionHeader } from '@/components/layout/section-header'
 import { SetupCard } from '@/components/setups/setup-card'
 import { SetupDetailCard } from '@/components/setups/setup-detail-card'
 import type { SavedSetup, SetupDetail, SetupLibraryItem } from '@/lib/types/setup'
-import { formatCurrency, formatRMultiple } from '@/lib/utils/calculations'
+import { formatCurrency } from '@/lib/utils/calculations'
 import { getTradesForSetupTitle, type SetupPerformanceRow } from '@/lib/utils/setup-analytics'
+import { getSetupPerformanceDisplay } from '@/lib/utils/setup-performance-display'
 import type { Trade } from '@/lib/types/trade'
 
 type LibraryView = 'all' | 'master' | 'own'
@@ -49,6 +50,7 @@ export function SetupExplorer({
   const selectedLibraryItem = setupLibrary.find((setup) => setup.title === selectedSetup)
   const selectedDetail = setupDetails[selectedSetup]
   const selectedPerformance = setupPerformanceRows.find((row) => row.title === selectedSetup)
+  const display = getSetupPerformanceDisplay(selectedPerformance)
   const strongestSetups = setupPerformanceRows.filter((row) => row.trades > 0).slice(0, 4)
   const weakestSetup = [...setupPerformanceRows].filter((row) => row.trades > 0).sort((left, right) => left.netPnL - right.netPnL || right.trades - left.trades)[0]
   const activeStatusTone = selectedPerformance?.status === 'pause'
@@ -121,9 +123,9 @@ export function SetupExplorer({
 
             <div className="grid gap-3 lg:grid-cols-4">
               <Metric label="Trades" value={String(linkedTrades.length)} note={selectedPerformance ? `${selectedPerformance.resolvedTrades} erledigt · ${selectedPerformance.openTrades} offen` : 'Historie'} />
-              <Metric label="P&L" value={selectedPerformance ? formatCurrency(selectedPerformance.netPnL, 0, selectedPerformance.currency) : '—'} note={selectedPerformance?.verdict ?? 'Noch keine Daten'} />
-              <Metric label="Trefferquote" value={selectedPerformance ? `${selectedPerformance.winRate.toFixed(0)}%` : '—'} note={selectedPerformance ? `${selectedPerformance.wins}W · ${selectedPerformance.losses}L · ${selectedPerformance.breakeven}BE` : 'Offen'} />
-              <Metric label="PF / Ø R" value={selectedPerformance ? `${formatProfitFactor(selectedPerformance.profitFactor)} · ${formatRMultiple(selectedPerformance.averageR)}` : '—'} note={selectedPerformance ? `${selectedPerformance.riskCoverage}% Risiko dokumentiert` : 'Regel prüfen'} />
+              <Metric label="P&L" value={display.pnl} note={display.moneyNote} />
+              <Metric label="Trefferquote" value={display.winRate} note={display.hasResults && selectedPerformance ? `${selectedPerformance.wins} Gewinne · ${selectedPerformance.losses} Verluste · ${selectedPerformance.breakeven} Break-even` : display.moneyNote} />
+              <Metric label="PF / Ø R" value={display.hasTrades ? `${display.profitFactor} · ${display.averageR}` : '—'} note={display.hasTrades ? `${display.riskCoverage} Risiko dokumentiert` : 'Noch keine Trades'} />
             </div>
 
             {selectedPerformance ? (
@@ -235,13 +237,8 @@ export function SetupExplorer({
 }
 
 
-function formatProfitFactor(value: number) {
-  if (value === Infinity) return '∞'
-  if (!Number.isFinite(value)) return '—'
-  return value.toFixed(2)
-}
-
 function SetupPerformanceTile({ row, active, onClick }: { row: SetupPerformanceRow; active: boolean; onClick: () => void }) {
+  const display = getSetupPerformanceDisplay(row)
   const toneClass = row.tone === 'green'
     ? 'border-emerald-400/24 bg-emerald-400/[0.08]'
     : row.tone === 'red'
@@ -259,13 +256,13 @@ function SetupPerformanceTile({ row, active, onClick }: { row: SetupPerformanceR
           <p className="truncate text-sm font-semibold text-white">{row.title}</p>
           <p className="mt-1 text-xs text-white/45">{row.trades} Trades</p>
         </div>
-        <span className="rounded-full border border-white/10 bg-black/20 px-2.5 py-1 text-[11px] text-white/58">{row.winRate.toFixed(0)}%</span>
+        <span className="rounded-full border border-white/10 bg-black/20 px-2.5 py-1 text-[11px] text-white/58">{display.winRate}</span>
       </div>
-      <p className="mt-4 whitespace-nowrap text-2xl font-semibold tabular-nums text-white">{formatCurrency(row.netPnL, 0, row.currency)}</p>
+      <p className="mt-4 text-2xl font-semibold tabular-nums text-white">{display.pnl}</p>
       <div className="mt-3 grid grid-cols-3 gap-2 text-[11px] text-white/58">
-        <span>PF {formatProfitFactor(row.profitFactor)}</span>
-        <span>ØR {formatRMultiple(row.averageR)}</span>
-        <span>{row.riskCoverage}% Risiko</span>
+        <span>PF {display.profitFactor}</span>
+        <span>ØR {display.averageR}</span>
+        <span>{display.riskCoverage} Risiko</span>
       </div>
       <p className="mt-2 text-xs leading-5 text-white/55">{row.statusHint}</p>
     </button>

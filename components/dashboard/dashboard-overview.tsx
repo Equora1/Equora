@@ -171,7 +171,7 @@ function DataQualityCard({ trades }: { trades: Trade[] }) {
       <div className="mt-5 rounded-2xl border border-[#c8823a]/15 bg-[#c8823a]/[0.05] px-4 py-3">
         <p className="text-xs leading-5 text-[#d8b98f]">
           {trust.needsAttention
-            ? `${trust.needsAttention} Eintrag${trust.needsAttention === 1 ? '' : 'e'} noch prüfen.`
+            ? `${trust.needsAttention} ${trust.needsAttention === 1 ? 'Eintrag' : 'Einträge'} noch prüfen.`
             : trades.length
               ? 'Bei den sichtbaren Einträgen wurden keine offenen Datenlücken erkannt.'
               : 'Noch keine Trades vorhanden.'}
