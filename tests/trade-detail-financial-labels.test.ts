@@ -7,6 +7,21 @@ import type { TradeRow } from '@/lib/types/db'
 const row: TradeRow = { id: 'detail', created_at: '2026-10-15T12:00:00Z', market: 'TEST', setup: 'Test', emotion: null, bias: 'Long', rule_check: null, entry: 100, stop_loss: 90, take_profit: 120, exit: null, net_pnl: 10, pnl_mode: 'manual', risk_percent: 1, r_multiple: null, notes: null, screenshot_url: null, account_currency: 'EUR', position_size: 2, account_size: 1000, fees: 1 }
 
 describe('detail financial labels preserve position and currency state', () => {
+  it.each([
+    [0.12, '+0,12 USDT'], [-0.12, '-0,12 USDT'],
+    [0.004, '+0,004 USDT'], [-0.004, '-0,004 USDT'],
+    [0, '+0 USDT'],
+  ])('keeps list, details and numeric result consistent for %s', (net_pnl, expected) => {
+    const input: TradeRow = { ...row, net_pnl, fees: 0.12, account_currency: 'USDT' }
+    const before = structuredClone(input)
+    const trade = mapTradeRowToTrade(input)
+    const detail = mapTradeRowToTradeDetail(input)
+    expect(trade.result).toBe(expected)
+    expect(detail.pnl).toBe(expected)
+    expect(detail.costLabel).toContain('Kommission +0,12 USDT')
+    expect(trade.netPnL).toBe(net_pnl)
+    expect(input).toEqual(before)
+  })
   it.each([undefined, [], [{ percent: 0, price: 120 }]])('does not invent a running remainder without valid partial exits (%j)', (partial_exits) => {
     const detail = mapTradeRowToTradeDetail({ ...row, partial_exits })
     expect(detail.pnl).toBe('+10 EUR')

@@ -103,9 +103,24 @@ export function formatMoney(value: number, currency: string | null | undefined, 
   if (!normalizedCurrency) return getTradeCurrencyStatus(currency) === 'unsupported' ? 'Währung nicht unterstützt' : 'Währung fehlt'
   if (!Number.isFinite(value)) return 'Betrag fehlt'
 
+  // Keep cents in compact labels and extra precision for smaller amounts.
+  const magnitude = Math.abs(value)
+  const baseDigits = Math.max(2, fractionDigits)
+  const maximumDigits = Math.max(8, baseDigits)
+  const smallestDisplayedUnit = 10 ** -maximumDigits
+  if (magnitude > 0 && magnitude < smallestDisplayedUnit) {
+    const threshold = smallestDisplayedUnit.toLocaleString('de-DE', {
+      minimumFractionDigits: maximumDigits,
+      maximumFractionDigits: maximumDigits,
+    })
+    return `${value < 0 ? '-' : '+'}<${threshold} ${normalizedCurrency}`
+  }
+  const displayDigits = magnitude > 0 && magnitude < 10 ** -baseDigits
+    ? Math.min(maximumDigits, Math.ceil(-Math.log10(magnitude)))
+    : baseDigits
   const formatter = new Intl.NumberFormat('de-DE', {
     minimumFractionDigits: fractionDigits,
-    maximumFractionDigits: fractionDigits,
+    maximumFractionDigits: displayDigits,
   })
 
   return `${value >= 0 ? '+' : '-'}${formatter.format(Math.abs(value))} ${normalizedCurrency}`
