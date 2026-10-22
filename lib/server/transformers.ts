@@ -7,6 +7,7 @@ import { buildTradeImportSourceFacts, extractTradeImportMeta } from '@/lib/utils
 import { getTradeAccountLabel } from '@/lib/utils/account-context'
 import { getTradeCurrencyStatus } from '@/lib/utils/currency'
 import { formatTradeRValue } from '@/lib/utils/trade-r'
+import { WEIGHTED_EXIT_PRICE_BASIS } from '@/lib/utils/trade-exit-basis'
 import {
   getTradeCaptureResultLabel,
   getTradeCaptureStatusLabel,
@@ -49,6 +50,7 @@ function getTradeScreenshotUrls(row: TradeRow, mediaRows: TradeMediaRow[] = []) 
 function guardStoredPartialExit(metrics: ReturnType<typeof computeTradeMetrics>, row: TradeRow) {
   const plan = getPartialExitPlanInfo({ exit: row.exit, partialExits: row.partial_exits ?? [] })
   const ambiguous = plan.count > 0 && plan.hasRemainder && parseTradingNumber(row.exit) !== null
+    && row.exit_price_basis !== WEIGHTED_EXIT_PRICE_BASIS
   if (ambiguous) {
     metrics.rValue = null
     metrics.rSource = 'missing'
@@ -120,6 +122,10 @@ export function mapTradeRowToTrade(row: TradeRow, mediaRows: TradeMediaRow[] = [
     tradeOccurredAt,
     market: row.market,
     setup: linkedSetup?.title ?? row.setup,
+    ruleCheck: row.rule_check ?? '—',
+    reviewRepeatability: row.review_repeatability ?? '—',
+    reviewState: row.review_state ?? '—',
+    reviewLesson: row.review_lesson ?? '—',
     result: metrics.netPnL !== null ? formatCurrency(metrics.netPnL, 0, row.account_currency) : captureResult ? getTradeCaptureResultLabel(captureResult) : '—',
     r: ambiguousPartialExit ? 'R-Zuordnung prüfen' : formatTradeRValue(metrics.rValue, metrics.rSource),
     emotion: row.emotion ?? '—',

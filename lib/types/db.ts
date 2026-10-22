@@ -19,6 +19,7 @@ export type TradeRow = {
   net_pnl: NumericField
   risk_percent: NumericField
   account_size?: NumericField
+  exit_price_basis?: 'weighted-remainder-v1' | null
   partial_exits?: Array<{ percent: number; price: number }> | null
   r_multiple: NumericField
   pnl_mode?: 'manual' | 'auto' | 'override' | null

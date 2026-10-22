@@ -9,15 +9,17 @@ export function normalizeReviewValue(value: string | null | undefined) {
   return clean
 }
 
+export function hasTradeReview(trade: Trade) {
+  return Boolean(normalizeReviewValue(trade.ruleCheck) || normalizeReviewValue(trade.reviewRepeatability)
+    || normalizeReviewValue(trade.reviewState) || normalizeReviewValue(trade.reviewLesson))
+}
+
+export function resolveTradeReviewState(trade: Trade) {
+  return normalizeReviewValue(trade.reviewState) || normalizeReviewValue(trade.emotion)
+}
+
 export function buildReviewLayerSnapshot(tradesCurrent: Trade[]): ReviewLayerSnapshot {
-  const reviewedTrades = tradesCurrent.filter((trade) =>
-    Boolean(
-      normalizeReviewValue(trade.ruleCheck) ||
-      normalizeReviewValue(trade.reviewRepeatability) ||
-      normalizeReviewValue(trade.reviewState) ||
-      normalizeReviewValue(trade.reviewLesson)
-    )
-  )
+  const reviewedTrades = tradesCurrent.filter(hasTradeReview)
   const totalTrades = tradesCurrent.length
   const coverage = totalTrades ? (reviewedTrades.length / totalTrades) * 100 : 0
 
@@ -31,7 +33,7 @@ export function buildReviewLayerSnapshot(tradesCurrent: Trade[]): ReviewLayerSna
 
   const ruleCounts = countValues(reviewedTrades.map((trade) => trade.ruleCheck))
   const repeatCounts = countValues(reviewedTrades.map((trade) => trade.reviewRepeatability))
-  const stateCounts = countValues(reviewedTrades.map((trade) => trade.reviewState || trade.emotion))
+  const stateCounts = countValues(reviewedTrades.map(resolveTradeReviewState))
 
   const ruleYes = ruleCounts.find(([value]) => value === 'Ja')?.[1] ?? 0
   const ruleNo = ruleCounts.find(([value]) => value === 'Nein')?.[1] ?? 0
@@ -48,7 +50,7 @@ export function buildReviewLayerSnapshot(tradesCurrent: Trade[]): ReviewLayerSna
 
   if (ruleCounts.length) {
     const tone = ruleNo > ruleYes ? 'red' as const : ruleYes >= Math.max(1, ruleNo) ? 'emerald' as const : 'orange' as const
-    const href = buildTradesHref({ reviewFocus: `Verhaltensprüfung · Regelkonformität ${ruleCounts[0][0]}` })
+    const href = buildTradesHref({ reviewMatch: 'reviewed', reviewFocus: `Verhaltensprüfung · Regelkonformität ${ruleCounts[0][0]}` })
     highlights.push({
       label: 'Regelspur',
       value: `${ruleYes}/${reviewedTrades.length || 1} Ja`,
@@ -71,7 +73,7 @@ export function buildReviewLayerSnapshot(tradesCurrent: Trade[]): ReviewLayerSna
           ? `${repeatNo} Trades sollen so ausdrücklich nicht wiederkommen.`
           : 'Noch kein klares Wiederholungsmuster im Verhaltensprüfung.',
       tone,
-      href: buildTradesHref({ reviewFocus: `Verhaltensprüfung · Replizierbarkeit ${repeatCounts[0][0]}` }),
+      href: buildTradesHref({ reviewMatch: 'repeatability', reviewFocus: `Verhaltensprüfung · Replizierbarkeit ${repeatCounts[0][0]}` }),
     })
   }
 
@@ -82,7 +84,7 @@ export function buildReviewLayerSnapshot(tradesCurrent: Trade[]): ReviewLayerSna
       value: dominantState[0],
       detail: `${dominantState[1]} Review-Trades tragen dieses Zustandsmuster.`,
       tone: stateTone,
-      href: buildTradesHref({ reviewFocus: `Verhaltensprüfung · Zustand ${dominantState[0]}` }),
+      href: buildTradesHref({ reviewMatch: 'state', reviewValue: dominantState[0], reviewFocus: `Verhaltensprüfung · Zustand ${dominantState[0]}` }),
     })
   }
 
@@ -92,7 +94,7 @@ export function buildReviewLayerSnapshot(tradesCurrent: Trade[]): ReviewLayerSna
       value: 'Kurz notiert',
       detail: shortenReviewText(latestLesson, 120),
       tone: 'orange',
-      href: latestLessonTrade ? buildTradesHref({ search: latestLessonTrade.market, reviewFocus: 'Verhaltensprüfung · Letzter Lerneffekt' }) : undefined,
+      href: latestLessonTrade ? buildTradesHref({ reviewMatch: 'trade', reviewValue: latestLessonTrade.id, reviewFocus: 'Verhaltensprüfung · Letzter Lerneffekt' }) : undefined,
     })
   }
 

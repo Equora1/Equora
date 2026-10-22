@@ -10,6 +10,7 @@ import { getJournalAccess } from '@/lib/server/auth'
 import { getTradesWorkspaceSnapshotServer } from '@/lib/server/journal'
 import { getTradeByIdServer, getTradeMediaServer, getTradeTagsServer } from '@/lib/server/trades'
 import { buildTradeTableHref, parseTradeTableQuery } from '@/lib/utils/trade-table-query'
+import { readReviewDrilldownScope, selectReviewDrilldownTrades } from '@/lib/utils/review-drilldown-scope'
 import { resolveTradeSelection } from '@/lib/utils/trade-selection'
 import { getReviewSessionByIdServer, getReviewSessionsServer } from '@/lib/server/review-sessions'
 import { getUserCostProfilesServer } from '@/lib/server/user-cost-profiles'
@@ -84,6 +85,7 @@ function buildTradeFormInitialValues(
     stopLoss: toFormFieldValue(row.stop_loss),
     takeProfit: toFormFieldValue(row.take_profit),
     exit: toFormFieldValue(row.exit),
+    exitPriceBasis: row.exit_price_basis ?? null,
     netPnL: toFormFieldValue(row.net_pnl),
     riskPercent: toFormFieldValue(row.risk_percent),
     accountSize: toFormFieldValue(row.account_size),
@@ -190,6 +192,14 @@ export default async function TradesPage({ searchParams }: { searchParams?: Prom
   const queryParams = new URLSearchParams()
   for (const [key, value] of Object.entries(params)) for (const item of Array.isArray(value) ? value : value === undefined ? [] : [value]) queryParams.append(key, item)
   const tableQuery = parseTradeTableQuery(queryParams)
+  const reviewScope = readReviewDrilldownScope(queryParams)
+  if (reviewScope.kind === 'invalid') {
+    return <AppShell><section role="alert" className="rounded-3xl border border-orange-400/20 p-6">
+      <h1 className="text-xl font-semibold">Review-Auswahl nicht verfügbar</h1>
+      <p className="mt-3 text-sm text-white/65">Bitte öffne die passenden Trades erneut über dein Review.</p>
+      <a href="/review" className="mt-4 inline-block">Zum Review</a>
+    </section></AppShell>
+  }
   const pageSize = 30
   const page = tableQuery.page
   const access = await getJournalAccess()
@@ -253,8 +263,9 @@ export default async function TradesPage({ searchParams }: { searchParams?: Prom
         chips: parseCsvList(getParamValue(params.reviewChips)),
       })
     } else {
-      const drilldownSpotlightTrades = reviewFocus ? filterTradeTableRows(trades, buildTradeTagMap(snapshot.tradeTags), initialFilters) : []
-      spotlightTradeIds = drilldownSpotlightTrades.map((trade) => trade.id).slice(0, 12)
+      const scopedTrades = reviewScope.kind === 'valid' ? selectReviewDrilldownTrades(trades, reviewScope.scope) : trades
+      const drilldownSpotlightTrades = reviewFocus || reviewScope.kind === 'valid' ? filterTradeTableRows(scopedTrades, buildTradeTagMap(snapshot.tradeTags), initialFilters) : []
+      spotlightTradeIds = drilldownSpotlightTrades.map((trade) => trade.id)
       spotlightTotalCount = drilldownSpotlightTrades.length
       reviewContext = buildReviewContext(params, initialFilters, spotlightTotalCount)
     }

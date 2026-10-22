@@ -7,6 +7,7 @@ import type { SetupDetail } from '@/lib/types/setup'
 import type { Trade } from '@/lib/types/trade'
 import type { SetupPerformanceRow } from '@/lib/utils/setup-analytics'
 import { getSetupPerformanceDisplay } from '@/lib/utils/setup-performance-display'
+import { formatMoney } from '@/lib/utils/currency'
 
 function getMediaRoleLabel(role?: string | null) {
   switch (role) {
@@ -19,11 +20,11 @@ function getMediaRoleLabel(role?: string | null) {
   }
 }
 
-function formatPnL(value: number | null | undefined) {
-  if (value === undefined || value === null) return 'Offen'
-  return `${value >= 0 ? '+' : ''}${value.toFixed(2)}`
+function formatPnL(trade: Trade) {
+  if (trade.netPnL === undefined || trade.netPnL === null) return 'Offen'
+  if (trade.accountCurrencyStatus === 'unsupported') return 'Währung nicht unterstützt'
+  return formatMoney(trade.netPnL, trade.accountCurrency)
 }
-
 export function SetupDetailCard({ title, data, linkedTrades, performance }: { title: string; data?: SetupDetail; linkedTrades: Trade[]; performance?: SetupPerformanceRow }) {
   const display = getSetupPerformanceDisplay(performance)
   const imageItems = useMemo(
@@ -149,7 +150,7 @@ export function SetupDetailCard({ title, data, linkedTrades, performance }: { ti
                     </div>
                     <div className="text-right">
                       <span className={trade.netPnL === undefined || trade.netPnL === null ? 'text-[#998a72]' : trade.netPnL >= 0 ? 'text-[#f0a855]' : 'text-red-300'}>
-                        {formatPnL(trade.netPnL)}
+                        {formatPnL(trade)}
                       </span>
                       <p className="mt-1 text-[11px] text-white/35">{formatTradeRValue(getTradeRValue(trade), trade.rSource ?? 'missing')}</p>
                     </div>

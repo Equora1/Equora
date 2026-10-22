@@ -6,8 +6,8 @@ vi.mock('@/lib/supabase/config', () => ({ hasSupabaseClientEnv: () => mocks.conf
 vi.mock('@/lib/supabase/server', () => ({ createSupabaseServerClient: mocks.client }))
 vi.mock('@/lib/supabase/server-auth', () => ({ createSupabaseAuthServerClient: mocks.client }))
 vi.mock('@/lib/server/performance', () => ({ measurePerformance: (_name: string, _kind: string, run: () => unknown) => run() }))
-vi.mock('@/lib/server/media-access', () => ({ signTradeMediaRows: vi.fn(), signSetupMediaRows: vi.fn() }))
-import { getTradesWorkspaceSnapshotServer, getStatisticsSnapshotServer } from '@/lib/server/journal'
+vi.mock('@/lib/server/media-access', () => ({ signTradeMediaRows: vi.fn(async (_client: unknown, rows: unknown[]) => rows), signSetupMediaRows: vi.fn(async (_client: unknown, rows: unknown[]) => rows) }))
+import { getTradesWorkspaceSnapshotServer, getStatisticsSnapshotServer, getReviewSnapshotServer } from '@/lib/server/journal'
 import { mapTradeRowToTrade } from '@/lib/server/transformers'
 import { getCoreMetrics } from '@/lib/utils/analytics'
 import { buildTagStats } from '@/lib/utils/tag-analytics'
@@ -25,10 +25,11 @@ let fault: { table: string; mode: 'later-error' | 'missing-count' | 'early-end' 
 class Query {
   call: Call
   constructor(table: string) { this.call = { table, columns: '', from: 0, to: 499 } }
-  select(columns: string, options: { count?: string }) { this.call.columns = columns; this.call.count = options.count; return this }
+  select(columns: string, options: { count?: string } = {}) { this.call.columns = columns; this.call.count = options.count; return this }
   eq(column: string, owner: string) { if (column !== 'user_id' && column !== 'trades.user_id') throw Error('Unexpected scope'); this.call.owner = owner; this.call.ownerColumn = column; return this }
   or(master: string) { this.call.master = master; return this }
   order(column: string) { this.call.order = column; return this }
+  in(_column: string, _values: string[]) { return this }
   range(from: number, to: number) { this.call.from = from; this.call.to = to; return this }
   then(resolve: (reply: unknown) => unknown) {
     calls.push({ ...this.call })
@@ -241,4 +242,50 @@ describe('whole-journal server workspace wiring', () => {
     expect(result.setupRows.map(row => row.id)).toEqual(['own-setup'])
     expect(calls.some(call => call.table === 'trades' && !call.columns.includes('import_batch_id') && call.owner === 'owner-a')).toBe(true)
   })
+})
+
+describe('review availability is retained by the actual reader',()=>{
+ it('returns unavailable rather than a ready empty journal on query failure',async()=>{
+  failTable='trades';expect((await getReviewSnapshotServer('owner-a')).availability).toBe('unavailable')
+ })
+ it('distinguishes a successful empty read',async()=>{
+  const result=await getReviewSnapshotServer('owner-a');expect(result.availability).toBe('ready');expect(result.tradeRows).toEqual([])
+ })
+})
+
+describe('review rejects failed related reads',()=>{
+ it.each(['trade_tags','daily_notes','setups','setup_trade_links'])('returns unavailable when %s fails',async table=>{
+  tables.trades=[{id:'owned',user_id:'owner-a'}];failTable=table
+  expect((await getReviewSnapshotServer('owner-a')).availability).toBe('unavailable')
+ })
+})
+
+describe('complete Review uses the same owner-bound collection contract',()=>{
+ function seed(){
+  tables.trades=Array.from({length:150},(_,i)=>({id:'r-'+i,user_id:'owner-a',created_at:'2026-10-18T12:00:00Z',captured_at:'2026-10-18T12:00:00Z',market:'TEST',setup:'Test',net_pnl:i<100?1:-2,pnl_mode:'manual',account_currency:'EUR',capture_status:'complete'}))
+  tables.trade_tags=Array.from({length:450},(_,i)=>({id:'tag-'+i,trade_id:'r-'+(i%150),tag:'All',created_at:'2026-10-18'}))
+  tables.daily_notes=Array.from({length:150},(_,i)=>({id:'n-'+i,user_id:'owner-a',trade_date:new Date(Date.UTC(2026,0,i+1)).toISOString().slice(0,10)}))
+ }
+ it('collects every capped trade/tag/note page and excludes foreign owners',async()=>{
+  seed();tables.trades.push({id:'foreign',user_id:'owner-b',net_pnl:999999});tables.trade_tags.push({id:'foreign-tag',trade_id:'foreign',tag:'Hidden'});tables.daily_notes.push({id:'foreign-note',user_id:'owner-b'})
+  const result=await getReviewSnapshotServer('owner-a')
+  expect(result.availability).toBe('ready');expect(result.tradeRows).toHaveLength(150);expect(result.tradeTags).toHaveLength(450);expect(result.dailyNotes).toHaveLength(150)
+  expect(getCoreMetrics(result.tradeRows.map(r=>mapTradeRowToTrade(r)))).toMatchObject({netPnL:0,winners:100,losers:50})
+  expect(calls.filter(c=>c.table==='trades').map(c=>c.from)).toEqual([0,100,150])
+  expect(calls.every(c=>c.count==='exact')).toBe(true)
+ })
+ it.each(['trades','trade_tags','daily_notes'])('never accepts an incomplete %s collection',async table=>{
+  seed();fault={table,mode:'early-end'}
+  const result=await getReviewSnapshotServer('owner-a');expect(result.availability).toBe('unavailable');expect(result.tradeRows).toEqual([])
+ })
+ it.each(['later-error','missing-count','changed-count','duplicate'] as const)('fails closed for %s in later Review tags',async mode=>{
+  seed();fault={table:'trade_tags',mode};expect((await getReviewSnapshotServer('owner-a')).availability).toBe('unavailable')
+ })
+ it('rejects capacity overflow rather than calling it a ready Review',async()=>{
+  tables.trades=Array.from({length:10001},(_,i)=>({id:'large-'+i,user_id:'owner-a'}));expect((await getReviewSnapshotServer('owner-a')).availability).toBe('unavailable')
+ })
+ it('retains explicit demo and authenticated-empty behavior',async()=>{
+  expect((await getReviewSnapshotServer()).availability).toBe('unauthenticated');mocks.configured=false
+  const demo=await getReviewSnapshotServer();expect(demo.availability).toBe('ready');expect(demo.tradeRows).toHaveLength(4);expect(demo.dailyNotes.length).toBeGreaterThan(0)
+ })
 })

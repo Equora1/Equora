@@ -123,11 +123,11 @@ export function ReviewRhythmCard({
 
           <WidePanel eyebrow="Nächster Schritt" title="Aktion">
             <div className="flex flex-wrap gap-3">
-              <Link href={`/trades?reviewFocus=${encodeURIComponent(nextFocus)}`} className="rounded-full border border-orange-400/25 bg-orange-400/10 px-4 py-2 text-sm text-orange-100 transition hover:border-orange-400/40 hover:text-white">
-                Trades öffnen
+              <Link href="/trades" className="rounded-full border border-orange-400/25 bg-orange-400/10 px-4 py-2 text-sm text-orange-100 transition hover:border-orange-400/40 hover:text-white">
+                Alle Trades öffnen
               </Link>
-              <Link href={`/trades?reviewFocus=${encodeURIComponent('Wochenreview · Letzte 7 Tage')}`} className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-white/75 transition hover:border-white/20 hover:text-white">
-                Trades
+              <Link href="/review?periodPreset=7d" className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-white/75 transition hover:border-white/20 hover:text-white">
+                Wochenreview
               </Link>
               <Link href="/review-sessions" className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-white/75 transition hover:border-white/20 hover:text-white">
                 Review-Sammlung

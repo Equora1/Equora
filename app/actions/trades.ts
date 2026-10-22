@@ -33,6 +33,7 @@ import type { TradeMediaUploadInput } from '@/lib/types/media'
 import { assertOwnedTradeMediaPath } from '@/lib/utils/media-security'
 import { processMediaCleanupForPaths } from '@/lib/server/media-cleanup'
 import { normalizeTradeCurrency } from '@/lib/utils/currency'
+import { getExitPriceBasis } from '@/lib/utils/trade-exit-basis'
 
 function toNumericField(value: string) {
   return value.trim() ? parseTradingNumber(value) : null
@@ -324,6 +325,7 @@ export async function createTradeEntry(input: CreateTradeInput) {
       risk_percent: toNumericField(input.riskPercent),
       account_size: toNumericField(normalizedInput.accountSize),
       partial_exits: partialExits,
+      exit_price_basis: getExitPriceBasis(input.exit, partialExits),
       r_multiple: resolvedStoredRMultiple,
       pnl_mode: normalizedPnLMode,
       cost_profile: normalizedCostProfile,
@@ -361,7 +363,7 @@ export async function createTradeEntry(input: CreateTradeInput) {
       concept: null,
     }
 
-    const { error: tradeInsertError } = await supabase.rpc('equora_create_trade_v1', {
+    const { error: tradeInsertError } = await supabase.rpc('equora_create_trade_v2', {
       p_trade_id: tradeId,
       p_trade: tradePayload,
       p_tags: input.tags,
@@ -524,6 +526,7 @@ export async function updateTradeEntry(tradeId: string, input: CreateTradeInput)
       risk_percent: toNumericField(input.riskPercent),
       account_size: toNumericField(normalizedInput.accountSize),
       partial_exits: partialExits,
+      exit_price_basis: getExitPriceBasis(input.exit, partialExits),
       r_multiple: resolvedStoredRMultiple,
       pnl_mode: normalizedPnLMode,
       cost_profile: normalizedCostProfile,
@@ -561,7 +564,7 @@ export async function updateTradeEntry(tradeId: string, input: CreateTradeInput)
       concept: null,
     }
 
-    const { error: tradeUpdateError } = await supabase.rpc('equora_update_trade_v1', {
+    const { error: tradeUpdateError } = await supabase.rpc('equora_update_trade_v2', {
       p_trade_id: tradeId,
       p_trade: tradePayload,
       p_tags: input.tags,

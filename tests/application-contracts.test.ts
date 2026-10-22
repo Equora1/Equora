@@ -41,7 +41,7 @@ describe('v57.60.1 application safety contracts', () => {
     const hub = source('components/review/review-sessions-hub.tsx')
 
     expect(actions).toContain('saveTrustedReviewSnapshot(createSupabaseServerClient(), user.id')
-    expect(source('lib/server/review-snapshot-save.ts')).toContain("rpc('equora_commit_review_snapshot_v2'")
+    expect(source('lib/server/review-snapshot-save.ts')).toContain("rpc('equora_commit_review_snapshot_v3'")
     expect(actions).not.toContain("rpc('equora_save_review_session_v1'")
     expect(actions).not.toContain("from('review_sessions').insert")
     expect(hub).toContain("left.currency === right.currency")

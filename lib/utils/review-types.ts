@@ -134,6 +134,8 @@ export type ReviewSnapshot = {
 export type ReviewSnapshotCollection = Record<ReviewPeriodPreset, ReviewSnapshot>
 
 export type ReviewTradeDrilldown = {
+  reviewMatch?: 'reviewed' | 'repeatability' | 'state' | 'trade'
+  reviewValue?: string
   search?: string
   market?: string
   setup?: string

@@ -1,12 +1,14 @@
 import type { Trade } from '@/lib/types/trade'
 import type { TradeTag } from '@/lib/types/tag'
 import { getCoreMetrics } from '@/lib/utils/analytics'
+import { getFinalizedTrades } from '@/lib/utils/trade-trust'
 
-export const REVIEW_CALCULATION_VERSION = 'documented-outcomes-v2' as const
+export const REVIEW_CALCULATION_VERSION = 'finalized-outcomes-v3' as const
 
 /** Shared by the live draft and the trusted server save path. */
 export function buildReviewSnapshotSummary(trades: Trade[], tags: TradeTag[]) {
-  const metrics = getCoreMetrics(trades)
+  const finalizedTrades = getFinalizedTrades(trades)
+  const metrics = getCoreMetrics(finalizedTrades)
   const ids = new Set(trades.map((trade) => trade.id))
   const counts = new Map<string, number>()
   for (const tag of tags) {
@@ -16,7 +18,7 @@ export function buildReviewSnapshotSummary(trades: Trade[], tags: TradeTag[]) {
   }
   const topTags = [...counts].sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0)).slice(0, 8).map(([name]) => name)
   const ranked = metrics.monetaryScope.isComparable
-    ? trades.filter((trade) => trade.netPnL !== undefined && trade.netPnL !== null)
+    ? finalizedTrades.filter((trade) => trade.netPnL !== undefined && trade.netPnL !== null)
       .sort((a, b) => (b.netPnL! - a.netPnL!) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
     : []
   const summary = {
@@ -45,16 +47,20 @@ export function buildReviewSnapshotSummary(trades: Trade[], tags: TradeTag[]) {
 }
 
 type ReviewR = { calculationVersion?: string | null; calculationVerified?: boolean; averageR: number | null; legacyAverageR?: number | null; rCount?: number | null; excludedRCount?: number | null; tradeCount: number }
-export function isCurrentReviewCalculation(review: ReviewR) {
-  return review.calculationVerified !== false && review.calculationVersion === REVIEW_CALCULATION_VERSION && Number.isSafeInteger(review.tradeCount) && review.tradeCount >= 0
+export function hasVerifiedReviewCalculation(review: ReviewR) {
+  return review.calculationVerified !== false && (review.calculationVersion === REVIEW_CALCULATION_VERSION || review.calculationVersion === 'documented-outcomes-v2') && Number.isSafeInteger(review.tradeCount) && review.tradeCount >= 0
     && Number.isSafeInteger(review.rCount) && review.rCount! >= 0 && Number.isSafeInteger(review.excludedRCount)
     && review.excludedRCount! >= 0 && review.rCount! + review.excludedRCount! === review.tradeCount
     && (review.rCount === 0 ? review.averageR === null : typeof review.averageR === 'number' && Number.isFinite(review.averageR))
 }
 
+export function isCurrentReviewCalculation(review: ReviewR) {
+  return review.calculationVersion === REVIEW_CALCULATION_VERSION && hasVerifiedReviewCalculation(review)
+}
+
 /** Retain an unverified stored number without allowing normalization to repair its provenance. */
 export function getSavedReviewRState(review: ReviewR) {
-  const calculationVerified = isCurrentReviewCalculation(review)
+  const calculationVerified = hasVerifiedReviewCalculation(review)
   const stored = review.legacyAverageR ?? review.averageR
   return {
     calculationVerified,
@@ -63,10 +69,11 @@ export function getSavedReviewRState(review: ReviewR) {
   }
 }
 export function getSavedReviewRValue(review: ReviewR): number | null {
-  if (!isCurrentReviewCalculation(review) || review.rCount === 0) return null
+  if (!hasVerifiedReviewCalculation(review) || review.rCount === 0) return null
   return review.averageR
 }
 
 export function haveComparableReviewCalculations(left: ReviewR, right: ReviewR) {
-  return isCurrentReviewCalculation(left) && isCurrentReviewCalculation(right)
+  return hasVerifiedReviewCalculation(left) && hasVerifiedReviewCalculation(right)
+    && left.calculationVersion === right.calculationVersion
 }

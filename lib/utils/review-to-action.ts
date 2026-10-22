@@ -200,7 +200,7 @@ export function buildReviewActionPlan(snapshot: ReviewSnapshot): ReviewActionPla
         : `Fokus: „${focusSuggestion}“.`,
       reason: latestNote ? shortenSentence(latestNote.body) : guardrail ? shortenSentence(guardrail.detail) : 'Ein sichtbarer Fokus verhindert, dass das Review nur nett gelesen, aber nicht gehandelt wird.',
       tone: lossStreak ? 'red' : driftSignal?.tone === 'red' ? 'red' : 'orange',
-      href: `/trades?reviewFocus=${encodeURIComponent(focusSuggestion)}`,
+      href: '/trades',
     })
   }
 

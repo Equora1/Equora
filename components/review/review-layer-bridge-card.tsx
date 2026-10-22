@@ -51,7 +51,7 @@ export function ReviewLayerBridgeCard({ snapshot }: { snapshot: ReviewSnapshot }
 
       <div className="mt-4 flex flex-wrap gap-2">
         <Link href={`/review?periodPreset=${snapshot.periodPreset}`} className="rounded-full border border-white/10 bg-black/20 px-3 py-1.5 text-xs text-white/72 transition hover:border-white/20 hover:text-white">Review öffnen</Link>
-        <Link href="/trades" className="rounded-full border border-emerald-400/20 bg-emerald-400/10 px-3 py-1.5 text-xs text-emerald-200 transition hover:border-emerald-400/35 hover:text-emerald-100">Trades mit Review öffnen</Link>
+        <Link href="/trades" className="rounded-full border border-emerald-400/20 bg-emerald-400/10 px-3 py-1.5 text-xs text-emerald-200 transition hover:border-emerald-400/35 hover:text-emerald-100">Alle Trades öffnen</Link>
       </div>
 
       {reviewLayer.checklist.length ? (

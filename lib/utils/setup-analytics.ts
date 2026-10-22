@@ -165,8 +165,9 @@ export function buildSetupPerformanceRows(
 
       const resolvedTrades = setupTrades.filter((trade) => getTradePnL(trade) !== null)
       const latestTrade = [...setupTrades].sort((left, right) => getTradeTimestamp(right) - getTradeTimestamp(left))[0]
-      const sessionLabels = buildBestWeakestLabel(resolvedTrades, (trade) => trade.session)
-      const marketLabels = buildBestWeakestLabel(resolvedTrades, (trade) => trade.market)
+      const comparableTrades = metrics.monetaryScope.isComparable ? resolvedTrades : []
+      const sessionLabels = buildBestWeakestLabel(comparableTrades, (trade) => trade.session)
+      const marketLabels = buildBestWeakestLabel(comparableTrades, (trade) => trade.market)
       const costSummary = getCostSummary(setupTrades)
       const totalCosts = costSummary.total
       const riskCoverage = getRiskCoverage(setupTrades)
@@ -295,10 +296,11 @@ export function buildDynamicSetupDetail(
   if (!base && !row && !linkedTrades.length) return undefined
 
   const metrics = getCoreMetrics(linkedTrades)
-  const bestMarket = findBestMarket(linkedTrades)?.[0] ?? '—'
+  const comparableTrades = metrics.monetaryScope.isComparable ? linkedTrades : []
+  const bestMarket = findBestMarket(comparableTrades)?.[0] ?? '—'
   const bestSession =
     Object.entries(
-      linkedTrades.reduce<Record<string, number>>((acc, trade) => {
+      comparableTrades.reduce<Record<string, number>>((acc, trade) => {
         acc[trade.session] = (acc[trade.session] ?? 0) + (trade.netPnL ?? 0)
         return acc
       }, {}),

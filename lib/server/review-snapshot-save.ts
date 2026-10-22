@@ -23,10 +23,10 @@ export async function saveTrustedReviewSnapshot(
 ): Promise<ReviewSessionRow> {
   if (!UUID.test(ownerId) || !UUID.test(sessionId)) throw new Error('INVALID_REVIEW_IDENTITY')
   const ids = normalizeReviewTradeIds(requestedIds)
-  const source = await client.rpc('equora_review_source_v2', { p_user_id: ownerId, p_trade_ids: ids })
+  const source = await client.rpc('equora_review_source_v3', { p_user_id: ownerId, p_trade_ids: ids })
   if (source.error || typeof source.data !== 'string' || source.data.length > 4 * 1024 * 1024) throw new Error('REVIEW_SOURCE_UNAVAILABLE')
   const snapshot = JSON.parse(source.data) as { version: string; owner: string; trades: TradeRow[]; tags: TradeTag[] }
-  if (snapshot.version !== 'review-source-v2' || snapshot.owner !== ownerId || !Array.isArray(snapshot.trades)
+  if (snapshot.version !== 'review-source-v3' || snapshot.owner !== ownerId || !Array.isArray(snapshot.trades)
     || !Array.isArray(snapshot.tags) || snapshot.tags.length > 100000) throw new Error('INVALID_REVIEW_SOURCE')
   const actualIds = snapshot.trades.map((row) => row.id).sort()
   if (JSON.stringify(actualIds) !== JSON.stringify(ids) || snapshot.trades.some((row) => row.user_id !== ownerId)) throw new Error('REVIEW_SOURCE_OWNER_OR_SCOPE_MISMATCH')
@@ -35,7 +35,7 @@ export async function saveTrustedReviewSnapshot(
   const summary = buildReviewSnapshotSummary(snapshot.trades.map((row) => mapTradeRowToTrade(row)), snapshot.tags)
   // The exact database-produced text is compared under the SQL write fence.
   let saved
-  try { saved = await client.rpc('equora_commit_review_snapshot_v2', {
+  try { saved = await client.rpc('equora_commit_review_snapshot_v3', {
     p_user_id: ownerId, p_session_id: sessionId, p_trade_ids: ids,
     p_source_text: source.data, p_summary: summary, p_meta: meta,
   }) } catch { throw new ReviewSnapshotCommitError(false) }

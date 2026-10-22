@@ -26,6 +26,16 @@ export default async function ReviewPage({
   const initialPreset = (typeof params.periodPreset === 'string' && ['7d', '14d', '30d', '90d'].includes(params.periodPreset) ? params.periodPreset : '7d') as ReviewPeriodPreset
   const access = await getJournalAccess()
   const snapshot = await getReviewSnapshotServer(access.user?.id)
+  if (snapshot.availability !== 'ready') {
+    const needsLogin = snapshot.availability === 'unauthenticated'
+    return <AppShell><section role="alert" className="rounded-[24px] border border-orange-300/20 bg-black/30 p-6">
+      <h1 className="text-xl font-semibold">Review derzeit nicht verfügbar</h1>
+      <p className="mt-3 text-sm leading-6 text-white/60">{needsLogin
+        ? 'Bitte melde dich an, um dein Review zu sehen.'
+        : 'Deine Trades konnten nicht vollständig geladen werden. Bitte lade die Seite erneut.'}</p>
+      <a href={needsLogin ? '/login' : '/review'} className="mt-4 inline-flex rounded-full border border-white/15 px-4 py-2 text-sm">{needsLogin ? 'Einloggen' : 'Erneut laden'}</a>
+    </section></AppShell>
+  }
   const savedSessions = await measurePerformance('database.review_sessions.recent', 'database', () => getReviewSessionsServer(access.user?.id), { route: '/review' })
   const { trades, reviewSnapshots } = measurePerformanceSync('transform.review', 'transform', () => {
     const linkedSetupByTradeId = buildLinkedSetupByTradeId(snapshot.setupRows, snapshot.setupTradeLinkRows)

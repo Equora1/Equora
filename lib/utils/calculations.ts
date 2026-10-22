@@ -132,6 +132,12 @@ export function normalizePartialExitLegs(entries: Array<{ percent?: string | num
     .filter((entry): entry is PartialExitLeg => Boolean(entry))
 }
 
+// Percent units: a remainder rounded to four decimals is meaningful above 0.0001.
+export const PARTIAL_EXIT_REMAINDER_TOLERANCE = 0.0001
+export function getPartialExitRemainderPercent(coveredPercent: number) {
+  return Math.max(0, Number((100 - coveredPercent).toFixed(4)))
+}
+
 export function deriveEffectiveExitFromPartialExitLegs({
   exit,
   partialExits,
@@ -151,7 +157,7 @@ export function deriveEffectiveExitFromPartialExitLegs({
   let totalPercent = coveredPercent
 
   if (coveredPercent < 100) {
-    if (explicitExit === null) return coveredPercent >= 99.999 ? weightedSum / coveredPercent : null
+    if (explicitExit === null) return getPartialExitRemainderPercent(coveredPercent) <= PARTIAL_EXIT_REMAINDER_TOLERANCE ? weightedSum / coveredPercent : null
     const remainder = 100 - coveredPercent
     weightedSum += remainder * explicitExit
     totalPercent += remainder
@@ -177,7 +183,7 @@ export function getPartialExitPlanInfo({
 }) {
   const normalized = normalizePartialExitLegs(partialExits ?? [])
   const coveredPercent = normalized.reduce((sum, leg) => sum + leg.percent, 0)
-  const remainderPercent = Math.max(0, Number((100 - coveredPercent).toFixed(4)))
+  const remainderPercent = getPartialExitRemainderPercent(coveredPercent)
   const effectiveExit = deriveEffectiveExitFromPartialExitLegs({ exit, partialExits: normalized })
 
   return {
@@ -185,9 +191,9 @@ export function getPartialExitPlanInfo({
     count: normalized.length,
     coveredPercent: Number(coveredPercent.toFixed(4)),
     remainderPercent,
-    hasRemainder: remainderPercent > 0.0001,
+    hasRemainder: remainderPercent > PARTIAL_EXIT_REMAINDER_TOLERANCE,
     // An explicit final exit closes the remainder; absent partial legs do not create one.
-    hasOpenRemainder: normalized.length > 0 && remainderPercent > 0.0001 && effectiveExit === null,
+    hasOpenRemainder: normalized.length > 0 && remainderPercent > PARTIAL_EXIT_REMAINDER_TOLERANCE && effectiveExit === null,
     effectiveExit,
     summary: formatPartialExitSummary(normalized),
   }
@@ -211,11 +217,11 @@ export function getPartialExitSizePlan({
 }) {
   const normalized = normalizePartialExitLegs(partialExits ?? [])
   const coveredPercent = normalized.reduce((sum, leg) => sum + leg.percent, 0)
-  const remainderPercent = Math.max(0, Number((100 - coveredPercent).toFixed(4)))
+  const remainderPercent = getPartialExitRemainderPercent(coveredPercent)
   const resolvedSize = parseTradingNumber(positionSize)
 
   const realizedSize = resolvedSize !== null ? Number(((resolvedSize * coveredPercent) / 100).toFixed(4)) : null
-  const hasOpenRemainder = normalized.length > 0 && remainderPercent > 0.0001 && parseTradingNumber(exit) === null
+  const hasOpenRemainder = normalized.length > 0 && remainderPercent > PARTIAL_EXIT_REMAINDER_TOLERANCE && parseTradingNumber(exit) === null
   const remainingSize = parseTradingNumber(exit) !== null ? 0 : resolvedSize !== null ? Number(((resolvedSize * remainderPercent) / 100).toFixed(4)) : null
 
   return {
@@ -236,7 +242,7 @@ export function restoreRemainderExitFromStoredAverage({ exit, partialExits }: {
   const legs = normalizePartialExitLegs(partialExits ?? [])
   if (average === null || !legs.length) return average
   const covered = legs.reduce((sum, leg) => sum + leg.percent, 0)
-  if (covered >= 99.999) return null
+  if (getPartialExitRemainderPercent(covered) <= PARTIAL_EXIT_REMAINDER_TOLERANCE) return null
   const finalExit = (average * 100 - legs.reduce((sum, leg) => sum + leg.percent * leg.price, 0)) / (100 - covered)
   return Number.isFinite(finalExit) ? finalExit : null
 }
@@ -297,7 +303,7 @@ export function derivePartialExitPnL({
   }
 
   const coveredPercent = normalized.reduce((sum, leg) => sum + leg.percent, 0)
-  const remainderPercent = Math.max(0, Number((100 - coveredPercent).toFixed(4)))
+  const remainderPercent = getPartialExitRemainderPercent(coveredPercent)
   const realizedSize = resolvedSize !== null ? Number(((resolvedSize * coveredPercent) / 100).toFixed(4)) : null
   const remainingSize = resolvedSize !== null ? Number(((resolvedSize * remainderPercent) / 100).toFixed(4)) : null
 
@@ -316,7 +322,7 @@ export function derivePartialExitPnL({
       remainderPercent,
       realizedSize,
       remainingSize,
-      hasOpenRemainder: remainderPercent > 0.0001,
+      hasOpenRemainder: remainderPercent > PARTIAL_EXIT_REMAINDER_TOLERANCE,
       costShare: 0,
       priceMove: null,
       multiplier,
@@ -342,7 +348,7 @@ export function derivePartialExitPnL({
     remainderPercent,
     realizedSize,
     remainingSize,
-    hasOpenRemainder: remainderPercent > 0.0001,
+    hasOpenRemainder: remainderPercent > PARTIAL_EXIT_REMAINDER_TOLERANCE,
     costShare: Number.isFinite(costShare) ? costShare : 0,
     priceMove: weightedPriceMove !== null && Number.isFinite(weightedPriceMove) ? weightedPriceMove : null,
     multiplier,

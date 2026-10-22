@@ -1,5 +1,5 @@
 'use client'
-import { getSavedReviewRState, getSavedReviewRValue, haveComparableReviewCalculations, isCurrentReviewCalculation } from '@/lib/utils/review-snapshot-summary'
+import { getSavedReviewRState, getSavedReviewRValue, haveComparableReviewCalculations, isCurrentReviewCalculation, hasVerifiedReviewCalculation } from '@/lib/utils/review-snapshot-summary'
 
 import Link from 'next/link'
 import { useEffect, useMemo, useState, useTransition, type ChangeEvent, type ReactNode } from 'react'
@@ -555,10 +555,11 @@ export function ReviewSessionsHub({
                 </div>
 
                 <div className="mt-4 rounded-2xl border border-white/10 bg-black/25 p-4">
-                  <p className="text-sm text-white/65">{isCurrentReviewCalculation(selectedSession)
+                  {hasVerifiedReviewCalculation(selectedSession) && !isCurrentReviewCalculation(selectedSession) ? <p className="text-sm text-orange-100">Früher gespeicherte Auswertung. Neue Reviews berücksichtigen nur abgeschlossene Trades; die bisherigen Werte bleiben erhalten.</p> : null}
+                  <p className="text-sm text-white/65">{hasVerifiedReviewCalculation(selectedSession)
                     ? `${selectedSession.rCount} von ${selectedSession.tradeCount} Trades mit dokumentiertem R-Ergebnis.`
                     : 'Die Berechnungsgrundlage dieses Reviews ist nicht vollständig dokumentiert. Aktuelle Kennzahlenvergleiche sind deshalb nicht verfügbar.'}</p>
-                  {!isCurrentReviewCalculation(selectedSession) && selectedSession.legacyAverageR !== null && selectedSession.legacyAverageR !== undefined
+                  {!hasVerifiedReviewCalculation(selectedSession) && selectedSession.legacyAverageR !== null && selectedSession.legacyAverageR !== undefined
                     ? <p className="mt-2 text-xs text-white/50">Gespeicherter R-Wert: {formatRMultiple(selectedSession.legacyAverageR)}. Dieser Wert wird nicht als aktuelles dokumentiertes Ergebnis eingeordnet.</p> : null}
                   <p className="mt-3 text-xs uppercase tracking-[0.22em] text-white/35">Stichwörter</p>
                   <div className="mt-3 flex flex-wrap gap-2">

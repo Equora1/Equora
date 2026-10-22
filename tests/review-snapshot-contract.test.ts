@@ -19,9 +19,9 @@ const base: TradeRow = { id, user_id: owner, created_at: '2026-10-16T12:00:00Z',
   position_size: 2, account_currency: 'EUR', pnl_mode: 'manual', capture_result: 'winner', capture_status: 'complete' }
 const input = { title: 'Review', tradeIds: [id], tradeCount: 999, visibleTradeCount: 999, averageR: 999, netPnL: 999, monetaryScopeKind: 'single' as const, currency: 'EUR' as const }
 function fake(rows = [base], errorAt = '') {
-  const source = JSON.stringify({ version: 'review-source-v2', owner, trades: rows, tags: [] }, null, 2)
+  const source = JSON.stringify({ version: 'review-source-v3', owner, trades: rows, tags: [] }, null, 2)
   const rpc = vi.fn(async (name: string, args: Record<string, any>) => {
-    if (name === 'equora_review_source_v2') return { data: source, error: errorAt === 'source' ? { message: 'source failed' } : null }
+    if (name === 'equora_review_source_v3') return { data: source, error: errorAt === 'source' ? { message: 'source failed' } : null }
     const summary = args.p_summary
     return { data: { id: args.p_session_id, user_id: owner, title: 'Review', calculation_version: summary.calculationVersion,
       r_count: summary.rCount, excluded_r_count: summary.excludedRCount, average_r: summary.averageR, trade_count: summary.tradeCount,
@@ -54,7 +54,7 @@ describe('one calculation contract for live drafts and server snapshots', () => 
     expect(live).toEqual(saved)
   })
   it('positive and negative observations average to actual zero', () => {
-    const rows = [base, { ...base, id: '00000000-0000-0000-0000-000000000002', net_pnl: -10 }]
+    const rows = [base, { ...base, id: '00000000-0000-0000-0000-000000000002', net_pnl: -10, capture_result: 'loser' as const }]
     expect(buildReviewSnapshotSummary(rows.map(row => mapTradeRowToTrade(row)), [])).toMatchObject({ averageR: 0, rCount: 2 })
   })
   it.each([null, 'JPY', 'USDT'])('preserves monetary limits for %s', (currency) => {
@@ -75,7 +75,7 @@ describe('one calculation contract for live drafts and server snapshots', () => 
 describe('owner-scoped immutable source transport', () => {
   it('uses mapped outcomes and preserves exact database source text', async () => {
     const client = fake(); await saveTrustedReviewSnapshot(client, owner, sid, [id], { title: 'Review' })
-    expect(client.rpc.mock.calls[1]).toEqual(['equora_commit_review_snapshot_v2', expect.objectContaining({ p_user_id: owner, p_source_text: client.source,
+    expect(client.rpc.mock.calls[1]).toEqual(['equora_commit_review_snapshot_v3', expect.objectContaining({ p_user_id: owner, p_source_text: client.source,
       p_summary: expect.objectContaining({ averageR: 0.5, rCount: 1, calculationVersion: REVIEW_CALCULATION_VERSION }) })])
   })
   it.each(['source','commit'])('fails without retry or legacy fallback on %s error', async (where) => {
@@ -91,7 +91,7 @@ describe('owner-scoped immutable source transport', () => {
     expect(client.rpc).toHaveBeenCalledTimes(1)
   })
   it('rejects tags for a different trade',async()=>{
-    const client=fake();client.rpc.mockResolvedValueOnce({data:JSON.stringify({version:'review-source-v2',owner,trades:[base],tags:[{trade_id:'other',tag:'x'}]}),error:null})
+    const client=fake();client.rpc.mockResolvedValueOnce({data:JSON.stringify({version:'review-source-v3',owner,trades:[base],tags:[{trade_id:'other',tag:'x'}]}),error:null})
     await expect(saveTrustedReviewSnapshot(client,owner,sid,[id],{})).rejects.toThrow('INVALID_REVIEW_TAG_SOURCE');expect(client.rpc).toHaveBeenCalledTimes(1)
   })
   it.each([[],['invalid'],null,Array.from({length:2001},(_,n)=>`00000000-0000-0000-0000-${String(n).padStart(12,'0')}`)].map(value=>[value]))('rejects invalid selection',value=>{expect(()=>normalizeReviewTradeIds(value)).toThrow()})

@@ -135,3 +135,21 @@ describe('actual Journal surfaces use the same setup availability contract', () 
     expect(html).toContain(count===1?'1 Eintrag noch prüfen.':'2 Einträge noch prüfen.')
   })
 })
+
+describe('setup rankings respect currency and history preserves precision',()=>{
+ it.each(['mixed','missing'] as const)('hides money rankings for %s units',scope=>{
+  const trades=Array.from({length:8},(_,i)=>trade({id:String(i),netPnL:i+1,market:i<4?'AAA':'BBB',session:i<4?'London':'New York',accountCurrency:i<4?'EUR':scope==='mixed'?'USD':null}))
+  expect(row(trades)).toMatchObject({bestSession:'—',weakestSession:'—',bestMarket:'—',weakestMarket:'—'})
+  expect(buildDynamicSetupDetail(template,trades)).toMatchObject({bestMarket:'—',bestSession:'—'})
+ })
+ it.each([0.004,-0.002])('shows the actual tiny amount %s with unit',netPnL=>{
+  const trades=[trade({netPnL,accountCurrency:'USDT'})]
+  const html=plain(renderToStaticMarkup(<SetupDetailCard title={title} data={template} linkedTrades={trades} performance={row(trades)} />))
+  expect(html).toContain(netPnL>0?'+0,004 USDT':'-0,002 USDT')
+ })
+ it('does not present an amount without its missing unit warning',()=>{
+  const trades=[trade({netPnL:0.004,accountCurrency:null})]
+  const html=plain(renderToStaticMarkup(<SetupDetailCard title={title} data={template} linkedTrades={trades} performance={row(trades)} />))
+  expect(html).toContain('Währung fehlt')
+ })
+})

@@ -374,6 +374,7 @@ export const TRADE_DETAIL_SELECT_COLUMNS = [
   "risk_percent",
   "account_size",
   "partial_exits",
+  "exit_price_basis",
   "r_multiple",
   "pnl_mode",
   "cost_profile",
@@ -877,15 +878,7 @@ export function getCalendarSnapshotServer(
 }
 
 export function getReviewSnapshotServer(userId?: string | null) {
-  return measurePerformance('snapshot.review.total', 'page', () => getJournalSnapshotServer(userId, {
-    includeTradeTags: true,
-    includeTradeMedia: false,
-    includeSetupRows: true,
-    includeSetupMedia: false,
-    includeSetupTradeLinks: true,
-    includeDailyNotes: true,
-    diagnosticRoute: '/review',
-  }), { route: '/review' })
+  return measurePerformance('snapshot.review.total', 'page', () => loadCompleteJournalSnapshotServer(userId, false, true), { route: '/review' })
 }
 
 export function getSetupsSnapshotServer(userId?: string | null) {
@@ -924,7 +917,7 @@ export function getTradesWorkspaceSnapshotServer(userId?: string | null) {
   return loadCompleteJournalSnapshotServer(userId, true);
 }
 
-async function loadCompleteJournalSnapshotServer(userId: string | null | undefined, includeMediaCounts: boolean) {
+async function loadCompleteJournalSnapshotServer(userId: string | null | undefined, includeMediaCounts: boolean, includeDailyNotes = false) {
   type WorkspaceSnapshot = JournalSnapshot & {
     availability: DashboardJournalSnapshot['availability'];
     tradeMediaCounts: Record<string, number>;
@@ -933,7 +926,7 @@ async function loadCompleteJournalSnapshotServer(userId: string | null | undefin
   if (!hasSupabaseClientEnv()) {
     const snapshot = includeMediaCounts ? getMockSnapshot() : getMockSnapshotForOptions({
       includeTradeTags: true, includeTradeMedia: false, includeSetupRows: true,
-      includeSetupMedia: false, includeSetupTradeLinks: true, includeDailyNotes: false,
+      includeSetupMedia: false, includeSetupTradeLinks: true, includeDailyNotes,
     });
     const counts: Record<string, number> = {};
     if (includeMediaCounts) for (const row of snapshot.tradeMediaRows) counts[row.trade_id] = (counts[row.trade_id] ?? 0) + 1;
@@ -952,7 +945,7 @@ async function loadCompleteJournalSnapshotServer(userId: string | null | undefin
     const readRelated = <T extends { id: string }>(table: string, columns: string) => collectJournalRows<T>(async (from, to) => (
       await supabase.from(table).select(columns, { count: 'exact' }).eq('user_id', owner).order('id').range(from, to)
     ) as unknown as JournalRowPage<T>, 100_000);
-    const [tags, links, media, setups] = await Promise.all([
+    const [tags, links, media, setups, notes] = await Promise.all([
       collectJournalRows<TradeTag>(async (from, to) => (
         await supabase.from('trade_tags').select(OWNED_TRADE_TAG_SELECT_COLUMNS, { count: 'exact' })
           .eq('trades.user_id', owner).order('id').range(from, to)
@@ -964,13 +957,14 @@ async function loadCompleteJournalSnapshotServer(userId: string | null | undefin
         if (isMissingColumnError(response.error?.message, 'is_master')) response = await supabase.from('setups').select(SETUP_SELECT_COLUMNS_LEGACY, { count: 'exact' }).eq('user_id', owner).order('id').range(from, to);
         return response as unknown as JournalRowPage<SetupRow>;
       }, 10_000),
+      includeDailyNotes ? readRelated<DailyNoteRow>('daily_notes', DAILY_NOTE_SELECT_COLUMNS) : Promise.resolve([]),
     ]);
     const tradeIds = new Set(tradeRows.map(row => row.id));
     const tradeMediaCounts: Record<string, number> = {};
     for (const row of media) if (tradeIds.has(row.trade_id)) tradeMediaCounts[row.trade_id] = (tradeMediaCounts[row.trade_id] ?? 0) + 1;
     return {
       ...getEmptySnapshot(), tradeRows: tradeRows.map(row => ({ ...row, screenshot_url: null })), tradeTags: tags.filter(row => tradeIds.has(row.trade_id)),
-      setupTradeLinkRows: links.filter(row => tradeIds.has(row.trade_id)), setupRows: setups,
+      setupTradeLinkRows: links.filter(row => tradeIds.has(row.trade_id)), setupRows: setups, dailyNotes: notes,
       availability: 'ready', tradeMediaCounts,
     } satisfies WorkspaceSnapshot;
   } catch (error) {

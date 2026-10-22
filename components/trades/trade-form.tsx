@@ -59,6 +59,7 @@ import type { SavedUserCostProfile } from '@/lib/types/user-cost-profile'
 import type { TradeMediaItem, TradeMediaUploadInput } from '@/lib/types/media'
 import { type TradeCaptureInput, type TradeValidationField, validateTradeCaptureInput } from '@/lib/utils/trade-validation'
 import { formatTradeTimeInputValue } from '@/lib/utils/trade-time'
+import { WEIGHTED_EXIT_PRICE_BASIS } from '@/lib/utils/trade-exit-basis'
 import {
   accountTemplateOptions,
   brokerProfileOptions,
@@ -108,6 +109,7 @@ function getReviewLayerProgress(values: string[]) {
 type TradeFormMode = 'create' | 'edit'
 
 type TradeFormInitialValues = Partial<TradeCaptureInput> & {
+  exitPriceBasis?: string | null
   setupId?: string
   captureStatus?: TradeCaptureStatus
   partialExit1Percent?: string
@@ -263,9 +265,13 @@ export function TradeForm({
       { percent: initialValues?.partialExit3Percent, price: initialValues?.partialExit3Price },
   ]
   const initialPartialPlan = getPartialExitPlanInfo({ exit: initialValues?.exit, partialExits: initialPartialExits })
-  const needsExitBasis = isEditMode && initialPartialPlan.count > 0 && initialPartialPlan.hasRemainder && parseTradingNumber(initialValues?.exit) !== null
+  const storedExitBasisKnown = initialValues?.exitPriceBasis === WEIGHTED_EXIT_PRICE_BASIS
+  const needsExitBasis = isEditMode && initialPartialPlan.count > 0 && initialPartialPlan.hasRemainder && parseTradingNumber(initialValues?.exit) !== null && !storedExitBasisKnown
+  const initialExitValue = storedExitBasisKnown
+    ? restoreRemainderExitFromStoredAverage({ exit: initialValues?.exit, partialExits: initialPartialExits })
+    : initialValues?.exit
   const [exitBasis, setExitBasis] = useState<'unconfirmed' | 'remainder' | 'average'>(needsExitBasis ? 'unconfirmed' : 'remainder')
-  const [exitValue, setExitValue] = useState(needsExitBasis ? '' : stringifyInitialValue(initialValues?.exit))
+  const [exitValue, setExitValue] = useState(needsExitBasis ? '' : stringifyInitialValue(initialExitValue))
   const [partialExit1Percent, setPartialExit1Percent] = useState(stringifyInitialValue(initialValues?.partialExit1Percent))
   const [partialExit1Price, setPartialExit1Price] = useState(stringifyInitialValue(initialValues?.partialExit1Price))
   const [partialExit2Percent, setPartialExit2Percent] = useState(stringifyInitialValue(initialValues?.partialExit2Percent))
@@ -301,6 +307,7 @@ export function TradeForm({
   const [selectedUserCostProfileId, setSelectedUserCostProfileId] = useState(initialValues?.userCostProfileId?.trim() || '')
   const [newProfileTitle, setNewProfileTitle] = useState('')
   const [currencySaving, setCurrencySaving] = useState(false)
+  const [noteText, setNoteText] = useState(initialValues?.notes ?? '')
   const [simpleMode, setSimpleMode] = useState(true)
   const [showAdvanced, setShowAdvanced] = useState(false)
   const [showReflection, setShowReflection] = useState(false)
@@ -1086,7 +1093,7 @@ export function TradeForm({
       partialExit3Percent,
       partialExit3Price,
       userCostProfileId: String(formData.get('user_cost_profile_id') ?? ''),
-      notes: String(formData.get('notes') ?? ''),
+      notes: noteText,
       screenshotUrl: '',
       tags: selectedTags,
     }
@@ -1098,14 +1105,12 @@ export function TradeForm({
       return
     }
     const basePayload = buildTradePayload(formData)
-    const partialSummary = partialExitPreview.summary
-    const noteParts = [basePayload.notes.trim(), partialSummary ? `Teilverkäufe: ${partialSummary}` : ''].filter(Boolean)
     const payload = {
       ...basePayload,
       tradeOccurredAt: basePayload.tradeOccurredAt.trim() || new Date().toISOString(),
       // Send the final remainder price. The server action computes the stored average exactly once.
       exit: basePayload.exit,
-      notes: noteParts.join('\n\n'),
+      notes: basePayload.notes,
     }
     const validation = validateTradeCaptureInput(payload)
 
@@ -1168,6 +1173,7 @@ export function TradeForm({
 
       ;(document.getElementById('trade-form') as HTMLFormElement | null)?.reset()
       setSelectedTags([])
+      setNoteText('')
       setFiles([])
       setSnippingFiles([])
       resetEngineState()
@@ -1272,6 +1278,7 @@ export function TradeForm({
 
       <div className="grid gap-6">
         <div className="space-y-4">
+          <input type="hidden" name="notes" value={noteText} />
           <input type="hidden" name="setup_id" value={selectedSetupId} />
           <input type="hidden" name="bias" value={tradeDirection} />
           <div className="grid gap-4 md:grid-cols-2">
@@ -1926,9 +1933,10 @@ export function TradeForm({
                     <p className="text-xs uppercase tracking-[0.2em] text-orange-100/70">Notiz</p>
                   </div>
                   <textarea
-                    name="notes"
+                    aria-label="Notiztext"
                     rows={5}
-                    defaultValue={initialValues?.notes ?? ''}
+                    value={noteText}
+                    onChange={(event) => setNoteText(event.target.value)}
                     className="block min-h-[152px] w-full resize-y rounded-2xl border border-orange-400/15 bg-orange-400/5 px-4 py-3 text-sm text-white outline-none placeholder:text-white/30"
                     placeholder="Kurzer Kontext, Fehler oder Erkenntnis"
                   />

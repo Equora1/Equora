@@ -84,3 +84,13 @@ describe('currency correction and progressive trade form', () => {
     expect(priceOpening).toContain('open=""')
   })
 })
+
+describe('notes and durable partial exit form values',()=>{
+ it('retains existing notes while the optional textarea is unmounted',()=>{
+  const html=renderForm();expect(html).toContain('name="notes" value="Vorhandene Notiz"');expect(html).not.toContain('aria-label="Notiztext"')
+ })
+ it('restores the remainder price from a known stored average',()=>{
+  const html=renderToStaticMarkup(<TradeForm {...props} initialValues={{market:'BTCUSDT.P',setup:'Test',pnlMode:'auto',bias:'Long',entry:'100',exit:'117.5',exitPriceBasis:'weighted-remainder-v1',partialExit1Percent:'50',partialExit1Price:'120',accountCurrency:'USDT',tradeOccurredAt:'2026-10-18T12:00'}} />)
+  expect(html).toMatch(/name="exit"[^>]*value="115"/)
+ })
+})
