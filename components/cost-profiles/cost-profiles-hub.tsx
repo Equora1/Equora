@@ -439,17 +439,17 @@ export function CostProfilesHub({ initialProfiles, usageByProfileId, source }: C
       <section className="rounded-[28px] border border-orange-400/15 bg-white/5 p-6 shadow-2xl">
         <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
           <div>
-            <p className="text-xs uppercase tracking-[0.25em] text-white/40">User Cost Profiles</p>
+            <p className="text-xs uppercase tracking-[0.25em] text-white/40">Gebühren und Kosten</p>
             <h1 className="mt-2 text-3xl font-semibold tracking-tight text-orange-300">Eigene Kostenprofile</h1>
             <p className="mt-3 max-w-3xl text-sm text-white/60">
-              Verwalte wiederverwendbare Gebühren-, Funding- und Slippage-Setups pro Markt, Broker und Instrument.
-              Ideal für wiederkehrende Krypto-Perps, Futures-Rigs oder Aktien-Accounts.
+              Speichere wiederkehrende Gebühren und Kostenannahmen für deine Trades.
+              Ein Kostenprofil ersetzt keine Abrechnung der tatsächlich angefallenen Kosten.
             </p>
           </div>
           <div className="rounded-3xl border border-white/10 bg-black/25 px-4 py-3 text-sm text-white/70">
             <p className="text-[11px] uppercase tracking-[0.22em] text-white/35">Aktive Profile</p>
             <p className="mt-2 text-3xl font-semibold text-white">{profiles.length}</p>
-            <p className="mt-2 text-xs text-white/45">{source === 'supabase' ? 'mit Supabase verknüpft' : 'lokal im Demo-Modus geführt'}</p>
+            <p className="mt-2 text-xs text-white/45">{source === 'supabase' ? 'in deinem Konto gespeichert' : 'lokal in diesem Browser gespeichert (Demo)'}</p>
           </div>
         </div>
       </section>
@@ -532,7 +532,7 @@ export function CostProfilesHub({ initialProfiles, usageByProfileId, source }: C
               <p className="mt-2 text-sm text-white/55">
                 {selectedProfile
                   ? 'Ändere Kosten, Funding-Logik und Instrument-Kontext zentral für alle wiederkehrenden Trades.'
-                  : 'Lege ein neues Kostenprofil an, das du später direkt im Trade-Capture wiederverwenden kannst.'}
+                  : 'Lege ein Kostenprofil an, um Gebühren bei der Trade-Erfassung wiederzuverwenden.'}
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
@@ -783,7 +783,7 @@ export function CostProfilesHub({ initialProfiles, usageByProfileId, source }: C
                   <p className="mt-2">Maker/Taker, Funding, Quote Asset und Hebel bleiben zentral zusammen, statt bei jedem Trade neu zusammengeklaubt zu werden.</p>
                 </div>
                 <div className="rounded-2xl border border-white/8 bg-black/30 p-4 text-sm text-white/65">
-                  <p className="font-medium text-white">Schneller Trade-Capture</p>
+                  <p className="font-medium text-white">Schnellere Trade-Erfassung</p>
                   <p className="mt-2">Im Trade-Form wählst du später nur das Profil aus und sparst dir das Gebühren-Trommeln pro Entry.</p>
                 </div>
                 <div className="rounded-2xl border border-white/8 bg-black/30 p-4 text-sm text-white/65">

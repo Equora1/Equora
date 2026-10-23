@@ -15,6 +15,11 @@ export function buildSummary(statsCurrent: ReturnType<typeof getCoreMetrics>, st
     && statsPrevious.monetaryScope.isComparable
     && statsCurrent.currency === statsPrevious.currency
   const winRateDelta = statsCurrent.winRate - statsPrevious.winRate
+  const roundedWinRateDelta = Math.round(winRateDelta * 10) / 10
+  const winRateChange = !statsCurrent.resolvedTrades ? 'Noch kein Ergebnis vorhanden.'
+    : !statsPrevious.resolvedTrades ? 'Kein Vergleichswert vorhanden.'
+    : roundedWinRateDelta === 0 ? 'Unverändert zur Vorperiode (gerundet).'
+    : `${Math.abs(roundedWinRateDelta).toLocaleString('de-DE', { maximumFractionDigits: 1 })} Prozentpunkte ${roundedWinRateDelta < 0 ? 'weniger' : 'mehr'} · vorher ${statsPrevious.winRate.toLocaleString('de-DE', { maximumFractionDigits: 1 })} %`
   const pfDelta =
     Number.isFinite(statsCurrent.profitFactor) && Number.isFinite(statsPrevious.profitFactor)
       ? statsCurrent.profitFactor - statsPrevious.profitFactor
@@ -28,9 +33,10 @@ export function buildSummary(statsCurrent: ReturnType<typeof getCoreMetrics>, st
       tone: statsCurrent.monetaryScope.isComparable && statsCurrent.netPnL >= 0 ? ('emerald' as const) : ('orange' as const),
     },
     {
-      label: 'Win Rate',
-      value: `${clampNumber(statsCurrent.winRate)}%`,
-      hint: `${formatDelta(winRateDelta, ' pp')} bei ${statsCurrent.totalTrades} Trades`,
+      label: 'Winrate',
+      value: statsCurrent.resolvedTrades ? `${statsCurrent.winRate.toLocaleString('de-DE', { maximumFractionDigits: 1 })} %` : '—',
+      hint: winRateChange,
+      basis: `${statsCurrent.winners} ${statsCurrent.winners === 1 ? 'Gewinn' : 'Gewinne'} · ${statsCurrent.resolvedTrades} Trades mit Ergebnis${statsCurrent.totalTrades !== statsCurrent.resolvedTrades ? ` · ${statsCurrent.totalTrades} insgesamt` : ''}`,
       tone: statsCurrent.winRate >= 50 ? ('emerald' as const) : ('orange' as const),
     },
     {
@@ -42,7 +48,7 @@ export function buildSummary(statsCurrent: ReturnType<typeof getCoreMetrics>, st
     {
       label: 'Erwartung',
       value: statsCurrent.monetaryScope.isComparable ? formatCurrency(statsCurrent.expectancy, 0, statsCurrent.currency) : 'Gesperrt',
-      hint: `${formatRMultiple(statsCurrent.expectancyR)} je Trade`,
+      hint: `${formatRMultiple(statsCurrent.expectancyR)} · ${statsCurrent.rCount} von ${statsCurrent.totalTrades} Trades mit Ergebnis-R`,
       tone: statsCurrent.expectancy >= 0 ? ('emerald' as const) : ('red' as const),
     },
     {
@@ -106,7 +112,7 @@ export function buildTopPerformers(tradesCurrent: Trade[], tradeTags: TradeTag[]
       ? {
           label: 'Bestes Setup',
           value: bestSetup.key,
-          detail: `${money(bestSetup.metrics.netPnL)} · ${clampNumber(bestSetup.metrics.winRate)}% Win Rate · ${formatRMultiple(bestSetup.metrics.averageR)}`,
+          detail: `${money(bestSetup.metrics.netPnL)} · ${clampNumber(bestSetup.metrics.winRate)}% Trefferquote · ${formatRMultiple(bestSetup.metrics.averageR)}`,
           href: buildTradesHref({ setup: bestSetup.key, reviewFocus: `Review Drilldown · Bestes Setup: ${bestSetup.key}` }),
         }
       : null,
@@ -130,7 +136,7 @@ export function buildTopPerformers(tradesCurrent: Trade[], tradeTags: TradeTag[]
       ? {
           label: 'Bester Tag-Cluster',
           value: positiveTags[0].tag,
-          detail: `${money(positiveTags[0].netPnL)} · ${clampNumber(positiveTags[0].winRate)}% Win Rate in ${positiveTags[0].totalTrades} Trades.`,
+          detail: `${money(positiveTags[0].netPnL)} · ${clampNumber(positiveTags[0].winRate)}% Trefferquote in ${positiveTags[0].totalTrades} Trades.`,
           href: buildTradesHref({ tag: positiveTags[0].tag, reviewFocus: `Review Drilldown · Bester Tag-Cluster: ${positiveTags[0].tag}` }),
         }
       : null,
@@ -153,7 +159,7 @@ export function buildWeakSpots(tradesCurrent: Trade[], tradeTags: TradeTag[]): R
   const tagCoverage = getTagCoverage(tradesCurrent, tradeTags)
 
   const hasMeaningfulWeakSetup = Boolean(
-    worstSetup && (worstSetup.metrics.netPnL < 0 || worstSetup.metrics.averageR < 0 || worstSetup.metrics.winRate < 50)
+    worstSetup && (worstSetup.metrics.netPnL < 0 || (worstSetup.metrics.averageR !== null && worstSetup.metrics.averageR < 0) || worstSetup.metrics.winRate < 50)
   )
   const hasMeaningfulWeakDay = Boolean(worstWeekday && worstWeekday.metrics.netPnL < 0)
   const negativeTagLead = negativeTags.find((tag) => tag.netPnL < 0)
@@ -163,7 +169,7 @@ export function buildWeakSpots(tradesCurrent: Trade[], tradeTags: TradeTag[]): R
       ? {
           label: 'Schwächstes Setup',
           value: worstSetup.key,
-          detail: `${money(worstSetup.metrics.netPnL)} · ${clampNumber(worstSetup.metrics.winRate)}% Win Rate.`,
+          detail: `${money(worstSetup.metrics.netPnL)} · ${clampNumber(worstSetup.metrics.winRate)}% Trefferquote.`,
           href: buildTradesHref({ setup: worstSetup.key, reviewFocus: `Review Drilldown · Schwächstes Setup: ${worstSetup.key}` }),
         }
       : null,
@@ -187,7 +193,7 @@ export function buildWeakSpots(tradesCurrent: Trade[], tradeTags: TradeTag[]): R
       ? {
           label: 'Verlustserie',
           value: `${metrics.longestLossStreak} in Folge`,
-          detail: 'Hier lohnt sich ein klarer Cooldown- oder Größen-Trigger im Regelwerk.',
+          detail: 'Lege in deinen Regeln fest, wann du eine Handelspause einlegst oder deine Positionsgröße reduzierst.',
         }
       : null,
     tradesCurrent.length > 0 && tagCoverage < 70
@@ -221,12 +227,12 @@ export function buildPatterns(tradesCurrent: Trade[], tradeTags: TradeTag[], tra
     .sort((left, right) => left.pnlDelta - right.pnlDelta)[0]
 
   if (aSetups.length && nonASetups.length) {
-    patterns.push(`A-Setups lieferten ${money(aMetrics.netPnL)} bei ${clampNumber(aMetrics.winRate)}% Win Rate, der Rest ${money(nonAMetrics.netPnL)}.`)
+    patterns.push(`A-Setups lieferten ${money(aMetrics.netPnL)} bei ${clampNumber(aMetrics.winRate)}% Trefferquote, der Rest ${money(nonAMetrics.netPnL)}.`)
   }
 
   const patienceTag = tagStats.find((tag) => hasKeywordMatch(tag.tag, PROCESS_TAG_KEYWORDS))
   if (patienceTag) {
-    patterns.push(`Tag „${patienceTag.tag}“ zeigt ${money(patienceTag.netPnL)} und wirkt wie ein brauchbarer Prozess-Anker.`)
+    patterns.push(`Tag „${patienceTag.tag}“ zeigt ${money(patienceTag.netPnL)} im gewählten Zeitraum. Prüfe den Ablauf dahinter, bevor du daraus eine Regel ableitest.`)
   }
 
   const dangerTag = [...tagStats].sort((a, b) => a.netPnL - b.netPnL)[0]
@@ -283,14 +289,14 @@ export function buildPlaybook(tradesCurrent: Trade[], tradeTags: TradeTag[], tra
   }
 
   if (losingPairs[0] && losingPairs[0].trades.length >= 2) {
-    actions.push(`Die Verlust-Kombi „${losingPairs[0].pair}“ ist ein klarer Alarm. Für diese Paarung einen No-Trade- oder Size-Down-Trigger definieren.`)
+    actions.push(`Die Verlust-Kombi „${losingPairs[0].pair}“ ist ein klarer Alarm. Lege für diese Kombination fest, wann du auf einen Einstieg verzichtest oder die Positionsgröße reduzierst.`)
   }
 
   if (metrics.longestLossStreak >= 2) {
-    actions.push(`Nach ${metrics.longestLossStreak} Verlusten in Folge automatisch Cooldown oder halbe Positionsgröße.`)
+    actions.push(`Nach ${metrics.longestLossStreak} Verlusten in Folge eine Handelspause oder die halbe Positionsgröße nach deiner vorher festgelegten Regel.`)
   }
 
-  if (metrics.averageR < 0.5) {
+  if (metrics.averageR !== null && metrics.averageR < 0.5) {
     actions.push('Gewinner aktiver managen: Teilgewinnstruktur prüfen und nicht zu früh Luft abdrehen.')
   }
 

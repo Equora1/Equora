@@ -2,6 +2,9 @@ import type { DailyNoteRow } from '@/lib/types/db'
 import type { Trade } from '@/lib/types/trade'
 import type { TradeTag } from '@/lib/types/tag'
 import { getCoreMetrics } from '@/lib/utils/analytics'
+import { getFinalizedTrades } from '@/lib/utils/trade-trust'
+import { buildReviewSnapshotSummary, REVIEW_CALCULATION_VERSION } from '@/lib/utils/review-snapshot-summary'
+import { scopeReviewDrilldownLinks, type ReviewDrilldownScope } from '@/lib/utils/review-drilldown-scope'
 import { buildTagStats } from '@/lib/utils/tag-analytics'
 import { resolveTradeOccurredAt } from '@/lib/utils/trade-time'
 
@@ -30,6 +33,7 @@ import { REVIEW_PERIOD_OPTIONS } from '@/lib/utils/review-types'
 import { getMonetaryScopeMessage } from '@/lib/utils/currency'
 import type {
   ReviewPeriodPreset,
+  ReviewSignal,
   ReviewSnapshot,
   ReviewSnapshotCollection,
 } from '@/lib/utils/review-types'
@@ -85,35 +89,31 @@ export function buildReviewSnapshot(
   const previousTradeIds = new Set(tradesPrevious.map((trade) => trade.id))
   const tagsCurrent = tradeTags.filter((tag) => currentTradeIds.has(tag.trade_id))
   const tagsPrevious = tradeTags.filter((tag) => previousTradeIds.has(tag.trade_id))
-  const metricsCurrent = getCoreMetrics(tradesCurrent)
-  const metricsPrevious = getCoreMetrics(tradesPrevious)
+  const drilldownScope: ReviewDrilldownScope = { from: currentStart.toISOString(), to: currentEnd.toISOString(), calculation: REVIEW_CALCULATION_VERSION }
+  const scoped = <T extends { href?: string }>(items: T[]) => scopeReviewDrilldownLinks(items, drilldownScope)
+  const finalizedCurrent = getFinalizedTrades(tradesCurrent)
+  const finalizedPrevious = getFinalizedTrades(tradesPrevious)
+  const metricsCurrent = getCoreMetrics(finalizedCurrent)
+  const metricsPrevious = getCoreMetrics(finalizedPrevious)
   const monetaryAvailable = metricsCurrent.monetaryScope.isComparable
   const periodsComparable = monetaryAvailable
     && metricsPrevious.monetaryScope.isComparable
     && metricsCurrent.currency === metricsPrevious.currency
-  const errorClusters = monetaryAvailable ? buildErrorClusters(tradesCurrent, tagsCurrent) : []
-  const tagDrift = periodsComparable ? buildTagDrift(tradesCurrent, tagsCurrent, tradesPrevious, tagsPrevious) : []
-  const comparablePreviousTrades = periodsComparable ? tradesPrevious : []
+  const errorClusters = scoped(monetaryAvailable ? buildErrorClusters(finalizedCurrent, tagsCurrent) : [])
+  const tagDrift = scoped(periodsComparable ? buildTagDrift(finalizedCurrent, tagsCurrent, finalizedPrevious, tagsPrevious) : [])
+  const comparablePreviousTrades = periodsComparable ? finalizedPrevious : []
   const comparablePreviousTags = periodsComparable ? tagsPrevious : []
   const headlineResult = !tradesCurrent.length
-    ? buildHeadline(tradesCurrent, metricsCurrent, tagDrift, errorClusters)
+    ? buildHeadline(finalizedCurrent, metricsCurrent, tagDrift, errorClusters)
     : monetaryAvailable
-      ? buildHeadline(tradesCurrent, metricsCurrent, tagDrift, errorClusters)
+      ? buildHeadline(finalizedCurrent, metricsCurrent, tagDrift, errorClusters)
       : {
           headline: metricsCurrent.monetaryScope.kind === 'empty' ? 'Trades erfasst, P&L noch offen' : 'Geld-Auswertung wegen Währungsdaten gesperrt',
           summary: getMonetaryScopeMessage(metricsCurrent.monetaryScope),
         }
-  const rankedTrades = monetaryAvailable
-    ? [...tradesCurrent].sort((left, right) => (right.netPnL ?? 0) - (left.netPnL ?? 0))
-    : []
-  const topTags = Array.from(tagsCurrent.reduce<Map<string, number>>((counts, item) => {
-    counts.set(item.tag, (counts.get(item.tag) ?? 0) + 1)
-    return counts
-  }, new Map()))
-    .sort((left, right) => right[1] - left[1])
-    .slice(0, 5)
-    .map(([tag]) => tag)
-  const unavailableSignal = [{
+  const reviewLayer = buildReviewLayerSnapshot(finalizedCurrent)
+  const heatmap = monetaryAvailable ? buildTagHeatmap(finalizedCurrent, tagsCurrent) : { weekdays: [], tags: [], cells: [] }
+  const unavailableSignal: ReviewSignal[] = [{
     label: 'Geld-Auswertung',
     value: metricsCurrent.monetaryScope.kind === 'empty' ? 'P&L offen' : 'Gesperrt',
     detail: getMonetaryScopeMessage(metricsCurrent.monetaryScope),
@@ -133,34 +133,21 @@ export function buildReviewSnapshot(
     headline: headlineResult.headline,
     summary: headlineResult.summary,
     stats: buildSummary(metricsCurrent, metricsPrevious),
-    topPerformers: monetaryAvailable ? buildTopPerformers(tradesCurrent, tagsCurrent) : unavailableSignal,
-    weakSpots: monetaryAvailable ? buildWeakSpots(tradesCurrent, tagsCurrent) : unavailableSignal,
-    patterns: monetaryAvailable ? buildPatterns(tradesCurrent, tagsCurrent, comparablePreviousTrades, comparablePreviousTags) : [getMonetaryScopeMessage(metricsCurrent.monetaryScope)],
-    playbook: monetaryAvailable ? buildPlaybook(tradesCurrent, tagsCurrent, comparablePreviousTrades, comparablePreviousTags) : ['Kontowährungen vervollständigen oder nach genau einer Währung filtern; erst danach P&L-Muster bewerten.'],
+    topPerformers: scoped(monetaryAvailable ? buildTopPerformers(finalizedCurrent, tagsCurrent) : unavailableSignal),
+    weakSpots: scoped(monetaryAvailable ? buildWeakSpots(finalizedCurrent, tagsCurrent) : unavailableSignal),
+    patterns: monetaryAvailable ? buildPatterns(finalizedCurrent, tagsCurrent, comparablePreviousTrades, comparablePreviousTags) : [getMonetaryScopeMessage(metricsCurrent.monetaryScope)],
+    playbook: monetaryAvailable ? buildPlaybook(finalizedCurrent, tagsCurrent, comparablePreviousTrades, comparablePreviousTags) : ['Kontowährungen vervollständigen oder nach genau einer Währung filtern; erst danach P&L-Muster bewerten.'],
     noteMoments: buildNoteMoments(dailyNotes, currentStart, currentEnd),
-    tagRadar: monetaryAvailable ? buildTagRadar(tradesCurrent, tagsCurrent) : [],
+    tagRadar: scoped(monetaryAvailable ? buildTagRadar(finalizedCurrent, tagsCurrent) : []),
     errorClusters,
     tagDrift,
-    tagCombinations: monetaryAvailable ? buildTagCombinations(tradesCurrent, tagsCurrent) : [],
-    tagHeatmap: monetaryAvailable ? buildTagHeatmap(tradesCurrent, tagsCurrent) : { weekdays: [], tags: [], cells: [] },
-    setupInsights: monetaryAvailable ? buildReviewSetupInsights(tradesCurrent) : [],
-    importInsights: monetaryAvailable ? buildReviewImportInsights(tradesCurrent) : [],
-    reviewLayer: buildReviewLayerSnapshot(tradesCurrent),
+    tagCombinations: scoped(monetaryAvailable ? buildTagCombinations(finalizedCurrent, tagsCurrent) : []),
+    tagHeatmap: { ...heatmap, cells: scoped(heatmap.cells) },
+    setupInsights: scoped(monetaryAvailable ? buildReviewSetupInsights(finalizedCurrent) : []),
+    importInsights: scoped(monetaryAvailable ? buildReviewImportInsights(finalizedCurrent) : []),
+    reviewLayer: { ...reviewLayer, highlights: scoped(reviewLayer.highlights) },
     sessionDraft: {
-      tradeIds: tradesCurrent.map((trade) => trade.id),
-      tradeCount: metricsCurrent.totalTrades,
-      visibleTradeCount: metricsCurrent.totalTrades,
-      netPnL: metricsCurrent.netPnL,
-      currency: metricsCurrent.currency,
-      monetaryScopeKind: metricsCurrent.monetaryScope.kind,
-      averageR: metricsCurrent.averageR,
-      winRate: metricsCurrent.winRate,
-      winners: metricsCurrent.winners,
-      losers: metricsCurrent.losers,
-      breakeven: metricsCurrent.breakeven,
-      topTags,
-      bestTradeId: rankedTrades[0]?.id ?? null,
-      worstTradeId: rankedTrades[rankedTrades.length - 1]?.id ?? null,
+      ...buildReviewSnapshotSummary(tradesCurrent, tagsCurrent),
     },
   }
 }

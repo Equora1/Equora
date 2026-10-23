@@ -134,7 +134,7 @@ export function TradeTagEditor({ tradeId, initialTags, tagOptions = PRESET_TAGS,
         )}
 
         {source === 'mock' && (
-          <p className="mt-3 text-[11px] text-white/30">Demo-Modus — Tags werden nicht persistiert</p>
+          <p className="mt-3 text-[11px] text-white/30">Demo: Änderungen an Tags werden nicht dauerhaft gespeichert</p>
         )}
       </div>
     )

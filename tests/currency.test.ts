@@ -8,6 +8,37 @@ import {
 import { buildCalendarSummary } from '../lib/utils/calendar'
 
 describe('trade currency hard gate', () => {
+  it.each([
+    [0.12, '+0,12 USDT'], [-0.12, '-0,12 USDT'],
+    [1.24, '+1,24 USDT'], [-1.24, '-1,24 USDT'],
+    [1250.5, '+1.250,5 USDT'], [0, '+0 USDT'], [-0, '+0 USDT'],
+  ])('retains cents in compact monetary labels: %s', (value, expected) => {
+    expect(formatMoney(value, 'USDT')).toBe(expected)
+  })
+
+  it.each(['EUR', 'USD', 'GBP', 'USDT', 'USDC'])('shows tiny %s gains and losses without false zero', currency => {
+    expect(formatMoney(0.004, currency)).toBe(`+0,004 ${currency}`)
+    expect(formatMoney(-0.004, currency, 2)).toBe(`-0,004 ${currency}`)
+    expect(formatMoney(0.009, currency)).toBe(`+0,009 ${currency}`)
+    expect(formatMoney(-Number.MIN_VALUE, currency)).toBe(`-<0,00000001 ${currency}`)
+    expect(formatMoney(0.01, currency)).toBe(`+0,01 ${currency}`)
+    expect(formatMoney(-0.01, currency)).toBe(`-0,01 ${currency}`)
+  })
+
+  it('preserves explicit precision and documented zero', () => {
+    expect(formatMoney(0.004, 'USDT', 4)).toBe('+0,0040 USDT')
+    expect(formatMoney(-0.00001, 'USDT', 4)).toBe('-0,00001 USDT')
+    expect(formatMoney(0, 'USDT', 2)).toBe('+0,00 USDT')
+    expect(formatMoney(-0, 'USDT', 2)).toBe('+0,00 USDT')
+    expect(formatMoney(1.235, 'USDT', 2)).toBe('+1,24 USDT')
+  })
+
+  it('keeps missing, unsupported and invalid money distinct from a tiny value', () => {
+    expect(formatMoney(0.001, null)).toBe('Währung fehlt')
+    expect(formatMoney(-0.001, 'BTC')).toBe('Währung nicht unterstützt')
+    expect(formatMoney(Number.NaN, 'USDT')).toBe('Betrag fehlt')
+    expect(formatMoney(Infinity, 'USDT')).toBe('Betrag fehlt')
+  })
   it('normalizes only the explicitly supported units', () => {
     expect(normalizeTradeCurrency(' eur ')).toBe('EUR')
     expect(normalizeTradeCurrency('usdt')).toBe('USDT')

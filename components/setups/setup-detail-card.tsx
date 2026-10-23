@@ -1,18 +1,13 @@
 'use client'
 
+import { getTradeRValue, formatTradeRValue } from '@/lib/utils/trade-r'
 import { useMemo, type ReactNode } from 'react'
 import { SetupImageLightbox } from '@/components/setups/setup-image-lightbox'
 import type { SetupDetail } from '@/lib/types/setup'
 import type { Trade } from '@/lib/types/trade'
 import type { SetupPerformanceRow } from '@/lib/utils/setup-analytics'
-import { formatCurrency, formatRMultiple } from '@/lib/utils/calculations'
-
-
-function formatProfitFactor(value: number) {
-  if (value === Infinity) return '∞'
-  if (!Number.isFinite(value)) return '—'
-  return value.toFixed(2)
-}
+import { getSetupPerformanceDisplay } from '@/lib/utils/setup-performance-display'
+import { formatMoney } from '@/lib/utils/currency'
 
 function getMediaRoleLabel(role?: string | null) {
   switch (role) {
@@ -25,12 +20,13 @@ function getMediaRoleLabel(role?: string | null) {
   }
 }
 
-function formatPnL(value: number | null | undefined) {
-  if (value === undefined || value === null) return 'Offen'
-  return `${value >= 0 ? '+' : ''}${value.toFixed(2)}`
+function formatPnL(trade: Trade) {
+  if (trade.netPnL === undefined || trade.netPnL === null) return 'Offen'
+  if (trade.accountCurrencyStatus === 'unsupported') return 'Währung nicht unterstützt'
+  return formatMoney(trade.netPnL, trade.accountCurrency)
 }
-
 export function SetupDetailCard({ title, data, linkedTrades, performance }: { title: string; data?: SetupDetail; linkedTrades: Trade[]; performance?: SetupPerformanceRow }) {
+  const display = getSetupPerformanceDisplay(performance)
   const imageItems = useMemo(
     () =>
       data?.exampleImageItems?.length
@@ -85,17 +81,15 @@ export function SetupDetailCard({ title, data, linkedTrades, performance }: { ti
           <RuleSection eyebrow="Leistung" title="Stand">
             <div className="grid gap-3 sm:grid-cols-3">
               <SignalMetric label="Trades" value={String(linkedTrades.length)} />
-              <SignalMetric label="PF" value={performance && performance.trades > 0 ? formatProfitFactor(performance.profitFactor) : '—'} />
-              <SignalMetric label="Risiko" value={performance && performance.trades > 0 ? `${performance.riskCoverage}%` : '—'} />
+              <SignalMetric label="PF" value={display.profitFactor} />
+              <SignalMetric label="Risiko" value={display.riskCoverage} />
             </div>
             <div className="mt-3 grid gap-3 md:grid-cols-2">
               <InfoBlock title="Trägt">{performance?.bestSession && performance.bestSession !== '—' ? `${performance.bestSession} · ${performance.bestMarket}` : 'Mehr Daten nötig.'}</InfoBlock>
-              <InfoBlock title="Prüfen" tone={performance?.status === 'pause' || performance?.tone === 'red' ? 'danger' : 'neutral'}>{performance?.weakestSession && performance.weakestSession !== '—' ? `${performance.weakestSession} · ${performance.weakestMarket}` : 'Keine Schwäche sichtbar.'}</InfoBlock>
+              <InfoBlock title="Prüfen" tone={performance?.status === 'pause' || performance?.tone === 'red' ? 'danger' : 'neutral'}>{performance?.weakestSession && performance.weakestSession !== '—' ? `${performance.weakestSession} · ${performance.weakestMarket}` : 'Für einen Vergleich fehlen noch auswertbare Daten.'}</InfoBlock>
             </div>
             <p className="mt-3 rounded-2xl border border-[#c8823a]/18 bg-[#c8823a]/8 px-4 py-3 text-sm leading-6 text-[#f0a855]">
-              {performance && performance.trades > 0
-                ? `${formatCurrency(performance.netPnL, 0, performance.currency)} · ${performance.winRate.toFixed(0)}% Winrate · ${formatRMultiple(performance.averageR)} · ${performance.statusHint}`
-                : data?.performance || 'Noch keine Performance-Daten.'}
+              {display.summary}
             </p>
           </RuleSection>
         </div>
@@ -156,9 +150,9 @@ export function SetupDetailCard({ title, data, linkedTrades, performance }: { ti
                     </div>
                     <div className="text-right">
                       <span className={trade.netPnL === undefined || trade.netPnL === null ? 'text-[#998a72]' : trade.netPnL >= 0 ? 'text-[#f0a855]' : 'text-red-300'}>
-                        {formatPnL(trade.netPnL)}
+                        {formatPnL(trade)}
                       </span>
-                      <p className="mt-1 text-[11px] text-white/35">{trade.rMultiple ?? trade.rValue ? formatRMultiple(trade.rMultiple ?? trade.rValue ?? 0) : 'R offen'}</p>
+                      <p className="mt-1 text-[11px] text-white/35">{formatTradeRValue(getTradeRValue(trade), trade.rSource ?? 'missing')}</p>
                     </div>
                   </div>
                 </div>

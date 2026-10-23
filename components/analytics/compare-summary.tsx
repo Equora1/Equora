@@ -1,3 +1,4 @@
+import { formatRMultiple } from '@/lib/utils/calculations'
 import { FuturisticCard } from '@/components/ui/futuristic-card'
 import type { CompareResult } from '@/lib/utils/compare'
 import { formatMoney } from '@/lib/utils/currency'
@@ -6,9 +7,7 @@ function formatPnL(row: CompareResult) {
   return row.currency ? formatMoney(row.netPnL, row.currency) : '—'
 }
 
-function formatR(value: number) {
-  return `${value >= 0 ? '+' : ''}${value.toFixed(2)}R`
-}
+const formatR = formatRMultiple
 
 export function CompareSummary({ rows }: { rows: CompareResult[] }) {
   const best = rows[0]
@@ -34,7 +33,7 @@ export function CompareSummary({ rows }: { rows: CompareResult[] }) {
           <h3 className="mt-2 text-2xl font-semibold tracking-tight text-emerald-300">{best.label}</h3>
           <div className="mt-4 space-y-2 text-sm text-white/62">
             <p>Trades: {best.totalTrades}</p>
-            <p>Winrate: {best.winRate.toFixed(1)}%</p>
+            <p>Trefferquote: {best.winRate.toFixed(1)}%</p>
             <p>Ø R: {formatR(best.avgR)}</p>
             <p>P&amp;L: {formatPnL(best)}</p>
           </div>
@@ -58,7 +57,7 @@ export function CompareSummary({ rows }: { rows: CompareResult[] }) {
         <h3 className="mt-2 text-2xl font-semibold tracking-tight text-emerald-300">{best.label}</h3>
         <div className="mt-4 space-y-2 text-sm text-white/62">
           <p>Trades: {best.totalTrades}</p>
-          <p>Winrate: {best.winRate.toFixed(1)}%</p>
+          <p>Trefferquote: {best.winRate.toFixed(1)}%</p>
           <p>Ø R: {formatR(best.avgR)}</p>
           <p>P&amp;L: {formatPnL(best)}</p>
         </div>
@@ -69,7 +68,7 @@ export function CompareSummary({ rows }: { rows: CompareResult[] }) {
         <h3 className="mt-2 text-2xl font-semibold tracking-tight text-red-300">{worst.label}</h3>
         <div className="mt-4 space-y-2 text-sm text-white/62">
           <p>Trades: {worst.totalTrades}</p>
-          <p>Winrate: {worst.winRate.toFixed(1)}%</p>
+          <p>Trefferquote: {worst.winRate.toFixed(1)}%</p>
           <p>Ø R: {formatR(worst.avgR)}</p>
           <p>P&amp;L: {formatPnL(worst)}</p>
         </div>

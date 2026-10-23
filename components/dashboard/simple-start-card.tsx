@@ -38,7 +38,7 @@ export function SimpleStartCard({
       <div className="flex flex-col gap-6 xl:flex-row xl:items-center xl:justify-between">
         <div className="max-w-3xl">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="eq-pill px-3 py-1.5 text-[10px] uppercase tracking-[0.18em]">Performance Center</span>
+            <span className="eq-pill px-3 py-1.5 text-[10px] uppercase tracking-[0.18em]">Dein Überblick</span>
             <span className="eq-pill-soft px-3 py-1.5 text-[10px] uppercase tracking-[0.16em]">Letzte {tradeCount} Trades</span>
             <span className="eq-pill-soft px-3 py-1.5 text-[10px] uppercase tracking-[0.16em]">{evidenceLabel}</span>
           </div>
@@ -46,7 +46,7 @@ export function SimpleStartCard({
             Dein Trading. <span className="eq-text-gradient">Klar im Blick.</span>
           </h1>
           <p className="mt-3 max-w-2xl text-sm leading-6 text-white/70 sm:text-base">
-            Performance, Prozess und Datenqualität in einer Ansicht. Kennzahlen basieren auf {trustedTradeCount} belastbaren Abschlüssen und bleiben bei unklarer Währung gesperrt.
+            Deine Trades, Ergebnisse und Entwicklung im Überblick. Für die Kennzahlen können derzeit {trustedTradeCount} Abschlüsse berücksichtigt werden.
           </p>
         </div>
 

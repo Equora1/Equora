@@ -57,7 +57,7 @@ export type DailyNoteFlowSummary = {
   totalTrades: number
   trustedPnL: number
   monetaryScope: MonetaryScope
-  averageR: number
+  averageR: number | null
   winCount: number
   lossCount: number
   trustedCoverage: number
@@ -169,24 +169,24 @@ function getDominantValue(values: string[]) {
 function buildHeadline(totalTrades: number, trustedPnL: number, trustedCoverage: number, monetaryScope: MonetaryScope) {
   if (totalTrades === 0) return 'Kein Handelstag, aber trotzdem ein wertvoller Tagesabschluss.'
   if (!monetaryScope.isComparable && monetaryScope.kind !== 'empty') return 'Trades vorhanden, Geld-Auswertung wegen der Währungsdaten gesperrt.'
-  if (trustedPnL > 0) return `${totalTrades} Trade${totalTrades === 1 ? '' : 's'} im Journal, grüner trusted Tag.`
-  if (trustedPnL < 0) return `${totalTrades} Trade${totalTrades === 1 ? '' : 's'} im Journal, roter Tag mit Review-Material.`
-  if (trustedCoverage < 100) return `${totalTrades} Capture${totalTrades === 1 ? '' : 's'} sind da, aber der Tag ist noch nicht komplett belastbar.`
-  return `${totalTrades} Trade${totalTrades === 1 ? '' : 's'} im Journal, neutraler Tag mit sauberem Datensatz.`
+  if (trustedPnL > 0) return `${totalTrades} Trade${totalTrades === 1 ? '' : 's'} im Journal. Die berücksichtigten Abschlüsse liegen im Plus.`
+  if (trustedPnL < 0) return `${totalTrades} Trade${totalTrades === 1 ? '' : 's'} im Journal. Die berücksichtigten Abschlüsse liegen im Minus.`
+  if (trustedCoverage < 100) return `${totalTrades} Trade${totalTrades === 1 ? '' : 's'} im Journal. Für die vollständige Tagesauswertung fehlen noch Angaben.`
+  return `${totalTrades} Trade${totalTrades === 1 ? '' : 's'} im Journal. Die berücksichtigten Abschlüsse ergeben zusammen null.`
 }
 
 function buildCopy(totalTrades: number, incompleteTrades: number, dominantSetup: string | null, strongestEmotion: string | null) {
   if (totalTrades === 0) {
-    return 'Auch an Non-Trade-Tagen lohnt sich ein kurzer Eintrag: Marktgefühl, Disziplin, was bewusst nicht gehandelt wurde.'
+    return 'Auch ohne Trade kannst du festhalten, was du beobachtet und warum du auf einen Einstieg verzichtet hast.'
   }
 
   const fragments = [
     dominantSetup ? `Setup-Fokus heute: ${dominantSetup}.` : null,
     strongestEmotion ? `Emotion im Vordergrund: ${strongestEmotion}.` : null,
-    incompleteTrades > 0 ? `${incompleteTrades} Quick Capture${incompleteTrades === 1 ? '' : 's'} warten noch auf Vollständigung.` : null,
+    incompleteTrades > 0 ? `${incompleteTrades} Schnellerfassung${incompleteTrades === 1 ? '' : 'en'} noch zu vervollständigen.` : null,
   ].filter(Boolean)
 
-  return fragments.join(' ') || 'Ein Tagesabschluss konserviert heute nicht nur P&L, sondern vor allem Kontext und Prozessqualität.'
+  return fragments.join(' ') || 'Halte kurz fest, welche Entscheidungen gut waren und was du beim nächsten Mal anders machen möchtest.'
 }
 
 function buildTitleSuggestion(dateKey: string, trustedPnL: number, dominantSetup: string | null) {
@@ -200,7 +200,7 @@ function buildTitleSuggestion(dateKey: string, trustedPnL: number, dominantSetup
 function buildNoteStarter(input: {
   totalTrades: number
   trustedPnL: number
-  averageR: number
+  averageR: number | null
   dominantSetup: string | null
   strongestEmotion: string | null
   incompleteTrades: number
@@ -215,26 +215,24 @@ function buildNoteStarter(input: {
   const lines = [
     `Heute standen ${totalTrades} Trade${totalTrades === 1 ? '' : 's'} im Journal.${dominantSetup ? ` Das prägende Setup war ${dominantSetup}.` : ''}`,
     monetaryScope.isComparable
-      ? `Belastbare P&L: ${formatCurrency(trustedPnL, 0, monetaryScope.currency)}${Number.isFinite(averageR) ? ` bei Ø ${formatPlainNumber(averageR, 2)}R.` : '.'}`
+      ? `Belastbare P&L: ${formatCurrency(trustedPnL, 0, monetaryScope.currency)}${averageR !== null && Number.isFinite(averageR) ? ` bei Ø ${formatPlainNumber(averageR, 2)}R.` : '.'}`
       : getMonetaryScopeMessage(monetaryScope),
     strongestEmotion ? `Emotional war der Tag vor allem ${strongestEmotion.toLowerCase()}.` : null,
-    incompleteTrades > 0 ? `${incompleteTrades} Quick Capture${incompleteTrades === 1 ? '' : 's'} sollte${incompleteTrades === 1 ? '' : 'n'} noch vervollständigt werden.` : null,
-    'Mein wichtigstes Learning:'
+    incompleteTrades > 0 ? `${incompleteTrades} Schnellerfassung${incompleteTrades === 1 ? '' : 'en'} sollte${incompleteTrades === 1 ? '' : 'n'} noch vervollständigt werden.` : null,
+    'Meine wichtigste Erkenntnis:'
   ].filter(Boolean)
 
   return lines.join(' ')
 }
 
-export function buildDailyNoteFlowSummary(trades: Trade[], dailyNotes: DailyNoteRow[], dateKey = getBerlinTodayDateKey()): DailyNoteFlowSummary {
-  const dayTrades = getTradesForDate(trades, dateKey)
+export function buildDailyNoteFlowSummary(trades: Trade[], dailyNotes: DailyNoteRow[], dateKey = getBerlinTodayDateKey(), tradeDateKey?: (trade: Trade) => string): DailyNoteFlowSummary {
+  const dayTrades = tradeDateKey ? trades.filter((trade) => tradeDateKey(trade) === dateKey) : getTradesForDate(trades, dateKey)
   const trustedTrades = getTrustedTrades(dayTrades)
   const existingNote = getDailyNoteByDate(dailyNotes, dateKey)
   const parsedExistingNote = parseDailyNoteStorage(existingNote?.note)
   const metrics = getCoreMetrics(trustedTrades)
   const trustedPnL = metrics.netPnL
-  const averageR = trustedTrades.length
-    ? trustedTrades.reduce((sum, trade) => sum + (trade.rValue ?? 0), 0) / trustedTrades.length
-    : 0
+  const averageR = metrics.averageR
   const winCount = trustedTrades.filter((trade) => (trade.netPnL ?? 0) > 0).length
   const lossCount = trustedTrades.filter((trade) => (trade.netPnL ?? 0) < 0).length
   const completeTrades = dayTrades.filter((trade) => trade.captureStatus === 'complete').length
@@ -247,12 +245,12 @@ export function buildDailyNoteFlowSummary(trades: Trade[], dailyNotes: DailyNote
   const prompts = [
     totalTradesLabel(dayTrades.length),
     dominantSetup ? `Was hat bei ${dominantSetup} heute funktioniert oder gefehlt?` : 'Welcher Markt oder welches Setup hat heute den Ton gesetzt?',
-    incompleteTrades > 0 ? 'Welche Quick Captures müssen morgen noch vervollständigt werden?' : 'Welche Entscheidung war heute am saubersten?',
+    incompleteTrades > 0 ? 'Welche Schnellerfassungen musst du noch vervollständigen?' : 'Welche Entscheidung war heute am saubersten?',
     trustedPnL < 0 ? 'Was war der konkrete Fehlerkern hinter den Verlusten?' : 'Was willst du morgen bewusst wiederholen?',
   ]
 
   const focusSuggestions = Array.from(new Set([
-    incompleteTrades > 0 ? 'Quick Captures vervollständigen' : null,
+    incompleteTrades > 0 ? 'Schnellerfassungen vervollständigen' : null,
     dominantSetup ? `${dominantSetup} priorisieren` : null,
     trustedPnL < 0 ? 'Fehler vor Frequenz' : null,
     strongestEmotion ? `Emotion ${strongestEmotion} einordnen` : null,
@@ -284,10 +282,10 @@ export function buildDailyNoteFlowSummary(trades: Trade[], dailyNotes: DailyNote
       dayTrades.length === 0
         ? 'Auch ohne Trades lohnt sich eine Notiz, damit Kalender und Review echte Tageskontexte sehen.'
         : incompleteTrades > 0
-          ? 'Schließe zuerst die offenen Quick Captures oder markiere in der Note, was morgen noch ergänzt werden muss.'
+          ? 'Ergänze die unvollständigen Schnellerfassungen oder notiere, welche Angaben noch fehlen.'
           : trustedTrades.length === 0
-            ? 'Der Tag hat Trades, aber noch keinen trusted Untergrund. Eine Note hilft, bis P&L sauber ergänzt ist.'
-            : 'Mit dieser Note bekommt Review morgen nicht nur Zahlen, sondern auch Kontext und Prozesssignal.',
+            ? 'Für diesen Tag fehlen noch auswertbare Abschlüsse. Prüfe die Angaben an den Trades und halte deine Beobachtungen hier fest.'
+            : 'Deine Notiz ergänzt die Zahlen im Review um deine Beobachtungen und Entscheidungen.',
     prompts,
     focusSuggestions,
   }

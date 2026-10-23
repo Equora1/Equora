@@ -1,8 +1,10 @@
+import { getTradeRValue } from '@/lib/utils/trade-r'
 import type { SetupMediaRow, SetupRow, SetupTradeLinkRow } from '@/lib/types/db'
 import type { SavedSetup, SavedSetupMedia, SetupDetail, SetupImageItem, SetupLibraryItem } from '@/lib/types/setup'
 import type { Trade } from '@/lib/types/trade'
 import { findBestMarket, getCoreMetrics } from '@/lib/utils/analytics'
-import { formatCurrency, formatRMultiple } from '@/lib/utils/calculations'
+import { parseTradingNumber } from '@/lib/utils/calculations'
+import { getSetupPerformanceDisplay } from '@/lib/utils/setup-performance-display'
 import type { TradeCurrency } from '@/lib/types/trade'
 import { resolveMonetaryScope, type MonetaryScopeKind } from '@/lib/utils/currency'
 import { MIN_ANALYTICS_BUCKET_SIZE } from '@/lib/utils/statistics-scope'
@@ -26,8 +28,8 @@ export type SetupPerformanceRow = {
   grossLoss: number
   totalCosts: number
   averageCost: number
-  averageR: number
-  expectancyR: number
+  averageR: number | null
+  expectancyR: number | null
   wins: number
   losses: number
   breakeven: number
@@ -45,6 +47,7 @@ export type SetupPerformanceRow = {
   verdict: string
   guardrail: string
   currency: TradeCurrency | null
+  monetaryScopeKind: MonetaryScopeKind
   costCurrency: TradeCurrency | null
   costScopeKind: MonetaryScopeKind
 }
@@ -56,8 +59,8 @@ export function getTradesForSetupTitle(title: string, trades: Trade[], savedSetu
 
 function getSetupVerdict(metrics: ReturnType<typeof getCoreMetrics>, tradeCount: number) {
   if (tradeCount === 0) return 'Noch nicht gehandelt.'
-  if (metrics.netPnL > 0 && metrics.expectancyR > 0) return 'Trägt aktuell.'
-  if (metrics.netPnL < 0 && metrics.expectancyR < 0) return 'Kostet aktuell.'
+  if (metrics.netPnL > 0 && metrics.expectancyR !== null && metrics.expectancyR > 0) return 'Trägt aktuell.'
+  if (metrics.netPnL < 0 && metrics.expectancyR !== null && metrics.expectancyR < 0) return 'Kostet aktuell.'
   if (metrics.netPnL > 0) return 'P&L positiv, Ausführung prüfen.'
   if (metrics.netPnL < 0) return 'P&L negativ, Regel prüfen.'
   return 'Neutral. Mehr Daten nötig.'
@@ -75,15 +78,11 @@ function getSetupGuardrail(metrics: ReturnType<typeof getCoreMetrics>, tradeCoun
 
 function getTradePnL(trade: Trade): number | null {
   if (trade.netPnL !== undefined && trade.netPnL !== null) return trade.netPnL
-  const parsed = Number(String(trade.result ?? '').replace(',', '.').replace(/[^0-9.+-]/g, ''))
-  return Number.isFinite(parsed) ? parsed : null
+  return parseTradingNumber(trade.result)
 }
 
 function getTradeR(trade: Trade): number | null {
-  if (trade.rMultiple !== undefined && trade.rMultiple !== null) return trade.rMultiple
-  if (trade.rValue !== undefined && trade.rValue !== null) return trade.rValue
-  const parsed = Number(String(trade.r ?? '').replace(',', '.').replace(/[^0-9.+-]/g, ''))
-  return Number.isFinite(parsed) ? parsed : null
+  return getTradeRValue(trade)
 }
 
 function getTradeTimestamp(trade: Trade) {
@@ -166,8 +165,9 @@ export function buildSetupPerformanceRows(
 
       const resolvedTrades = setupTrades.filter((trade) => getTradePnL(trade) !== null)
       const latestTrade = [...setupTrades].sort((left, right) => getTradeTimestamp(right) - getTradeTimestamp(left))[0]
-      const sessionLabels = buildBestWeakestLabel(resolvedTrades, (trade) => trade.session)
-      const marketLabels = buildBestWeakestLabel(resolvedTrades, (trade) => trade.market)
+      const comparableTrades = metrics.monetaryScope.isComparable ? resolvedTrades : []
+      const sessionLabels = buildBestWeakestLabel(comparableTrades, (trade) => trade.session)
+      const marketLabels = buildBestWeakestLabel(comparableTrades, (trade) => trade.market)
       const costSummary = getCostSummary(setupTrades)
       const totalCosts = costSummary.total
       const riskCoverage = getRiskCoverage(setupTrades)
@@ -202,6 +202,7 @@ export function buildSetupPerformanceRows(
         verdict: getSetupVerdict(metrics, setupTrades.length),
         guardrail: getSetupGuardrail(metrics, setupTrades.length),
         currency: metrics.monetaryScope.currency,
+        monetaryScopeKind: metrics.monetaryScope.kind,
         costCurrency: costSummary.monetaryScope.currency,
         costScopeKind: costSummary.monetaryScope.kind,
       } satisfies SetupPerformanceRow
@@ -295,14 +296,15 @@ export function buildDynamicSetupDetail(
   if (!base && !row && !linkedTrades.length) return undefined
 
   const metrics = getCoreMetrics(linkedTrades)
-  const bestMarket = findBestMarket(linkedTrades)?.[0] ?? base?.bestMarket ?? '—'
+  const comparableTrades = metrics.monetaryScope.isComparable ? linkedTrades : []
+  const bestMarket = findBestMarket(comparableTrades)?.[0] ?? '—'
   const bestSession =
     Object.entries(
-      linkedTrades.reduce<Record<string, number>>((acc, trade) => {
+      comparableTrades.reduce<Record<string, number>>((acc, trade) => {
         acc[trade.session] = (acc[trade.session] ?? 0) + (trade.netPnL ?? 0)
         return acc
       }, {}),
-    ).sort((a, b) => b[1] - a[1])[0]?.[0] ?? base?.bestSession ?? '—'
+    ).sort((a, b) => b[1] - a[1])[0]?.[0] ?? '—'
 
   const imageItems: SetupImageItem[] = mediaRows.length
     ? [...mediaRows]
@@ -326,10 +328,19 @@ export function buildDynamicSetupDetail(
     mistakes: row?.mistakes?.length ? row.mistakes : base?.mistakes ?? ['Noch keine typischen Fehler gesammelt.'],
     checklist: row?.checklist?.length ? row.checklist : base?.checklist ?? [],
     playbook: row?.playbook ?? base?.playbook ?? undefined,
-    performance:
-      linkedTrades.length > 0
-        ? `${formatCurrency(metrics.netPnL, 0, metrics.currency)} · ${metrics.winRate.toFixed(0)}% Winrate · ${formatRMultiple(metrics.averageR)}`
-        : (base?.performance ?? 'Noch keine Performance-Daten vorhanden.'),
+    performance: getSetupPerformanceDisplay({
+      trades: linkedTrades.length,
+      resolvedTrades: metrics.resolvedTrades,
+      netPnL: metrics.netPnL,
+      winRate: metrics.winRate,
+      profitFactor: metrics.profitFactor,
+      grossProfit: metrics.grossProfit,
+      grossLoss: metrics.grossLoss,
+      averageR: metrics.averageR,
+      riskCoverage: getRiskCoverage(linkedTrades),
+      currency: metrics.currency,
+      monetaryScopeKind: metrics.monetaryScope.kind,
+    }).summary,
     bestMarket,
     bestSession,
     coverImage,

@@ -50,7 +50,6 @@ $allowedRootFiles = @(
   'RELEASE-v57.60.1.md',
   'RELEASE-v57.61.0.md',
   'RELEASE-v57.60.md',
-  'tailwind.config.ts',
   'TRADINGVIEW-IMPORT.md',
   'tsconfig.json',
   'vercel.capture.pro.example.json',

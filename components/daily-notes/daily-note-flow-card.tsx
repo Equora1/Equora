@@ -1,5 +1,6 @@
 'use client'
 
+import { formatRMultiple } from '@/lib/utils/calculations'
 import Link from 'next/link'
 import { useEffect, useMemo, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
@@ -92,8 +93,8 @@ export function DailyNoteFlowCard({
   return (
     <FuturisticCard glow={glow} className={compact ? 'p-5' : 'p-6'}>
       <SectionHeader
-        eyebrow="Daily Note"
-        title={summary.existingNote ? 'Daily Note aktualisieren' : 'Daily Note schreiben'}
+        eyebrow="Tagesnotiz"
+        title={summary.existingNote ? 'Tagesnotiz aktualisieren' : 'Tagesnotiz schreiben'}
         copy={summary.copy}
         badge={`${summary.dateKey} · ${dayBadge}`}
       />
@@ -117,6 +118,9 @@ export function DailyNoteFlowCard({
             </label>
           </div>
 
+          <details className="rounded-2xl border border-white/10 bg-black/20 p-4">
+            <summary className="cursor-pointer text-sm font-medium text-white">Tagesüberblick und Kennzahlen · optional</summary>
+            <div className="mt-4">
           <div className={`grid gap-4 ${compact ? 'lg:grid-cols-[1.15fr_0.85fr]' : 'lg:grid-cols-[1.1fr_0.9fr]'}`}>
             <div className="rounded-[26px] border border-orange-400/15 bg-orange-400/5 p-5">
               <p className="text-[10px] uppercase tracking-[0.24em] text-orange-100/70">Kurzstand</p>
@@ -124,7 +128,7 @@ export function DailyNoteFlowCard({
                 <MetricTile label="Trades" value={String(summary.totalTrades)} tone="text-white" />
                 <MetricTile label="mit P&L" value={`${summary.trustedTrades.length} / ${summary.totalTrades || 0}`} tone="text-emerald-300" />
                 <MetricTile label="P&L" value={summary.monetaryScope.isComparable ? formatCurrency(summary.trustedPnL, 0, summary.monetaryScope.currency) : 'Gesperrt'} tone={summary.monetaryScope.isComparable ? summary.trustedPnL >= 0 ? 'text-emerald-300' : 'text-red-300' : 'text-orange-100'} />
-                <MetricTile label="Klarheit" value={`${summary.trustedCoverage}%`} tone="text-orange-100/85" />
+                <MetricTile label="Für Kennzahlen erfasst" value={`${summary.trustedCoverage}%`} tone="text-orange-100/85" />
               </div>
             </div>
 
@@ -134,10 +138,13 @@ export function DailyNoteFlowCard({
                 <div className="flex items-center justify-between gap-3"><span>Setup</span><span className="text-white">{summary.dominantSetup ?? '—'}</span></div>
                 <div className="flex items-center justify-between gap-3"><span>Emotion</span><span className="text-white">{summary.strongestEmotion ?? '—'}</span></div>
                 <div className="flex items-center justify-between gap-3"><span>Wins / Losses</span><span className="text-white">{summary.winCount} / {summary.lossCount}</span></div>
-                <div className="flex items-center justify-between gap-3"><span>Ø R</span><span className="text-white">{formatPlainNumber(summary.averageR, 2)}R</span></div>
+                <div className="flex items-center justify-between gap-3"><span>Ø R</span><span className="text-white">{formatRMultiple(summary.averageR)}</span></div>
               </div>
             </div>
           </div>
+
+            </div>
+          </details>
 
           <div className={`grid gap-4 ${compact ? 'lg:grid-cols-[0.95fr_1.05fr]' : 'lg:grid-cols-2'}`}>
             <div className="rounded-[26px] border border-white/10 bg-white/[0.03] p-5">
@@ -254,7 +261,7 @@ export function DailyNoteFlowCard({
 
           <div className="flex flex-wrap items-center justify-between gap-3">
             <p className={`text-sm ${status ? (status.ok ? 'text-emerald-300' : 'text-orange-200') : 'text-white/45'}`}>
-              {status?.text ?? (isMock ? 'Im Demo-Modus ist die Daily Note sichtbar, aber nicht schreibbar.' : 'Daily Notes werden user-gebunden gespeichert.')}
+              {status?.text ?? (isMock ? 'Im Demo-Modus ist die Tagesnotiz sichtbar, aber nicht schreibbar.' : 'Tagesnotizen werden in deinem Nutzerkonto gespeichert.')}
             </p>
 
             <div className="flex flex-wrap gap-3">
@@ -274,7 +281,7 @@ export function DailyNoteFlowCard({
                 disabled={isPending || isMock}
                 className="rounded-full border border-orange-400/25 bg-orange-400/10 px-4 py-2 text-sm font-medium text-orange-100 transition hover:border-orange-400/40 hover:bg-orange-400/14 disabled:cursor-not-allowed disabled:opacity-60"
               >
-                {isPending ? 'Speichert...' : summary.existingNote ? 'Daily Note aktualisieren' : 'Daily Note speichern'}
+                {isPending ? 'Speichert...' : summary.existingNote ? 'Tagesnotiz aktualisieren' : 'Tagesnotiz speichern'}
               </button>
             </div>
           </div>

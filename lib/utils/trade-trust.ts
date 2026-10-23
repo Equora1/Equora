@@ -29,7 +29,7 @@ export function getTradeTrustState(trade: Trade): TradeTrustState {
     return 'conflict'
   }
 
-  if (trade.captureResult === 'open') {
+  if (trade.captureResult === 'open' || trade.partialExitHasOpenRemainder) {
     return 'open'
   }
 
@@ -168,6 +168,13 @@ export function getTradeTrustChecklist(trade: Trade) {
 
 export function isTradePnLTrusted(trade: Trade) {
   return getTradeTrustMeta(trade).reliable
+}
+
+/** Final result eligibility is independent of currency; monetary aggregation applies its own currency gate. */
+export function getFinalizedTrades(trades: Trade[]) {
+  return trades.filter((trade) => trade.captureResult !== 'open'
+    && normalizeTradeCaptureStatus(trade.captureStatus) !== 'incomplete'
+    && !trade.partialExitHasOpenRemainder && !hasPnLConflict(trade))
 }
 
 export function getTrustedTrades(trades: Trade[]) {

@@ -2,7 +2,7 @@ import type { KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { SetupImageLightbox } from '@/components/setups/setup-image-lightbox'
 import { FuturisticCard } from '@/components/ui/futuristic-card'
 import type { SetupPerformanceRow } from '@/lib/utils/setup-analytics'
-import { formatCurrency, formatRMultiple } from '@/lib/utils/calculations'
+import { getSetupPerformanceDisplay } from '@/lib/utils/setup-performance-display'
 
 type Setup = { category: string; title: string; description: string; isMaster?: boolean; isPersonal?: boolean }
 
@@ -48,7 +48,7 @@ function SetupArt({ category }: { category: string }) {
 function CardMetric({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-xl border border-white/10 bg-black/20 px-2.5 py-2">
-      <p className="text-[9px] uppercase tracking-[0.18em] text-white/32">{label}</p>
+      <p className="text-[10px] leading-4 text-white/45">{label}</p>
       <p className="mt-1 truncate text-[11px] font-semibold text-white/75">{value}</p>
     </div>
   )
@@ -76,6 +76,7 @@ function actionSignal(setup: Setup) {
 
 export function SetupCard({ setup, coverImage, performance, isActive = false, onClick }: { setup: Setup; coverImage?: string; performance?: SetupPerformanceRow; isActive?: boolean; onClick?: () => void }) {
   const image = coverImage
+  const display = getSetupPerformanceDisplay(performance)
 
   const handleKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
     if (!onClick) return
@@ -130,9 +131,9 @@ export function SetupCard({ setup, coverImage, performance, isActive = false, on
           {performance && performance.trades > 0 ? (
             <>
               <div className="grid grid-cols-3 gap-2">
-                <CardMetric label="P&L" value={formatCurrency(performance.netPnL, 0, performance.currency)} />
-                <CardMetric label="WR" value={`${performance.winRate.toFixed(0)}%`} />
-                <CardMetric label="PF" value={performance.profitFactor === Infinity ? '∞' : performance.profitFactor.toFixed(2)} />
+                <CardMetric label="P&L" value={display.pnl} />
+                <CardMetric label="Winrate" value={display.winRate} />
+                <CardMetric label="PF" value={display.profitFactor} />
               </div>
               <div className="flex items-center justify-between gap-3">
                 <span className="text-white/38">Risiko</span>
@@ -152,7 +153,7 @@ export function SetupCard({ setup, coverImage, performance, isActive = false, on
           {performance && performance.trades > 0 ? (
             <div className="flex items-center justify-between gap-3">
               <span className="text-white/38">Ø R</span>
-              <span className="text-right text-white/72">{formatRMultiple(performance.averageR)}</span>
+              <span className="text-right text-white/72">{display.averageR}</span>
             </div>
           ) : null}
         </div>

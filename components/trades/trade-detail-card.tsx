@@ -13,6 +13,7 @@ type TradeDetailCardProps = {
   trade?: Trade
   tags?: Array<{ id: string; tag: string }>
   tradeId?: string
+  detailHref?: string
   tagOptions?: string[]
   source?: 'supabase' | 'mock'
   onDelete?: () => void
@@ -88,7 +89,7 @@ function ImportSourceDetails({ detail }: { detail?: TradeDetail }) {
   )
 }
 
-function OpenTradeSection({ trade, detail, tradeId }: { trade: Trade; detail?: TradeDetail; tradeId?: string }) {
+function OpenTradeSection({ trade, detail, tradeId, detailHref }: { trade: Trade; detail?: TradeDetail; tradeId?: string; detailHref?: string }) {
   const openFacts: InfoItem[] = [
     { label: 'Realisiert', value: detail?.partialExitRealizedLabel },
     { label: 'Rest', value: detail?.partialExitRemainingLabel },
@@ -109,13 +110,13 @@ function OpenTradeSection({ trade, detail, tradeId }: { trade: Trade; detail?: T
         {tradeId ? (
           <div className="flex flex-wrap gap-2">
             <Link
-              href={`/trades?tradeId=${encodeURIComponent(tradeId)}&editTradeId=${encodeURIComponent(tradeId)}#trade-editor`}
+              href={`${detailHref ?? `/trades?tradeId=${encodeURIComponent(tradeId)}`}&editTradeId=${encodeURIComponent(tradeId)}#trade-editor`}
               className="rounded-full border border-white/10 bg-black/25 px-3 py-1.5 text-xs text-white/78 transition hover:border-white/20 hover:text-white"
             >
               Vervollständigen
             </Link>
             <Link
-              href={`/trades?tradeId=${encodeURIComponent(tradeId)}&closeTradeId=${encodeURIComponent(tradeId)}#trade-editor`}
+              href={`${detailHref ?? `/trades?tradeId=${encodeURIComponent(tradeId)}`}&closeTradeId=${encodeURIComponent(tradeId)}#trade-editor`}
               className="rounded-full border border-emerald-300/30 bg-emerald-400/12 px-3 py-1.5 text-xs text-emerald-100 transition hover:border-emerald-200/45 hover:bg-emerald-400/18"
             >
               Schließen
@@ -151,6 +152,7 @@ export function TradeDetailCard({
   trade,
   tags = [],
   tradeId,
+  detailHref,
   tagOptions,
   source = 'mock',
   onDelete,
@@ -180,7 +182,7 @@ export function TradeDetailCard({
     { label: 'Teilprofit-Abdeckung', value: detail?.partialExitCoverageLabel },
     { label: 'Realisiert', value: detail?.partialExitRealizedLabel },
     { label: 'Rest', value: detail?.partialExitRemainingLabel },
-    { label: 'Ø Exit', value: detail?.effectiveExitLabel },
+    { label: 'Gespeicherter Ausstieg', value: detail?.effectiveExitLabel },
     { label: 'Größe', value: detail?.sizeLabel },
     { label: 'Risiko', value: detail?.riskPlanLabel },
     { label: 'Kontorisiko', value: detail?.accountRiskLabel },
@@ -211,7 +213,7 @@ export function TradeDetailCard({
           {tradeId ? (
             <>
               <Link
-                href={detail?.captureResultLabel === 'Offen' ? `/trades?tradeId=${encodeURIComponent(tradeId)}&closeTradeId=${encodeURIComponent(tradeId)}#trade-editor` : `/trades?tradeId=${encodeURIComponent(tradeId)}&editTradeId=${encodeURIComponent(tradeId)}#trade-editor`}
+                href={`${detailHref ?? `/trades?tradeId=${encodeURIComponent(tradeId)}`}&${detail?.captureResultLabel === 'Offen' ? 'closeTradeId' : 'editTradeId'}=${encodeURIComponent(tradeId)}#trade-editor`}
                 className="rounded-full border border-white/10 bg-black/30 px-3 py-1.5 text-xs text-white/75 transition hover:border-white/20 hover:text-white"
               >
                 {detail?.captureResultLabel === 'Offen' ? 'Schließen' : detail?.captureStatusLabel === 'Unvollständig' ? 'Vervollständigen' : 'Bearbeiten'}
@@ -243,7 +245,7 @@ export function TradeDetailCard({
         </div>
       </div>
 
-      {trade?.captureResult === 'open' ? <div className="mt-4"><OpenTradeSection trade={trade} detail={detail} tradeId={tradeId} /></div> : null}
+      {trade?.captureResult === 'open' ? <div className="mt-4"><OpenTradeSection trade={trade} detail={detail} tradeId={tradeId} detailHref={detailHref} /></div> : null}
 
       <div className={`mt-4 rounded-[28px] border px-5 py-4 text-sm xl:px-6 ${trust?.tone === 'red' ? 'border-red-400/20 bg-red-400/10 text-red-100' : trust?.tone === 'orange' ? 'border-orange-400/20 bg-orange-400/10 text-orange-100/90' : trust?.tone === 'emerald' ? 'border-emerald-400/20 bg-emerald-400/10 text-emerald-100' : 'border-white/10 bg-black/20 text-white/65'}`}>
         <div className="flex flex-wrap items-center gap-2">

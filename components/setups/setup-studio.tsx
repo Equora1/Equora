@@ -142,7 +142,7 @@ export function SetupStudio({ initialSetups, initialTrades, source, canManageMas
   const [selectedId, setSelectedId] = useState<string | null>(initialStudioSetups[0]?.id ?? null)
   const [isCreatingNew, setIsCreatingNew] = useState(false)
   const [draft, setDraft] = useState<DraftSetup>(buildDraft(initialStudioSetups[0]))
-  const [status, setStatus] = useState(source === 'mock' ? 'Demo-Modus: Für echtes Speichern bitte Supabase verbinden.' : '')
+  const [status, setStatus] = useState(source === 'mock' ? 'Demo: Setups können hier nicht dauerhaft in einem Nutzerkonto gespeichert werden.' : '')
   const [isExpanded, setIsExpanded] = useState(false)
   const [removedStoragePaths, setRemovedStoragePaths] = useState<string[]>([])
   const [dragActive, setDragActive] = useState(false)

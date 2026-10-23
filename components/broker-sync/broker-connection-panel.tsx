@@ -127,8 +127,7 @@ export function BrokerConnectionPanel({
           <section className="rounded-3xl border border-white/8 bg-white/[0.02] p-5 sm:p-6">
             <h3 className="text-xl font-semibold text-white">Kein Setup verfügbar</h3>
             <p className="mt-3 text-sm leading-6 text-white/60">
-              Für einen unbekannten Provider existiert keine gebaute Setup-Komponente. Es werden keine Credentials
-              angefordert und keine Brokeraktion ausgeführt.
+              Für diesen Broker ist keine Verbindung verfügbar. Es werden keine Zugangsdaten abgefragt und keine Brokeraktionen ausgeführt.
             </p>
           </section>
         )}
@@ -136,14 +135,14 @@ export function BrokerConnectionPanel({
         <section aria-labelledby="connection-overview-title" className="rounded-3xl border border-white/8 bg-white/[0.02] p-5 sm:p-6">
           <div className="flex items-end justify-between gap-4">
             <div>
-              <p className="eq-display text-[0.58rem] text-[#b09a7a]">Connectionübersicht</p>
+              <p className="eq-display text-[0.58rem] text-[#b09a7a]">Verbindungsübersicht</p>
               <h3 id="connection-overview-title" className="mt-2 text-xl font-semibold text-white">Gelesene Verbindungen</h3>
             </div>
             <span className="text-xs text-white/60">
               {connectionListReadable
                 ? `${connections.length} gelesen`
                 : schemaState === 'missing'
-                  ? 'Schema nicht verfügbar'
+                  ? 'Einrichtung nicht verfügbar'
                   : 'Status nicht lesbar'}
             </span>
           </div>
@@ -160,17 +159,17 @@ export function BrokerConnectionPanel({
               />
             )) : connectionListReadable ? (
               <div className="rounded-2xl border border-dashed border-white/12 px-5 py-8 text-center">
-                <p className="text-sm font-medium text-white">Im gelesenen Connectionbestand ist kein Broker verbunden.</p>
+                <p className="text-sm font-medium text-white">In der geladenen Übersicht ist noch keine Verbindung vorhanden.</p>
                 <p className="mt-2 text-xs leading-5 text-white/60">
-                  Wähle einen gebauten Provider und nutze ausschließlich dessen getrennte Setupfelder.
+                  Wähle einen unterstützten Broker, um seine Verbindungseinstellungen anzusehen.
                 </p>
               </div>
             ) : (
               <div className="rounded-2xl border border-dashed border-white/12 px-5 py-8 text-center">
                 <p className="text-sm font-medium text-white">
                   {schemaState === 'missing'
-                    ? 'Connectionübersicht nicht verfügbar.'
-                    : 'Connectionübersicht derzeit nicht lesbar.'}
+                    ? 'Verbindungsübersicht nicht verfügbar.'
+                    : 'Verbindungsübersicht derzeit nicht lesbar.'}
                 </p>
                 <p className="mt-2 text-xs leading-5 text-white/60">
                   Der gespeicherte Verbindungsbestand bleibt unbekannt. Leere Daten werden nicht als fehlende Brokerverbindung interpretiert.
@@ -227,19 +226,19 @@ function ConnectionCard({
 
       <dl className="mt-4 grid gap-2 text-xs">
         <ConnectionDetail label="Technischer Leseerfolg" value={technicalReadLabel(connection.technicalReadResult)} />
-        <ConnectionDetail label="Read-only-Attestierung" value={attestationLabel(connection.readOnlyAttestation)} />
-        <ConnectionDetail label="Permission-Evidenz" value={permissionEvidenceLabel(connection.permissionEvidence)} />
+        <ConnectionDetail label="Leserechte laut Nutzer" value={attestationLabel(connection.readOnlyAttestation)} />
+        <ConnectionDetail label="Prüfung der Berechtigungen" value={permissionEvidenceLabel(connection.permissionEvidence)} />
         <ConnectionDetail label="Kontoidentität" value={identityLabel(connection.accountIdentityResult)} />
-        <ConnectionDetail label="Historische Coverage" value={coverageLabel(connection.historyCoverage)} />
+        <ConnectionDetail label="Erfasster Zeitraum" value={coverageLabel(connection.historyCoverage)} />
         <ConnectionDetail
-          label="Letzter qualifizierter Capturelauf"
+          label="Letzter bestätigter Datenabruf"
           value={formatCaptureDate(connection.lastCaptureAt, connection.historyCoverage)}
         />
       </dl>
 
       {connection.hasSanitizedError ? (
         <p className="mt-3 rounded-xl border border-red-300/15 bg-red-400/6 px-3 py-2 text-xs leading-5 text-red-100/70">
-          Die letzte serverseitige Prüfung meldete einen Fehler. Rohe Providertexte und Payloadwerte werden hier nicht angezeigt.
+          Die letzte serverseitige Prüfung meldete einen Fehler. Ungefilterte Brokerantworten werden aus Sicherheitsgründen nicht angezeigt.
         </p>
       ) : null}
 
@@ -294,7 +293,7 @@ function ConnectionDetail({ label, value }: { label: string; value: string }) {
 
 function technicalReadLabel(value: BrokerConnectionSummary['technicalReadResult']) {
   return value === 'legacy_read_observed'
-    ? 'Begrenzter Legacy-Leseabruf beobachtet'
+    ? 'Ein begrenzter früherer Leseabruf wurde bestätigt'
     : 'Probe-Ergebnis nicht dauerhaft gespeichert'
 }
 
@@ -304,19 +303,19 @@ function attestationLabel(value: BrokerConnectionSummary['readOnlyAttestation'])
 
 function permissionEvidenceLabel(value: BrokerConnectionSummary['permissionEvidence']) {
   return value === 'limited_read_observed'
-    ? 'Begrenzte Leseevidenz; keine Gesamtrechteprüfung'
+    ? 'Begrenzter Leseabruf bestätigt; vollständige Rechte nicht geprüft'
     : 'Keine dauerhafte technische Rechteübersicht'
 }
 
 function identityLabel(value: BrokerConnectionSummary['accountIdentityResult']) {
   return value === 'pseudonymous_binding_present'
-    ? 'Pseudonym serverseitig gebunden'
+    ? 'Konto über eine interne Kennung zugeordnet'
     : 'Keine serverseitige Kontobindung sichtbar'
 }
 
 function coverageLabel(value: BrokerConnectionSummary['historyCoverage']) {
-  if (value === 'capture_observed') return 'Capture-Daten beobachtet; keine Vollhistorie belegt'
-  if (value === 'unavailable') return 'Capture-Evidenz derzeit nicht verfügbar'
+  if (value === 'capture_observed') return 'Datenabruf bestätigt; vollständiger Zeitraum nicht belegt'
+  if (value === 'unavailable') return 'Nachweis zum Datenabruf derzeit nicht verfügbar'
   return 'In verfügbaren Laufdaten nicht beobachtet'
 }
 
@@ -333,6 +332,6 @@ function formatCaptureDate(
   if (coverage === 'unavailable') return 'Derzeit nicht verfügbar'
   if (!value) return 'Kein qualifizierter Lauf beobachtet'
   const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return 'Evidenzzeitpunkt ungültig'
+  if (Number.isNaN(date.getTime())) return 'Zeitpunkt des Nachweises ungültig'
   return new Intl.DateTimeFormat('de-DE', { dateStyle: 'short', timeStyle: 'short' }).format(date)
 }

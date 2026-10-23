@@ -13,19 +13,20 @@ export function RuntimeStatusCard() {
     <section className="rounded-[28px] border border-amber-400/20 bg-amber-400/[0.07] p-5 shadow-xl">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
         <div className="max-w-3xl">
-          <p className="text-[10px] uppercase tracking-[0.28em] text-amber-200/75">Runtime-Status</p>
+          <p className="text-[10px] uppercase tracking-[0.28em] text-amber-200/75">Einrichtungsstatus</p>
           <h2 className="mt-2 text-xl font-semibold text-white">
-            {status.mode === 'demo' ? 'Deploy-Konfiguration unvollständig' : 'Server-Erweiterung noch nicht komplett'}
+            {status.mode === 'demo' ? 'Du siehst die Demo' : 'Einige Funktionen sind noch nicht eingerichtet'}
           </h2>
           <p className="mt-2 text-sm leading-6 text-white/70">
             {status.mode === 'demo'
-              ? 'Equora läuft gerade fehlertolerant im Demo-Modus. Login, Sync und Storage bleiben bewusst weich, bis die fehlenden Env-Werte gesetzt sind.'
-              : 'Die App läuft, aber serverseitige Admin- und Service-Role-Wege bleiben eingeschränkt, bis alle Env-Werte vorhanden sind.'}
+              ? 'Diese Umgebung verwendet Beispieldaten. Für ein persönliches Journal muss die Kontoverbindung eingerichtet werden.'
+              : 'Die Servereinrichtung ist noch unvollständig. Bitte wende dich an die Administration, wenn eine Funktion nicht verfügbar ist.'}
           </p>
         </div>
-        <div className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-amber-100/85">
-          Fehlende Werte: {list.join(', ')}
-        </div>
+        <details className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm text-amber-100/85">
+          <summary className="cursor-pointer">Technische Hinweise für die Administration</summary>
+          <p className="mt-2 break-words">Fehlende Einstellungen: {list.join(', ')}</p>
+        </details>
       </div>
       {status.warnings.length ? (
         <div className="mt-4 flex flex-wrap gap-2">
