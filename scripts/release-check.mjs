@@ -12,10 +12,10 @@ const packageJson = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
 const expected = {
   name: 'equora-starter-v57.61.0',
   version: '0.57.61-0',
-  next: '15.5.27',
+  next: '15.5.28',
   sharp: '0.35.5',
   postcss: '8.5.23',
-  vitest: '4.1.11',
+  vitest: '4.1.12',
   tailwind: '4.3.3',
   sourceMapJs: '1.2.2',
 }
