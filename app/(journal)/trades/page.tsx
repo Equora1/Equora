@@ -71,6 +71,8 @@ function buildTradeFormInitialValues(
   const partialExits = Array.isArray(row.partial_exits) ? row.partial_exits : []
   const cleanNotes = extractTradeImportMeta(row.notes).cleanNotes
   return {
+    createdAt: row.created_at,
+    capturedAt: row.captured_at ?? undefined,
     market: row.market,
     setup: linkedSetup?.title ?? row.setup,
     setupId: linkedSetup?.id ?? '',

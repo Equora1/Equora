@@ -27,7 +27,7 @@ import {
   validateTradeCaptureInput,
 } from '@/lib/utils/trade-validation'
 import { inferTradeCaptureResultFromPnL } from '@/lib/utils/trade-capture'
-import { deriveTradeSessionLabel, resolveTradeTimeInputToIso } from '@/lib/utils/trade-time'
+import { deriveTradeSessionLabel, getTradeTimeInputError, resolveTradeTimeInputToIso } from '@/lib/utils/trade-time'
 import { appendTradeImportMeta, extractTradeImportMeta } from '@/lib/utils/trade-import-meta'
 import type { TradeMediaUploadInput } from '@/lib/types/media'
 import { assertOwnedTradeMediaPath } from '@/lib/utils/media-security'
@@ -387,7 +387,8 @@ export async function createTradeEntry(input: CreateTradeInput) {
 export async function updateTradeEntry(tradeId: string, input: CreateTradeInput) {
   const normalizedInput = { ...input, exit: resolveEffectiveExit(input) }
   const partialExits = resolvePartialExits(input)
-  const validation = validateTradeCaptureInput(normalizedInput)
+  // Time validation needs the owned stored instant to preserve an unchanged DST fold.
+  const validation = validateTradeCaptureInput({ ...normalizedInput, tradeOccurredAt: '' })
 
   if (!validation.isValid) {
     return {
@@ -421,6 +422,8 @@ export async function updateTradeEntry(tradeId: string, input: CreateTradeInput)
   }
 
   if (!hasSupabaseClientEnv()) {
+    const timeError = getTradeTimeInputError(input.tradeOccurredAt)
+    if (timeError) return { success: false, mode: 'demo' as const, tradeId, message: timeError, fieldErrors: { tradeOccurredAt: timeError } }
     return {
       success: true,
       mode: 'demo' as const,
@@ -451,7 +454,10 @@ export async function updateTradeEntry(tradeId: string, input: CreateTradeInput)
     }
 
     const timestamp = new Date().toISOString()
-    const resolvedTradeOccurredAt = resolveTradeTimeInputToIso(input.tradeOccurredAt, existingTrade.captured_at ?? existingTrade.created_at ?? timestamp)
+    const originalTradeTimeIso = existingTrade.captured_at ?? existingTrade.created_at ?? timestamp
+    const timeError = getTradeTimeInputError(input.tradeOccurredAt, originalTradeTimeIso)
+    if (timeError) return { success: false, mode: 'supabase' as const, tradeId, message: timeError, fieldErrors: { tradeOccurredAt: timeError } }
+    const resolvedTradeOccurredAt = resolveTradeTimeInputToIso(input.tradeOccurredAt, originalTradeTimeIso, originalTradeTimeIso)
     const normalizedBrokerProfile = normalizeTradeBrokerProfile(input.brokerProfile)
     const brokerPreset = getTradeBrokerProfilePreset(normalizedBrokerProfile)
     const normalizedInstrumentType = normalizeInstrumentType(input.instrumentType || brokerPreset.defaultInstrumentType)

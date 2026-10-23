@@ -1107,12 +1107,12 @@ export function TradeForm({
     const basePayload = buildTradePayload(formData)
     const payload = {
       ...basePayload,
-      tradeOccurredAt: basePayload.tradeOccurredAt.trim() || new Date().toISOString(),
+      tradeOccurredAt: basePayload.tradeOccurredAt.trim() || (isEditMode ? '' : new Date().toISOString()),
       // Send the final remainder price. The server action computes the stored average exactly once.
       exit: basePayload.exit,
       notes: basePayload.notes,
     }
-    const validation = validateTradeCaptureInput(payload)
+    const validation = validateTradeCaptureInput(payload, isEditMode ? initialValues?.capturedAt ?? initialValues?.createdAt : undefined)
 
     if (!validation.isValid) {
       setValidationErrors(validation.errors)
@@ -1293,11 +1293,12 @@ export function TradeForm({
             />
             <ControlledInput
               name="trade_occurred_at"
-              label="Trade-Zeit"
+              label="Trade-Zeit (Berlin)"
               placeholder="Zeit anpassen"
               value={tradeOccurredAtValue}
               onChange={(event) => setTradeOccurredAtValue(event.target.value)}
               type="datetime-local"
+              helper="Berliner Ortszeit, Sommer- und Winterzeit werden berücksichtigt."
             />
             <ControlledDatalistInput
               name="setup"
