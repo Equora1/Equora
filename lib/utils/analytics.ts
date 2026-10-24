@@ -6,7 +6,7 @@ import {
   formatRMultiple,
   parseTradingNumber,
 } from '@/lib/utils/calculations'
-import { deriveTradeKillZoneLabel, deriveTradeSessionLabel, getTradeHourInTimezone, resolveTradeOccurredAt } from '@/lib/utils/trade-time'
+import { deriveTradeKillZoneLabel, deriveTradeSessionLabel, getTradeDateKey, getTradeHourInTimezone, resolveTradeOccurredAt } from '@/lib/utils/trade-time'
 import { resolveMonetaryScope, type MonetaryScope } from '@/lib/utils/currency'
 import { MIN_ANALYTICS_BUCKET_SIZE } from '@/lib/utils/statistics-scope'
 import { summarizeTradeR } from '@/lib/utils/trade-r'
@@ -123,15 +123,6 @@ function sortTradesChronologically(trades: Trade[]) {
   return [...trades].sort((a, b) => new Date(resolveTradeOccurredAt(a)).getTime() - new Date(resolveTradeOccurredAt(b)).getTime())
 }
 
-function toLocalDateKey(value: string | Date) {
-  const date = value instanceof Date ? value : new Date(value)
-  if (Number.isNaN(date.getTime())) return ''
-  const year = date.getFullYear()
-  const month = String(date.getMonth() + 1).padStart(2, '0')
-  const day = String(date.getDate()).padStart(2, '0')
-  return `${year}-${month}-${day}`
-}
-
 export function buildStreakMetrics(trades: Trade[], today = new Date()): StreakMetrics {
   let currentWinStreak = 0
   let currentLossStreak = 0
@@ -161,8 +152,8 @@ export function buildStreakMetrics(trades: Trade[], today = new Date()): StreakM
     longestLossStreak = Math.max(longestLossStreak, currentLossStreak)
   }
 
-  const todayKey = toLocalDateKey(today)
-  const todaysTrades = trades.filter((trade) => toLocalDateKey(resolveTradeOccurredAt(trade)) === todayKey)
+  const todayKey = Number.isFinite(today.getTime()) ? getTradeDateKey(today.toISOString()) : null
+  const todaysTrades = todayKey ? trades.filter((trade) => getTradeDateKey(resolveTradeOccurredAt(trade)) === todayKey) : []
   const todayWins = todaysTrades.filter((trade) => (getTradePnL(trade) ?? 0) > 0).length
   const todayLosses = todaysTrades.filter((trade) => (getTradePnL(trade) ?? 0) < 0).length
   const todayBreakeven = todaysTrades.filter((trade) => getTradePnL(trade) === 0).length

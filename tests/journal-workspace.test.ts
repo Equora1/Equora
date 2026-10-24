@@ -7,7 +7,7 @@ vi.mock('@/lib/supabase/server', () => ({ createSupabaseServerClient: mocks.clie
 vi.mock('@/lib/supabase/server-auth', () => ({ createSupabaseAuthServerClient: mocks.client }))
 vi.mock('@/lib/server/performance', () => ({ measurePerformance: (_name: string, _kind: string, run: () => unknown) => run() }))
 vi.mock('@/lib/server/media-access', () => ({ signTradeMediaRows: vi.fn(async (_client: unknown, rows: unknown[]) => rows), signSetupMediaRows: vi.fn(async (_client: unknown, rows: unknown[]) => rows) }))
-import { getTradesWorkspaceSnapshotServer, getStatisticsSnapshotServer, getReviewSnapshotServer } from '@/lib/server/journal'
+import { getTradesWorkspaceSnapshotServer, getStatisticsSnapshotServer, getReviewSnapshotServer, getSetupsSnapshotServer } from '@/lib/server/journal'
 import { mapTradeRowToTrade } from '@/lib/server/transformers'
 import { getCoreMetrics } from '@/lib/utils/analytics'
 import { buildTagStats } from '@/lib/utils/tag-analytics'
@@ -61,7 +61,7 @@ class Query {
 
 beforeEach(() => {
   mocks.configured = true; mocks.server = true; failTable = undefined; legacy = false; fault = undefined; calls = []
-  tables = { trades: [], trade_tags: [], setup_trade_links: [], trade_media: [], setups: [] }
+  tables = { trades: [], trade_tags: [], setup_trade_links: [], trade_media: [], setups: [], setup_media: [] }
   mocks.client.mockReset().mockReturnValue({ from: (table: string) => new Query(table) })
 })
 
@@ -288,4 +288,58 @@ describe('complete Review uses the same owner-bound collection contract',()=>{
   expect((await getReviewSnapshotServer()).availability).toBe('unauthenticated');mocks.configured=false
   const demo=await getReviewSnapshotServer();expect(demo.availability).toBe('ready');expect(demo.tradeRows).toHaveLength(4);expect(demo.dailyNotes.length).toBeGreaterThan(0)
  })
+})
+
+describe('complete Setup snapshot retains media and explicit availability', () => {
+  function seedSetups() {
+    tables.trades = Array.from({ length: 1274 }, (_, i) => ({ id: `t-${i}`, user_id: 'owner-a', setup: i < 1000 ? 'New setup' : 'Old setup', created_at: '2026-01-01T11:00:00Z', market: 'TEST', net_pnl: 1, pnl_mode: 'manual', account_currency: 'USDT', capture_status: 'complete' }))
+    tables.trades.push({ id: 'foreign', user_id: 'owner-b', setup: 'Hidden' })
+    tables.setups = [{ id: 'own', user_id: 'owner-a', title: 'Linked setup' }, { id: 'master', user_id: 'owner-b', is_master: true, title: 'Shared template' }, { id: 'private', user_id: 'owner-b' }]
+    tables.setup_trade_links = Array.from({ length: 1274 }, (_, i) => ({ id: `link-${i}`, user_id: 'owner-a', trade_id: `t-${i}`, setup_id: 'own' }))
+    tables.trade_media = Array.from({ length: 1103 }, (_, i) => ({ id: `image-${i}`, user_id: 'owner-a', trade_id: 't-1273', sort_order: i, created_at: '2026-01-01T11:00:00Z', public_url: `signed-trade-${i}` }))
+    tables.setup_media = Array.from({ length: 1103 }, (_, i) => ({ id: `cover-${i}`, user_id: 'owner-a', setup_id: 'own', sort_order: i, created_at: '2026-01-01T11:00:00Z', is_cover: i === 1102, public_url: `signed-setup-${i}` }))
+    tables.setup_media.push({ id: 'orphan', user_id: 'owner-a', setup_id: 'private', public_url: 'not-visible' })
+  }
+  it('collects all 1274 trades, late links and both media types through short API pages', async () => {
+    seedSetups()
+    const result = await getSetupsSnapshotServer('owner-a')
+    expect(result.availability).toBe('ready')
+    expect(result.tradeRows).toHaveLength(1274)
+    expect(result.tradeRows.some(row => row.setup === 'Old setup')).toBe(true)
+    expect(result.setupRows.map(row => row.id)).toEqual(['own', 'master'])
+    expect(result.setupTradeLinkRows).toHaveLength(1274)
+    expect(result.tradeMediaRows).toHaveLength(1103)
+    expect(result.setupMediaRows).toHaveLength(1103)
+    expect(result.tradeRows.find(row => row.id === 't-1273')?.screenshot_url).toBe('signed-trade-0')
+    expect(result.setupRows.find(row => row.id === 'own')?.cover_image_url).toBe('signed-setup-1102')
+    expect(calls.every(call => call.count === 'exact' && call.order === 'id')).toBe(true)
+    expect(calls.filter(call => call.table === 'trade_media' || call.table === 'setup_media').every(call => call.owner === 'owner-a')).toBe(true)
+  })
+  it.each(['trades', 'setups', 'setup_trade_links', 'trade_media', 'setup_media'])('does not present empty/partial success after a failed %s read', async table => {
+    seedSetups(); failTable = table
+    const result = await getSetupsSnapshotServer('owner-a')
+    expect(result.availability).toBe('unavailable')
+    expect(result.tradeRows).toEqual([])
+    expect(result.setupRows).toEqual([])
+    expect(result.tradeMediaRows).toEqual([])
+    expect(result.setupMediaRows).toEqual([])
+  })
+  it.each(['later-error', 'missing-count', 'early-end', 'changed-count', 'duplicate'] as const)('rejects %s in a later Setup/media collection', async mode => {
+    seedSetups(); fault = { table: 'setup_media', mode }
+    expect((await getSetupsSnapshotServer('owner-a')).availability).toBe('unavailable')
+  })
+  it('retains the 10000-trade boundary, no partial Setup performance', async () => {
+    tables.trades = Array.from({ length: 10001 }, (_, i) => ({ id: `t-${i}`, user_id: 'owner-a' }))
+    expect((await getSetupsSnapshotServer('owner-a')).availability).toBe('unavailable')
+  })
+  it('keeps ready-empty, unauthenticated and explicit demo distinct with demo images retained', async () => {
+    expect((await getSetupsSnapshotServer('owner-a')).availability).toBe('ready')
+    expect((await getSetupsSnapshotServer()).availability).toBe('unauthenticated')
+    mocks.configured = false
+    const demo = await getSetupsSnapshotServer()
+    expect(demo.source).toBe('mock'); expect(demo.tradeRows).toHaveLength(4)
+    expect(demo.tradeMediaRows.length).toBeGreaterThan(0)
+    expect(demo.setupMediaRows.length).toBeGreaterThan(0)
+    expect(demo.dailyNotes).toEqual([])
+  })
 })

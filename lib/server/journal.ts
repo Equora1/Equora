@@ -882,15 +882,7 @@ export function getReviewSnapshotServer(userId?: string | null) {
 }
 
 export function getSetupsSnapshotServer(userId?: string | null) {
-  return measurePerformance('snapshot.setups.total', 'page', () => getJournalSnapshotServer(userId, {
-    includeTradeTags: false,
-    includeTradeMedia: true,
-    includeSetupRows: true,
-    includeSetupMedia: true,
-    includeSetupTradeLinks: true,
-    includeDailyNotes: false,
-    diagnosticRoute: '/setups',
-  }), { route: '/setups' })
+  return measurePerformance('snapshot.setups.total', 'page', () => loadCompleteJournalSnapshotServer(userId, false, false, true), { route: '/setups' })
 }
 
 export function getTradesSnapshotServer(
@@ -917,7 +909,7 @@ export function getTradesWorkspaceSnapshotServer(userId?: string | null) {
   return loadCompleteJournalSnapshotServer(userId, true);
 }
 
-async function loadCompleteJournalSnapshotServer(userId: string | null | undefined, includeMediaCounts: boolean, includeDailyNotes = false) {
+async function loadCompleteJournalSnapshotServer(userId: string | null | undefined, includeMediaCounts: boolean, includeDailyNotes = false, includeSetupMedia = false) {
   type WorkspaceSnapshot = JournalSnapshot & {
     availability: DashboardJournalSnapshot['availability'];
     tradeMediaCounts: Record<string, number>;
@@ -925,8 +917,8 @@ async function loadCompleteJournalSnapshotServer(userId: string | null | undefin
   const unavailable = (): WorkspaceSnapshot => ({ ...getEmptySnapshot(), availability: 'unavailable', tradeMediaCounts: {} });
   if (!hasSupabaseClientEnv()) {
     const snapshot = includeMediaCounts ? getMockSnapshot() : getMockSnapshotForOptions({
-      includeTradeTags: true, includeTradeMedia: false, includeSetupRows: true,
-      includeSetupMedia: false, includeSetupTradeLinks: true, includeDailyNotes,
+      includeTradeTags: true, includeTradeMedia: includeSetupMedia, includeSetupRows: true,
+      includeSetupMedia, includeSetupTradeLinks: true, includeDailyNotes,
     });
     const counts: Record<string, number> = {};
     if (includeMediaCounts) for (const row of snapshot.tradeMediaRows) counts[row.trade_id] = (counts[row.trade_id] ?? 0) + 1;
@@ -951,7 +943,8 @@ async function loadCompleteJournalSnapshotServer(userId: string | null | undefin
           .eq('trades.user_id', owner).order('id').range(from, to)
       ) as unknown as JournalRowPage<TradeTag>, 100_000),
       readRelated<SetupTradeLinkRow>('setup_trade_links', SETUP_LINK_SELECT_COLUMNS),
-      includeMediaCounts ? readRelated<{ id: string; trade_id: string }>('trade_media', 'id,trade_id') : Promise.resolve([]),
+      includeSetupMedia ? readRelated<TradeMediaRow>('trade_media', TRADE_MEDIA_SELECT_COLUMNS)
+        : includeMediaCounts ? readRelated<{ id: string; trade_id: string }>('trade_media', 'id,trade_id') : Promise.resolve([]),
       collectJournalRows<SetupRow>(async (from, to) => {
         let response = await supabase.from('setups').select(SETUP_SELECT_COLUMNS, { count: 'exact' }).or(`user_id.eq.${owner},is_master.eq.true`).order('id').range(from, to);
         if (isMissingColumnError(response.error?.message, 'is_master')) response = await supabase.from('setups').select(SETUP_SELECT_COLUMNS_LEGACY, { count: 'exact' }).eq('user_id', owner).order('id').range(from, to);
@@ -960,11 +953,27 @@ async function loadCompleteJournalSnapshotServer(userId: string | null | undefin
       includeDailyNotes ? readRelated<DailyNoteRow>('daily_notes', DAILY_NOTE_SELECT_COLUMNS) : Promise.resolve([]),
     ]);
     const tradeIds = new Set(tradeRows.map(row => row.id));
+    const setupIds = new Set(setups.map(row => row.id));
+    const [signedTradeMediaRows, signedSetupMediaRows] = includeSetupMedia ? await Promise.all([
+      signTradeMediaRows(supabase, (media as TradeMediaRow[]).filter(row => tradeIds.has(row.trade_id)), owner),
+      readRelated<SetupMediaRow>('setup_media', SETUP_MEDIA_SELECT_COLUMNS)
+        .then(rows => signSetupMediaRows(supabase, rows.filter(row => setupIds.has(row.setup_id)), owner)),
+    ]) : [[], []];
+    // The complete reader orders by ID for pagination; presentation keeps the
+    // prior media sort/cover semantics after the whole collection is verified.
+    signedTradeMediaRows.sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0) || a.created_at.localeCompare(b.created_at));
+    signedSetupMediaRows.sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0) || a.created_at.localeCompare(b.created_at));
+    const primaryTradeUrlById: Record<string, string> = {};
+    for (const row of signedTradeMediaRows) if (!primaryTradeUrlById[row.trade_id] && row.public_url) primaryTradeUrlById[row.trade_id] = row.public_url;
+    const coverSetupUrlById: Record<string, string> = {};
+    for (const row of signedSetupMediaRows) if (row.public_url && (!coverSetupUrlById[row.setup_id] || row.is_cover)) coverSetupUrlById[row.setup_id] = row.public_url;
     const tradeMediaCounts: Record<string, number> = {};
     for (const row of media) if (tradeIds.has(row.trade_id)) tradeMediaCounts[row.trade_id] = (tradeMediaCounts[row.trade_id] ?? 0) + 1;
     return {
-      ...getEmptySnapshot(), tradeRows: tradeRows.map(row => ({ ...row, screenshot_url: null })), tradeTags: tags.filter(row => tradeIds.has(row.trade_id)),
-      setupTradeLinkRows: links.filter(row => tradeIds.has(row.trade_id)), setupRows: setups, dailyNotes: notes,
+      ...getEmptySnapshot(), tradeRows: tradeRows.map(row => ({ ...row, screenshot_url: primaryTradeUrlById[row.id] ?? null })), tradeTags: tags.filter(row => tradeIds.has(row.trade_id)),
+      tradeMediaRows: signedTradeMediaRows, setupMediaRows: signedSetupMediaRows,
+      setupTradeLinkRows: links.filter(row => tradeIds.has(row.trade_id)),
+      setupRows: includeSetupMedia ? setups.map(row => ({ ...row, cover_image_url: coverSetupUrlById[row.id] ?? null })) : setups, dailyNotes: notes,
       availability: 'ready', tradeMediaCounts,
     } satisfies WorkspaceSnapshot;
   } catch (error) {

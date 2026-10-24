@@ -4,6 +4,7 @@ import type { TradeTag } from '@/lib/types/tag'
 import { getCoreMetrics } from '@/lib/utils/analytics'
 import { formatCurrency, formatRMultiple } from '@/lib/utils/calculations'
 import { formatTradeDateLabel } from '@/lib/utils/date-format'
+import { getTradeDateKey } from '@/lib/utils/trade-time'
 import { buildTagStats } from '@/lib/utils/tag-analytics'
 import { buildTagPairStats, buildTradesHref, clampNumber, formatDelta, getWeekdayLabel, hasKeywordMatch, PROCESS_TAG_KEYWORDS } from '@/lib/utils/review-helpers'
 import type { ReviewNoteMoment, ReviewSignal, ReviewTagComparisonItem } from '@/lib/utils/review-types'
@@ -313,8 +314,10 @@ export function buildPlaybook(tradesCurrent: Trade[], tradeTags: TradeTag[], tra
 export function buildNoteMoments(notes: DailyNoteRow[], currentStart: Date, currentEnd: Date): ReviewNoteMoment[] {
   return notes
     .filter((note) => {
-      const noteTime = new Date(note.trade_date)
-      return noteTime >= currentStart && noteTime <= currentEnd
+      // trade_date is a written calendar day, not a UTC midnight instant.
+      const firstDay = getTradeDateKey(currentStart.toISOString())!
+      const lastDay = getTradeDateKey(currentEnd.toISOString())!
+      return note.trade_date >= firstDay && note.trade_date <= lastDay
     })
     .slice(0, 3)
     .map((note) => ({

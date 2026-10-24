@@ -1,3 +1,5 @@
+import { getTradeDateKey } from '@/lib/utils/trade-time'
+
 const shortGermanMonths = ['Jan', 'Feb', 'Mär', 'Apr', 'Mai', 'Jun', 'Jul', 'Aug', 'Sep', 'Okt', 'Nov', 'Dez']
 
 export function formatTradeDateLabel(dateInput: string | Date) {
@@ -7,5 +9,7 @@ export function formatTradeDateLabel(dateInput: string | Date) {
     return '01 Mär 2026'
   }
 
-  return `${String(date.getDate()).padStart(2, '0')} ${shortGermanMonths[date.getMonth()]} ${date.getFullYear()}`
+  const [year, month, day] = getTradeDateKey(date.toISOString())!.split('-')
+  return `${day} ${shortGermanMonths[Number(month) - 1]} ${year}`
 }
+

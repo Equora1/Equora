@@ -7,6 +7,7 @@ import { buildReviewSnapshotSummary, REVIEW_CALCULATION_VERSION } from '@/lib/ut
 import { scopeReviewDrilldownLinks, type ReviewDrilldownScope } from '@/lib/utils/review-drilldown-scope'
 import { buildTagStats } from '@/lib/utils/tag-analytics'
 import { resolveTradeOccurredAt } from '@/lib/utils/trade-time'
+import { journalPeriodEndingOn } from '@/lib/utils/journal-day'
 
 import {
   buildWindowLabel,
@@ -51,19 +52,8 @@ function getPeriodWindows(trades: Trade[], preset: ReviewPeriodPreset) {
   const chronological = sortTradesChronologically(trades)
   const latestTrade = chronological[chronological.length - 1]
   const latestTradeDate = latestTrade ? new Date(resolveTradeOccurredAt(latestTrade)) : new Date()
-  const currentEnd = new Date(latestTradeDate)
-  currentEnd.setHours(23, 59, 59, 999)
-
   const presetConfig = REVIEW_PERIOD_OPTIONS.find((item) => item.key === preset) ?? REVIEW_PERIOD_OPTIONS[0]
-  const currentStart = new Date(currentEnd)
-  currentStart.setDate(currentEnd.getDate() - (presetConfig.days - 1))
-  currentStart.setHours(0, 0, 0, 0)
-
-  const previousEnd = new Date(currentStart)
-  previousEnd.setMilliseconds(-1)
-
-  const previousStart = new Date(currentStart)
-  previousStart.setDate(currentStart.getDate() - presetConfig.days)
+  const { start: currentStart, end: currentEnd, previousStart, previousEnd } = journalPeriodEndingOn(latestTradeDate, presetConfig.days)
 
   return {
     currentStart,

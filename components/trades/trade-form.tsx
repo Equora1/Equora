@@ -315,7 +315,7 @@ export function TradeForm({
   const [tradeDirection, setTradeDirection] = useState(initialValues?.bias?.trim() || biases[0] || '')
   const [reviewRuleCheck, setReviewRuleCheck] = useState(initialValues?.ruleCheck?.trim() || '')
   const [reviewRepeatability, setReviewRepeatability] = useState(initialValues?.reviewRepeatability?.trim() || '')
-  const [reviewState, setReviewState] = useState(initialValues?.reviewState?.trim() || initialValues?.emotion?.trim() || '')
+  const [reviewState, setReviewState] = useState(initialValues?.reviewState?.trim() || '')
   const [reviewLesson, setReviewLesson] = useState(initialValues?.reviewLesson?.trim() || '')
   const reviewLayerProgress = getReviewLayerProgress([reviewRuleCheck, reviewRepeatability, reviewState, reviewLesson])
 
@@ -1382,7 +1382,7 @@ export function TradeForm({
 
           {isEditMode ? (
             <>
-              <input type="hidden" name="emotion" value={reviewState} />
+              <input type="hidden" name="emotion" value={initialValues?.emotion ?? ''} />
               <input type="hidden" name="rule_check" value={reviewRuleCheck} />
               <input type="hidden" name="review_repeatability" value={reviewRepeatability} />
               <input type="hidden" name="review_state" value={reviewState} />
@@ -1461,10 +1461,10 @@ export function TradeForm({
             </>
           ) : (
             <>
-              <input type="hidden" name="emotion" value={initialValues?.emotion ?? emotions[0] ?? ''} />
+              <input type="hidden" name="emotion" value={initialValues?.emotion ?? ''} />
               <input type="hidden" name="rule_check" value={initialValues?.ruleCheck ?? ''} />
               <input type="hidden" name="review_repeatability" value={initialValues?.reviewRepeatability ?? ''} />
-              <input type="hidden" name="review_state" value={initialValues?.reviewState ?? initialValues?.emotion ?? ''} />
+              <input type="hidden" name="review_state" value={initialValues?.reviewState ?? ''} />
               <input type="hidden" name="review_lesson" value={initialValues?.reviewLesson ?? ''} />
             </>
           )}
