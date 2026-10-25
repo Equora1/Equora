@@ -195,11 +195,11 @@ export function SetupExplorer({
             <p className="text-[10px] uppercase tracking-[0.24em] text-[#998a72]">Setup-Ergebnisse</p>
             <h3 className="mt-2 text-xl font-semibold text-white">Ergebnisse nach Setup</h3>
           </div>
-          {weakestSetup ? <div className="rounded-full border border-red-300/15 bg-red-400/[0.06] px-3 py-1 text-xs text-red-100/80">Prüfen: {weakestSetup.title}</div> : null}
+          {weakestSetup ? <div className="min-w-0 break-words rounded-full border border-red-300/15 bg-red-400/[0.06] px-3 py-1 text-xs text-red-100/80">Prüfen: {weakestSetup.title}</div> : null}
         </div>
 
         {strongestSetups.length ? (
-          <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
             {strongestSetups.map((row) => (
               <SetupPerformanceTile key={row.title} row={row} active={selectedSetup === row.title} onClick={() => setSelectedSetup(row.title)} />
             ))}
@@ -252,20 +252,20 @@ function SetupPerformanceTile({ row, active, onClick }: { row: SetupPerformanceR
     <button
       type="button"
       onClick={onClick}
-      className={`rounded-[22px] border p-4 text-left transition hover:border-orange-300/35 ${toneClass} ${active ? 'ring-1 ring-orange-300/35' : ''}`}
+      className={`min-w-0 w-full rounded-[22px] border p-4 text-left transition hover:border-orange-300/35 ${toneClass} ${active ? 'ring-1 ring-orange-300/35' : ''}`}
     >
       <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p className="truncate text-sm font-semibold text-white">{row.title}</p>
-          <p className="mt-1 text-xs text-white/45">{row.trades} Trades</p>
+        <div className="min-w-0 flex-1">
+          <p className="break-words text-sm font-semibold text-white">{row.title}</p>
+          <p className="mt-1 text-xs text-white/45">{row.trades} {row.trades === 1 ? 'Trade' : 'Trades'}</p>
         </div>
-        <span className="rounded-full border border-white/10 bg-black/20 px-2.5 py-1 text-[11px] text-white/58">{display.winRate}</span>
+        <span className="shrink-0 rounded-full border border-white/10 bg-black/20 px-2.5 py-1 text-[11px] text-white/58">{display.winRate}</span>
       </div>
-      <p className="mt-4 text-2xl font-semibold tabular-nums text-white">{display.pnl}</p>
+      <p className="mt-4 break-words text-2xl font-semibold tabular-nums text-white">{display.pnl}</p>
       <div className="mt-3 grid grid-cols-3 gap-2 text-[11px] text-white/58">
-        <span>PF {display.profitFactor}</span>
-        <span>ØR {display.averageR}</span>
-        <span>{display.riskCoverage} Risiko</span>
+        <span className="min-w-0 break-words">PF {display.profitFactor}</span>
+        <span className="min-w-0 break-words">ØR {display.averageR}</span>
+        <span className="min-w-0 break-words">{display.riskCoverage} Risiko</span>
       </div>
       <p className="mt-2 text-xs leading-5 text-white/55">{row.statusHint}</p>
     </button>
