@@ -40,14 +40,14 @@ function buildFocusSuggestion(snapshot: ReviewSnapshot) {
   const lossStreak = snapshot.weakSpots.find((item) => item.label === 'Verlustserie')
   const processAnchor = snapshot.tagRadar.find((item) => item.label === 'Prozess-Anker')
 
-  if (reviewRuleRisk) return 'Vor dem ersten Entry den Regelcheck sichtbar gegenlesen'
+  if (reviewRuleRisk) return 'Vor dem ersten Einstieg den Regelcheck sichtbar gegenlesen'
   if (reviewStateRisk) return `${cleanLead(reviewStateRisk.value)} früh erkennen und Tempo rausnehmen`
   if (reviewRepeatability) return `${cleanLead(reviewRepeatability.value)} bewusst als Referenz nutzen`
   if (weakSetup) return `${cleanLead(weakSetup.value)} nur mit Bestätigung handeln`
-  if (negativeTrigger) return `Vor jedem Entry ${cleanLead(negativeTrigger.value)} gegenprüfen`
-  if (lossStreak) return 'Nach zwei roten Trades sofort in den Cooldown gehen'
+  if (negativeTrigger) return `Vor jedem Einstieg ${cleanLead(negativeTrigger.value)} gegenprüfen`
+  if (lossStreak) return 'Nach zwei Verlusttrades eine Handelspause einlegen'
   if (bestSetup) return `${cleanLead(bestSetup.value)} priorisieren`
-  if (processAnchor) return `${cleanLead(processAnchor.value)} replizieren`
+  if (processAnchor) return `${cleanLead(processAnchor.value)} gezielt nachbereiten`
   return 'Selektiv bleiben und nur saubere Trigger handeln'
 }
 
@@ -77,6 +77,26 @@ function dedupeSteps(steps: ReviewActionStep[]) {
 }
 
 export function buildReviewActionPlan(snapshot: ReviewSnapshot): ReviewActionPlan {
+  if (snapshot.sessionDraft.monetaryScopeKind !== 'single') {
+    const hasTrades = snapshot.sessionDraft.tradeCount > 0
+    const kind = snapshot.sessionDraft.monetaryScopeKind
+    const focus = !hasTrades ? 'Trades für diesen Zeitraum erfassen'
+      : kind === 'mixed' ? 'Trades nach Währung trennen'
+      : kind === 'unknown' ? 'Währungsangaben prüfen' : 'Ergebnisse ergänzen'
+    const instruction = !hasTrades ? 'Erfasse einen Trade, damit du ihn anschließend nachbereiten kannst.'
+      : kind === 'mixed' ? 'Filtere nach einer Währung, bevor du Geldbeträge vergleichst.'
+      : kind === 'unknown' ? 'Prüfe die Währung deiner Ergebnisse anhand deiner Konto- oder Brokerunterlagen.'
+      : 'Ergänze die fehlenden Ergebnisse anhand deiner Aufzeichnungen.'
+    return {
+      headline: 'Review vorbereiten',
+      summary: snapshot.summary,
+      dailyFocusSuggestion: focus,
+      watchword: focus,
+      steps: [{ lane: 'Nächster Schritt', title: focus, instruction, reason: snapshot.summary, tone: 'orange', href: '/trades' }],
+      checklist: [focus, ...(hasTrades ? ['Deine Entscheidungen und Notizen nachbereiten'] : [])],
+    }
+  }
+
   const bestSetup = snapshot.topPerformers.find((item) => item.label === 'Bestes Setup') ?? snapshot.topPerformers[0]
   const bestMarket = snapshot.topPerformers.find((item) => item.label === 'Stärkster Markt')
   const processAnchor = snapshot.tagRadar.find((item) => item.label === 'Prozess-Anker') ?? snapshot.topPerformers[0]
@@ -101,7 +121,7 @@ export function buildReviewActionPlan(snapshot: ReviewSnapshot): ReviewActionPla
     steps.push({
       lane: 'Verhaltensprüfung',
       title: 'Regelcheck sichtbar machen',
-      instruction: 'Lege den Regelcheck vor den ersten Entry legen.',
+      instruction: 'Prüfe deine Regeln vor dem ersten Einstieg.',
       reason: shortenSentence(reviewRisk.detail),
       tone: 'red',
       href: '/trades',
@@ -110,7 +130,7 @@ export function buildReviewActionPlan(snapshot: ReviewSnapshot): ReviewActionPla
     steps.push({
       lane: 'Verhaltensprüfung',
       title: `${cleanLead(reviewStateRisk.value)} früh abbremsen`,
-      instruction: `Sobald sich ${cleanLead(reviewStateRisk.value)} zeigt, Tempo rausnehmen und nur A-Trigger handeln.`,
+      instruction: `Sobald sich ${cleanLead(reviewStateRisk.value)} zeigt, eine Pause einlegen und neue Einstiege an deinen Setup-Regeln prüfen.`,
       reason: shortenSentence(reviewStateRisk.detail),
       tone: 'red',
       href: '/trades',
@@ -130,7 +150,7 @@ export function buildReviewActionPlan(snapshot: ReviewSnapshot): ReviewActionPla
     steps.push({
       lane: 'Mehr',
       title: `${cleanLead(bestSetup.value)} als Erstwahl`,
-      instruction: `Morgen zuerst nach Trades suchen, die wie ${cleanLead(bestSetup.value)} aussehen. Alles andere bleibt B-Ware, bis der Kernflow steht.`,
+      instruction: `Morgen zuerst nach Trades suchen, die wie ${cleanLead(bestSetup.value)} aussehen. Vergleiche andere Trades zuerst mit diesem Ablauf.`,
       reason: shortenSentence(bestSetup.detail),
       tone: 'emerald',
       href: bestSetup.href,
@@ -151,7 +171,7 @@ export function buildReviewActionPlan(snapshot: ReviewSnapshot): ReviewActionPla
     steps.push({
       lane: 'Schutz',
       title: `Stopp-Schild für ${cleanLead(risk.value)}`,
-      instruction: `Taucht ${cleanLead(risk.value)} im Pre-Trade-Check auf, dann Size down, Bestätigung abwarten oder komplett skippen.`,
+      instruction: `Taucht ${cleanLead(risk.value)} bei der Vorbereitung auf, prüfe eine kleinere Positionsgröße, warte auf Bestätigung oder lasse den Trade aus.`,
       reason: shortenSentence(risk.detail),
       tone: risk === mainError ? 'red' : 'orange',
       href: risk.href,
@@ -162,8 +182,8 @@ export function buildReviewActionPlan(snapshot: ReviewSnapshot): ReviewActionPla
     const anchorTitle = processAnchor ? cleanLead(processAnchor.value) : 'dein sauberster Ablauf'
     steps.push({
       lane: 'Wiederholen',
-      title: processAnchor ? `${anchorTitle} als Prozess-Anker` : 'Den besten Ablauf kopieren',
-      instruction: actionRule ? shortenSentence(actionRule, 160) : `Vor dem ersten Entry prüfen: ${anchorTitle}`,
+      title: processAnchor ? `Ablauf hinter ${anchorTitle} prüfen` : 'Den besten Ablauf kopieren',
+      instruction: actionRule ? shortenSentence(actionRule, 160) : `Vor dem ersten Einstieg prüfen: ${anchorTitle}`,
       reason: processAnchor ? shortenSentence(processAnchor.detail) : 'Das Review markiert hier den Ablauf, den du öfter sehen willst.',
       tone: processAnchor ? 'emerald' : 'orange',
       href: processAnchor?.href,
@@ -180,7 +200,7 @@ export function buildReviewActionPlan(snapshot: ReviewSnapshot): ReviewActionPla
         : `Fokus: „${focusSuggestion}“.`,
       reason: latestNote ? shortenSentence(latestNote.body) : guardrail ? shortenSentence(guardrail.detail) : 'Ein sichtbarer Fokus verhindert, dass das Review nur nett gelesen, aber nicht gehandelt wird.',
       tone: lossStreak ? 'red' : driftSignal?.tone === 'red' ? 'red' : 'orange',
-      href: `/trades?reviewFocus=${encodeURIComponent(focusSuggestion)}`,
+      href: '/trades',
     })
   }
 
@@ -194,7 +214,7 @@ export function buildReviewActionPlan(snapshot: ReviewSnapshot): ReviewActionPla
       : 'Plan für morgen'
 
   const summary = redSteps > 0
-    ? `${focusSuggestion}. Das Review zeigt klar, wo du bremsen und wo du replizieren solltest.`
+    ? `${focusSuggestion}. Prüfe die markierten Entscheidungen und leite daraus einen konkreten nächsten Schritt ab.`
     : `${focusSuggestion}.`
 
   const checklist = Array.from(new Set([
@@ -202,7 +222,7 @@ export function buildReviewActionPlan(snapshot: ReviewSnapshot): ReviewActionPla
     ...snapshot.reviewLayer.checklist,
     actionRule ? shortenSentence(actionRule, 110) : null,
     secondaryRule ? shortenSentence(secondaryRule, 110) : null,
-    mainError ? `Vor Entry auf ${cleanLead(mainError.value)} prüfen` : null,
+    mainError ? `Vor dem Einstieg auf ${cleanLead(mainError.value)} prüfen` : null,
     processAnchor ? `${cleanLead(processAnchor.value)} als Referenz offen halten` : null,
   ].filter(Boolean) as string[])).slice(0, 4)
 

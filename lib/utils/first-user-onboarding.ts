@@ -89,14 +89,14 @@ export function getFirstUserOnboarding({
 
   const steps: FirstUserStep[] = [
     {
-      label: 'Supabase live',
+      label: 'Kontoverbindung',
       value: hasClientEnv ? 'Verbunden' : 'Noch Demo',
       detail: hasClientEnv
-        ? 'Supabase ist als echter Datenpfad vorbereitet. Konto, Auth und RLS können live genutzt werden.'
-        : 'Die Oberfläche läuft noch im Demo-Modus. Für echte Nutzer zuerst die Supabase-Env-Werte setzen.',
+        ? 'Die Kontoverbindung ist eingerichtet. Melde dich an, um dein persönliches Journal zu öffnen.'
+        : 'Du siehst die Demo. Ein persönliches Journal benötigt eine eingerichtete Kontoverbindung.',
       status: toStatus(0, currentIndex),
       href: '/login',
-      cta: hasClientEnv ? 'Login öffnen' : 'Env vorbereiten',
+      cta: hasClientEnv ? 'Login öffnen' : 'Einrichtungsstatus ansehen',
     },
     {
       label: 'Persönlicher Login',
@@ -132,7 +132,7 @@ export function getFirstUserOnboarding({
       label: 'Belastbare P&L',
       value: hasTrustedTrade ? `${trust.trustedTrades} belastbar` : 'Noch offen',
       detail: hasTrustedTrade
-        ? `${Math.round(trust.trustedCoverage)}% Coverage. Dashboard und Kurven haben belastbaren Boden.`
+        ? `${Math.round(trust.trustedCoverage)}% der Trades sind berücksichtigt. Prüfe weiterhin die Datenhinweise an den Auswertungen.`
         : trust.incompleteTrades > 0
           ? `${trust.incompleteTrades} Quick Captures warten noch auf Vervollständigung.`
           : 'Mindestens ein vollständiger Trade macht aus Aktivität endlich verwertbare Kennzahlen.',
@@ -163,15 +163,15 @@ export function getFirstUserOnboarding({
 
   switch (stage) {
     case 'connect':
-      title = 'Zuerst Supabase scharf schalten'
-      copy = 'Das Konto ist angelegt. Jetzt fehlen nur die Env-Werte, damit aus Demo ein persönlicher Journal-Pfad wird.'
-      nextActionLabel = 'Supabase-Env setzen'
+      title = 'Persönliches Journal noch nicht eingerichtet'
+      copy = 'Die Einrichtung für persönliche Journaldaten ist noch nicht abgeschlossen. Bitte wende dich an die Administration.'
+      nextActionLabel = 'Kontoverbindung einrichten lassen'
       nextActionHref = '/login'
       nextActionCta = 'Login/Status ansehen'
       break
     case 'login':
-      title = 'Jetzt den echten User-Pfad betreten'
-      copy = 'Supabase steht. Der nächste Schritt ist ein echter Login, damit Trades, Tags und Reviews sauber im eigenen Konto landen.'
+      title = 'Öffne dein persönliches Journal'
+      copy = 'Melde dich an, um Trades, Tags und Reviews in deinem eigenen Konto zu verwalten.'
       nextActionLabel = 'Mit dem eigenen Konto einloggen'
       nextActionHref = '/login'
       nextActionCta = 'Zu Login'

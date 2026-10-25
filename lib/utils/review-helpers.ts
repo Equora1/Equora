@@ -2,7 +2,7 @@ import type { Trade } from '@/lib/types/trade'
 import type { TradeTag } from '@/lib/types/tag'
 import { getCoreMetrics } from '@/lib/utils/analytics'
 import { formatTradeDateLabel } from '@/lib/utils/date-format'
-import { resolveTradeOccurredAt } from '@/lib/utils/trade-time'
+import { DEFAULT_TRADE_TIMEZONE, resolveTradeOccurredAt } from '@/lib/utils/trade-time'
 import type { ReviewTone, ReviewTradeDrilldown } from '@/lib/utils/review-types'
 
 export const PROCESS_TAG_KEYWORDS = ['geduldig', 'diszipliniert', 'regelkonform', 'a-setup', 'fokus', 'ruhig', 'sauber', 'plan', 'geduldig gewartet']
@@ -82,7 +82,7 @@ export function formatDelta(delta: number, suffix = '') {
 
 export function getWeekdayLabel(trade: Trade) {
   const value = new Date(resolveTradeOccurredAt(trade))
-  return new Intl.DateTimeFormat('de-DE', { weekday: 'long' }).format(value)
+  return new Intl.DateTimeFormat('de-DE', { weekday: 'long', timeZone: DEFAULT_TRADE_TIMEZONE }).format(value)
 }
 
 export function normalizeTag(tag: string) {

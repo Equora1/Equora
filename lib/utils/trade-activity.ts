@@ -133,7 +133,7 @@ export function buildTradeActivityTimeline(
   if (screenshotCount > 0) {
     items.push({
       id: 'evidence',
-      title: 'Visuelle Evidence verknüpft',
+      title: 'Bild zum Trade verknüpft',
       description: `${screenshotCount} Screenshot${screenshotCount === 1 ? '' : 's'}${tagCount > 0 ? ` · ${tagCount} Tag${tagCount === 1 ? '' : 's'}` : ''}.`,
       evidence: 'recorded',
       tone: 'evidence',

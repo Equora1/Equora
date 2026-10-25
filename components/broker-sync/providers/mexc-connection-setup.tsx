@@ -55,20 +55,19 @@ export function MexcConnectionSetup({
     <section aria-labelledby="mexc-setup-title" className="rounded-3xl border border-white/8 bg-white/[0.02] p-5 sm:p-6">
       <div>
         <p className="eq-display text-[0.58rem] text-[#b09a7a]">MEXC Futures</p>
-        <h3 id="mexc-setup-title" className="mt-2 text-xl font-semibold text-white">Providerfelder für MEXC</h3>
+        <h3 id="mexc-setup-title" className="mt-2 text-xl font-semibold text-white">MEXC-Verbindung einrichten</h3>
         <p className="mt-3 text-sm leading-6 text-white/60">
-          Diese Felder gehören ausschließlich zum MEXC-Setup. Die providerneutrale Übersicht erhält weder API Key
-          noch Secret und erzeugt kein sendefähiges Brokerrequestobjekt.
+          Die folgenden Angaben werden nur für die MEXC-Verbindung verwendet. Zugangsschlüssel erscheinen nach dem Speichern nicht in der Übersicht.
         </p>
       </div>
 
       {connectorState !== 'ready' ? (
         <div role="status" className="mt-5 rounded-2xl border border-[#e5a14d]/20 bg-[#e5a14d]/8 px-4 py-3 text-sm leading-6 text-[#efc98f]">
           {connectorState === 'not_read'
-            ? 'Der Status von Secure Store und Connectorvoraussetzungen wurde über diesen begrenzten Read-Pfad nicht gelesen. Das Setupformular dieser Ansicht ist deshalb nicht verfügbar.'
+            ? 'Die Voraussetzungen für eine sichere Verbindung konnten hier nicht geprüft werden. Das Formular bleibt deshalb deaktiviert.'
             : secureStoreState === 'ready'
-              ? 'Der MEXC-Connector ist in der Serverumgebung deaktiviert. Es werden keine Brokerrequests ausgeführt.'
-              : 'Die serverseitige Secure-Store-Grundlage ist nachweislich nicht verfügbar. Es werden keine Credentials übertragen.'}
+              ? 'Der MEXC-Abruf ist deaktiviert. Es werden keine Anfragen an den Broker gesendet.'
+              : 'Die sichere Speicherung von Zugangsschlüsseln ist nicht eingerichtet. Es werden keine Zugangsdaten übertragen.'}
         </div>
       ) : null}
 
@@ -157,14 +156,14 @@ export function MexcConnectionSetup({
             type="submit"
             className="w-full rounded-2xl border border-[#c8823a]/35 bg-[#c8823a]/15 px-4 py-3 text-sm font-medium text-[#ffd3a0] transition hover:bg-[#c8823a]/22 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#f0a855]/60 disabled:cursor-not-allowed disabled:opacity-45"
           >
-            {isPending ? 'Lesecapabilities werden geprüft …' : 'Lesecapabilities prüfen'}
+            {isPending ? 'Lesezugriff wird geprüft …' : 'Lesezugriff prüfen'}
           </button>
         </fieldset>
       </form>
 
       <p className="mt-4 text-xs leading-5 text-white/60">
-        Der Probe prüft fest definierte Leseabrufe, aber keine globale Rechteübersicht und keine vollständige Historie.
-        Ein fehlgeschlagener Probe aktiviert keine Connection und startet weder Capture noch Journalimport.
+        Der Verbindungstest prüft einzelne Leseabrufe, aber nicht alle Schlüsselrechte oder die vollständige Handelshistorie.
+        Ein fehlgeschlagener Test aktiviert keine Verbindung und startet keine Datenübernahme.
       </p>
 
       {feedback ? (

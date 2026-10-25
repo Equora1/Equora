@@ -1,34 +1,18 @@
 'use client'
 
+import { formatRMultiple } from '@/lib/utils/calculations'
 import Link from 'next/link'
 import type { ReactNode } from 'react'
 import { useMemo, useState } from 'react'
 import type { Trade } from '@/lib/types/trade'
 import { formatCurrency, formatPlainNumber } from '@/lib/utils/calculations'
-import { getDateKeyFromDate, normalizeTradeDate } from '@/lib/utils/calendar'
-import { resolveTradeOccurredAt } from '@/lib/utils/trade-time'
-import { buildDailyNoteFlowSummary, getBerlinTodayDateKey } from '@/lib/utils/daily-notes'
+import { buildDailyNoteFlowSummary } from '@/lib/utils/daily-notes'
+import { formatReviewCalendarDay, getLatestReviewDateKey, getReviewTradeDateKey } from '@/lib/utils/review-display'
 import type { ReviewSnapshot } from '@/lib/utils/review'
 import { buildReviewCoachingBrief } from '@/lib/utils/review-coaching'
 
-function formatDateLabel(dateKey: string) {
-  return new Intl.DateTimeFormat('de-DE', {
-    weekday: 'long',
-    day: '2-digit',
-    month: 'long',
-    year: 'numeric',
-  }).format(new Date(`${dateKey}T12:00:00`))
-}
-
-function getLatestActiveDateKey(trades: Trade[]) {
-  const tradeKeys = trades.map((trade) => getDateKeyFromDate(normalizeTradeDate(resolveTradeOccurredAt(trade))))
-  const uniqueKeys = Array.from(new Set(tradeKeys)).sort()
-  return uniqueKeys.at(-1) ?? getBerlinTodayDateKey()
-}
-
-
-function getDayTitle(daySummary: ReturnType<typeof buildDailyNoteFlowSummary>) {
-  if (daySummary.dateKey === getBerlinTodayDateKey()) return 'Heute'
+function getDayTitle(daySummary: ReturnType<typeof buildDailyNoteFlowSummary>, referenceDateKey: string) {
+  if (daySummary.dateKey === referenceDateKey) return 'Heute'
   return 'Letzter aktiver Tag'
 }
 
@@ -37,13 +21,15 @@ type ReviewMode = 'day' | 'week'
 export function ReviewRhythmCard({
   trades,
   weeklySnapshot,
+  referenceDateKey,
 }: {
   trades: Trade[]
   weeklySnapshot: ReviewSnapshot
+  referenceDateKey: string
 }) {
   const [mode, setMode] = useState<ReviewMode>('day')
-  const activeDateKey = useMemo(() => getLatestActiveDateKey(trades), [trades])
-  const daySummary = useMemo(() => buildDailyNoteFlowSummary(trades, [], activeDateKey), [activeDateKey, trades])
+  const activeDateKey = useMemo(() => getLatestReviewDateKey(trades, referenceDateKey), [trades, referenceDateKey])
+  const daySummary = useMemo(() => buildDailyNoteFlowSummary(trades, [], activeDateKey, getReviewTradeDateKey), [activeDateKey, trades])
   const dayTradeIds = daySummary.dayTrades.map((trade) => trade.id).join(',')
   const dayFocusHref = dayTradeIds
     ? `/trades?reviewTradeIds=${encodeURIComponent(dayTradeIds)}&reviewFocus=${encodeURIComponent(`Tagesreview · ${activeDateKey}`)}`
@@ -85,7 +71,7 @@ export function ReviewRhythmCard({
 
       {mode === 'day' ? (
         <div className="mt-7 space-y-6">
-          <WidePanel eyebrow={getDayTitle(daySummary)} title={formatDateLabel(activeDateKey)}>
+          <WidePanel eyebrow={getDayTitle(daySummary, referenceDateKey)} title={formatReviewCalendarDay(activeDateKey)}>
             <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
               <MetricCard label="Trades" value={String(daySummary.totalTrades)} tone="text-white" />
               <MetricCard label="Belastbar" value={`${daySummary.trustedTrades.length}/${daySummary.totalTrades || 0}`} tone="text-emerald-300" />
@@ -122,8 +108,8 @@ export function ReviewRhythmCard({
             <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
               <MetricCard label="Trades" value={String(weeklySnapshot.sessionDraft.tradeCount)} tone="text-white" />
               <MetricCard label="P&L" value={weeklySnapshot.sessionDraft.monetaryScopeKind === 'single' ? formatCurrency(weeklySnapshot.sessionDraft.netPnL, 0, weeklySnapshot.sessionDraft.currency) : 'Gesperrt'} tone={weeklySnapshot.sessionDraft.monetaryScopeKind === 'single' && weeklySnapshot.sessionDraft.netPnL >= 0 ? 'text-emerald-300' : weeklySnapshot.sessionDraft.monetaryScopeKind === 'single' && weeklySnapshot.sessionDraft.netPnL < 0 ? 'text-red-300' : 'text-orange-100'} />
-              <MetricCard label="Winrate" value={`${formatPlainNumber(weeklySnapshot.sessionDraft.winRate, 0)}%`} tone="text-orange-100/90" />
-              <MetricCard label="Ø R" value={`${formatPlainNumber(weeklySnapshot.sessionDraft.averageR, 2)}R`} tone={weeklySnapshot.sessionDraft.averageR >= 0 ? 'text-emerald-300' : 'text-red-300'} />
+              <MetricCard label="Trefferquote" value={`${formatPlainNumber(weeklySnapshot.sessionDraft.winRate, 0)}%`} tone="text-orange-100/90" />
+              <MetricCard label="Ø R" value={formatRMultiple(weeklySnapshot.sessionDraft.averageR)} tone={weeklySnapshot.sessionDraft.averageR === null ? 'text-white/55' : weeklySnapshot.sessionDraft.averageR >= 0 ? 'text-emerald-300' : 'text-red-300'} />
             </div>
           </WidePanel>
 
@@ -137,14 +123,14 @@ export function ReviewRhythmCard({
 
           <WidePanel eyebrow="Nächster Schritt" title="Aktion">
             <div className="flex flex-wrap gap-3">
-              <Link href={`/trades?reviewFocus=${encodeURIComponent(nextFocus)}`} className="rounded-full border border-orange-400/25 bg-orange-400/10 px-4 py-2 text-sm text-orange-100 transition hover:border-orange-400/40 hover:text-white">
-                Trades öffnen
+              <Link href="/trades" className="rounded-full border border-orange-400/25 bg-orange-400/10 px-4 py-2 text-sm text-orange-100 transition hover:border-orange-400/40 hover:text-white">
+                Alle Trades öffnen
               </Link>
-              <Link href={`/trades?reviewFocus=${encodeURIComponent('Wochenreview · Letzte 7 Tage')}`} className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-white/75 transition hover:border-white/20 hover:text-white">
-                Trades
+              <Link href="/review?periodPreset=7d" className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-white/75 transition hover:border-white/20 hover:text-white">
+                Wochenreview
               </Link>
               <Link href="/review-sessions" className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-white/75 transition hover:border-white/20 hover:text-white">
-                Sessions
+                Review-Sammlung
               </Link>
             </div>
           </WidePanel>

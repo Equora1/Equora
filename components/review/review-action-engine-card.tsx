@@ -13,7 +13,7 @@ export function ReviewActionEngineCard({ snapshot }: { snapshot: ReviewSnapshot 
       <div className="rounded-[26px] border border-white/10 bg-white/[0.03] p-5">
         <div className="mb-4 flex flex-wrap gap-2">
           <Link href={`/review?periodPreset=${snapshot.periodPreset}`} className="rounded-full border border-white/10 bg-black/20 px-3 py-1.5 text-xs text-white/72 transition hover:border-white/20 hover:text-white">Review öffnen</Link>
-          <Link href={`/trades?reviewFocus=${encodeURIComponent(plan.watchword)}`} className="rounded-full border border-emerald-400/20 bg-emerald-400/10 px-3 py-1.5 text-xs text-emerald-200 transition hover:border-emerald-400/35 hover:text-emerald-100">Passende Trades öffnen</Link>
+          <Link href="/trades" className="rounded-full border border-emerald-400/20 bg-emerald-400/10 px-3 py-1.5 text-xs text-emerald-200 transition hover:border-emerald-400/35 hover:text-emerald-100">Alle Trades öffnen</Link>
         </div>
         <p className="text-[10px] uppercase tracking-[0.28em] text-emerald-300/70">Review zu Aktion</p>
         <div className="mt-3 grid gap-4 2xl:grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)] 2xl:items-start">
@@ -79,10 +79,10 @@ export function ReviewActionEngineCard({ snapshot }: { snapshot: ReviewSnapshot 
             <p className="text-[10px] uppercase tracking-[0.22em] text-white/35">Checkliste</p>
           </div>
           <Link
-            href={`/trades?reviewFocus=${encodeURIComponent(plan.dailyFocusSuggestion)}`}
+            href="/trades"
             className="rounded-full border border-emerald-400/20 bg-emerald-400/10 px-3 py-1.5 text-xs text-emerald-200 transition hover:border-emerald-400/35 hover:text-emerald-100"
           >
-            In Trades öffnen
+            Alle Trades öffnen
           </Link>
         </div>
         <div className="mt-4 grid gap-3 md:grid-cols-2">

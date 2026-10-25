@@ -15,7 +15,7 @@ export function buildTagRadar(tradesCurrent: Trade[], tradeTags: TradeTag[]): Re
       {
         label: 'Tag-Radar',
         value: 'Noch keine Tag-Daten',
-        detail: 'Sobald Trades im Zeitraum sauber getaggt sind, markiert Equora hier Prozess-Anker, Wiederholungsfehler und starke Kombinationen.',
+        detail: 'Vergib Tags an deinen Trades. Hier siehst du dann, welche Merkmale im gewählten Zeitraum häufig mit Gewinnen oder Verlusten vorkamen.',
         tone: 'orange',
       },
     ]
@@ -41,7 +41,7 @@ export function buildTagRadar(tradesCurrent: Trade[], tradeTags: TradeTag[]): Re
       ? {
           label: 'Stärkster Tag',
           value: bestTag.tag,
-          detail: `${money(bestTag.netPnL)} · ${clampNumber(bestTag.winRate)}% Win Rate in ${bestTag.totalTrades} Trades.`,
+          detail: `${money(bestTag.netPnL)} · ${clampNumber(bestTag.winRate)}% Trefferquote in ${bestTag.totalTrades} Trades.`,
           tone: 'emerald',
           href: buildTradesHref({ tag: bestTag.tag, reviewFocus: `Review Drilldown · Stärkster Tag: ${bestTag.tag}` }),
         }
@@ -50,7 +50,7 @@ export function buildTagRadar(tradesCurrent: Trade[], tradeTags: TradeTag[]): Re
       ? {
           label: 'Prozess-Anker',
           value: processAnchor.tag,
-          detail: `${money(processAnchor.netPnL)} und PF ${processAnchor.profitFactor === Infinity ? '∞' : clampNumber(processAnchor.profitFactor, 2)}. Diesen Zustand willst du replizieren.`,
+          detail: `${money(processAnchor.netPnL)} und PF ${processAnchor.profitFactor === Infinity ? '∞' : clampNumber(processAnchor.profitFactor, 2)}. Prüfe, welcher Ablauf dahinterstand. Das Ergebnis allein belegt keine verlässliche Handelsregel.`,
           tone: 'emerald',
           href: buildTradesHref({ tag: processAnchor.tag, reviewFocus: `Review Drilldown · Prozess-Anker: ${processAnchor.tag}` }),
         }
@@ -68,7 +68,7 @@ export function buildTagRadar(tradesCurrent: Trade[], tradeTags: TradeTag[]): Re
       ? {
           label: 'Wiederholer bei Verlusten',
           value: repeatLossEntry[0],
-          detail: `Tauchte ${repeatLossEntry[1]}× in Verlusttrades auf und verdient einen Vor-Entry-Check.`,
+          detail: `Tauchte ${repeatLossEntry[1]}× in Verlusttrades auf und sollte vor dem nächsten Einstieg geprüft werden.`,
           tone: repeatLossEntry[1] >= 2 ? 'red' : 'orange',
           href: buildTradesHref({ tag: repeatLossEntry[0], outcome: 'Verlierer', reviewFocus: `Review Drilldown · Wiederholer bei Verlusten: ${repeatLossEntry[0]}` }),
         }

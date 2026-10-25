@@ -23,7 +23,7 @@ export function EquityCurveCard({ trades }: { trades: Trade[] }) {
           <p className="eq-eyebrow">Performance</p>
           <h2 className="mt-2 text-xl font-semibold tracking-tight text-white">Kumuliertes Netto-P&amp;L</h2>
           <p className="mt-2 text-xs leading-5 text-white/60">
-            Maximal {DASHBOARD_TRADE_WINDOW_LIMIT} zuletzt geladene Trades · {trust.trustedTrades} belastbar · {formatPlainNumber(trust.trustedCoverage, 0)}% Coverage
+            Maximal {DASHBOARD_TRADE_WINDOW_LIMIT} zuletzt geladene Trades · {trust.trustedTrades} belastbar · {formatPlainNumber(trust.trustedCoverage, 0)}% berücksichtigt
           </p>
         </div>
         <div className="sm:text-right">

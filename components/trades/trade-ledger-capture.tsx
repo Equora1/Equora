@@ -273,12 +273,8 @@ export function TradeLedgerCapture({
     <section id="ledger-capture" className={`rounded-3xl border bg-white/[0.035] p-4 shadow-2xl transition xl:p-5 ${isFocusedEntry ? 'border-orange-300/45 shadow-[0_0_0_1px_rgba(251,146,60,0.18),0_0_28px_rgba(251,146,60,0.12)]' : 'border-orange-300/18'}`}>
       <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
         <div className="max-w-3xl">
-          <span className="inline-flex rounded-full border border-orange-300/30 bg-orange-400/12 px-3 py-1 text-[10px] uppercase tracking-[0.24em] text-orange-100">
-            Quick Capture
-          </span>
-          <h2 className="mt-3 text-xl font-semibold text-orange-50">Schnellerfassung</h2>
-          <p className="mt-1 text-sm text-white/45">Nur öffnen, wenn du Trades direkt als Ledgerzeilen erfassen möchtest.</p>
-          <p className="mt-1 text-xs leading-5 text-white/35">P&amp;L wird ausschließlich als manueller Kontowährungswert gespeichert; aus Entry, Exit und Größe wird hier kein Brokerergebnis behauptet.</p>
+          <h2 className="text-xl font-semibold text-orange-50">Schnellerfassung</h2>
+          {isExpanded ? <p className="mt-1 text-xs leading-5 text-white/60">Ergebnis und Währung laut Abrechnung eintragen.</p> : null}
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {brokerFileImportCapability.previewEnabled ? (
@@ -315,7 +311,7 @@ export function TradeLedgerCapture({
             onClick={() => setIsExpanded((current) => !current)}
             className="rounded-2xl border border-orange-300/25 bg-orange-400/10 px-4 py-2.5 text-sm font-medium text-white transition hover:border-orange-300/40 hover:bg-orange-400/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#f0a855]/60"
           >
-            {isExpanded ? 'Ledger schließen' : 'Ledger öffnen'}
+            {isExpanded ? 'Tabelle schließen' : 'Tabelle öffnen'}
           </button>
         </div>
       </div>
@@ -444,13 +440,7 @@ export function TradeLedgerCapture({
           </tbody>
         </table>
       </div>
-      ) : (
-        <div id="ledger-capture-grid" className="mt-4 grid gap-3 rounded-2xl border border-white/8 bg-black/20 p-4 text-xs text-white/50 sm:grid-cols-3">
-          <span><strong className="block text-sm font-medium text-white/80">Ledger</strong> Mehrere Trades zeilenweise erfassen.</span>
-          <span><strong className="block text-sm font-medium text-white/80">Dateivorschau</strong> CSV-Daten prüfen; Persistieren bleibt separat gegated.</span>
-          <span><strong className="block text-sm font-medium text-white/80">Vollständig</strong> Risiko, Kosten und Review direkt dokumentieren.</span>
-        </div>
-      )}
+      ) : <div id="ledger-capture-grid" hidden /> }
       <datalist id="ledger-markets">
         {knownMarkets.map((market) => (
           <option key={market} value={market} />
