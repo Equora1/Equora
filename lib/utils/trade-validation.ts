@@ -11,6 +11,7 @@ import {
   deriveEffectiveExitFromPartialExitLegs,
   normalizePartialExitLegs,
 } from '@/lib/utils/calculations'
+import { getTradeTimeInputError } from '@/lib/utils/trade-time'
 
 export type TradeCaptureInput = {
   market: string
@@ -69,6 +70,7 @@ export type TradeCaptureInput = {
 
 export type TradeValidationField =
   | 'market'
+  | 'tradeOccurredAt'
   | 'setup'
   | 'bias'
   | 'entry'
@@ -121,8 +123,10 @@ function normalizeTags(tags: string[]) {
   return Array.from(new Set(tags.map((tag) => tag.trim()).filter(Boolean)))
 }
 
-export function validateTradeCaptureInput(input: TradeCaptureInput): TradeValidationResult {
+export function validateTradeCaptureInput(input: TradeCaptureInput, originalTradeTimeIso?: string | null): TradeValidationResult {
   const errors: Partial<Record<TradeValidationField, string>> = {}
+  const tradeTimeError = getTradeTimeInputError(input.tradeOccurredAt, originalTradeTimeIso)
+  if (tradeTimeError) addError(errors, 'tradeOccurredAt', tradeTimeError)
   const normalizedTags = normalizeTags(input.tags)
   const normalizedBroker = normalizeTradeBrokerProfile(input.brokerProfile)
   const brokerPreset = getTradeBrokerProfilePreset(normalizedBroker)

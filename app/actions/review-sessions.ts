@@ -2,7 +2,9 @@
 
 import { revalidatePath } from 'next/cache'
 import { createSupabaseAuthServerClient } from '@/lib/supabase/server-auth'
-import { hasSupabaseClientEnv } from '@/lib/supabase/config'
+import { hasSupabaseClientEnv, hasSupabaseServerEnv } from '@/lib/supabase/config'
+import { createSupabaseServerClient } from '@/lib/supabase/server'
+import { normalizeReviewTradeIds, saveTrustedReviewSnapshot, ReviewSnapshotCommitError } from '@/lib/server/review-snapshot-save'
 import { mapReviewSessionRow } from '@/lib/server/review-sessions'
 import type { ReviewSessionRow } from '@/lib/types/db'
 import type {
@@ -39,7 +41,8 @@ function buildMockSession(input: SaveReviewSessionInput): SavedReviewSession {
     netPnL: input.netPnL ?? 0,
     currency,
     monetaryScopeKind,
-    averageR: input.averageR ?? 0,
+    averageR: null,
+    legacyAverageR: input.averageR ?? null,
     winRate: input.winRate ?? 0,
     winners: input.winners ?? 0,
     losers: input.losers ?? 0,
@@ -61,7 +64,11 @@ function buildMockSession(input: SaveReviewSessionInput): SavedReviewSession {
 export async function saveReviewSession(
   input: SaveReviewSessionInput,
 ): Promise<{ success: boolean; message: string; session?: SavedReviewSession }> {
-  const title = input.title.trim()
+  const title = typeof input?.title === 'string' ? input.title.trim() : ''
+  if (!Array.isArray(input?.tradeIds) || input.tradeIds.some((id) => typeof id !== 'string')
+    || (input.labels !== undefined && (!Array.isArray(input.labels) || input.labels.some((label) => typeof label !== 'string')))) {
+    return { success: false, message: 'Die Auswahl konnte nicht gelesen werden. Bitte lade die Ansicht neu.' }
+  }
   const tradeIds = Array.from(new Set(input.tradeIds.map((tradeId) => tradeId.trim()).filter(Boolean)))
   const labels = normalizeLabels(input.labels)
   const currency = input.monetaryScopeKind === 'single' ? normalizeTradeCurrency(input.currency) : null
@@ -71,28 +78,31 @@ export async function saveReviewSession(
   }
 
   if (!title) {
-    return { success: false, message: 'Bitte einen Titel für das Mini-Review vergeben.' }
+    return { success: false, message: 'Bitte einen Titel für das Review vergeben.' }
   }
 
   if (tradeIds.length === 0) {
-    return { success: false, message: 'Es gibt keine Spotlight-Trades zum Speichern.' }
+    return { success: false, message: 'Es gibt keine ausgewählten Trades zum Speichern.' }
   }
 
   if (!hasSupabaseClientEnv()) {
     return {
       success: true,
-      message: `Demo-Flow aktiv. Mini-Review „${title}“ lokal bereit zum Sichern.`,
+      message: `Demo-Modus: Review „${title}“ lokal bereit zum Sichern.`,
       session: buildMockSession({ ...input, title, tradeIds, labels }),
     }
   }
 
   try {
+    if (!hasSupabaseServerEnv()) return { success: false, message: 'Reviews können derzeit nicht gespeichert werden. Bitte später erneut versuchen.' }
+    const selectedIds = normalizeReviewTradeIds(tradeIds)
     const supabase = await createSupabaseAuthServerClient()
     const {
       data: { user },
+      error: authError,
     } = await supabase.auth.getUser()
 
-    if (!user) {
+    if (authError || !user) {
       return { success: false, message: 'Bitte zuerst einloggen.' }
     }
 
@@ -113,26 +123,7 @@ export async function saveReviewSession(
       periodEnd: input.periodEnd ?? null,
     }
 
-    const { error: saveError } = await supabase.rpc('equora_save_review_session_v1', {
-      p_session_id: sessionId,
-      p_trade_ids: tradeIds,
-      p_meta: meta,
-    })
-
-    if (saveError) {
-      return { success: false, message: 'Mini-Review konnte nicht aus den serverseitigen Trade-Daten erzeugt werden.' }
-    }
-
-    const { data, error } = await supabase
-      .from('review_sessions')
-      .select('*')
-      .eq('id', sessionId)
-      .eq('user_id', user.id)
-      .single()
-
-    if (error || !data) {
-      return { success: false, message: 'Mini-Review konnte nicht gespeichert werden.' }
-    }
+    const data = await saveTrustedReviewSnapshot(createSupabaseServerClient(), user.id, sessionId, selectedIds, meta)
 
     revalidatePath('/trades')
     revalidatePath('/review')
@@ -140,11 +131,16 @@ export async function saveReviewSession(
 
     return {
       success: true,
-      message: `Mini-Review „${title}“ gespeichert.`,
+      message: `Review „${title}“ gespeichert.`,
       session: mapReviewSessionRow(data as ReviewSessionRow, 'supabase'),
     }
-  } catch {
-    return { success: false, message: 'Mini-Review konnte nicht gespeichert werden.' }
+  } catch (error) {
+    if (error instanceof Error && error.message === 'INVALID_REVIEW_SCOPE') return { success: false,
+      message: 'Bitte wähle höchstens 2.000 Trades für ein Review aus. Lade die Ansicht neu, falls die Auswahl nicht mehr verfügbar ist.' }
+    if (error instanceof ReviewSnapshotCommitError) return { success: false, message: error.sourceChanged
+      ? 'Die Trade-Daten wurden inzwischen geändert. Bitte lade das Review neu.'
+      : 'Das Speicherergebnis konnte nicht bestätigt werden. Bitte prüfe zuerst die Review-Sammlung.' }
+    return { success: false, message: 'Review konnte nicht gespeichert werden. Bitte lade die Ansicht neu und versuche es erneut.' }
   }
 }
 
@@ -155,11 +151,11 @@ export async function updateReviewSession(
   const title = input.title.trim()
 
   if (!title) {
-    return { success: false, message: 'Bitte einen Titel für das Mini-Review vergeben.' }
+    return { success: false, message: 'Bitte einen Titel für das Review vergeben.' }
   }
 
   if (!hasSupabaseClientEnv()) {
-    return { success: false, message: 'Demo-Flow aktiv. Lokale Sessions werden direkt im Browser aktualisiert.' }
+    return { success: false, message: 'Demo-Modus: Lokale Reviews werden direkt im Browser aktualisiert.' }
   }
 
   try {
@@ -187,7 +183,7 @@ export async function updateReviewSession(
       .single()
 
     if (error || !data) {
-      return { success: false, message: 'Mini-Review konnte nicht aktualisiert werden.' }
+      return { success: false, message: 'Review konnte nicht aktualisiert werden.' }
     }
 
     revalidatePath('/trades')
@@ -196,11 +192,11 @@ export async function updateReviewSession(
 
     return {
       success: true,
-      message: `Mini-Review „${title}“ aktualisiert.`,
+      message: `Review „${title}“ aktualisiert.`,
       session: mapReviewSessionRow(data as ReviewSessionRow, 'supabase'),
     }
   } catch {
-    return { success: false, message: 'Mini-Review konnte nicht aktualisiert werden.' }
+    return { success: false, message: 'Review konnte nicht aktualisiert werden.' }
   }
 }
 
@@ -212,7 +208,7 @@ export async function deleteReviewSession(
   }
 
   if (!hasSupabaseClientEnv()) {
-    return { success: false, message: 'Demo-Flow aktiv. Lokale Sessions werden direkt im Browser entfernt.' }
+    return { success: false, message: 'Demo-Modus: Lokale Reviews werden direkt im Browser entfernt.' }
   }
 
   try {
@@ -228,7 +224,7 @@ export async function deleteReviewSession(
     const { error } = await supabase.from('review_sessions').delete().eq('id', sessionId).eq('user_id', user.id)
 
     if (error) {
-      return { success: false, message: 'Mini-Review konnte nicht gelöscht werden.' }
+      return { success: false, message: 'Review konnte nicht gelöscht werden.' }
     }
 
     revalidatePath('/trades')
@@ -237,10 +233,10 @@ export async function deleteReviewSession(
 
     return {
       success: true,
-      message: 'Mini-Review gelöscht.',
+      message: 'Review gelöscht.',
       deletedId: sessionId,
     }
   } catch {
-    return { success: false, message: 'Mini-Review konnte nicht gelöscht werden.' }
+    return { success: false, message: 'Review konnte nicht gelöscht werden.' }
   }
 }

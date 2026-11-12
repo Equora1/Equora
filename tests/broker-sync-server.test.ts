@@ -118,7 +118,7 @@ describe('broker sync server snapshot', () => {
     const snapshot = await getBrokerSyncSnapshotServer('user-1')
 
     expect(snapshot.schemaState).toBe('missing')
-    expect(snapshot.notice).toContain('Broker-Grundlage fehlt')
+    expect(snapshot.notice).toContain('Brokerverwaltung ist in dieser Umgebung noch nicht eingerichtet')
   })
 
   it.each([

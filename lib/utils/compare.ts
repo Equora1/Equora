@@ -8,7 +8,7 @@ export type CompareResult = {
   label: string
   totalTrades: number
   winRate: number
-  avgR: number
+  avgR: number | null
   netPnL: number
   currency: TradeCurrency | null
   profitFactor: number

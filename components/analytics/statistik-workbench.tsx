@@ -1,5 +1,6 @@
 'use client'
 
+import { formatRMultiple } from '@/lib/utils/calculations'
 import { useMemo, useState, type ReactNode } from 'react'
 import { CompareAndConquer } from '@/components/analytics/compare-and-conquer'
 import { FilterDeck } from '@/components/analytics/filter-deck'
@@ -14,6 +15,7 @@ import { filterTrades } from '@/lib/utils/filters'
 import { buildTagStats } from '@/lib/utils/tag-analytics'
 import { getTradeTrustSummary, getTrustedTrades } from '@/lib/utils/trade-trust'
 import { buildSetupPerformanceRows, type SetupPerformanceRow } from '@/lib/utils/setup-analytics'
+import { getSetupPerformanceDisplay } from '@/lib/utils/setup-performance-display'
 import { buildAccountContexts, getTradeAccountLabel } from '@/lib/utils/account-context'
 import { formatMoney, getMonetaryScopeMessage } from '@/lib/utils/currency'
 import {
@@ -105,9 +107,9 @@ function getCurrentStreakLabel(currentWinStreak: number, currentLossStreak: numb
 }
 
 function getCurrentStreakDetail(currentWinStreak: number, currentLossStreak: number) {
-  if (currentLossStreak >= 2) return 'Historisch laufende Verlustserie im gewählten Scope.'
+  if (currentLossStreak >= 2) return 'Historisch laufende Verlustserie in der gewählten Auswahl.'
   if (currentLossStreak === 1) return 'Der letzte belastbare Trade war negativ.'
-  if (currentWinStreak >= 3) return 'Historisch laufende Gewinnserie im gewählten Scope.'
+  if (currentWinStreak >= 3) return 'Historisch laufende Gewinnserie in der gewählten Auswahl.'
   if (currentWinStreak > 0) return 'Der letzte belastbare Trade war positiv.'
   return 'Noch keine Serie.'
 }
@@ -124,7 +126,7 @@ function getStreakGuardrail(currentWinStreak: number, currentLossStreak: number,
   if (currentLossStreak >= 2) return 'Aktuell überwiegt eine Verlustserie.'
   if (longestLossStreak >= 3) return `Historisch lag die längste Verlustserie bei ${longestLossStreak} Trades.`
   if (currentWinStreak >= 3) return 'Aktuell liegt eine Gewinnserie vor.'
-  return 'Keine auffällige Serie im gewählten Scope.'
+  return 'Keine auffällige Serie in der gewählten Auswahl.'
 }
 
 
@@ -139,17 +141,17 @@ function getTimeWindowSummaryLead(bestWindow: TimeWindowPerformanceRow | null, w
 
 function getTimeWindowSummaryDetail(bestWindow: TimeWindowPerformanceRow | null, weakestWindow: TimeWindowPerformanceRow | null) {
   if (bestWindow && weakestWindow && bestWindow.key !== weakestWindow.key) {
-    return `Stärkstes Fenster: ${formatCurrency(bestWindow.netPnL, bestWindow.currency)} bei ${bestWindow.winRate.toFixed(0)}% Winrate. Schwächstes Fenster: ${formatCurrency(weakestWindow.netPnL, weakestWindow.currency)}.`
+    return `Stärkstes Fenster: ${formatCurrency(bestWindow.netPnL, bestWindow.currency)} bei ${bestWindow.winRate.toFixed(0)}% Trefferquote. Schwächstes Fenster: ${formatCurrency(weakestWindow.netPnL, weakestWindow.currency)}.`
   }
 
-  if (bestWindow) return `${formatCurrency(bestWindow.netPnL, bestWindow.currency)} bei ${bestWindow.winRate.toFixed(0)}% Winrate.`
+  if (bestWindow) return `${formatCurrency(bestWindow.netPnL, bestWindow.currency)} bei ${bestWindow.winRate.toFixed(0)}% Trefferquote.`
   return 'Mehr Daten nötig.'
 }
 
 function getTimeWindowGuardrail(weakestWindow: TimeWindowPerformanceRow | null) {
   if (!weakestWindow) return 'Zu wenig Daten für einen historischen Zeitfenstervergleich.'
-  if (weakestWindow.netPnL < 0) return `${weakestWindow.label} hatte im gewählten Scope das schwächste historische Ergebnis.`
-  return `${weakestWindow.label} hatte im gewählten Scope das niedrigste historische Ergebnis.`
+  if (weakestWindow.netPnL < 0) return `${weakestWindow.label} hatte in der gewählten Auswahl das schwächste historische Ergebnis.`
+  return `${weakestWindow.label} hatte in der gewählten Auswahl das niedrigste historische Ergebnis.`
 }
 
 
@@ -173,7 +175,7 @@ function getDrawdownDetail(profile: ReturnType<typeof buildDrawdownProfile>) {
 
 function getDrawdownGuardrail(profile: ReturnType<typeof buildDrawdownProfile>) {
   if (profile.activePhase && profile.activePhase.tradeCount >= 2) {
-    return 'Im gewählten Scope besteht eine offene Drawdown-Phase.'
+    return 'In der gewählten Auswahl besteht eine offene Drawdown-Phase.'
   }
 
   if (profile.longestPhase && profile.longestPhase.durationDays >= 3) {
@@ -181,10 +183,10 @@ function getDrawdownGuardrail(profile: ReturnType<typeof buildDrawdownProfile>) 
   }
 
   if (profile.phaseCount >= 3) {
-    return 'Im gewählten Scope traten mehrere Drawdown-Phasen auf.'
+    return 'In der gewählten Auswahl traten mehrere Drawdown-Phasen auf.'
   }
 
-  return 'Keine auffällige Drawdown-Serie im gewählten Scope.'
+  return 'Keine auffällige Drawdown-Serie in der gewählten Auswahl.'
 }
 
 function pickDrawdownHighlights(profile: ReturnType<typeof buildDrawdownProfile>) {
@@ -218,10 +220,10 @@ function getBucketSummaryLead(bestRow: SessionPerformanceRow | null, weakestRow:
 
 function getBucketSummaryDetail(bestRow: SessionPerformanceRow | null, weakestRow: SessionPerformanceRow | null, fallback: string) {
   if (bestRow && weakestRow && bestRow.key !== weakestRow.key) {
-    return `Stärkster Block: ${formatCurrency(bestRow.netPnL, bestRow.currency)} bei ${bestRow.winRate.toFixed(0)}% Winrate. Schwächster Block: ${formatCurrency(weakestRow.netPnL, weakestRow.currency)}.`
+    return `Stärkster Block: ${formatCurrency(bestRow.netPnL, bestRow.currency)} bei ${bestRow.winRate.toFixed(0)}% Trefferquote. Schwächster Block: ${formatCurrency(weakestRow.netPnL, weakestRow.currency)}.`
   }
 
-  if (bestRow) return `${formatCurrency(bestRow.netPnL, bestRow.currency)} bei ${bestRow.winRate.toFixed(0)}% Winrate.`
+  if (bestRow) return `${formatCurrency(bestRow.netPnL, bestRow.currency)} bei ${bestRow.winRate.toFixed(0)}% Trefferquote.`
   return fallback
 }
 
@@ -284,7 +286,7 @@ export function StatistikWorkbench({ trades, tradeTags, setupTitles, initialLaye
         <div className="mt-4 rounded-2xl border border-orange-300/15 bg-black/20 p-4">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <div>
-              <p className="text-[10px] uppercase tracking-[0.24em] text-orange-200/65">Aktiver Auswertungsscope</p>
+              <p className="text-[10px] uppercase tracking-[0.24em] text-orange-200/65">Deine Auswahl</p>
               <div className="mt-2 flex flex-wrap gap-2">
                 {(scopeLabels.length ? scopeLabels : ['Gesamtes Journal']).map((label) => (
                   <span key={label} className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-white/70">
@@ -296,7 +298,7 @@ export function StatistikWorkbench({ trades, tradeTags, setupTitles, initialLaye
             <div className="flex flex-wrap items-center gap-2 text-xs text-white/60">
               <span>{filteredTrades.length} passend</span>
               <span aria-hidden="true">·</span>
-              <span>{trustedTrades.length} belastbar</span>
+              <span>{trustedTrades.length} berücksichtigt</span>
               {scopeLabels.length ? (
                 <button
                   type="button"
@@ -321,11 +323,11 @@ export function StatistikWorkbench({ trades, tradeTags, setupTitles, initialLaye
           <p className="text-xs uppercase tracking-[0.24em] text-orange-200/65">Keine auswertbare Stichprobe</p>
           <h2 className="mt-3 text-2xl font-semibold text-white">
             {evidenceState === 'empty'
-              ? 'Keine Trades entsprechen dem aktuellen Auswertungsscope.'
-              : 'Im aktuellen Auswertungsscope gibt es keine belastbaren Trades.'}
+              ? 'Keine Trades passen zu deinen Filtern.'
+              : 'Für diese Auswahl fehlen abgeschlossene Trades mit auswertbaren Ergebnisangaben.'}
           </h2>
           <p className="mt-3 max-w-3xl text-sm leading-7 text-white/60">
-            Es werden keine Winrate, Erwartung, Rankings oder Strategieaussagen angezeigt. Die Journalhistorie bleibt unverändert.
+            Es werden keine Trefferquote, Erwartung, Rankings oder Strategieaussagen angezeigt. Die Journalhistorie bleibt unverändert.
           </p>
           {scopeLabels.length ? (
             <button
@@ -344,7 +346,7 @@ export function StatistikWorkbench({ trades, tradeTags, setupTitles, initialLaye
         <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
           <div className="max-w-3xl">
             <h2 className="eq-display text-2xl text-orange-300">Statistik</h2>
-            <p className="mt-2 text-sm leading-6 text-white/55">Deskriptive Ergebnisse im aktuell sichtbaren Auswertungsscope.</p>
+            <p className="mt-2 text-sm leading-6 text-white/55">Ergebnisse deiner ausgewählten Trades. Ändere oben die Filter, um Zeiträume oder Setups zu vergleichen.</p>
           </div>
           <button
             type="button"
@@ -358,8 +360,8 @@ export function StatistikWorkbench({ trades, tradeTags, setupTitles, initialLaye
 
         <div className="mt-7 grid gap-6 lg:grid-cols-3">
           <MetricCard label="P&L" value={metrics.monetaryScope.isComparable ? formatCurrency(metrics.netPnL, metrics.currency) : 'Gesperrt'} detail={activeAccount ? activeAccount.label : `${trustedTrades.length} Trades`} tone={metrics.monetaryScope.isComparable ? 'text-emerald-300' : 'text-orange-200'} />
-          <MetricCard label="Winrate" value={formatPercent(metrics.winRate)} detail={activeAccount ? `${activeAccount.trades} Konto-Trades` : bestEmotion ? bestEmotion.emotion : `${trustedTrades.length} belastbare Trades`} tone="text-white" />
-          <MetricCard label="Erwartung" value={`${metrics.expectancyR >= 0 ? '+' : ''}${metrics.expectancyR.toFixed(2)}R`} detail={bestMarket ? bestMarket[0] : scopePeriodLabel} tone="text-orange-200" />
+          <MetricCard label="Trefferquote" value={formatPercent(metrics.winRate)} detail={activeAccount ? `${activeAccount.trades} Konto-Trades` : bestEmotion ? bestEmotion.emotion : `${trustedTrades.length} berücksichtigte Trades`} tone="text-white" />
+          <MetricCard label="Ø Ergebnis in R" value={formatRMultiple(metrics.expectancyR)} detail={`${metrics.rCount} von ${trustedTrades.length} Abschlüssen mit R-Wert`} tone="text-orange-200" />
         </div>
 
         {!metrics.monetaryScope.isComparable && metrics.monetaryScope.kind !== 'empty' ? (
@@ -370,8 +372,8 @@ export function StatistikWorkbench({ trades, tradeTags, setupTitles, initialLaye
 
         {showQuality ? (
           <div className="mt-6 grid gap-3 sm:grid-cols-3">
-            <TrustTile label="Belastbar" value={`${trustSummary.trustedTrades}/${trustSummary.totalTrades}`} tone="text-emerald-300" />
-            <TrustTile label="Offen" value={String(trustSummary.incompleteTrades)} tone="text-emerald-200" />
+            <TrustTile label="Berücksichtigt" value={`${trustSummary.trustedTrades}/${trustSummary.totalTrades}`} tone="text-emerald-300" />
+            <TrustTile label="Unvollständig" value={String(trustSummary.incompleteTrades)} tone="text-emerald-200" />
             <TrustTile label="Ohne P&L" value={String(trustSummary.completeWithoutPnL)} tone="text-orange-100/85" />
           </div>
         ) : null}
@@ -379,10 +381,10 @@ export function StatistikWorkbench({ trades, tradeTags, setupTitles, initialLaye
 
       {evidenceState === 'insufficient' ? (
         <section className="rounded-[28px] border border-sky-300/20 bg-sky-300/[0.06] p-6">
-          <p className="text-xs uppercase tracking-[0.24em] text-sky-200/70">Deskriptiv, nicht belastbar</p>
-          <h3 className="mt-3 text-xl font-semibold text-white">Zu wenig Daten für eine belastbare Einordnung.</h3>
+          <p className="text-xs uppercase tracking-[0.24em] text-sky-200/70">Kleine Datengrundlage</p>
+          <h3 className="mt-3 text-xl font-semibold text-white">Für Vergleiche liegen noch zu wenige Trades vor.</h3>
           <p className="mt-3 max-w-3xl text-sm leading-7 text-white/60">
-            Aktuell liegen {trustedTrades.length} belastbare Trades vor. Zeitraum: {scopePeriodLabel}. Ab {MIN_ANALYTICS_SAMPLE_SIZE} belastbaren Trades werden historische Vergleiche angezeigt; daraus folgt weiterhin keine Strategie- oder Ausführungsempfehlung.
+            Aktuell liegen {trustedTrades.length} berücksichtigte Trades vor. Zeitraum: {scopePeriodLabel}. Ab {MIN_ANALYTICS_SAMPLE_SIZE} belastbaren Trades werden historische Vergleiche angezeigt; daraus folgt weiterhin keine Strategie- oder Ausführungsempfehlung.
           </p>
         </section>
       ) : (
@@ -444,7 +446,7 @@ export function StatistikWorkbench({ trades, tradeTags, setupTitles, initialLaye
           lead={getBucketSummaryLead(sessionPerformance.bestRow, sessionPerformance.weakestRow, 'Noch kein klares Session-Muster.')}
           detail={getBucketSummaryDetail(sessionPerformance.bestRow, sessionPerformance.weakestRow, 'Mehr Trades schärfen das Signal.')}
           rows={sessionPerformance.rows}
-          evidenceLabel={`${trustedTrades.length} belastbare Trades · ${scopePeriodLabel}`}
+          evidenceLabel={`${trustedTrades.length} berücksichtigte Trades · ${scopePeriodLabel}`}
         />
         <InsightBucketSection
           eyebrow="Kill Zones"
@@ -454,7 +456,7 @@ export function StatistikWorkbench({ trades, tradeTags, setupTitles, initialLaye
           lead={getBucketSummaryLead(killZonePerformance.bestRow, killZonePerformance.weakestRow, 'Noch kein klares Kill-Zone-Muster.')}
           detail={getBucketSummaryDetail(killZonePerformance.bestRow, killZonePerformance.weakestRow, 'Aus Uhrzeiten abgeleitet.')}
           rows={killZonePerformance.rows}
-          evidenceLabel={`${trustedTrades.length} belastbare Trades · ${scopePeriodLabel}`}
+          evidenceLabel={`${trustedTrades.length} berücksichtigte Trades · ${scopePeriodLabel}`}
         />
       </section>
       </>
@@ -673,8 +675,14 @@ function getSetupSummaryLead(bestRow: SetupPerformanceRow | null, weakestRow: Se
 }
 
 function getSetupSummaryDetail(bestRow: SetupPerformanceRow | null, weakestRow: SetupPerformanceRow | null) {
-  if (bestRow && weakestRow && bestRow.title !== weakestRow.title) return `${formatCurrency(bestRow.netPnL, bestRow.currency)} bei ${bestRow.winRate.toFixed(0)}% Winrate. PF ${formatProfitFactor(bestRow.profitFactor)}. Schwächstes Setup: ${formatCurrency(weakestRow.netPnL, weakestRow.currency)}.`
-  if (bestRow) return `${formatCurrency(bestRow.netPnL, bestRow.currency)} bei ${bestRow.winRate.toFixed(0)}% Winrate. PF ${formatProfitFactor(bestRow.profitFactor)}.`
+  if (bestRow && weakestRow && bestRow.title !== weakestRow.title) {
+    const best = getSetupPerformanceDisplay(bestRow)
+    return `${best.pnl} bei ${best.winRate} Trefferquote. PF ${best.profitFactor}. Schwächstes Setup: ${getSetupPerformanceDisplay(weakestRow).pnl}.`
+  }
+  if (bestRow) {
+    const best = getSetupPerformanceDisplay(bestRow)
+    return `${best.pnl} bei ${best.winRate} Trefferquote. PF ${best.profitFactor}.`
+  }
   return 'Erst verknüpfte Trades machen die Karte scharf.'
 }
 
@@ -685,6 +693,7 @@ function formatProfitFactor(value: number) {
 }
 
 function SetupPerformanceRowCard({ row }: { row: SetupPerformanceRow }) {
+  const display = getSetupPerformanceDisplay(row)
   const hasEvidence = hasSufficientAnalyticsBucketEvidence(row.trades)
   const evidenceTone = getAnalyticsBucketTone(row.trades, row.tone)
   const toneClass = evidenceTone === 'green'
@@ -704,7 +713,7 @@ function SetupPerformanceRowCard({ row }: { row: SetupPerformanceRow }) {
           </div>
           <p className="mt-2 text-xs leading-5 text-white/55">
             {hasEvidence
-              ? `Historische Stichprobe mit ${row.trades} Trades im gewählten Scope.`
+              ? `Historische Stichprobe mit ${row.trades} Trades in der gewählten Auswahl.`
               : `${getAnalyticsBucketEvidenceLabel(row.trades)} Trades. Rohwerte sind nur Einzelbeobachtungen.`}
           </p>
           {hasEvidence ? (
@@ -718,11 +727,11 @@ function SetupPerformanceRowCard({ row }: { row: SetupPerformanceRow }) {
         </div>
 
         <div className="grid gap-5 sm:grid-cols-5 xl:min-w-[640px] xl:text-right">
-          <InlineMetric label="P&L" value={formatRowMoney(row.netPnL, row.trades, row.currency)} valueClassName={pnlClass} />
-          <InlineMetric label="Winrate" value={hasEvidence ? `${row.winRate.toFixed(0)}%` : '—'} />
-          <InlineMetric label="PF" value={hasEvidence ? formatProfitFactor(row.profitFactor) : '—'} />
-          <InlineMetric label="Ø R" value={hasEvidence && row.riskCoverage > 0 ? `${row.averageR >= 0 ? '+' : ''}${row.averageR.toFixed(2)}R` : hasEvidence ? 'R offen' : '—'} />
-          <InlineMetric label="Evidenz" value={getAnalyticsBucketEvidenceLabel(row.trades)} small />
+          <InlineMetric label="P&L" value={display.pnl} valueClassName={pnlClass} />
+          <InlineMetric label="Trefferquote" value={hasEvidence ? display.winRate : '—'} />
+          <InlineMetric label="PF" value={hasEvidence ? display.profitFactor : '—'} />
+          <InlineMetric label="Ø R" value={hasEvidence && row.averageR !== null ? formatRMultiple(row.averageR) : hasEvidence ? 'R offen' : '—'} />
+          <InlineMetric label="Datengrundlage" value={getAnalyticsBucketEvidenceLabel(row.trades)} small />
         </div>
       </div>
     </div>
@@ -802,9 +811,9 @@ function TimeWindowCard({ row }: { row: TimeWindowPerformanceRow }) {
         </div>
       </div>
       <div className="mt-5 flex flex-wrap gap-x-8 gap-y-3">
-        <InlineMetric label="Winrate" value={hasEvidence ? `${row.winRate.toFixed(0)}%` : '—'} />
+        <InlineMetric label="Trefferquote" value={hasEvidence ? `${row.winRate.toFixed(0)}%` : '—'} />
         <InlineMetric label="Ø R" value={hasEvidence ? formatAverageR(row.averageR, row.trades, row.rCount) : '—'} />
-        <InlineMetric label="Evidenz" value={getAnalyticsBucketEvidenceLabel(row.trades)} small />
+        <InlineMetric label="Datengrundlage" value={getAnalyticsBucketEvidenceLabel(row.trades)} small />
       </div>
     </div>
   )
@@ -925,9 +934,9 @@ function InsightBucketCard({ row }: { row: SessionPerformanceRow }) {
         </div>
 
         <div className="grid min-w-[210px] grid-cols-3 gap-5 text-right">
-          <InlineMetric label="Winrate" value={hasEvidence ? `${row.winRate.toFixed(0)}%` : '—'} />
+          <InlineMetric label="Trefferquote" value={hasEvidence ? `${row.winRate.toFixed(0)}%` : '—'} />
           <InlineMetric label="Ø R" value={hasEvidence ? formatAverageR(row.averageR, row.trades, row.rCount) : '—'} />
-          <InlineMetric label="Evidenz" value={getAnalyticsBucketEvidenceLabel(row.trades)} small />
+          <InlineMetric label="Datengrundlage" value={getAnalyticsBucketEvidenceLabel(row.trades)} small />
         </div>
       </div>
     </div>

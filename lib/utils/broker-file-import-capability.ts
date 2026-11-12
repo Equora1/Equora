@@ -46,10 +46,10 @@ export const brokerFileImportCapability = Object.freeze({
   previewHref: "/trades?capture=import#trade-editor",
   previewActionLabel: "Datei prüfen",
   persistenceActionLabel: "Datei importieren",
-  blockedActionLabel: "DB-Gate ausstehend",
-  statusLabel: "Parser gebaut · DB-Gate offen",
+  blockedActionLabel: "Übernahme noch nicht verfügbar",
+  statusLabel: "Dateivorschau verfügbar · Übernahme noch aus",
   blockedReason:
-    "Produktiver Dateiimport bleibt gesperrt, bis die freigegebene v57.62.0-Datenbankmigration angewendet sowie das zentrale App-Gate und das datenbankseitige Aktivierungsgate freigegeben sind.",
+    "Du kannst die Datei prüfen. Das Speichern der Trades aus der Datei ist noch nicht freigeschaltet.",
 });
 
 export function getBrokerFileImportPreviewHref(

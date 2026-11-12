@@ -853,7 +853,7 @@ export function TradeImportPanel() {
               <option value="">Bitte bewusst auswählen</option>
               {SUPPORTED_TRADE_CURRENCIES.map((currency) => <option key={currency} value={currency}>{currency}</option>)}
             </select>
-            <span className="mt-2 block text-xs leading-5 text-white/50">Ein gültiger CSV-Zeilenwert überschreibt diesen Fallback. USD, USDT und USDC bleiben getrennt; es findet keine Umrechnung statt.</span>
+            <span className="mt-2 block text-xs leading-5 text-white/50">Enthält eine Dateizeile eine gültige Währung, wird diese verwendet. Sonst gilt die hier gewählte Währung. USD, USDT und USDC bleiben getrennt; es findet keine Umrechnung statt.</span>
           </label>
         </div>
         <label className="mt-3 block rounded-2xl border border-orange-300/20 bg-black/25 p-4">

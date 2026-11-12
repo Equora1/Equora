@@ -4,6 +4,7 @@ export const SUPPORTED_TRADE_CURRENCIES = ['EUR', 'USD', 'GBP', 'USDT', 'USDC'] 
 
 export type TradeCurrency = (typeof SUPPORTED_TRADE_CURRENCIES)[number]
 export type MonetaryScopeKind = 'empty' | 'single' | 'mixed' | 'unknown'
+export type TradeCurrencyStatus = 'known' | 'missing' | 'unsupported'
 
 export type MonetaryScope = {
   kind: MonetaryScopeKind
@@ -19,6 +20,23 @@ export function normalizeTradeCurrency(value: string | null | undefined): TradeC
   return (SUPPORTED_TRADE_CURRENCIES as readonly string[]).includes(normalized)
     ? normalized as TradeCurrency
     : null
+}
+
+export function getTradeCurrencyStatus(value: string | null | undefined): TradeCurrencyStatus {
+  if (!value?.trim()) return 'missing'
+  return normalizeTradeCurrency(value) ? 'known' : 'unsupported'
+}
+
+export function getTradeCurrencyStatusForTrade(trade: Pick<Trade, 'accountCurrency' | 'accountCurrencyStatus'>): TradeCurrencyStatus {
+  if (normalizeTradeCurrency(trade.accountCurrency)) return 'known'
+  return trade.accountCurrencyStatus === 'unsupported' ? 'unsupported' : getTradeCurrencyStatus(trade.accountCurrency)
+}
+
+export function summarizeTradeCurrencyQuality(trades: Trade[]) {
+  const summary = { total: trades.length, known: 0, missing: 0, unsupported: 0, needsReview: 0 }
+  for (const trade of trades) summary[getTradeCurrencyStatusForTrade(trade)] += 1
+  summary.needsReview = summary.missing + summary.unsupported
+  return summary
 }
 
 export function resolveMonetaryScope(values: Array<string | null | undefined>): MonetaryScope {
@@ -82,11 +100,27 @@ export function getMonetaryScopeMessage(scope: MonetaryScope): string {
 
 export function formatMoney(value: number, currency: string | null | undefined, fractionDigits = 0): string {
   const normalizedCurrency = normalizeTradeCurrency(currency)
-  if (!normalizedCurrency || !Number.isFinite(value)) return 'Währung fehlt'
+  if (!normalizedCurrency) return getTradeCurrencyStatus(currency) === 'unsupported' ? 'Währung nicht unterstützt' : 'Währung fehlt'
+  if (!Number.isFinite(value)) return 'Betrag fehlt'
 
+  // Keep cents in compact labels and extra precision for smaller amounts.
+  const magnitude = Math.abs(value)
+  const baseDigits = Math.max(2, fractionDigits)
+  const maximumDigits = Math.max(8, baseDigits)
+  const smallestDisplayedUnit = 10 ** -maximumDigits
+  if (magnitude > 0 && magnitude < smallestDisplayedUnit) {
+    const threshold = smallestDisplayedUnit.toLocaleString('de-DE', {
+      minimumFractionDigits: maximumDigits,
+      maximumFractionDigits: maximumDigits,
+    })
+    return `${value < 0 ? '-' : '+'}<${threshold} ${normalizedCurrency}`
+  }
+  const displayDigits = magnitude > 0 && magnitude < 10 ** -baseDigits
+    ? Math.min(maximumDigits, Math.ceil(-Math.log10(magnitude)))
+    : baseDigits
   const formatter = new Intl.NumberFormat('de-DE', {
     minimumFractionDigits: fractionDigits,
-    maximumFractionDigits: fractionDigits,
+    maximumFractionDigits: displayDigits,
   })
 
   return `${value >= 0 ? '+' : '-'}${formatter.format(Math.abs(value))} ${normalizedCurrency}`

@@ -6,11 +6,12 @@ import { useRouter } from 'next/navigation'
 import { createTradeEntry, syncTradeMedia, updateTradeEntry } from '@/app/actions/trades'
 import { requestUncommittedMediaCleanup } from '@/app/actions/media-cleanup'
 import { deleteUserCostProfile, saveUserCostProfile } from '@/app/actions/user-cost-profiles'
+import { SaveTradeCurrencyOnly } from '@/components/trades/trade-currency-correction'
 import { TradeTagSelector } from '@/components/trades/trade-tag-selector'
 import { SnippingAssistCard } from '@/components/trades/snipping-assist-dynamic'
 import { ChartUploadAdvanced } from '@/components/uploads/chart-upload-advanced'
 import { uploadTradeScreenshots } from '@/lib/supabase/storage'
-import { SUPPORTED_TRADE_CURRENCIES } from '@/lib/utils/currency'
+import { normalizeTradeCurrency, SUPPORTED_TRADE_CURRENCIES } from '@/lib/utils/currency'
 import {
   getTradeAccountTemplatePreset,
   getTradeBrokerProfilePreset,
@@ -19,6 +20,8 @@ import {
   getTradeMarketTemplatePreset,
   normalizeInstrumentType,
   deriveEffectiveExitFromPartialExitLegs,
+  restoreRemainderExitFromStoredAverage,
+  parseTradingNumber,
   buildQuickPnLPreview,
   deriveMarginUsed,
   derivePartialExitPnL,
@@ -56,6 +59,7 @@ import type { SavedUserCostProfile } from '@/lib/types/user-cost-profile'
 import type { TradeMediaItem, TradeMediaUploadInput } from '@/lib/types/media'
 import { type TradeCaptureInput, type TradeValidationField, validateTradeCaptureInput } from '@/lib/utils/trade-validation'
 import { formatTradeTimeInputValue } from '@/lib/utils/trade-time'
+import { WEIGHTED_EXIT_PRICE_BASIS } from '@/lib/utils/trade-exit-basis'
 import {
   accountTemplateOptions,
   brokerProfileOptions,
@@ -98,13 +102,14 @@ function getReviewLayerProgress(values: string[]) {
   return {
     completed,
     total: values.length,
-    label: completed === values.length ? 'Review-Snapshot steht' : `${completed}/${values.length} Signale gesetzt`,
+    label: completed === values.length ? 'Review-Angaben vollständig' : `${completed}/${values.length} Signale gesetzt`,
   }
 }
 
 type TradeFormMode = 'create' | 'edit'
 
 type TradeFormInitialValues = Partial<TradeCaptureInput> & {
+  exitPriceBasis?: string | null
   setupId?: string
   captureStatus?: TradeCaptureStatus
   partialExit1Percent?: string
@@ -254,7 +259,19 @@ export function TradeForm({
   const [entryValue, setEntryValue] = useState(stringifyInitialValue(initialValues?.entry))
   const [stopLossValue, setStopLossValue] = useState(stringifyInitialValue(initialValues?.stopLoss))
   const [takeProfitValue, setTakeProfitValue] = useState(stringifyInitialValue(initialValues?.takeProfit))
-  const [exitValue, setExitValue] = useState(stringifyInitialValue(initialValues?.exit))
+  const initialPartialExits = [
+      { percent: initialValues?.partialExit1Percent, price: initialValues?.partialExit1Price },
+      { percent: initialValues?.partialExit2Percent, price: initialValues?.partialExit2Price },
+      { percent: initialValues?.partialExit3Percent, price: initialValues?.partialExit3Price },
+  ]
+  const initialPartialPlan = getPartialExitPlanInfo({ exit: initialValues?.exit, partialExits: initialPartialExits })
+  const storedExitBasisKnown = initialValues?.exitPriceBasis === WEIGHTED_EXIT_PRICE_BASIS
+  const needsExitBasis = isEditMode && initialPartialPlan.count > 0 && initialPartialPlan.hasRemainder && parseTradingNumber(initialValues?.exit) !== null && !storedExitBasisKnown
+  const initialExitValue = storedExitBasisKnown
+    ? restoreRemainderExitFromStoredAverage({ exit: initialValues?.exit, partialExits: initialPartialExits })
+    : initialValues?.exit
+  const [exitBasis, setExitBasis] = useState<'unconfirmed' | 'remainder' | 'average'>(needsExitBasis ? 'unconfirmed' : 'remainder')
+  const [exitValue, setExitValue] = useState(needsExitBasis ? '' : stringifyInitialValue(initialExitValue))
   const [partialExit1Percent, setPartialExit1Percent] = useState(stringifyInitialValue(initialValues?.partialExit1Percent))
   const [partialExit1Price, setPartialExit1Price] = useState(stringifyInitialValue(initialValues?.partialExit1Price))
   const [partialExit2Percent, setPartialExit2Percent] = useState(stringifyInitialValue(initialValues?.partialExit2Percent))
@@ -289,14 +306,16 @@ export function TradeForm({
   const [userCostProfiles, setUserCostProfiles] = useState<SavedUserCostProfile[]>(initialUserCostProfiles)
   const [selectedUserCostProfileId, setSelectedUserCostProfileId] = useState(initialValues?.userCostProfileId?.trim() || '')
   const [newProfileTitle, setNewProfileTitle] = useState('')
-  const [simpleMode, setSimpleMode] = useState(!isEditMode)
+  const [currencySaving, setCurrencySaving] = useState(false)
+  const [noteText, setNoteText] = useState(initialValues?.notes ?? '')
+  const [simpleMode, setSimpleMode] = useState(true)
   const [showAdvanced, setShowAdvanced] = useState(false)
-  const [showReflection, setShowReflection] = useState(isEditMode ? true : false)
+  const [showReflection, setShowReflection] = useState(false)
   const [activeExtraSection, setActiveExtraSection] = useState<'screenshots' | 'tags' | 'notes' | 'snip' | null>(null)
   const [tradeDirection, setTradeDirection] = useState(initialValues?.bias?.trim() || biases[0] || '')
   const [reviewRuleCheck, setReviewRuleCheck] = useState(initialValues?.ruleCheck?.trim() || '')
   const [reviewRepeatability, setReviewRepeatability] = useState(initialValues?.reviewRepeatability?.trim() || '')
-  const [reviewState, setReviewState] = useState(initialValues?.reviewState?.trim() || initialValues?.emotion?.trim() || '')
+  const [reviewState, setReviewState] = useState(initialValues?.reviewState?.trim() || '')
   const [reviewLesson, setReviewLesson] = useState(initialValues?.reviewLesson?.trim() || '')
   const reviewLayerProgress = getReviewLayerProgress([reviewRuleCheck, reviewRepeatability, reviewState, reviewLesson])
 
@@ -370,7 +389,7 @@ export function TradeForm({
     })
     const summary = formatPartialExitSummary(partialExits)
     const plan = getPartialExitPlanInfo({ exit: exitValue, partialExits })
-    const sizePlan = getPartialExitSizePlan({ positionSize: derivedPositionSize, partialExits })
+    const sizePlan = getPartialExitSizePlan({ positionSize: derivedPositionSize, partialExits, exit: exitValue })
     const realizedPnL = derivePartialExitPnL({
       instrumentType,
       entry: entryValue,
@@ -1074,23 +1093,26 @@ export function TradeForm({
       partialExit3Percent,
       partialExit3Price,
       userCostProfileId: String(formData.get('user_cost_profile_id') ?? ''),
-      notes: String(formData.get('notes') ?? ''),
+      notes: noteText,
       screenshotUrl: '',
       tags: selectedTags,
     }
   }
 
   function handleSubmit(formData: FormData) {
+    if (needsExitBasis && exitBasis === 'unconfirmed') {
+      setStatus('Bitte kläre zuerst, ob der gespeicherte Ausstiegspreis den letzten Teilverkauf oder den Durchschnitt aller Verkäufe beschreibt.')
+      return
+    }
     const basePayload = buildTradePayload(formData)
-    const partialSummary = partialExitPreview.summary
-    const noteParts = [basePayload.notes.trim(), partialSummary ? `Teilverkäufe: ${partialSummary}` : ''].filter(Boolean)
     const payload = {
       ...basePayload,
-      tradeOccurredAt: basePayload.tradeOccurredAt.trim() || new Date().toISOString(),
-      exit: partialExitPreview.effectiveExit !== null ? String(partialExitPreview.effectiveExit) : basePayload.exit,
-      notes: noteParts.join('\n\n'),
+      tradeOccurredAt: basePayload.tradeOccurredAt.trim() || (isEditMode ? '' : new Date().toISOString()),
+      // Send the final remainder price. The server action computes the stored average exactly once.
+      exit: basePayload.exit,
+      notes: basePayload.notes,
     }
-    const validation = validateTradeCaptureInput(payload)
+    const validation = validateTradeCaptureInput(payload, isEditMode ? initialValues?.capturedAt ?? initialValues?.createdAt : undefined)
 
     if (!validation.isValid) {
       setValidationErrors(validation.errors)
@@ -1144,20 +1166,21 @@ export function TradeForm({
       }
 
       if (isEditMode && tradeId) {
-        router.push(`/trades?tradeId=${encodeURIComponent(tradeId)}`)
+        router.push(cancelHref ?? `/trades?tradeId=${encodeURIComponent(tradeId)}`)
         router.refresh()
         return
       }
 
       ;(document.getElementById('trade-form') as HTMLFormElement | null)?.reset()
       setSelectedTags([])
+      setNoteText('')
       setFiles([])
       setSnippingFiles([])
       resetEngineState()
     })
   }
 
-  const pnlFieldLabel = pnlMode === 'override' ? 'P&L manuell (optional)' : 'P&L (optional)'
+  const pnlFieldLabel = pnlMode === 'auto' ? 'Ergebnis · automatisch' : 'Ergebnis (P&L)'
   const pnlFieldPlaceholder =
     pnlMode === 'auto'
       ? 'Automatik'
@@ -1165,7 +1188,7 @@ export function TradeForm({
         ? 'Zahl eintragen oder leer lassen'
         : 'Zahl eintragen oder leer lassen'
   const formEyebrow = ''
-  const formTitle = isEditMode ? 'Trade vervollständigen' : 'Trade erfassen'
+  const formTitle = isEditMode ? 'Trade bearbeiten' : 'Trade erfassen'
   const formCopy = ''
   const submitLabel = isEditMode ? 'Trade aktualisieren' : 'Trade speichern'
 
@@ -1175,6 +1198,7 @@ export function TradeForm({
       action={handleSubmit}
       className="space-y-6 rounded-3xl border border-orange-400/15 bg-white/5 p-5 shadow-2xl"
     >
+      <fieldset disabled={isPending || currencySaving} className="min-w-0 space-y-6">
       <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
         <div>
           {formEyebrow ? <p className="text-xs uppercase tracking-[0.25em] text-white/45">{formEyebrow}</p> : null}
@@ -1211,23 +1235,23 @@ export function TradeForm({
           </ul>
         </div>
       ) : status ? (
-        <div className={`rounded-2xl border p-4 text-sm ${status.toLowerCase().includes('gespeichert') || status.toLowerCase().includes('aktualisiert') || status.toLowerCase().includes('demo-flow aktiv') ? 'border-emerald-400/20 bg-emerald-400/10 text-emerald-100' : 'border-white/10 bg-black/25 text-white/75'}`}>
+        <div className={`rounded-2xl border p-4 text-sm ${status.toLowerCase().includes('gespeichert') || status.toLowerCase().includes('aktualisiert') || status.toLowerCase().includes('Demo-Modus aktiv') ? 'border-emerald-400/20 bg-emerald-400/10 text-emerald-100' : 'border-white/10 bg-black/25 text-white/75'}`}>
           {status}
         </div>
       ) : null}
 
       <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-white/8 bg-black/20 p-2">
-        <span className="px-2 text-xs uppercase tracking-[0.2em] text-white/35">Modus</span>
+        <span className="px-2 text-xs uppercase tracking-[0.2em] text-white/35">Ansicht</span>
         <button
           type="button"
           onClick={() => {
             setSimpleMode(true)
             setShowAdvanced(false)
-            if (!isEditMode) setShowReflection(false)
+            setShowReflection(false)
           }}
           className={`rounded-full border px-4 py-2 text-sm transition ${simpleMode ? 'border-orange-300/35 bg-orange-400/10 text-orange-100' : 'border-white/10 bg-black/25 text-white/70 hover:border-white/20 hover:text-white'}`}
         >
-          Einfach
+          Basisangaben
         </button>
         <button
           type="button"
@@ -1238,7 +1262,7 @@ export function TradeForm({
           }}
           className={`rounded-full border px-4 py-2 text-sm transition ${!simpleMode ? 'border-orange-300/35 bg-orange-400/10 text-orange-100' : 'border-white/10 bg-black/25 text-white/70 hover:border-white/20 hover:text-white'}`}
         >
-          Vollständig
+          Alle Details
         </button>
       </div>
 
@@ -1254,6 +1278,7 @@ export function TradeForm({
 
       <div className="grid gap-6">
         <div className="space-y-4">
+          <input type="hidden" name="notes" value={noteText} />
           <input type="hidden" name="setup_id" value={selectedSetupId} />
           <input type="hidden" name="bias" value={tradeDirection} />
           <div className="grid gap-4 md:grid-cols-2">
@@ -1268,11 +1293,12 @@ export function TradeForm({
             />
             <ControlledInput
               name="trade_occurred_at"
-              label="Trade-Zeit"
+              label="Trade-Zeit (Berlin)"
               placeholder="Zeit anpassen"
               value={tradeOccurredAtValue}
               onChange={(event) => setTradeOccurredAtValue(event.target.value)}
               type="datetime-local"
+              helper="Berliner Ortszeit, Sommer- und Winterzeit werden berücksichtigt."
             />
             <ControlledDatalistInput
               name="setup"
@@ -1303,9 +1329,60 @@ export function TradeForm({
             </div>
           </div>
 
+          <section aria-label="Ergebnis und Währung" className="space-y-3 rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+            <h3 className="text-sm font-semibold text-white">Ergebnis &amp; Währung</h3>
+            <p className="text-xs leading-5 text-white/60">Betrag und Währung laut deiner Abrechnung.</p>
+            <div className="grid gap-4 md:grid-cols-2">
+              <div>
+                <ControlledInput
+                  name="net_pnl"
+                  label={pnlFieldLabel}
+                  placeholder={pnlFieldPlaceholder}
+                  value={netPnL}
+                  onChange={(event) => setNetPnL(event.target.value)}
+                  readOnly={pnlMode === 'auto'}
+                  className={pnlMode === 'auto' ? 'opacity-60' : ''}
+                />
+                <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] leading-5 text-white/45">
+                  {pnlMode !== 'auto' ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setNetPnL('')
+                        setPnlMode('auto')
+                      }}
+                      className="rounded-full border border-white/10 bg-black/20 px-3 py-1 text-[11px] text-white/60 transition hover:border-white/20 hover:text-white"
+                    >
+                      Automatik nutzen
+                    </button>
+                  ) : null}
+                  {netPnL ? (
+                    <button
+                      type="button"
+                      onClick={() => setNetPnL('')}
+                      className="rounded-full border border-orange-400/15 bg-orange-400/10 px-3 py-1 text-[11px] text-orange-100/80 transition hover:border-orange-300/35 hover:text-white"
+                    >
+                      Manuellen Wert löschen
+                    </button>
+                  ) : null}
+                </div>
+              </div>
+              <ControlledSelect
+                name="account_currency"
+                label="Ergebniswährung"
+                options={['Bitte wählen', ...SUPPORTED_TRADE_CURRENCIES]}
+                values={['', ...SUPPORTED_TRADE_CURRENCIES]}
+                value={normalizeTradeCurrency(accountCurrency) ?? ''}
+                onChange={(event) => setAccountCurrency(event.target.value)}
+              />
+            </div>
+            {accountCurrency && !normalizeTradeCurrency(accountCurrency) ? <p className="text-xs text-orange-100">Die gespeicherte Währung wird nicht unterstützt. Bitte wähle die Währung laut Abrechnung.</p> : null}
+            {isEditMode && tradeId ? <SaveTradeCurrencyOnly tradeId={tradeId} currency={accountCurrency} disabled={isPending} onBusyChange={setCurrencySaving} /> : null}
+          </section>
+
           {isEditMode ? (
             <>
-              <input type="hidden" name="emotion" value={reviewState} />
+              <input type="hidden" name="emotion" value={initialValues?.emotion ?? ''} />
               <input type="hidden" name="rule_check" value={reviewRuleCheck} />
               <input type="hidden" name="review_repeatability" value={reviewRepeatability} />
               <input type="hidden" name="review_state" value={reviewState} />
@@ -1322,7 +1399,7 @@ export function TradeForm({
                   <div className="flex items-start justify-between gap-3">
                     <div>
                       <p className="text-xs uppercase tracking-[0.2em] text-white/40">Review</p>
-                      <h3 className="mt-2 text-sm font-semibold text-white">Review</h3>
+                      <h3 className="mt-2 text-sm font-semibold text-white">Nachbereitung · optional</h3>
                     </div>
                     <div className="flex flex-col items-end gap-2">
                       <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] text-white/60">
@@ -1342,7 +1419,7 @@ export function TradeForm({
                     </div>
                     <div className="grid gap-4 xl:grid-cols-2">
                       <ReviewChipGroup label="Regelkonformität" hint="" value={reviewRuleCheck} onChange={setReviewRuleCheck} tone="red" options={reviewRuleOptions} />
-                      <ReviewChipGroup label="Replizierbar" hint="" value={reviewRepeatability} onChange={setReviewRepeatability} options={reviewRepeatabilityOptions} />
+                      <ReviewChipGroup label="Wieder so handeln?" hint="" value={reviewRepeatability} onChange={setReviewRepeatability} options={reviewRepeatabilityOptions} />
                     </div>
                   </div>
                   <div className="grid gap-4 2xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] 2xl:items-start">
@@ -1384,10 +1461,10 @@ export function TradeForm({
             </>
           ) : (
             <>
-              <input type="hidden" name="emotion" value={initialValues?.emotion ?? emotions[0] ?? ''} />
+              <input type="hidden" name="emotion" value={initialValues?.emotion ?? ''} />
               <input type="hidden" name="rule_check" value={initialValues?.ruleCheck ?? ''} />
               <input type="hidden" name="review_repeatability" value={initialValues?.reviewRepeatability ?? ''} />
-              <input type="hidden" name="review_state" value={initialValues?.reviewState ?? initialValues?.emotion ?? ''} />
+              <input type="hidden" name="review_state" value={initialValues?.reviewState ?? ''} />
               <input type="hidden" name="review_lesson" value={initialValues?.reviewLesson ?? ''} />
             </>
           )}
@@ -1513,14 +1590,7 @@ export function TradeForm({
                 value={costProfile}
                 onChange={(event) => handleCostProfileChange(event.target.value as TradeCostProfile)}
               />
-              <ControlledSelect
-                name="account_currency"
-                label="Kontowährung"
-                options={SUPPORTED_TRADE_CURRENCIES.map((currency) => currency)}
-                values={SUPPORTED_TRADE_CURRENCIES.map((currency) => currency)}
-                value={accountCurrency}
-                onChange={(event) => setAccountCurrency(event.target.value)}
-              />
+
               <ControlledInput
                 name="point_value"
                 label="Punktwert / Pip-Wert"
@@ -1656,8 +1726,26 @@ export function TradeForm({
         </div>
 
         <div className="space-y-4">
-          <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-            <p className="text-xs uppercase tracking-[0.2em] text-white/45">Preise &amp; Plan</p>
+          <details key={`prices-${simpleMode}`} open={!simpleMode || pnlMode !== 'manual' || needsExitBasis} className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+            <summary className="cursor-pointer text-sm font-medium text-white">Preise &amp; Ausführung</summary>
+            <p className="mt-3 text-xs leading-5 text-white/60">Für automatische Ergebnisberechnung und die Prüfung deiner Ausführung.</p>
+            {needsExitBasis ? <div className="mt-4 rounded-2xl border border-orange-300/25 bg-orange-400/5 p-4">
+              <label className="block text-sm text-orange-50">
+                Gespeicherten Ausstiegspreis prüfen: {stringifyInitialValue(initialValues?.exit)}
+                <select value={exitBasis} onChange={(event) => {
+                  const basis = event.target.value as typeof exitBasis
+                  setExitBasis(basis)
+                  setExitValue(basis === 'average'
+                    ? stringifyInitialValue(restoreRemainderExitFromStoredAverage({ exit: initialValues?.exit, partialExits: initialPartialExits }))
+                    : basis === 'remainder' ? stringifyInitialValue(initialValues?.exit) : '')
+                }} className="mt-2 w-full rounded-xl border border-white/15 bg-black p-3 text-white">
+                  <option value="unconfirmed">Bitte anhand deiner Abrechnung zuordnen</option>
+                  <option value="remainder">Preis des letzten Verkaufs der Restposition</option>
+                  <option value="average">Durchschnittspreis aller Verkäufe</option>
+                </select>
+              </label>
+              <p className="mt-2 text-xs leading-5 text-white/60">Bei älteren Teilverkäufen ist die Preisart nicht eindeutig hinterlegt. Wähle sie anhand deiner Unterlagen; Equora nimmt keine automatische Zuordnung vor.</p>
+            </div> : null}
             <div className="mt-4 grid gap-4 md:grid-cols-2">
               <ControlledInput
                 name="entry"
@@ -1722,7 +1810,7 @@ export function TradeForm({
                 </div>
               </div>
             </div>
-          </div>
+          </details>
 
             <details className="group rounded-2xl border border-white/10 bg-white/[0.03] p-4">
               <summary className="list-none cursor-pointer">
@@ -1795,40 +1883,6 @@ export function TradeForm({
                   onChange={(event) => setRiskPercentValue(event.target.value)}
                 />
               </div>
-              <div>
-                <ControlledInput
-                  name="net_pnl"
-                  label={pnlFieldLabel}
-                  placeholder={pnlFieldPlaceholder}
-                  value={netPnL}
-                  onChange={(event) => setNetPnL(event.target.value)}
-                  readOnly={pnlMode === 'auto'}
-                  className={pnlMode === 'auto' ? 'opacity-60' : ''}
-                />
-                <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] leading-5 text-white/45">
-                  {pnlMode !== 'auto' ? (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setNetPnL('')
-                        setPnlMode('auto')
-                      }}
-                      className="rounded-full border border-white/10 bg-black/20 px-3 py-1 text-[11px] text-white/60 transition hover:border-white/20 hover:text-white"
-                    >
-                      Automatik nutzen
-                    </button>
-                  ) : null}
-                  {netPnL ? (
-                    <button
-                      type="button"
-                      onClick={() => setNetPnL('')}
-                      className="rounded-full border border-orange-400/15 bg-orange-400/10 px-3 py-1 text-[11px] text-orange-100/80 transition hover:border-orange-300/35 hover:text-white"
-                    >
-                      Manuellen Wert löschen
-                    </button>
-                  ) : null}
-                </div>
-              </div>
               <div className="rounded-2xl border border-emerald-400/15 bg-emerald-400/5 px-4 py-4 text-sm text-white/70">
                 <p className="text-xs uppercase tracking-[0.2em] text-emerald-100/75">Risiko-Kurzblick</p>
                 <div className="mt-3 grid gap-3 md:grid-cols-2">
@@ -1880,9 +1934,10 @@ export function TradeForm({
                     <p className="text-xs uppercase tracking-[0.2em] text-orange-100/70">Notiz</p>
                   </div>
                   <textarea
-                    name="notes"
+                    aria-label="Notiztext"
                     rows={5}
-                    defaultValue={initialValues?.notes ?? ''}
+                    value={noteText}
+                    onChange={(event) => setNoteText(event.target.value)}
                     className="block min-h-[152px] w-full resize-y rounded-2xl border border-orange-400/15 bg-orange-400/5 px-4 py-3 text-sm text-white outline-none placeholder:text-white/30"
                     placeholder="Kurzer Kontext, Fehler oder Erkenntnis"
                   />
@@ -1928,6 +1983,7 @@ export function TradeForm({
           </datalist>
         </div>
       </div>
+      </fieldset>
     </form>
   )
 }

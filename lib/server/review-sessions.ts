@@ -5,6 +5,7 @@ import type { ReviewSessionRow } from '@/lib/types/db'
 import type { ReviewSessionPeriodPreset, ReviewSessionStatus, ReviewSessionType, ReviewSessionsPageResult, SavedReviewSession } from '@/lib/types/review-session'
 import { parseTradingNumber } from '@/lib/utils/calculations'
 import { normalizeTradeCurrency } from '@/lib/utils/currency'
+import { getSavedReviewRState } from '@/lib/utils/review-snapshot-summary'
 
 type ReviewSessionsQueryOptions = {
   page?: number
@@ -20,7 +21,13 @@ export function mapReviewSessionRow(
   row: ReviewSessionRow,
   source: 'supabase' | 'mock' = 'supabase',
 ): SavedReviewSession {
+  const rState = getSavedReviewRState({ calculationVersion: row.calculation_version, rCount: row.r_count,
+    excludedRCount: row.excluded_r_count, averageR: parseTradingNumber(row.average_r), tradeCount: row.trade_count ?? 0 })
   return {
+    ...rState,
+    calculationVersion: row.calculation_version ?? null,
+    rCount: row.r_count ?? null,
+    excludedRCount: row.excluded_r_count ?? null,
     id: row.id,
     title: row.title,
     note: row.note ?? '',
@@ -40,7 +47,6 @@ export function mapReviewSessionRow(
         : row.monetary_scope_kind === 'empty' || row.monetary_scope_kind === 'mixed'
           ? row.monetary_scope_kind
           : 'unknown',
-    averageR: parseTradingNumber(row.average_r) ?? 0,
     winRate: parseTradingNumber(row.win_rate) ?? 0,
     winners: row.winners ?? 0,
     losers: row.losers ?? 0,

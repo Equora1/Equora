@@ -36,11 +36,11 @@ export function DashboardOverview({ trades, dailyNotes, source, availability }: 
     trustedTradeCount: trustedTrades.length,
   })
   const evidenceLabel = evidenceState === 'descriptive'
-    ? 'Deskriptive Auswertung'
+    ? 'Bisherige Ergebnisse'
     : evidenceState === 'empty'
       ? 'Noch keine Datengrundlage'
       : evidenceState === 'untrusted'
-        ? 'Keine belastbaren Abschlüsse'
+        ? 'Noch keine auswertbaren Abschlüsse'
         : `Kleine Stichprobe · ${trustedTrades.length}/${MIN_ANALYTICS_SAMPLE_SIZE}`
   const metricItems = [
     {
@@ -56,7 +56,7 @@ export function DashboardOverview({ trades, dailyNotes, source, availability }: 
         : 'gold',
     },
     {
-      label: 'Win Rate',
+      label: 'Trefferquote',
       value: metrics.resolvedTrades ? `${formatPlainNumber(metrics.winRate, 0)}%` : '—',
       hint: metrics.resolvedTrades
         ? `${metrics.winners} Gewinner · ${metrics.losers} Verlierer · ${metrics.breakeven} Break-even`
@@ -88,11 +88,11 @@ export function DashboardOverview({ trades, dailyNotes, source, availability }: 
         : 'neutral',
     },
     {
-      label: 'Expectancy',
+      label: 'Ø Ergebnis je Abschluss',
       value: metrics.resolvedTrades && moneyComparable
         ? formatCurrency(metrics.expectancy, 0, metrics.currency)
         : '—',
-      hint: 'Durchschnitt je belastbarem Abschluss',
+      hint: 'Bisheriges Nettoergebnis je berücksichtigtem Abschluss',
       tone: hasDescriptiveSample && moneyComparable && metrics.expectancy !== 0
         ? (metrics.expectancy > 0 ? 'positive' : 'negative')
         : 'neutral',
@@ -124,7 +124,7 @@ function DataQualityCard({ trades }: { trades: Trade[] }) {
   const trust = getTradeTrustSummary(trades)
   const coverage = Math.round(trust.trustedCoverage)
   const statusRows = [
-    { label: 'Belastbar', value: trust.trustedTrades, tone: 'text-emerald-300' },
+    { label: 'Berücksichtigt', value: trust.trustedTrades, tone: 'text-emerald-300' },
     { label: 'Offen', value: trust.openTrades, tone: 'text-[#e8b978]' },
     { label: 'Unvollständig', value: trust.incompleteTrades, tone: 'text-[#e8b978]' },
     { label: 'Ohne P&L', value: trust.completeWithoutPnL, tone: 'text-white/70' },
@@ -137,7 +137,7 @@ function DataQualityCard({ trades }: { trades: Trade[] }) {
       <div className="flex items-start justify-between gap-4">
         <div>
           <p className="eq-eyebrow">Datenqualität</p>
-          <h2 className="mt-2 text-xl font-semibold tracking-tight text-white">Vertrauensstatus</h2>
+          <h2 className="mt-2 text-xl font-semibold tracking-tight text-white">Welche Trades zählen?</h2>
         </div>
         <span className="eq-pill-soft px-3 py-1.5 text-xs tabular-nums">{coverage}%</span>
       </div>
@@ -145,7 +145,7 @@ function DataQualityCard({ trades }: { trades: Trade[] }) {
       <div
         className="mt-6 h-2 overflow-hidden rounded-full bg-white/[0.06]"
         role="progressbar"
-        aria-label="Anteil belastbarer Trades"
+        aria-label="Anteil der für Kennzahlen berücksichtigten Trades"
         aria-valuemin={0}
         aria-valuemax={100}
         aria-valuenow={coverage}
@@ -156,7 +156,7 @@ function DataQualityCard({ trades }: { trades: Trade[] }) {
         />
       </div>
       <p className="mt-3 text-xs leading-5 text-white/60">
-        Kennzahlen verwenden ausschließlich belastbare Abschlüsse. Offene oder widersprüchliche Datensätze werden nicht still eingerechnet.
+        Offene Trades und Einträge mit fehlenden oder widersprüchlichen Angaben zählen nicht mit. Geldbeträge werden zusätzlich nur bei vergleichbaren Währungen zusammengefasst.
       </p>
 
       <div className="mt-6 grid grid-cols-2 gap-2.5">
@@ -171,9 +171,9 @@ function DataQualityCard({ trades }: { trades: Trade[] }) {
       <div className="mt-5 rounded-2xl border border-[#c8823a]/15 bg-[#c8823a]/[0.05] px-4 py-3">
         <p className="text-xs leading-5 text-[#d8b98f]">
           {trust.needsAttention
-            ? `${trust.needsAttention} Eintrag${trust.needsAttention === 1 ? '' : 'e'} brauchen noch eine Prüfung.`
+            ? `${trust.needsAttention} ${trust.needsAttention === 1 ? 'Eintrag' : 'Einträge'} noch prüfen.`
             : trades.length
-              ? 'Alle sichtbaren Einträge erfüllen den aktuellen Vertrauensvertrag.'
+              ? 'Bei den sichtbaren Einträgen wurden keine offenen Datenlücken erkannt.'
               : 'Noch keine Trades vorhanden.'}
         </p>
       </div>
@@ -197,14 +197,14 @@ function UnavailableDashboard({ state }: { state: 'unavailable' | 'unauthenticat
 
   return (
     <FuturisticCard glow="orange" className="p-6 sm:p-8" role="alert">
-      <p className="eq-eyebrow">Performance Center</p>
+      <p className="eq-eyebrow">Übersicht</p>
       <h1 className="mt-4 text-2xl font-semibold tracking-tight text-white sm:text-3xl">
         {unavailable ? 'Performance-Daten konnten nicht geladen werden' : 'Sitzung nicht verfügbar'}
       </h1>
       <p className="mt-3 max-w-2xl text-sm leading-6 text-white/70">
         {unavailable
           ? 'Equora zeigt bewusst keine leeren oder geschätzten Kennzahlen an. Bitte lade die Ansicht später erneut.'
-          : 'Equora zeigt ohne verifizierte Sitzung keine Journal- oder Performancewerte an.'}
+          : 'Bitte melde dich erneut an, um dein Journal und deine Ergebnisse zu sehen.'}
       </p>
     </FuturisticCard>
   )

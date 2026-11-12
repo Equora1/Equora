@@ -9,8 +9,8 @@ import { brokerCatalogSummary } from '@/lib/utils/broker-catalog'
 import { brokerFileImportCapability } from '@/lib/utils/broker-file-import-capability'
 
 const workflow = [
-  ['1', 'Providerstatus prüfen', 'Nur gebaute und freigegebene Provider dürfen Zugangsdaten anfordern. Lokale Kandidaten bleiben gesperrt.'],
-  ['2', 'Lesecapabilities prüfen', 'Equora prüft später nur fest benannte Leseabrufe; eine Testorder ist technisch nicht vorgesehen.'],
+  ['1', 'Brokerstatus prüfen', 'Zugangsdaten werden nur für unterstützte und freigeschaltete Verbindungen abgefragt.'],
+  ['2', 'Lesezugriff prüfen', 'Equora prüft später nur fest benannte Leseabrufe; eine Testorder ist technisch nicht vorgesehen.'],
   ['3', 'Gefundene Daten ansehen', 'Orders und Ausführungen erscheinen zuerst als übersichtliche Vorschau.'],
   ['4', 'Später bewusst importieren', 'Erst in der nächsten Ausbaustufe entscheidest du, welche Trades ins Journal kommen.'],
 ] as const
@@ -39,14 +39,13 @@ export function BrokerSyncHub({ snapshot }: { snapshot: BrokerSyncSnapshot }) {
               </div>
             </div>
             <p className="mt-5 max-w-2xl text-sm leading-7 text-white/58 sm:text-base">
-              Verwalte unterstützte Broker über eine gemeinsame Connectionübersicht. Providerfelder bleiben getrennt,
-              und Equora zeigt gefundene Daten nur als begrenzte Vorschau. Es wird nichts gehandelt oder automatisch importiert.
+              Prüfe verfügbare Verbindungen und Wege zur Dateiübernahme. Gefundene Brokerdaten erscheinen zunächst als Vorschau;
+              Equora handelt nicht für dich und übernimmt keine Trades automatisch.
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
-            <StatusPill label="v57.61.0" tone="gold" />
             <StatusPill
-              label={snapshot.runtimeEnabled ? `Runtime ${snapshot.runtimeMode}` : 'Runtime aus'}
+              label={snapshot.runtimeEnabled ? 'Brokerabruf freigeschaltet' : 'Brokerabruf deaktiviert'}
               tone={snapshot.runtimeEnabled ? 'quiet' : 'warning'}
             />
             {userAttestedReadOnlyConnection ? (
@@ -69,12 +68,12 @@ export function BrokerSyncHub({ snapshot }: { snapshot: BrokerSyncSnapshot }) {
               <p className="eq-display text-[0.58rem] text-[#b09a7a]">Anbindungswege</p>
               <h3 className="mt-2 text-2xl font-semibold text-white">Der schnellste passende Weg zu deinen Trades</h3>
               <p className="mt-3 text-sm leading-6 text-white/58">
-                Equora trennt Importprofile, Plattform-Connectoren und direkte Broker-APIs. So lässt sich neue Abdeckung
-                ergänzen, ohne jede Broker-Marke als eigene Runtime zu bauen oder automatische Verbindung zu behaupten.
+                Suche deinen Broker oder deine Handelsplattform. Du siehst, ob eine Dateivorschau vorbereitet ist
+                oder eine direkte Verbindung erst geplant wird.
               </p>
             </div>
             <span className="w-fit rounded-full border border-[#c8823a]/25 bg-[#c8823a]/10 px-3 py-1.5 text-[10px] uppercase tracking-[0.16em] text-[#f0a855]">
-              {brokerCatalogSummary.brokerCount} Broker · {brokerCatalogSummary.platformCount} Plattform · {brokerCatalogSummary.genericFallbackCount} Fallback
+              {brokerCatalogSummary.brokerCount} Broker · {brokerCatalogSummary.platformCount} Plattform · {brokerCatalogSummary.genericFallbackCount} weitere Auswahl
             </span>
           </div>
         </div>
@@ -85,8 +84,8 @@ export function BrokerSyncHub({ snapshot }: { snapshot: BrokerSyncSnapshot }) {
             icon="vault"
             eyebrow={brokerFileImportCapability.statusLabel}
             title="Dateiimport vorbereiten"
-            description={`CSV- und Excel-Profile, Signaturerkennung und Vorschau sind lokal gebaut. ${brokerFileImportCapability.blockedReason}`}
-            metric={`${brokerCatalogSummary.builtFileProfileCount} Parserprofile · ${brokerFileImportCapability.requiredMigration} ausstehend`}
+            description={`CSV- und Excel-Dateien lassen sich vor der Übernahme prüfen. ${brokerFileImportCapability.blockedReason}`}
+            metric={`${brokerCatalogSummary.builtFileProfileCount} Dateivorlagen · Übernahme noch aus`}
             inactiveLabel={brokerFileImportCapability.blockedActionLabel}
             tone="controlled"
           />
@@ -94,9 +93,9 @@ export function BrokerSyncHub({ snapshot }: { snapshot: BrokerSyncSnapshot }) {
             step="02"
             icon="sync"
             eyebrow="Kontrollierter Ausbau"
-            title="Read-only verbinden"
-            description="Nur ausdrücklich gebaute Provider erhalten einen getrennten Connection-Flow. Runtime, Nutzerfreigabe und Datencapture bleiben eigene Gates."
-            metric="MEXC Runtime gebaut, derzeit aus · OKX Kandidat"
+            title="Verbindung zum Lesen von Daten"
+            description="Verbindungen sind nur für unterstützte Broker möglich. Ein Verbindungscheck und die spätere Datenübernahme sind getrennte Schritte."
+            metric="MEXC-Abruf derzeit aus · OKX noch nicht verfügbar"
             href="#broker-connections"
             action="Verbindungen prüfen"
             tone="controlled"
@@ -104,10 +103,10 @@ export function BrokerSyncHub({ snapshot }: { snapshot: BrokerSyncSnapshot }) {
           <OnboardingLane
             step="03"
             icon="scan"
-            eyebrow="Nächster Skalierungshebel"
+            eyebrow="Weitere Handelsplattformen"
             title="Plattformfamilie nutzen"
-            description={`Das cTrader-Statement-Profil und das lokale MT4-Dateiprofil sind gebaut. ${brokerFileImportCapability.blockedReason} MetaTrader 5, DXtrade und direkter Plattform-Sync bleiben inaktiv.`}
-            metric={`cTrader- und MT4-Dateiprofil gebaut · ${brokerFileImportCapability.requiredMigration} ausstehend · Sync aus`}
+            description={`Dateivorlagen für cTrader und MetaTrader 4 sind vorbereitet. ${brokerFileImportCapability.blockedReason} Direkte Abrufe über MetaTrader 5 und DXtrade sind noch nicht verfügbar.`}
+            metric="cTrader und MT4: Dateivorlagen vorbereitet · Direkter Abruf aus"
             inactiveLabel={brokerFileImportCapability.blockedActionLabel}
             tone="controlled"
           />
@@ -118,11 +117,11 @@ export function BrokerSyncHub({ snapshot }: { snapshot: BrokerSyncSnapshot }) {
 
       <div className="grid gap-5 xl:grid-cols-[1.05fr_0.95fr]">
         <FuturisticCard className="p-6">
-          <SectionHeading eyebrow="Sicherheitsgrenze" title="App-Funktionen und Providerrechte getrennt" />
+          <SectionHeading eyebrow="Berechtigungen" title="Was Equora lesen darf" />
           <div className="mt-5 grid gap-3">
             <PermissionCard
               title="Equora-Lesefunktion"
-              description="Equora besitzt ausschließlich fest benannte GET-only-Lesepfade. Runtime und Nutzerfreigabe bleiben eigene Gates."
+              description="Equora verwendet festgelegte Leseabrufe. Jeder Abruf benötigt eine freigeschaltete Verbindung und deine Zustimmung."
               state={limitedTechnicalReadObserved ? 'Begrenzter Leseabruf beobachtet' : 'Nicht technisch beobachtet'}
             />
             <PermissionCard
@@ -131,24 +130,23 @@ export function BrokerSyncHub({ snapshot }: { snapshot: BrokerSyncSnapshot }) {
               state="In der App nicht implementiert"
             />
             <PermissionCard
-              title="Provider-Schreibrechte"
-              description="Eine Nutzerbestätigung ersetzt keine vollständige technische Rechteübersicht des Providers."
+              title="Schreibrechte beim Broker"
+              description="Deine Bestätigung allein zeigt nicht, welche Schreibrechte der Broker tatsächlich erlaubt."
               state={userAttestedReadOnlyConnection
-                ? 'Laut Nutzer deaktiviert; nicht vollständig verifiziert'
+                ? 'Von dir als deaktiviert bestätigt; technisch nicht vollständig geprüft'
                 : 'Nicht vollständig technisch verifiziert'}
             />
           </div>
           <p className="mt-5 rounded-2xl border border-white/8 bg-white/[0.025] p-4 text-sm leading-6 text-white/60">
-            API-Schlüssel und Secret werden verschlüsselt in einem eigenen, serverseitigen Zugangsspeicher abgelegt.
-            Nach dem Speichern werden sie nicht wieder an den Browser übertragen. Equora schreibt sie nicht bewusst in
-            Client-Logs, URLs oder Browser-Storage; externe Provider- und Plattform-Logs sind durch dieses UI-Gate nicht vollständig auditiert.
+            Zugangsschlüssel werden auf dem Server verschlüsselt gespeichert und danach nicht wieder im Browser angezeigt.
+            Die Protokolle externer Broker und Plattformen sind damit nicht vollständig geprüft.
           </p>
         </FuturisticCard>
 
         <FuturisticCard className="p-6">
           <SectionHeading eyebrow="Bereitschaft" title="Was schon funktioniert" />
           <div className="mt-5 space-y-3">
-            <ReadinessRow label="Connectionübersicht" value={schemaStateLabel(snapshot.schemaState)} />
+            <ReadinessRow label="Verbindungsübersicht" value={schemaStateLabel(snapshot.schemaState)} />
             <ReadinessRow
               label="Verschlüsselter Zugang"
               value={dependencyStateLabel(snapshot.secureStoreState)}
@@ -156,12 +154,12 @@ export function BrokerSyncHub({ snapshot }: { snapshot: BrokerSyncSnapshot }) {
             <ReadinessRow
               label="Serverseitiger Verbindungscheck"
               value={!snapshot.runtimeEnabled
-                ? 'Runtime deaktiviert'
+                ? 'Brokerabruf deaktiviert'
                 : snapshot.connectorState === 'ready'
                   ? 'Voraussetzungen vorhanden; Start prüft erneut'
                   : snapshot.connectorState === 'not_read'
                     ? 'Status nicht lesbar; Setupformular nicht verfügbar'
-                    : 'Runtime aktiv; Voraussetzungen fehlen'}
+                    : 'Abruf freigeschaltet; Einrichtung noch unvollständig'}
             />
             <ReadinessRow label="Automatisch ins Journal übernehmen" value="Noch ausgeschaltet" />
           </div>
@@ -183,7 +181,7 @@ export function BrokerSyncHub({ snapshot }: { snapshot: BrokerSyncSnapshot }) {
         <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
           <SectionHeading eyebrow="Datenvorschau" title="Zuletzt bei Brokern gefunden" />
           <span className="text-xs text-white/60">
-            {fullSnapshotAvailable ? `${snapshot.preview.length} Einträge` : 'Detailevidenz nicht gelesen'}
+            {fullSnapshotAvailable ? `${snapshot.preview.length} Einträge` : 'Vorschaudaten nicht geladen'}
           </span>
         </div>
         <div className="mt-5">
@@ -203,19 +201,17 @@ export function BrokerSyncHub({ snapshot }: { snapshot: BrokerSyncSnapshot }) {
             </div>
           ) : !fullSnapshotAvailable ? (
             <div className="rounded-2xl border border-dashed border-white/12 px-6 py-9 text-center">
-              <p className="text-sm font-medium text-white">Detailevidenz ist über diesen Read-Pfad nicht verfügbar.</p>
+              <p className="text-sm font-medium text-white">Die Datenvorschau ist derzeit nicht verfügbar.</p>
               <p className="mx-auto mt-2 max-w-xl text-xs leading-5 text-white/60">
-                Die Connectionübersicht umgeht keine geschlossenen Tabellenrechte. Fehlende Vorschauzeilen werden deshalb
-                nicht als fehlende Brokerdaten interpretiert.
+                Die Verbindungsübersicht hat keinen Zugriff auf diese Details. Daraus folgt nicht, dass beim Broker keine Daten vorliegen.
               </p>
             </div>
           ) : (
             <div className="rounded-2xl border border-dashed border-white/12 px-6 py-9 text-center">
               <p className="text-sm font-medium text-white">Noch keine Datenvorschau vorhanden.</p>
               <p className="mx-auto mt-2 max-w-xl text-xs leading-5 text-white/60">
-                Erst nach einem ausdrücklich freigegebenen Capturelauf erscheinen hier die zuletzt erfassten
-                Brokerbeobachtungen. Der GET-only Verbindungsprobe speichert keine Rohdaten; Capture-Daten sind noch keine
-                Journal-Trades.
+                Erst nach einem freigegebenen Datenabruf erscheinen hier Brokerdaten. Ein Verbindungscheck speichert keine Rohdaten.
+                Daten in der Vorschau sind noch keine Trades in deinem Journal.
               </p>
             </div>
           )}
@@ -247,11 +243,11 @@ export function BrokerSyncHub({ snapshot }: { snapshot: BrokerSyncSnapshot }) {
               </div>
             ) : !fullSnapshotAvailable ? (
               <div className="rounded-2xl border border-white/8 bg-white/[0.02] p-5 text-sm leading-6 text-white/60">
-                Captureläufe sind über diesen begrenzten Read-Pfad nicht sichtbar. Der Zustand bleibt deshalb unbekannt und wird nicht als leer ausgegeben.
+                Nachweise zu Datenabrufen sind in dieser Ansicht nicht verfügbar. Ob frühere Abrufe vorliegen, lässt sich hier nicht feststellen.
               </div>
             ) : (
               <div className="rounded-2xl border border-white/8 bg-white/[0.02] p-5 text-sm leading-6 text-white/60">
-                In den verfügbaren Laufdaten wurde kein Capturelauf beobachtet. Nach einer eigenen Capturefreigabe erscheint hier, wie viele Datensätze
+                In den verfügbaren Nachweisen ist noch kein Datenabruf verzeichnet. Nach einem gesondert freigegebenen Abruf erscheint hier, wie viele Datensätze
                 beobachtet und wie viele bereits bekannt waren.
               </div>
             )}
@@ -363,7 +359,7 @@ function ReadinessRow({ label, value }: { label: string; value: string }) {
 
 function schemaStateLabel(state: BrokerSyncSnapshot['schemaState']) {
   if (state === 'ready') return 'Lesbar'
-  if (state === 'missing') return 'Schema nicht verfügbar'
+  if (state === 'missing') return 'Einrichtung nicht verfügbar'
   return 'Status nicht lesbar'
 }
 

@@ -3,28 +3,28 @@ export function OkxCandidateStatus() {
     <section aria-labelledby="okx-candidate-title" className="rounded-3xl border border-white/8 bg-white/[0.02] p-5 sm:p-6">
       <div>
         <p className="eq-display text-[0.58rem] text-[#b09a7a]">OKX USDT Perpetuals</p>
-        <h3 id="okx-candidate-title" className="mt-2 text-xl font-semibold text-white">Lokaler Kandidat – Verbindung gesperrt</h3>
+        <h3 id="okx-candidate-title" className="mt-2 text-xl font-semibold text-white">OKX-Verbindung noch nicht verfügbar</h3>
         <p className="mt-3 text-sm leading-6 text-white/60">
-          Adapter, Vertragsorakel und eine netzwerkfreie Synthetikruntime sind lokal angebunden. Das ist noch kein
-          unterstützter oder verfügbarer OKX-Provider und kein erfolgreicher Broker-Probe.
+          Die Verbindung wird vorbereitet. Bisherige Prüfungen verwenden ausschließlich künstliche Daten;
+          ein erfolgreicher Abruf bei OKX ist damit noch nicht belegt.
         </p>
       </div>
 
       <div role="status" className="mt-5 rounded-2xl border border-[#e5a14d]/20 bg-[#e5a14d]/8 px-4 py-3 text-sm leading-6 text-[#efc98f]">
-        Es werden keine OKX-Zugangsdaten abgefragt, gespeichert oder übertragen. Reale API-Aufrufe, Connection-Apply,
-        Capture und Journalimport sind technisch und organisatorisch gesperrt.
+        Es werden keine OKX-Zugangsdaten abgefragt, gespeichert oder übertragen.
+        Verbindungen, Datenabrufe und die Übernahme ins Journal sind noch nicht freigeschaltet.
       </div>
 
       <dl className="mt-5 grid gap-3 text-xs">
-        <GateRow label="Runtime" value="Production aus; nur lokaler Synthetiktest" />
-        <GateRow label="Region und Konto" value="EEA-Entity und Demokonto noch nicht attestiert" />
+        <GateRow label="Datenabruf" value="Deaktiviert; bisher nur Tests mit künstlichen Daten" />
+        <GateRow label="Region und Konto" value="Europäischer Anbieter und Demokonto noch nicht bestätigt" />
         <GateRow label="Nutzungsrecht" value="Kommerzieller Einsatz ohne schriftliche OKX-Freigabe blockiert" />
-        <GateRow label="Nächster externer Schritt" value="Eigener Freigabe- und Security-Review erforderlich" />
+        <GateRow label="Nächster Schritt" value="Gesonderte Sicherheitsprüfung und Freigabe erforderlich" />
       </dl>
 
       <p className="mt-5 text-xs leading-5 text-white/60">
-        Ein späterer Probe benötigt separat erzeugte Read-only-Demo-Credentials mit exakt gebundener Egress-IP,
-        MFA- und Incident-Attestierung, Single-use-Permits sowie eine neue konkrete Nutzerfreigabe.
+        Ein späterer Verbindungstest benötigt gesonderte Demo-Zugangsschlüssel mit Leserechten,
+        geprüfte Sicherheitsvoraussetzungen und deine ausdrückliche Freigabe.
       </p>
     </section>
   )

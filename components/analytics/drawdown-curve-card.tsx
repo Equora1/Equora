@@ -14,7 +14,7 @@ export function DrawdownCurveCard({ trades }: { trades: Trade[] }) {
         <div>
           <h2 className="text-xl font-semibold text-white">Drawdown Kurve</h2>
           <p className="text-sm text-white/50">
-            Unterwasser-Linie nur aus belastbaren Trades. Coverage: {trustSummary.trustedTrades}/{trustSummary.totalTrades} ({formatPlainNumber(trustSummary.trustedCoverage, 0)}%).
+            Rückgang gegenüber dem bisherigen Höchststand. Datengrundlage: {trustSummary.trustedTrades}/{trustSummary.totalTrades} ({formatPlainNumber(trustSummary.trustedCoverage, 0)}%).
           </p>
         </div>
         <div className="rounded-full border border-red-400/20 bg-red-400/10 px-3 py-1 text-xs text-red-200">

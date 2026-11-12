@@ -256,11 +256,11 @@ describe('provider-neutral broker connection view', () => {
     const html = renderToStaticMarkup(createElement(BrokerSyncHub, { snapshot }))
 
     expect(html).toContain('Status nicht lesbar; Setupformular nicht verfügbar')
-    expect(html).toContain('wurde über diesen begrenzten Read-Pfad nicht gelesen')
+    expect(html).toContain('Die Voraussetzungen für eine sichere Verbindung konnten hier nicht geprüft werden')
     expect(html).toContain('Ansicht aktualisieren')
     expect(html).toContain('Verbindung widerrufen')
-    expect(html).toContain('Detailevidenz ist über diesen Read-Pfad nicht verfügbar')
-    expect(html).toContain('Detailevidenz nicht gelesen')
+    expect(html).toContain('Die Datenvorschau ist derzeit nicht verfügbar')
+    expect(html).toContain('Vorschaudaten nicht geladen')
     expect(html).not.toContain('0 Einträge')
     expect(html).not.toContain('Grundlage fehlt')
     expect(html).not.toContain('Voraussetzungen fehlen')
@@ -289,7 +289,7 @@ describe('provider-neutral broker connection view', () => {
     const html = renderToStaticMarkup(createElement(BrokerSyncHub, { snapshot }))
 
     expect(html).toContain('Status nicht lesbar')
-    expect(html).toContain('Connectionübersicht derzeit nicht lesbar')
+    expect(html).toContain('Verbindungsübersicht derzeit nicht lesbar')
     expect(html).toContain('Der gespeicherte Verbindungsbestand bleibt unbekannt')
     expect(html).not.toContain('Grundlage fehlt')
     expect(html).not.toContain('Noch kein Broker verbunden')
@@ -315,8 +315,8 @@ describe('provider-neutral broker connection view', () => {
 
     const html = renderToStaticMarkup(createElement(BrokerSyncHub, { snapshot }))
 
-    expect(html).toContain('Schema nicht verfügbar')
-    expect(html).toContain('Connectionübersicht nicht verfügbar')
+    expect(html).toContain('Einrichtung nicht verfügbar')
+    expect(html).toContain('Verbindungsübersicht nicht verfügbar')
     expect(html).toContain('Der gespeicherte Verbindungsbestand bleibt unbekannt')
     expect(html).not.toContain('Noch kein Broker verbunden')
     expect(html).not.toContain('0 gelesen')
@@ -342,8 +342,8 @@ describe('provider-neutral broker connection view', () => {
     const html = renderToStaticMarkup(createElement(BrokerSyncHub, { snapshot }))
 
     expect(html).toContain('0 gelesen')
-    expect(html).toContain('Im gelesenen Connectionbestand ist kein Broker verbunden')
-    expect(html).not.toContain('Connectionübersicht derzeit nicht lesbar')
+    expect(html).toContain('In der geladenen Übersicht ist noch keine Verbindung vorhanden')
+    expect(html).not.toContain('Verbindungsübersicht derzeit nicht lesbar')
     expect(html).not.toContain('Noch kein Broker verbunden')
   })
 })

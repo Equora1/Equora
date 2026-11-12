@@ -8,6 +8,7 @@ export type ReviewStat = {
   label: string
   value: string
   hint: string
+  basis?: string
   tone: ReviewTone
 }
 
@@ -119,7 +120,7 @@ export type ReviewSnapshot = {
     netPnL: number
     currency: TradeCurrency | null
     monetaryScopeKind: MonetaryScopeKind
-    averageR: number
+    averageR: number | null
     winRate: number
     winners: number
     losers: number
@@ -133,6 +134,8 @@ export type ReviewSnapshot = {
 export type ReviewSnapshotCollection = Record<ReviewPeriodPreset, ReviewSnapshot>
 
 export type ReviewTradeDrilldown = {
+  reviewMatch?: 'reviewed' | 'repeatability' | 'state' | 'trade'
+  reviewValue?: string
   search?: string
   market?: string
   setup?: string
@@ -166,6 +169,6 @@ export type ReviewBucket = {
     winRate: number
     totalTrades: number
     profitFactor: number
-    averageR: number
+    averageR: number | null
   }
 }

@@ -12,6 +12,7 @@ import { resolveTradeOccurredAt } from '@/lib/utils/trade-time'
 import { buildReviewSnapshots, type ReviewPeriodPreset } from '@/lib/utils/review'
 import type { Trade } from '@/lib/types/trade'
 import { measurePerformance, measurePerformanceSync } from '@/lib/server/performance'
+import { getBerlinTodayDateKey } from '@/lib/utils/daily-notes'
 
 export const dynamic = 'force-dynamic'
 
@@ -21,9 +22,20 @@ export default async function ReviewPage({
   searchParams?: Promise<Record<string, string | string[] | undefined>>
 }) {
   const params = (await searchParams) ?? {}
+  const referenceDateKey = getBerlinTodayDateKey()
   const initialPreset = (typeof params.periodPreset === 'string' && ['7d', '14d', '30d', '90d'].includes(params.periodPreset) ? params.periodPreset : '7d') as ReviewPeriodPreset
   const access = await getJournalAccess()
   const snapshot = await getReviewSnapshotServer(access.user?.id)
+  if (snapshot.availability !== 'ready') {
+    const needsLogin = snapshot.availability === 'unauthenticated'
+    return <AppShell><section role="alert" className="rounded-[24px] border border-orange-300/20 bg-black/30 p-6">
+      <h1 className="text-xl font-semibold">Review derzeit nicht verfügbar</h1>
+      <p className="mt-3 text-sm leading-6 text-white/60">{needsLogin
+        ? 'Bitte melde dich an, um dein Review zu sehen.'
+        : 'Deine Trades konnten nicht vollständig geladen werden. Bitte lade die Seite erneut.'}</p>
+      <a href={needsLogin ? '/login' : '/review'} className="mt-4 inline-flex rounded-full border border-white/15 px-4 py-2 text-sm">{needsLogin ? 'Einloggen' : 'Erneut laden'}</a>
+    </section></AppShell>
+  }
   const savedSessions = await measurePerformance('database.review_sessions.recent', 'database', () => getReviewSessionsServer(access.user?.id), { route: '/review' })
   const { trades, reviewSnapshots } = measurePerformanceSync('transform.review', 'transform', () => {
     const linkedSetupByTradeId = buildLinkedSetupByTradeId(snapshot.setupRows, snapshot.setupTradeLinkRows)
@@ -41,10 +53,12 @@ export default async function ReviewPage({
       filteredLossesCount={trades.filter((trade) => (trade.netPnL ?? 0) < 0).length}
     >
       <div className="space-y-12">
-        <ReviewStartPanel trades={trades} />
         <ReviewEmptyStateCard trades={trades} />
-
-        <ReviewSummaryCard snapshots={reviewSnapshots} savedSessions={savedSessions} source={snapshot.source} initialPreset={initialPreset} />
+        <ReviewSummaryCard snapshots={reviewSnapshots} savedSessions={savedSessions} source={snapshot.source} initialPreset={initialPreset} referenceDateKey={referenceDateKey} />
+        <details className="rounded-3xl border border-white/10 bg-black/20 p-5">
+          <summary className="cursor-pointer text-sm font-medium text-white">Einzelne Trades nachbereiten</summary>
+          <div className="mt-4"><ReviewStartPanel trades={trades} /></div>
+        </details>
 
         <details className="group rounded-[34px] border border-white/10 bg-black/20 p-7 xl:p-9">
           <summary className="flex cursor-pointer list-none items-center justify-between gap-4">
@@ -55,7 +69,7 @@ export default async function ReviewPage({
             <ToggleLabel />
           </summary>
           <div className="mt-7">
-            <ReviewRhythmCard trades={trades} weeklySnapshot={reviewSnapshots['7d']} />
+            <ReviewRhythmCard trades={trades} weeklySnapshot={reviewSnapshots['7d']} referenceDateKey={referenceDateKey} />
           </div>
         </details>
       </div>
@@ -77,8 +91,8 @@ function ReviewStartPanel({ trades }: { trades: Trade[] }) {
       <div className="flex flex-col gap-5 xl:flex-row xl:items-center xl:justify-between">
         <div className="max-w-3xl">
           <p className="text-[10px] uppercase tracking-[0.26em] text-orange-100/65">Review</p>
-          <h1 className="eq-display mt-2 text-2xl text-white">Heute prüfen. Woche lesen. Morgen enger handeln.</h1>
-          <p className="mt-3 text-sm leading-6 text-white/58">Kurz prüfen, was trägt, was kostet und was morgen wegbleibt.</p>
+          <h2 className="eq-display mt-2 text-2xl text-white">Trades nachbereiten</h2>
+          <p className="mt-3 text-sm leading-6 text-white/58">Öffne deine Trades, prüfe die Entscheidungen und halte eine Erkenntnis fest.</p>
         </div>
         <Link href={href} className="inline-flex items-center justify-center rounded-2xl border border-orange-300/35 bg-orange-400/15 px-5 py-3 text-sm font-medium text-orange-50 transition hover:border-orange-300/55 hover:bg-orange-400/20">
           Trades prüfen

@@ -132,7 +132,7 @@ export function QuickTradeForm({
     setPromptIndex((current) => getNextQuickCapturePromptIndex(current))
   }
 
-  const saveLabel = pendingFiles.length ? 'Screenshot sichern' : market.trim() || setup.trim() ? 'Trade + Zeit sichern' : 'Leeren Capture verhindern'
+  const saveLabel = pendingFiles.length ? 'Screenshot sichern' : market.trim() || setup.trim() ? 'Trade + Zeit sichern' : 'Markt, Setup oder Screenshot ergänzen'
 
   function handleSubmit() {
     setStatus('')
@@ -201,7 +201,7 @@ export function QuickTradeForm({
     <section className="rounded-[30px] border border-[#c8823a]/16 bg-[#c8823a]/[0.045] p-5 shadow-2xl xl:p-6">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
         <div>
-          <p className="text-xs uppercase tracking-[0.24em] text-[#f0a855]/78">Screenshot-first Capture</p>
+          <p className="text-xs uppercase tracking-[0.24em] text-[#f0a855]/78">Schnellerfassung mit Screenshot</p>
           <h2 className="mt-2 text-2xl font-semibold text-white">Erst den Screenshot sichern, den Rest später</h2>
           
         </div>

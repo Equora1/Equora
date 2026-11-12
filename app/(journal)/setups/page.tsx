@@ -19,6 +19,16 @@ export const dynamic = 'force-dynamic'
 export default async function SetupsPage() {
   const access = await getJournalAccess()
   const snapshot = await getSetupsSnapshotServer(access.user?.id)
+  if (snapshot.availability !== 'ready') {
+    const needsLogin = snapshot.availability === 'unauthenticated'
+    return <AppShell><section role="alert" className="rounded-[24px] border border-orange-300/20 bg-black/30 p-6">
+      <h1 className="text-xl font-semibold">Setups derzeit nicht verfügbar</h1>
+      <p className="mt-3 text-sm leading-6 text-white/60">{needsLogin
+        ? 'Bitte melde dich an, um deine Setups zu sehen.'
+        : 'Deine Daten konnten nicht vollständig geladen werden. Bitte lade die Seite erneut. Die Setup-Auswertung unterstützt derzeit bis zu 10.000 Trades.'}</p>
+      <a href={needsLogin ? '/login' : '/setups'} className="mt-4 inline-flex rounded-full border border-white/15 px-4 py-2 text-sm">{needsLogin ? 'Einloggen' : 'Erneut laden'}</a>
+    </section></AppShell>
+  }
   const [canManageMasterSetups, setupSuggestions] = await Promise.all([
     measurePerformance('auth.admin_check', 'auth', () => isEquoraAdminUser(access.user), { route: '/setups' }),
     measurePerformance('database.setup_suggestions', 'database', () => getSetupSuggestionsServer(access.user?.id), { route: '/setups' }),

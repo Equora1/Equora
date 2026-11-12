@@ -9,9 +9,11 @@ export function TradeDetailDrawer({
   detail,
   tags,
   tradeId,
+  detailHref,
   tagOptions,
   source,
   isLoading,
+  error,
   onClose,
   onDelete,
   isDeleting,
@@ -20,9 +22,11 @@ export function TradeDetailDrawer({
   detail?: TradeDetail
   tags: Array<{ id: string; tag: string }>
   tradeId?: string
+  detailHref?: string
   tagOptions: string[]
   source: 'supabase' | 'mock'
   isLoading: boolean
+  error?: string
   onClose: () => void
   onDelete: () => void
   isDeleting: boolean
@@ -114,7 +118,7 @@ export function TradeDetailDrawer({
           <div className="min-w-0">
             <p className="text-[10px] uppercase tracking-[0.22em] text-[#b09a7a]">Trade Detail</p>
             <h2 id="trade-detail-drawer-title" className="mt-1 truncate text-sm font-medium text-white">
-              {trade ? `${trade.market} · ${trade.setup || 'Ohne Setup'}` : 'Trade wird geladen'}
+              {error ? 'Trade konnte nicht geladen werden' : trade ? `${trade.market} · ${trade.setup || 'Ohne Setup'}` : 'Trade wird geladen'}
             </h2>
           </div>
           <button
@@ -129,7 +133,10 @@ export function TradeDetailDrawer({
         </div>
 
         <div className="p-3 sm:p-5">
-          {isLoading || !detail || !trade ? (
+          {error ? <div role="alert" className="rounded-2xl border border-orange-300/20 bg-orange-400/5 p-5 text-sm text-orange-50">
+            <p>{error}</p>
+            <button type="button" onClick={onClose} className="mt-4 rounded-full border border-white/20 px-4 py-2">Zur Liste zurück</button>
+          </div> : isLoading || !detail || !trade ? (
             <div role="status" className="space-y-4 rounded-3xl border border-white/10 bg-white/[0.03] p-5">
               <div className="h-7 w-2/5 animate-pulse rounded-full bg-white/10" />
               <div className="h-32 animate-pulse rounded-[24px] bg-white/5" />
@@ -145,6 +152,7 @@ export function TradeDetailDrawer({
               trade={trade}
               tags={tags}
               tradeId={tradeId}
+              detailHref={detailHref}
               tagOptions={tagOptions}
               source={source}
               onDelete={onDelete}

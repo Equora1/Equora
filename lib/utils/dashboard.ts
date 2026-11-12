@@ -1,6 +1,6 @@
 import type { Trade, TradeCalculationSource } from '@/lib/types/trade'
 import { getCoreMetrics } from '@/lib/utils/analytics'
-import { parseTradingNumber } from '@/lib/utils/calculations'
+import { getTradeRValue, getDocumentedTradeRValue } from '@/lib/utils/trade-r'
 import type { MonetaryScopeKind } from '@/lib/utils/currency'
 import { getAnalyticsEvidenceState } from '@/lib/utils/statistics-scope'
 import { getTrustedTrades } from '@/lib/utils/trade-trust'
@@ -47,10 +47,8 @@ export type DashboardRObservation = {
 
 export function getDashboardRObservation(trade: Trade): DashboardRObservation {
   const source = trade.rSource ?? 'missing'
-  const numericValue = Number.isFinite(trade.rValue)
-    ? trade.rValue ?? null
-    : parseTradeRText(trade.r)
-  const documented = source === 'realized' || source === 'realized_partial' || source === 'manual'
+  const numericValue = getTradeRValue(trade)
+  const documented = source !== 'missing' && getDocumentedTradeRValue(trade) !== null
 
   return {
     source,
@@ -83,10 +81,4 @@ export function buildDashboardMetricModel(trades: readonly Trade[]) {
     documentedR: getDocumentedRSummary(trustedTrades),
     evidenceState: getAnalyticsEvidenceState(trades.length, trustedTrades.length),
   }
-}
-
-function parseTradeRText(value: string) {
-  const trimmed = value.trim()
-  if (!trimmed) return null
-  return parseTradingNumber(trimmed)
 }

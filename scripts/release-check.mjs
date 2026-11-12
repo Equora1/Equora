@@ -12,10 +12,12 @@ const packageJson = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
 const expected = {
   name: 'equora-starter-v57.61.0',
   version: '0.57.61-0',
-  next: '15.5.25',
-  sharp: '0.35.4',
+  next: '15.5.28',
+  sharp: '0.35.5',
   postcss: '8.5.23',
-  vitest: '4.1.11',
+  vitest: '4.1.12',
+  tailwind: '4.3.3',
+  sourceMapJs: '1.2.2',
 }
 
 if (packageJson.name !== expected.name) fail(`package name: ${packageJson.name}`)
@@ -24,9 +26,12 @@ if (packageJson.dependencies?.next !== expected.next) fail(`next: ${packageJson.
 if (packageJson.dependencies?.sharp !== expected.sharp) fail(`sharp: ${packageJson.dependencies?.sharp}`)
 if (packageJson.devDependencies?.postcss !== expected.postcss) fail(`postcss: ${packageJson.devDependencies?.postcss}`)
 if (packageJson.devDependencies?.vitest !== expected.vitest) fail(`vitest: ${packageJson.devDependencies?.vitest}`)
+if (packageJson.devDependencies?.tailwindcss !== expected.tailwind) fail(`tailwindcss: ${packageJson.devDependencies?.tailwindcss}`)
+if (packageJson.devDependencies?.['@tailwindcss/postcss'] !== expected.tailwind) fail('Tailwind PostCSS-Plugin fehlt oder ist falsch gepinnt.')
 if (packageJson.overrides?.next?.postcss !== expected.postcss) fail('Next.js PostCSS override fehlt oder ist falsch.')
 if (packageJson.overrides?.postcss !== expected.postcss) fail('PostCSS override fehlt oder ist falsch.')
 if (packageJson.overrides?.sharp !== expected.sharp) fail('Sharp override fehlt oder ist falsch.')
+if (packageJson.overrides?.['source-map-js'] !== expected.sourceMapJs) fail('Source-map-js override fehlt oder ist falsch.')
 
 if (!existsSync(join(root, 'package-lock.json'))) fail('package-lock.json fehlt.')
 

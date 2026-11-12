@@ -87,7 +87,7 @@ export function TradeImageGallery({ images, tradeId, source = 'mock' }: TradeIma
         })}
       </div>
       <p className={`text-xs ${statusTone}`}>
-        {status?.text ?? (source === 'mock' ? 'Demo-Modus: Galerie ist sichtbar, Löschaktionen werden nicht persistiert.' : 'Galerie und Großansicht sind jetzt breiter, größer und näher an der Hauptvorschau aufgebaut.')}
+        {status?.text ?? (source === 'mock' ? 'Demo: Änderungen an der Galerie werden nicht dauerhaft gespeichert.' : 'Klicke auf ein Bild, um es zu vergrößern.')}
       </p>
     </div>
   )

@@ -206,7 +206,7 @@ export function EquoraShareHub({
 
       <details className="group rounded-3xl border border-orange-300/15 bg-black/25 p-5">
         <summary className="flex cursor-pointer list-none items-center justify-between gap-3">
-          <span className="text-lg font-semibold text-white">Vault</span>
+          <span className="text-lg font-semibold text-white">Ausgewählte Beiträge</span>
           <span className="rounded-full border border-orange-300/20 bg-orange-400/10 px-3 py-1 text-xs text-orange-100/85">
             {featuredSubmissions.length}
             <span className="ml-2 group-open:hidden">Öffnen</span>
@@ -221,9 +221,9 @@ export function EquoraShareHub({
       {activeView === 'share' ? (
         <FuturisticCard glow="orange" className="p-6">
           <SectionHeader
-            eyebrow="Vault"
+            eyebrow="Teilen"
             title="Trade teilen"
-            copy=""
+            copy="Wähle einen Trade und lege fest, welche Angaben du für ein Review teilen möchtest."
             badge={source === 'supabase' ? 'Live' : 'Demo'}
           />
 
@@ -314,7 +314,7 @@ export function EquoraShareHub({
                   onChange={(event) => setVaultOptIn(event.target.checked)}
                   className="h-4 w-4 rounded border-white/20 bg-transparent"
                 />
-                <span>Auch für Vault vormerken</span>
+                <span>Auch für die Auswahl gemeinsamer Beiträge vormerken</span>
               </label>
 
               <div className="flex flex-wrap items-center gap-3">
@@ -377,7 +377,7 @@ export function EquoraShareHub({
           <SectionHeader
             eyebrow="Meine"
             title="Geteilte Trades"
-            copy=""
+            copy="Wähle einen Trade und lege fest, welche Angaben du für ein Review teilen möchtest."
             badge={`${ownSubmissions.length}`}
           />
 
@@ -446,9 +446,9 @@ function VaultCurationOverview({ featuredSubmissions }: { featuredSubmissions: S
   return (
     <FuturisticCard className="p-6">
       <SectionHeader
-        eyebrow="Vault"
-        title="Vault"
-        copy=""
+        eyebrow="Teilen"
+        title="Ausgewählte Beiträge"
+        copy="Wähle einen Trade und lege fest, welche Angaben du für ein Review teilen möchtest."
         badge={`${featuredSubmissions.length} Hervorgehoben`}
       />
 

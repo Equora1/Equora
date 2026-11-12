@@ -55,17 +55,17 @@ export function getLaunchReadiness({
     createStep(
       hasClientEnv
         ? {
-            label: 'Supabase Client',
+            label: 'Kontoverbindung',
             value: 'Verbunden',
             detail: hasServerEnv
-              ? 'URL, Anon Key und Server Key sind gesetzt. Auth und Server-Actions können live laufen.'
-              : 'Client-Pfad steht. Für robuste Server-Actions fehlt nur noch der Server-Key.',
+              ? 'Die erforderlichen Verbindungseinstellungen sind vorhanden.'
+              : 'Die Kontoverbindung ist teilweise eingerichtet. Einige Speicherfunktionen sind noch nicht verfügbar.',
             status: hasServerEnv ? 'done' : 'warning',
           }
         : {
-            label: 'Supabase Client',
+            label: 'Kontoverbindung',
             value: 'Noch im Demo-Modus',
-            detail: 'Ohne Env-Werte läuft Equora weiter mit Mock-Daten. Für Deploy zuerst die Supabase-Variablen setzen.',
+            detail: 'Diese Umgebung zeigt Beispieldaten. Die Kontoverbindung muss durch die Administration eingerichtet werden.',
             status: 'blocked',
           },
     ),
@@ -74,14 +74,14 @@ export function getLaunchReadiness({
         ? {
             label: 'Nutzer-Login',
             value: 'Eingeloggt',
-            detail: 'Dashboard, Trades und Reviews laufen bereits im user-gebundenen Pfad statt im offenen Demo-Nebel.',
+            detail: 'Dashboard, Trades und Reviews sind deinem angemeldeten Nutzerkonto zugeordnet.',
             status: 'done',
           }
         : hasClientEnv
           ? {
               label: 'Nutzer-Login',
               value: 'Login noch offen',
-              detail: 'Supabase ist angebunden, aber ohne aktive Session bleibt der persönliche Journal-Pfad noch unberührt.',
+              detail: 'Die Kontoverbindung ist eingerichtet. Melde dich für dein persönliches Journal an.',
               status: 'warning',
               href: '/login',
               cta: 'Zu Login',
@@ -89,7 +89,7 @@ export function getLaunchReadiness({
           : {
               label: 'Nutzer-Login',
               value: 'Wartet auf Live-Auth',
-              detail: 'Sobald Supabase env gesetzt ist, springt Equora von Demo auf echten Login-Flow um.',
+              detail: 'Ein persönliches Journal ist nach Einrichtung der Kontoverbindung und Anmeldung verfügbar.',
               status: 'blocked',
             },
     ),
@@ -98,7 +98,7 @@ export function getLaunchReadiness({
         ? {
             label: 'Live-Datenpfad',
             value: 'Persönlicher Modus aktiv',
-            detail: 'Reads laufen im Scope des eingeloggten Users. RLS und user_id bilden die Leitplanke für echte Deployments.',
+            detail: 'Daten werden für das angemeldete Konto gelesen. Die Zugriffsregeln müssen für den jeweiligen Betrieb geprüft sein.',
             status: 'done',
           }
         : hasClientEnv
@@ -111,7 +111,7 @@ export function getLaunchReadiness({
           : {
               label: 'Live-Datenpfad',
               value: 'Noch nicht scharf',
-              detail: 'Der user-gebundene Supabase-Pfad ist vorbereitet, aber ohne Env-Werte noch nicht aktiv.',
+              detail: 'Die Kontoverbindung ist noch nicht eingerichtet. Du siehst weiterhin Beispieldaten.',
               status: 'blocked',
             },
     ),
@@ -160,7 +160,7 @@ export function getLaunchReadiness({
         ? {
             label: 'Belastbare P&L-Basis',
             value: `${trust.trustedTrades} belastbare Trades`,
-            detail: `${Math.round(trust.trustedCoverage)}% Coverage. Kurven und Kernstats haben bereits belastbaren Untergrund.`,
+            detail: `${Math.round(trust.trustedCoverage)}% der Trades sind berücksichtigt. Das allein belegt keine verlässliche Handelsstrategie.`,
             status: 'done',
             href: '/trades',
             cta: 'Belastbare Trades prüfen',
@@ -213,7 +213,7 @@ export function getLaunchReadiness({
   let copy = 'Die Basis für den ersten echten User ist gelegt. Jetzt geht es vor allem um Reibung rausnehmen und Feedback einsammeln.'
 
   if (!hasClientEnv) {
-    title = 'Vor dem Deploy: Supabase live schalten'
+    title = 'Kontoverbindung vor dem persönlichen Einsatz einrichten'
     copy = 'Equora kann schon glänzen, aber noch im Demo-Modus. Erst mit echten Env-Werten wird daraus ein persönlicher Trading-Desk statt Schaufenster.'
   } else if (!hasLiveSession) {
     title = 'Fast live: Einloggen und den User-Pfad testen'

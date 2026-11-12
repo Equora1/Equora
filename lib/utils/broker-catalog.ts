@@ -199,7 +199,7 @@ export const brokerCatalog: readonly BrokerCatalogEntry[] = Object.freeze([
       },
     ],
     supportNote:
-      `Dateiprofile gebaut. ${brokerFileImportCapability.blockedReason} Die Read-only-Runtime bleibt separat freigabepflichtig.`,
+      `Dateien können in der Vorschau geprüft werden. ${brokerFileImportCapability.blockedReason} Der Brokerabruf muss gesondert freigeschaltet werden.`,
     entryKind: "broker",
   }),
   freezeBroker({
@@ -216,7 +216,7 @@ export const brokerCatalog: readonly BrokerCatalogEntry[] = Object.freeze([
       },
     ],
     supportNote:
-      `Dateiprofil mit eigener Exporterkennung gebaut. ${brokerFileImportCapability.blockedReason}`,
+      `Exportdateien können erkannt und in der Vorschau geprüft werden. ${brokerFileImportCapability.blockedReason}`,
     entryKind: "broker",
   }),
   freezeBroker({
@@ -233,7 +233,7 @@ export const brokerCatalog: readonly BrokerCatalogEntry[] = Object.freeze([
       },
     ],
     supportNote:
-      `Dateiprofil mit eigener Exporterkennung gebaut. ${brokerFileImportCapability.blockedReason}`,
+      `Exportdateien können erkannt und in der Vorschau geprüft werden. ${brokerFileImportCapability.blockedReason}`,
     entryKind: "broker",
   }),
   freezeBroker({
@@ -255,7 +255,7 @@ export const brokerCatalog: readonly BrokerCatalogEntry[] = Object.freeze([
       },
     ],
     supportNote:
-      `Dateiprofil gebaut. ${brokerFileImportCapability.blockedReason} Die direkte Read-only-Anbindung bleibt ein kontrollierter Kandidat.`,
+      `Dateien können in der Vorschau geprüft werden. ${brokerFileImportCapability.blockedReason} Eine direkte Verbindung zum Lesen deiner Brokerdaten ist noch nicht verfügbar.`,
     entryKind: "broker",
   }),
   freezeBroker({
@@ -272,7 +272,7 @@ export const brokerCatalog: readonly BrokerCatalogEntry[] = Object.freeze([
       },
     ],
     supportNote:
-      `Dateiprofil mit eigener Exporterkennung gebaut. ${brokerFileImportCapability.blockedReason}`,
+      `Exportdateien können erkannt und in der Vorschau geprüft werden. ${brokerFileImportCapability.blockedReason}`,
     entryKind: "broker",
   }),
   freezeBroker({
@@ -294,7 +294,7 @@ export const brokerCatalog: readonly BrokerCatalogEntry[] = Object.freeze([
       },
     ],
     supportNote:
-      `MT4-HTML-Kontohistorienprofil gebaut. ${brokerFileImportCapability.blockedReason} MT5 und direkter Plattform-Sync bleiben separat geplant.`,
+      `MT4-Kontohistorien im HTML-Format können in der Vorschau geprüft werden. ${brokerFileImportCapability.blockedReason} MT5 und eine direkte Verbindung zu MetaTrader sind noch nicht verfügbar.`,
     entryKind: "platform",
   }),
   freezeBroker({
@@ -316,7 +316,7 @@ export const brokerCatalog: readonly BrokerCatalogEntry[] = Object.freeze([
       },
     ],
     supportNote:
-      `cTrader-Statement-Profil gebaut. ${brokerFileImportCapability.blockedReason} Direkter Plattform-Sync bleibt geplant.`,
+      `cTrader-Kontoauszüge können in der Vorschau geprüft werden. ${brokerFileImportCapability.blockedReason} Eine direkte Verbindung zu cTrader ist noch nicht verfügbar.`,
     entryKind: "platform",
   }),
   freezeBroker({
@@ -333,7 +333,7 @@ export const brokerCatalog: readonly BrokerCatalogEntry[] = Object.freeze([
       },
     ],
     supportNote:
-      `Allgemeines CSV-Mapping gebaut. ${brokerFileImportCapability.blockedReason} Keine Direktintegration wird behauptet.`,
+      `Die Spalten einer CSV-Datei können für die Vorschau zugeordnet werden. ${brokerFileImportCapability.blockedReason} Eine direkte Broker-Verbindung ist damit nicht eingerichtet.`,
     entryKind: "fallback",
   }),
 ]);

@@ -1,4 +1,3 @@
-import { redirect } from 'next/navigation'
 import { AppShell } from '@/components/layout/app-shell'
 import { QuickTradeForm } from '@/components/trades/quick-trade-form'
 import { TradeLedgerCapture } from '@/components/trades/trade-ledger-capture'
@@ -8,8 +7,11 @@ import { TradeCaptureDeck } from '@/components/trades/trade-capture-deck'
 import { CloseTradeForm } from '@/components/trades/close-trade-form'
 import { TradeImportPanel } from '@/components/trades/trade-import-panel'
 import { getJournalAccess } from '@/lib/server/auth'
-import { getTradesSnapshotServer } from '@/lib/server/journal'
-import { getTradeByIdServer, getTradeCountServer, getTradeMediaCountsServer, getTradeMediaServer, getTradeTagsServer } from '@/lib/server/trades'
+import { getTradesWorkspaceSnapshotServer } from '@/lib/server/journal'
+import { getTradeByIdServer, getTradeMediaServer, getTradeTagsServer } from '@/lib/server/trades'
+import { buildTradeTableHref, parseTradeTableQuery } from '@/lib/utils/trade-table-query'
+import { readReviewDrilldownScope, selectReviewDrilldownTrades } from '@/lib/utils/review-drilldown-scope'
+import { resolveTradeSelection } from '@/lib/utils/trade-selection'
 import { getReviewSessionByIdServer, getReviewSessionsServer } from '@/lib/server/review-sessions'
 import { getUserCostProfilesServer } from '@/lib/server/user-cost-profiles'
 import { mapTradeRowToTrade, mapTradeRowToTradeDetail } from '@/lib/server/transformers'
@@ -19,7 +21,6 @@ import type { TradeMediaRow, TradeRow } from '@/lib/types/db'
 import {
 
   buildTradeTagMap,
-  createDefaultTradeTableFilters,
   filterTradeTableRows,
   getTradeWeekdayLabel,
   type TradeTableFilters,
@@ -70,6 +71,8 @@ function buildTradeFormInitialValues(
   const partialExits = Array.isArray(row.partial_exits) ? row.partial_exits : []
   const cleanNotes = extractTradeImportMeta(row.notes).cleanNotes
   return {
+    createdAt: row.created_at,
+    capturedAt: row.captured_at ?? undefined,
     market: row.market,
     setup: linkedSetup?.title ?? row.setup,
     setupId: linkedSetup?.id ?? '',
@@ -84,6 +87,7 @@ function buildTradeFormInitialValues(
     stopLoss: toFormFieldValue(row.stop_loss),
     takeProfit: toFormFieldValue(row.take_profit),
     exit: toFormFieldValue(row.exit),
+    exitPriceBasis: row.exit_price_basis ?? null,
     netPnL: toFormFieldValue(row.net_pnl),
     riskPercent: toFormFieldValue(row.risk_percent),
     accountSize: toFormFieldValue(row.account_size),
@@ -145,39 +149,6 @@ function buildTradeMediaMap(mediaRows: TradeMediaRow[]) {
   }, {})
 }
 
-function buildInitialFilters(params: TradesSearchParams): TradeTableFilters {
-  const filters = createDefaultTradeTableFilters()
-
-  const assignIfPresent = <K extends keyof TradeTableFilters>(key: K, value: TradeTableFilters[K] | undefined) => {
-    if (value === undefined || value === null) return
-    filters[key] = value
-  }
-
-  assignIfPresent('search', getParamValue(params.search) ?? undefined)
-  assignIfPresent('market', getParamValue(params.market) ?? undefined)
-  assignIfPresent('account', getParamValue(params.account) ?? undefined)
-  assignIfPresent('setup', getParamValue(params.setup) ?? undefined)
-  assignIfPresent('session', getParamValue(params.session) ?? undefined)
-  assignIfPresent('concept', getParamValue(params.concept) ?? undefined)
-  assignIfPresent('quality', getParamValue(params.quality) ?? undefined)
-  assignIfPresent('emotion', getParamValue(params.emotion) ?? undefined)
-  assignIfPresent('tag', getParamValue(params.tag) ?? undefined)
-  assignIfPresent('weekday', getParamValue(params.weekday) ?? undefined)
-  assignIfPresent('tagging', getParamValue(params.tagging) as TradeTableFilters['tagging'] | undefined)
-  assignIfPresent('outcome', getParamValue(params.outcome) as TradeTableFilters['outcome'] | undefined)
-  assignIfPresent('direction', getParamValue(params.direction) as TradeTableFilters['direction'] | undefined)
-  assignIfPresent('status', getParamValue(params.status) as TradeTableFilters['status'] | undefined)
-
-  const requiredTags = parseRequiredTags(getParamValue(params.tags))
-  if (requiredTags.length > 1) {
-    filters.requiredTags = requiredTags
-  } else if (requiredTags.length === 1 && filters.tag === 'Alle') {
-    filters.tag = requiredTags[0]
-  }
-
-  return filters
-}
-
 function buildReviewContext(
   params: TradesSearchParams,
   filters: TradeTableFilters,
@@ -205,7 +176,7 @@ function buildReviewContext(
   if (spotlightTotalCount > 0) chips.push(`Spotlight: ${spotlightTotalCount} Treffer`)
 
   const uniqueChips = Array.from(new Set(chips))
-  if (!reviewFocus && !overrides?.title && uniqueChips.length === 0) return undefined
+  if (!reviewFocus && !overrides?.title) return undefined
 
   return {
     title: overrides?.title ?? reviewFocus ?? 'Review aktiv',
@@ -220,26 +191,38 @@ export default async function TradesPage({ searchParams }: { searchParams?: Prom
   const params = (await searchParams) ?? {}
   const reviewFocus = getParamValue(params.reviewFocus)
   const reviewSessionId = getParamValue(params.reviewSession)
-  const requestedPage = Number.parseInt(getParamValue(params.page) ?? '1', 10)
+  const queryParams = new URLSearchParams()
+  for (const [key, value] of Object.entries(params)) for (const item of Array.isArray(value) ? value : value === undefined ? [] : [value]) queryParams.append(key, item)
+  const tableQuery = parseTradeTableQuery(queryParams)
+  const reviewScope = readReviewDrilldownScope(queryParams)
+  if (reviewScope.kind === 'invalid') {
+    return <AppShell><section role="alert" className="rounded-3xl border border-orange-400/20 p-6">
+      <h1 className="text-xl font-semibold">Review-Auswahl nicht verfügbar</h1>
+      <p className="mt-3 text-sm text-white/65">Bitte öffne die passenden Trades erneut über dein Review.</p>
+      <a href="/review" className="mt-4 inline-block">Zum Review</a>
+    </section></AppShell>
+  }
   const pageSize = 30
-  const page = Number.isFinite(requestedPage) && requestedPage > 0 ? requestedPage : 1
-  const offset = (page - 1) * pageSize
+  const page = tableQuery.page
   const access = await getJournalAccess()
 
-  const [snapshot, savedSessions, userCostProfiles, totalTradeCount] = await Promise.all([
-    getTradesSnapshotServer(access.user?.id, { limit: pageSize, offset }),
+  const [snapshot, savedSessions, userCostProfiles] = await Promise.all([
+    getTradesWorkspaceSnapshotServer(access.user?.id),
     measurePerformance('database.review_sessions.recent', 'database', () => getReviewSessionsServer(access.user?.id), { route: '/trades' }),
     measurePerformance('database.user_cost_profiles', 'database', () => getUserCostProfilesServer(access.user?.id), { route: '/trades' }),
-    measurePerformance('database.trade_count', 'database', () => getTradeCountServer(access.user?.id), { route: '/trades' }),
   ])
 
-  const totalPages = Math.max(1, Math.ceil(totalTradeCount / pageSize))
-  if (totalTradeCount > 0 && page > totalPages) {
-    redirect(`/trades?page=${totalPages}`)
+  if (snapshot.availability !== 'ready') {
+    return <AppShell><div role="alert" className="rounded-3xl border border-orange-400/20 bg-black/30 p-6 text-white">
+      <h1 className="text-xl font-semibold">Journal konnte nicht vollständig geladen werden</h1>
+      <p className="mt-3 text-sm text-white/65">Bitte lade die Seite erneut. Es werden keine unvollständigen Treffer angezeigt. Die globale Ansicht unterstützt derzeit bis zu 10.000 Trades.</p>
+      <a href="/trades" className="mt-4 inline-block rounded-full border border-white/20 px-4 py-2">Erneut laden</a>
+    </div></AppShell>
   }
+  const totalTradeCount = snapshot.tradeRows.length
 
   const linkedSetupByTradeId = buildLinkedSetupByTradeId(snapshot.setupRows, snapshot.setupTradeLinkRows)
-  const mediaCounts = await measurePerformance('database.trade_media_counts', 'database', () => getTradeMediaCountsServer(snapshot.tradeRows.map((row) => row.id), access.user?.id), { route: '/trades', meta: { trades: snapshot.tradeRows.length } })
+  const mediaCounts = snapshot.tradeMediaCounts
   const trades = measurePerformanceSync('transform.trades.page', 'transform', () => snapshot.tradeRows.map((row) => {
     const trade = mapTradeRowToTrade(row, [], linkedSetupByTradeId[row.id] ?? null)
     const mediaCount = mediaCounts[row.id] ?? (row.screenshot_url ? 1 : 0)
@@ -250,7 +233,7 @@ export default async function TradesPage({ searchParams }: { searchParams?: Prom
       screenshotUrl: row.screenshot_url ?? undefined,
     }
   }), { route: '/trades', meta: { trades: snapshot.tradeRows.length } })
-  const initialFilters = buildInitialFilters(params)
+  const initialFilters = tableQuery.filters
 
   let spotlightTradeIds: string[] = []
   let spotlightTotalCount = 0
@@ -282,37 +265,46 @@ export default async function TradesPage({ searchParams }: { searchParams?: Prom
         chips: parseCsvList(getParamValue(params.reviewChips)),
       })
     } else {
-      const drilldownSpotlightTrades = reviewFocus ? filterTradeTableRows(trades, buildTradeTagMap(snapshot.tradeTags), initialFilters) : []
-      spotlightTradeIds = drilldownSpotlightTrades.map((trade) => trade.id).slice(0, 12)
+      const scopedTrades = reviewScope.kind === 'valid' ? selectReviewDrilldownTrades(trades, reviewScope.scope) : trades
+      const drilldownSpotlightTrades = reviewFocus || reviewScope.kind === 'valid' ? filterTradeTableRows(scopedTrades, buildTradeTagMap(snapshot.tradeTags), initialFilters) : []
+      spotlightTradeIds = drilldownSpotlightTrades.map((trade) => trade.id)
       spotlightTotalCount = drilldownSpotlightTrades.length
       reviewContext = buildReviewContext(params, initialFilters, spotlightTotalCount)
     }
   }
 
-  const editTradeId = getParamValue(params.editTradeId)
-  const closeTradeId = getParamValue(params.closeTradeId)
-  const captureModeRaw = getParamValue(params.capture)
-  const activeCaptureMode = captureModeRaw === 'quick' || captureModeRaw === 'full' || captureModeRaw === 'import' ? captureModeRaw : undefined
-  const selectedTradeId = getParamValue(params.tradeId) ?? closeTradeId ?? editTradeId ?? spotlightTradeIds[0]
+  const selection = resolveTradeSelection({
+    tradeId: getParamValue(params.tradeId), editTradeId: getParamValue(params.editTradeId),
+    closeTradeId: getParamValue(params.closeTradeId), capture: getParamValue(params.capture),
+  })
+  const { selectedTradeId, editTradeId, closeTradeId, captureMode: activeCaptureMode } = selection
+  let selectionError: string | undefined
 
   let selectedRow = selectedTradeId ? snapshot.tradeRows.find((row) => row.id === selectedTradeId) : undefined
   if (selectedTradeId && !selectedRow) {
     try {
       selectedRow = await measurePerformance('database.trade_detail', 'database', () => getTradeByIdServer(selectedTradeId, access.user?.id), { route: '/trades' })
     } catch {
-      selectedRow = snapshot.tradeRows[0]
+      selectionError = 'Der ausgewählte Trade konnte nicht geladen werden. Bitte kehre zur Liste zurück oder versuche es erneut.'
     }
   }
 
-  const [selectedMediaRows, selectedTags] = selectedRow
-    ? await Promise.all([
-        measurePerformance('database.trade_detail_media', 'database', () => getTradeMediaServer(selectedRow.id, access.user?.id), { route: '/trades' }),
-        measurePerformance('database.trade_detail_tags', 'database', () => getTradeTagsServer(selectedRow.id, access.user?.id), { route: '/trades' }),
+  let selectedMediaRows: TradeMediaRow[] = []
+  let selectedTags: Awaited<ReturnType<typeof getTradeTagsServer>> = []
+  if (selectedRow) {
+    try {
+      if (selectedRow.id !== selectedTradeId) throw new Error('Trade selection mismatch')
+      ;[selectedMediaRows, selectedTags] = await Promise.all([
+        measurePerformance('database.trade_detail_media', 'database', () => getTradeMediaServer(selectedRow.id, access.user?.id, true), { route: '/trades' }),
+        measurePerformance('database.trade_detail_tags', 'database', () => getTradeTagsServer(selectedRow.id, access.user?.id, true), { route: '/trades' }),
       ])
-    : [[], []]
+    } catch {
+      selectionError = 'Die Details des ausgewählten Trades konnten nicht vollständig geladen werden. Bitte versuche es erneut.'
+    }
+  }
 
-  const editTradeRow = editTradeId && selectedRow?.id === editTradeId ? selectedRow : undefined
-  const closeTradeRow = closeTradeId && selectedRow?.id === closeTradeId ? selectedRow : undefined
+  const editTradeRow = !selectionError && editTradeId && selectedRow?.id === editTradeId ? selectedRow : undefined
+  const closeTradeRow = !selectionError && closeTradeId && selectedRow?.id === closeTradeId ? selectedRow : undefined
 
   const savedSetupOptions = snapshot.setupRows
     .filter((setup) => !setup.is_archived)
@@ -329,6 +321,9 @@ export default async function TradesPage({ searchParams }: { searchParams?: Prom
   const selectedLinkedSetup = selectedRow ? linkedSetupByTradeId[selectedRow.id] ?? null : null
   const selectedTradeDetail = selectedRow ? mapTradeRowToTradeDetail(selectedRow, selectedMediaRows, selectedLinkedSetup) : undefined
   const selectedTradeSummary = selectedRow ? mapTradeRowToTrade(selectedRow, selectedMediaRows, selectedLinkedSetup) : undefined
+  const returnHref = (tradeId?: string) => buildTradeTableHref(queryParams.toString(), {
+    filters: initialFilters, sort: tableQuery.sort, page, reviewOnly: tableQuery.reviewOnly, tradeId,
+  })
 
   const editTradeInitialValues = editTradeRow
     ? buildTradeFormInitialValues(editTradeRow, selectedTags.map((tag) => tag.tag), selectedMediaRows, selectedLinkedSetup)
@@ -337,6 +332,10 @@ export default async function TradesPage({ searchParams }: { searchParams?: Prom
   return (
     <AppShell>
       <div className="space-y-6">
+        {selectionError && !selection.drawerTradeId ? <div role="alert" className="rounded-2xl border border-orange-300/20 bg-orange-400/5 p-4 text-sm text-orange-50">
+          <p>{selectionError}</p>
+          <a href={returnHref()} className="mt-3 inline-block underline">Zur Journal-Liste</a>
+        </div> : null}
         {!activeCaptureMode && !closeTradeRow && !(editTradeInitialValues && editTradeRow) ? (
           <TradeLedgerCapture marketOptions={marketOptions} setupOptions={setupOptions} emotionOptions={emotionOptions.length ? emotionOptions : defaultEmotions} />
         ) : null}
@@ -344,12 +343,13 @@ export default async function TradesPage({ searchParams }: { searchParams?: Prom
           <section id="trade-editor" className="rounded-3xl border border-orange-300/18 bg-white/[0.05] p-5 shadow-2xl">
             {closeTradeRow ? (
               <CloseTradeForm
+                key={`close-${closeTradeRow.id}`}
                 tradeId={closeTradeRow.id}
                 market={closeTradeRow.market}
                 setup={selectedLinkedSetup?.title ?? closeTradeRow.setup}
                 trade={selectedTradeSummary}
-                cancelHref={`/trades?page=${page}&tradeId=${encodeURIComponent(closeTradeRow.id)}`}
-                editHref={`/trades?page=${page}&tradeId=${encodeURIComponent(closeTradeRow.id)}&editTradeId=${encodeURIComponent(closeTradeRow.id)}#trade-editor`}
+                cancelHref={returnHref(closeTradeRow.id)}
+                editHref={`${returnHref(closeTradeRow.id)}&editTradeId=${encodeURIComponent(closeTradeRow.id)}#trade-editor`}
               />
             ) : editTradeInitialValues && editTradeRow ? (
               <TradeForm
@@ -365,12 +365,12 @@ export default async function TradesPage({ searchParams }: { searchParams?: Prom
                 mode="edit"
                 tradeId={editTradeRow.id}
                 initialValues={editTradeInitialValues}
-                cancelHref={`/trades?page=${page}&tradeId=${encodeURIComponent(editTradeRow.id)}`}
+                cancelHref={returnHref(editTradeRow.id)}
               />
             ) : (
               <TradeCaptureDeck
                 initialMode={activeCaptureMode}
-                closeHref={selectedTradeId ? `/trades?page=${page}&tradeId=${encodeURIComponent(selectedTradeId)}` : `/trades?page=${page}`}
+                closeHref={returnHref(selectedTradeId)}
                 quickCapture={
                   <QuickTradeForm
                     markets={marketOptions.length ? marketOptions : defaultMarkets}
@@ -402,7 +402,8 @@ export default async function TradesPage({ searchParams }: { searchParams?: Prom
           activeTradeSummary={selectedTradeSummary}
           activeTradeTags={selectedTags}
           tradeTags={snapshot.tradeTags}
-          selectedTradeId={selectedTradeId}
+          selectedTradeId={selection.drawerTradeId}
+          tradeDetailError={selectionError}
           tagOptions={tagOptions}
           marketOptions={marketOptions}
           accountOptions={accountOptions}
@@ -413,6 +414,8 @@ export default async function TradesPage({ searchParams }: { searchParams?: Prom
           weekdayOptions={weekdayOptions}
           source={snapshot.source}
           initialFilters={initialFilters}
+          initialSort={tableQuery.sort}
+          initialReviewOnly={tableQuery.reviewOnly}
           reviewContext={reviewContext}
           spotlightTradeIds={spotlightTradeIds}
           spotlightTotalCount={spotlightTotalCount}
@@ -423,7 +426,6 @@ export default async function TradesPage({ searchParams }: { searchParams?: Prom
           page={page}
           pageSize={pageSize}
           totalTradeCount={totalTradeCount}
-          totalPages={totalPages}
         />
       </div>
     </AppShell>

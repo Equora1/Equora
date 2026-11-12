@@ -1,0 +1,171 @@
+/* Preserve the existing journal palette during the Tailwind 4 toolchain update. */
+@theme {
+  --color-amber-100: #fef3c7;
+  --color-amber-200: #fde68a;
+  --color-amber-400: #fbbf24;
+  --color-blue-500: #3b82f6;
+  --color-cyan-100: #cffafe;
+  --color-cyan-400: #22d3ee;
+  --color-emerald-100: #d1fae5;
+  --color-emerald-200: #a7f3d0;
+  --color-emerald-300: #6ee7b7;
+  --color-emerald-400: #34d399;
+  --color-gray-200: #e5e7eb;
+  --color-gray-400: #9ca3af;
+  --color-orange-100: #ffedd5;
+  --color-orange-200: #fed7aa;
+  --color-orange-300: #fdba74;
+  --color-orange-400: #fb923c;
+  --color-orange-50: #fff7ed;
+  --color-red-100: #fee2e2;
+  --color-red-200: #fecaca;
+  --color-red-300: #fca5a5;
+  --color-red-400: #f87171;
+  --color-rose-100: #ffe4e6;
+  --color-rose-200: #fecdd3;
+  --color-rose-400: #fb7185;
+  --color-sky-100: #e0f2fe;
+  --color-sky-200: #bae6fd;
+  --color-sky-300: #7dd3fc;
+  --color-sky-400: #38bdf8;
+  --color-slate-950: #020617;
+  --default-ring-width: 3px;
+  --default-ring-color: var(--color-blue-500);
+  --blur-sm: 4px;
+  --text-xs--line-height: 1rem;
+  --text-sm--line-height: 1.25rem;
+  --text-base--line-height: 1.5rem;
+  --text-lg--line-height: 1.75rem;
+  --text-xl--line-height: 1.75rem;
+  --text-2xl--line-height: 2rem;
+  --text-3xl--line-height: 2.25rem;
+  --text-4xl--line-height: 2.5rem;
+}
+
+/* Keep the previous border default; explicit component colors still win. */
+@layer base {
+  *, ::before, ::after, ::backdrop, ::file-selector-button {
+    border-color: var(--color-gray-200, currentColor);
+  }
+
+  ::-webkit-datetime-edit {
+    padding-block: 1px;
+  }
+}
+
+/* Tailwind 3 outline-none retained a transparent outline in forced colors. */
+@utility outline-none {
+  outline: 2px solid transparent;
+  outline-offset: 2px;
+  /* v4 also emits its native same-name rule; keep the v3 focus fallback. */
+  outline-style: solid !important;
+}
+
+/* Keep sibling spacing and hidden-child behavior while moving to Tailwind 4. */
+@utility space-y-0 {
+  & > :not([hidden]) ~ :not([hidden]) {
+    --tw-space-y-reverse: 0;
+    margin-top: calc(0rem * (1 - var(--tw-space-y-reverse)));
+    margin-bottom: calc(0rem * var(--tw-space-y-reverse));
+  }
+}
+
+@utility space-y-1 {
+  & > :not([hidden]) ~ :not([hidden]) {
+    --tw-space-y-reverse: 0;
+    margin-top: calc(0.25rem * (1 - var(--tw-space-y-reverse)));
+    margin-bottom: calc(0.25rem * var(--tw-space-y-reverse));
+  }
+}
+
+@utility space-y-10 {
+  & > :not([hidden]) ~ :not([hidden]) {
+    --tw-space-y-reverse: 0;
+    margin-top: calc(2.5rem * (1 - var(--tw-space-y-reverse)));
+    margin-bottom: calc(2.5rem * var(--tw-space-y-reverse));
+  }
+}
+
+@utility space-y-12 {
+  & > :not([hidden]) ~ :not([hidden]) {
+    --tw-space-y-reverse: 0;
+    margin-top: calc(3rem * (1 - var(--tw-space-y-reverse)));
+    margin-bottom: calc(3rem * var(--tw-space-y-reverse));
+  }
+}
+
+@utility space-y-2 {
+  & > :not([hidden]) ~ :not([hidden]) {
+    --tw-space-y-reverse: 0;
+    margin-top: calc(0.5rem * (1 - var(--tw-space-y-reverse)));
+    margin-bottom: calc(0.5rem * var(--tw-space-y-reverse));
+  }
+}
+
+@utility space-y-3 {
+  & > :not([hidden]) ~ :not([hidden]) {
+    --tw-space-y-reverse: 0;
+    margin-top: calc(0.75rem * (1 - var(--tw-space-y-reverse)));
+    margin-bottom: calc(0.75rem * var(--tw-space-y-reverse));
+  }
+}
+
+@utility space-y-4 {
+  & > :not([hidden]) ~ :not([hidden]) {
+    --tw-space-y-reverse: 0;
+    margin-top: calc(1rem * (1 - var(--tw-space-y-reverse)));
+    margin-bottom: calc(1rem * var(--tw-space-y-reverse));
+  }
+}
+
+@utility space-y-5 {
+  & > :not([hidden]) ~ :not([hidden]) {
+    --tw-space-y-reverse: 0;
+    margin-top: calc(1.25rem * (1 - var(--tw-space-y-reverse)));
+    margin-bottom: calc(1.25rem * var(--tw-space-y-reverse));
+  }
+}
+
+@utility space-y-6 {
+  & > :not([hidden]) ~ :not([hidden]) {
+    --tw-space-y-reverse: 0;
+    margin-top: calc(1.5rem * (1 - var(--tw-space-y-reverse)));
+    margin-bottom: calc(1.5rem * var(--tw-space-y-reverse));
+  }
+}
+
+@utility space-y-7 {
+  & > :not([hidden]) ~ :not([hidden]) {
+    --tw-space-y-reverse: 0;
+    margin-top: calc(1.75rem * (1 - var(--tw-space-y-reverse)));
+    margin-bottom: calc(1.75rem * var(--tw-space-y-reverse));
+  }
+}
+
+@utility space-y-8 {
+  & > :not([hidden]) ~ :not([hidden]) {
+    --tw-space-y-reverse: 0;
+    margin-top: calc(2rem * (1 - var(--tw-space-y-reverse)));
+    margin-bottom: calc(2rem * var(--tw-space-y-reverse));
+  }
+}
+
+/* Cancel v4's zero-specificity first-child margins, keeping explicit margins. */
+@layer utilities {
+  :where(
+    .space-y-0 > :not(:last-child),
+    .space-y-1 > :not(:last-child),
+    .space-y-2 > :not(:last-child),
+    .space-y-3 > :not(:last-child),
+    .space-y-4 > :not(:last-child),
+    .space-y-5 > :not(:last-child),
+    .space-y-6 > :not(:last-child),
+    .space-y-7 > :not(:last-child),
+    .space-y-8 > :not(:last-child),
+    .space-y-10 > :not(:last-child),
+    .space-y-12 > :not(:last-child)
+  ) {
+    margin-block-start: 0;
+    margin-block-end: 0;
+  }
+}

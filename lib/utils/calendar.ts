@@ -1,6 +1,17 @@
 import type { Trade } from '@/lib/types/trade'
 import { resolveTradeOccurredAt } from '@/lib/utils/trade-time'
 import { resolveMonetaryScope, type MonetaryScope } from '@/lib/utils/currency'
+import { formatCurrency, formatPlainNumber, normalizePartialExitLegs } from '@/lib/utils/calculations'
+
+/** A missing stored exit must never fall back to a monetary result under a price label. */
+export function getCalendarFeaturedResult(trade: Trade) {
+  if (normalizePartialExitLegs(trade.partialExits ?? []).length > 0) {
+    return { label: 'Gespeicherter Ausstieg', value: trade.effectiveExit !== null && trade.effectiveExit !== undefined && Number.isFinite(trade.effectiveExit) ? formatPlainNumber(trade.effectiveExit, 4) : '—' }
+  }
+  return { label: 'P&L', value: trade.netPnL !== null && trade.netPnL !== undefined
+    ? trade.accountCurrencyStatus === 'unsupported' ? 'Währung nicht unterstützt' : formatCurrency(trade.netPnL, 2, trade.accountCurrency)
+    : '—' }
+}
 
 export type CalendarDaySummary = {
   dateKey: string

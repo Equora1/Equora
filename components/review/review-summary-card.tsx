@@ -1,4 +1,5 @@
 'use client'
+import { getSavedReviewRState } from '@/lib/utils/review-snapshot-summary'
 
 import Link from 'next/link'
 import { useEffect, useMemo, useState, useTransition } from 'react'
@@ -18,6 +19,7 @@ import { formatCurrency } from '@/lib/utils/calculations'
 import { getReviewPeriodPresetLabel, REVIEW_PERIOD_OPTIONS } from '@/lib/utils/review'
 import { buildReviewActionPlan } from '@/lib/utils/review-to-action'
 import type { ReviewPeriodPreset, ReviewSnapshotCollection } from '@/lib/utils/review'
+import { buildReviewTitle } from '@/lib/utils/review-display'
 
 const REVIEW_SESSION_STORAGE_KEY = 'equora-review-sessions'
 
@@ -29,6 +31,7 @@ type ActionView = 'bridge' | 'engine' | 'errors'
 function normalizeSavedSession(session: SavedReviewSession): SavedReviewSession {
   return {
     ...session,
+    ...getSavedReviewRState(session),
     labels: Array.isArray(session.labels) ? session.labels.filter(Boolean) : [],
     sessionStatus: session.sessionStatus ?? 'open',
     isPinned: Boolean(session.isPinned),
@@ -39,10 +42,6 @@ function mergeSavedSessions(...groups: SavedReviewSession[][]) {
   const merged = new Map<string, SavedReviewSession>()
   groups.flat().forEach((session) => merged.set(session.id, normalizeSavedSession(session)))
   return Array.from(merged.values()).sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime())
-}
-
-function buildReviewTitle(snapshotLabel: string) {
-  return `Review ${snapshotLabel} · ${new Date().toLocaleDateString('de-DE')}`
 }
 
 function toneClasses(tone: 'emerald' | 'red' | 'orange') {
@@ -72,18 +71,20 @@ export function ReviewSummaryCard({
   savedSessions = [],
   source,
   initialPreset = '7d',
+  referenceDateKey,
 }: {
   snapshots: ReviewSnapshotCollection
   savedSessions?: SavedReviewSession[]
   source: 'supabase' | 'mock'
   initialPreset?: ReviewPeriodPreset
+  referenceDateKey: string
 }) {
   const [activePreset, setActivePreset] = useState<ReviewPeriodPreset>(initialPreset)
   const [activeDeepSection, setActiveDeepSection] = useState<DeepSection>('result')
   const [activePerformanceView, setActivePerformanceView] = useState<PerformanceView>('top')
   const [activeTagView, setActiveTagView] = useState<TagView>('radar')
   const [activeActionView, setActiveActionView] = useState<ActionView>('engine')
-  const [sessionTitle, setSessionTitle] = useState(buildReviewTitle(getReviewPeriodPresetLabel(snapshots['7d'] ?? { periodPreset: '7d', periodPresetLabel: '7 Tage' })))
+  const [sessionTitle, setSessionTitle] = useState(() => buildReviewTitle(getReviewPeriodPresetLabel(snapshots[initialPreset] ?? snapshots['7d']), referenceDateKey))
   const [sessionNote, setSessionNote] = useState('')
   const [saveStatus, setSaveStatus] = useState('')
   const [localSessions, setLocalSessions] = useState<SavedReviewSession[]>(savedSessions)
@@ -125,8 +126,8 @@ export function ReviewSummaryCard({
   }, [initialPreset])
 
   useEffect(() => {
-    setSessionTitle(buildReviewTitle(snapshotPresetLabel))
-  }, [snapshotPresetLabel])
+    setSessionTitle(buildReviewTitle(snapshotPresetLabel, referenceDateKey))
+  }, [snapshotPresetLabel, referenceDateKey])
 
   useEffect(() => {
     if (source !== 'mock' || typeof window === 'undefined') return
@@ -163,7 +164,7 @@ export function ReviewSummaryCard({
 
     startSaving(async () => {
       const result = await persistReviewSession({
-        title: sessionTitle.trim() || buildReviewTitle(snapshotPresetLabel),
+        title: sessionTitle.trim() || buildReviewTitle(snapshotPresetLabel, referenceDateKey),
         note: sessionNote,
         focusTitle: actionPlan.headline,
         focusDescription: actionPlan.dailyFocusSuggestion,
@@ -251,35 +252,42 @@ export function ReviewSummaryCard({
               <p className="text-[10px] uppercase tracking-[0.24em] text-white/38">{item.label}</p>
               <p className="mt-3 text-3xl font-semibold tracking-tight text-white">{item.value}</p>
               <p className={`mt-2 inline-flex rounded-full border px-2.5 py-1 text-xs ${toneClasses(item.tone)}`}>{item.hint}</p>
+              {item.basis ? <p className="mt-2 text-xs leading-5 text-white/60">{item.basis}</p> : null}
             </div>
           ))}
         </div>
       </div>
 
-      <section className="grid gap-4 xl:grid-cols-3">
-        <SignalTile label="Was lief" title={bestSignal.title} detail={bestSignal.detail} tone="emerald" />
-        <SignalTile label="Was bremst" title={warningSignal.title} detail={warningSignal.detail} tone={warningTone} />
-        <SignalTile label="Nächster Schritt" title={actionPlan.dailyFocusSuggestion} detail={repeatSignal.detail} tone="orange" />
-      </section>
+      <details className="rounded-3xl border border-white/10 bg-black/20 p-5">
+        <summary className="cursor-pointer text-sm font-medium text-white">Empfehlungen und Muster</summary>
+        <div className="mt-5 space-y-5">
+          <section className="grid gap-4 xl:grid-cols-3">
+            <SignalTile label="Was lief" title={bestSignal.title} detail={bestSignal.detail} tone="emerald" />
+            <SignalTile label="Was bremst" title={warningSignal.title} detail={warningSignal.detail} tone={warningTone} />
+            <SignalTile label="Nächster Schritt" title={actionPlan.dailyFocusSuggestion} detail={repeatSignal.detail} tone="orange" />
+          </section>
 
-      <section className="rounded-3xl border border-white/10 bg-black/30 p-5">
-        <p className="text-[10px] uppercase tracking-[0.24em] text-white/35">Heute / Woche / Verhalten</p>
-        <div className="mt-4 grid gap-3 md:grid-cols-3">
-          <BulletCard title="Heute" body={actionPlan.checklist[0] ?? `P&L: ${snapshot.sessionDraft.monetaryScopeKind === 'single' ? formatCurrency(snapshot.sessionDraft.netPnL, 0, snapshot.sessionDraft.currency) : 'Gesperrt'}`} />
-          <BulletCard title="Woche" body={actionPlan.checklist[1] ?? warningSignal.title} />
-          <BulletCard title="Verhalten" body={actionPlan.checklist[2] ?? actionPlan.dailyFocusSuggestion} />
+          <section className="rounded-3xl border border-white/10 bg-black/30 p-5">
+            <p className="text-[10px] uppercase tracking-[0.24em] text-white/35">Heute / Woche / Verhalten</p>
+            <div className="mt-4 grid gap-3 md:grid-cols-3">
+              <BulletCard title="Heute" body={actionPlan.checklist[0] ?? `P&L: ${snapshot.sessionDraft.monetaryScopeKind === 'single' ? formatCurrency(snapshot.sessionDraft.netPnL, 0, snapshot.sessionDraft.currency) : 'Gesperrt'}`} />
+              <BulletCard title="Woche" body={actionPlan.checklist[1] ?? warningSignal.title} />
+              <BulletCard title="Verhalten" body={actionPlan.checklist[2] ?? actionPlan.dailyFocusSuggestion} />
+            </div>
+          </section>
+
+          <section className="grid gap-4 xl:grid-cols-2">
+            <InsightGroup title="Setup-Ergebnisse" items={snapshot.setupInsights} />
+            <InsightGroup title="Daten aus Importen" items={snapshot.importInsights} />
+          </section>
+
         </div>
-      </section>
-
-      <section className="grid gap-4 xl:grid-cols-2">
-        <InsightGroup title="Setup-Wirkung" items={snapshot.setupInsights} />
-        <InsightGroup title="Import-Qualität" items={snapshot.importInsights} />
-      </section>
+      </details>
 
       <details className="group/session rounded-3xl border border-white/10 bg-black/25 p-5">
         <summary className="flex cursor-pointer list-none items-center justify-between gap-4">
           <div>
-            <p className="text-[10px] uppercase tracking-[0.24em] text-white/35">Session</p>
+            <p className="text-[10px] uppercase tracking-[0.24em] text-white/35">Review</p>
             <h2 className="mt-2 text-xl font-semibold text-white">Review sichern</h2>
           </div>
           <span className="rounded-full border border-white/10 bg-white/[0.03] px-4 py-2 text-xs uppercase tracking-[0.22em] text-white/55 transition group-open/session:border-orange-400/20 group-open/session:text-orange-100"><span className="group-open/session:hidden">Anzeigen</span><span className="hidden group-open/session:inline">Ausblenden</span></span>
@@ -293,15 +301,15 @@ export function ReviewSummaryCard({
                 <h3 className="mt-2 text-lg font-semibold text-white">Review sichern</h3>
               </div>
               <Link href={`/review-sessions?type=review&periodPreset=${snapshot.periodPreset}`} className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-white/70 transition hover:border-white/20 hover:text-white">
-                Sessions
+                Review-Sammlung
               </Link>
             </div>
-            <div className="mt-4 grid gap-3 lg:grid-cols-[1fr_0.85fr]">
-              <label className="rounded-2xl border border-white/10 bg-black/25 p-3">
+            <div className="mt-4 grid gap-3">
+              <label className="min-w-0 rounded-2xl border border-white/10 bg-black/25 p-3">
                 <span className="text-[10px] uppercase tracking-[0.2em] text-white/35">Titel</span>
                 <input value={sessionTitle} onChange={(event) => setSessionTitle(event.target.value)} className="mt-2 w-full rounded-2xl border border-orange-400/15 bg-orange-400/5 px-4 py-3 text-sm text-white outline-none placeholder:text-white/30" />
               </label>
-              <label className="rounded-2xl border border-white/10 bg-black/25 p-3">
+              <label className="min-w-0 rounded-2xl border border-white/10 bg-black/25 p-3">
                 <span className="text-[10px] uppercase tracking-[0.2em] text-white/35">Notiz</span>
                 <textarea value={sessionNote} onChange={(event) => setSessionNote(event.target.value)} rows={3} className="mt-2 w-full rounded-2xl border border-orange-400/15 bg-orange-400/5 px-4 py-3 text-sm text-white outline-none placeholder:text-white/30" placeholder="Ein Satz reicht." />
               </label>
@@ -317,7 +325,7 @@ export function ReviewSummaryCard({
           <div className="rounded-3xl border border-white/10 bg-black/40 p-4">
             <div className="flex items-center justify-between gap-3">
               <div>
-                <p className="text-xs uppercase tracking-[0.22em] text-white/40">Sessions</p>
+                <p className="text-xs uppercase tracking-[0.22em] text-white/40">Gespeicherte Reviews</p>
                 <h3 className="mt-2 text-lg font-semibold text-white">Archiv</h3>
               </div>
               <span className="rounded-full border border-emerald-400/20 bg-emerald-400/10 px-2.5 py-1 text-[11px] text-emerald-300">{relatedSessions.length} aktiv</span>

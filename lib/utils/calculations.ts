@@ -132,6 +132,12 @@ export function normalizePartialExitLegs(entries: Array<{ percent?: string | num
     .filter((entry): entry is PartialExitLeg => Boolean(entry))
 }
 
+// Percent units: a remainder rounded to four decimals is meaningful above 0.0001.
+export const PARTIAL_EXIT_REMAINDER_TOLERANCE = 0.0001
+export function getPartialExitRemainderPercent(coveredPercent: number) {
+  return Math.max(0, Number((100 - coveredPercent).toFixed(4)))
+}
+
 export function deriveEffectiveExitFromPartialExitLegs({
   exit,
   partialExits,
@@ -151,7 +157,7 @@ export function deriveEffectiveExitFromPartialExitLegs({
   let totalPercent = coveredPercent
 
   if (coveredPercent < 100) {
-    if (explicitExit === null) return coveredPercent >= 99.999 ? weightedSum / coveredPercent : null
+    if (explicitExit === null) return getPartialExitRemainderPercent(coveredPercent) <= PARTIAL_EXIT_REMAINDER_TOLERANCE ? weightedSum / coveredPercent : null
     const remainder = 100 - coveredPercent
     weightedSum += remainder * explicitExit
     totalPercent += remainder
@@ -177,7 +183,7 @@ export function getPartialExitPlanInfo({
 }) {
   const normalized = normalizePartialExitLegs(partialExits ?? [])
   const coveredPercent = normalized.reduce((sum, leg) => sum + leg.percent, 0)
-  const remainderPercent = Math.max(0, Number((100 - coveredPercent).toFixed(4)))
+  const remainderPercent = getPartialExitRemainderPercent(coveredPercent)
   const effectiveExit = deriveEffectiveExitFromPartialExitLegs({ exit, partialExits: normalized })
 
   return {
@@ -185,14 +191,17 @@ export function getPartialExitPlanInfo({
     count: normalized.length,
     coveredPercent: Number(coveredPercent.toFixed(4)),
     remainderPercent,
-    hasRemainder: remainderPercent > 0.0001,
+    hasRemainder: remainderPercent > PARTIAL_EXIT_REMAINDER_TOLERANCE,
+    // An explicit final exit closes the remainder; absent partial legs do not create one.
+    hasOpenRemainder: normalized.length > 0 && remainderPercent > PARTIAL_EXIT_REMAINDER_TOLERANCE && effectiveExit === null,
     effectiveExit,
     summary: formatPartialExitSummary(normalized),
   }
 }
 
-export function formatPartialExitCoverageLabel(coveredPercent: number, remainderPercent?: number | null) {
+export function formatPartialExitCoverageLabel(coveredPercent: number, remainderPercent?: number | null, hasOpenRemainder = true) {
   if (!Number.isFinite(coveredPercent) || coveredPercent <= 0) return ''
+  if ((remainderPercent ?? 0) > 0.0001 && !hasOpenRemainder) return `${formatPlainNumber(coveredPercent, 0)}% in Teilverkäufen · Rest geschlossen`
   if ((remainderPercent ?? 0) > 0.0001) return `${formatPlainNumber(coveredPercent, 0)}% gestaffelt · ${formatPlainNumber(remainderPercent ?? 0, 0)}% Rest offen`
   return `${formatPlainNumber(coveredPercent, 0)}% gestaffelt geschlossen`
 }
@@ -200,25 +209,42 @@ export function formatPartialExitCoverageLabel(coveredPercent: number, remainder
 export function getPartialExitSizePlan({
   positionSize,
   partialExits,
+  exit,
 }: {
   positionSize?: string | number | null
   partialExits?: Array<{ percent?: string | number | null; price?: string | number | null } | null | undefined>
+  exit?: string | number | null
 }) {
   const normalized = normalizePartialExitLegs(partialExits ?? [])
   const coveredPercent = normalized.reduce((sum, leg) => sum + leg.percent, 0)
-  const remainderPercent = Math.max(0, Number((100 - coveredPercent).toFixed(4)))
+  const remainderPercent = getPartialExitRemainderPercent(coveredPercent)
   const resolvedSize = parseTradingNumber(positionSize)
 
   const realizedSize = resolvedSize !== null ? Number(((resolvedSize * coveredPercent) / 100).toFixed(4)) : null
-  const remainingSize = resolvedSize !== null ? Number(((resolvedSize * remainderPercent) / 100).toFixed(4)) : null
+  const hasOpenRemainder = normalized.length > 0 && remainderPercent > PARTIAL_EXIT_REMAINDER_TOLERANCE && parseTradingNumber(exit) === null
+  const remainingSize = parseTradingNumber(exit) !== null ? 0 : resolvedSize !== null ? Number(((resolvedSize * remainderPercent) / 100).toFixed(4)) : null
 
   return {
     coveredPercent: Number(coveredPercent.toFixed(4)),
     remainderPercent,
     realizedSize,
     remainingSize,
-    hasOpenRemainder: remainderPercent > 0.0001,
+    hasOpenRemainder,
   }
+}
+
+/** Rows store the weighted exit. The form edits the final remainder price, then the action weights once. */
+export function restoreRemainderExitFromStoredAverage({ exit, partialExits }: {
+  exit?: string | number | null
+  partialExits?: Array<{ percent?: string | number | null; price?: string | number | null } | null | undefined>
+}) {
+  const average = parseTradingNumber(exit)
+  const legs = normalizePartialExitLegs(partialExits ?? [])
+  if (average === null || !legs.length) return average
+  const covered = legs.reduce((sum, leg) => sum + leg.percent, 0)
+  if (getPartialExitRemainderPercent(covered) <= PARTIAL_EXIT_REMAINDER_TOLERANCE) return null
+  const finalExit = (average * 100 - legs.reduce((sum, leg) => sum + leg.percent * leg.price, 0)) / (100 - covered)
+  return Number.isFinite(finalExit) ? finalExit : null
 }
 
 export function formatPartialExitRealizedLabel(coveredPercent: number, realizedSize?: number | null) {
@@ -277,7 +303,7 @@ export function derivePartialExitPnL({
   }
 
   const coveredPercent = normalized.reduce((sum, leg) => sum + leg.percent, 0)
-  const remainderPercent = Math.max(0, Number((100 - coveredPercent).toFixed(4)))
+  const remainderPercent = getPartialExitRemainderPercent(coveredPercent)
   const realizedSize = resolvedSize !== null ? Number(((resolvedSize * coveredPercent) / 100).toFixed(4)) : null
   const remainingSize = resolvedSize !== null ? Number(((resolvedSize * remainderPercent) / 100).toFixed(4)) : null
 
@@ -296,7 +322,7 @@ export function derivePartialExitPnL({
       remainderPercent,
       realizedSize,
       remainingSize,
-      hasOpenRemainder: remainderPercent > 0.0001,
+      hasOpenRemainder: remainderPercent > PARTIAL_EXIT_REMAINDER_TOLERANCE,
       costShare: 0,
       priceMove: null,
       multiplier,
@@ -322,7 +348,7 @@ export function derivePartialExitPnL({
     remainderPercent,
     realizedSize,
     remainingSize,
-    hasOpenRemainder: remainderPercent > 0.0001,
+    hasOpenRemainder: remainderPercent > PARTIAL_EXIT_REMAINDER_TOLERANCE,
     costShare: Number.isFinite(costShare) ? costShare : 0,
     priceMove: weightedPriceMove !== null && Number.isFinite(weightedPriceMove) ? weightedPriceMove : null,
     multiplier,
@@ -333,7 +359,8 @@ export function formatCurrency(value: number, fractionDigits = 0, currency?: str
   return formatMoney(value, currency, fractionDigits)
 }
 
-export function formatRMultiple(value: number, fractionDigits = 2): string {
+export function formatRMultiple(value: number | null | undefined, fractionDigits = 2): string {
+  if (value === null || value === undefined || !Number.isFinite(value)) return 'R offen'
   const formatter = new Intl.NumberFormat('de-DE', {
     minimumFractionDigits: fractionDigits,
     maximumFractionDigits: fractionDigits,
@@ -981,7 +1008,7 @@ export type TradeComputation = {
   slippage: number
   priceMove: number | null
   multiplier: number | null
-  rValue: number
+  rValue: number | null
   realizedRValue: number | null
   plannedRValue: number | null
   priceRisk: number | null
@@ -1207,10 +1234,10 @@ export function computeTradeMetrics({
       : null
   const derivedR = realizedR ?? plannedR
   const manualR = derivedR === null ? legacyStoredR : null
-  const rValue = derivedR ?? manualR ?? 0
+  const rValue = derivedR ?? manualR
   const rSource =
     realizedR !== null
-      ? partialPlan.hasRemainder
+      ? partialPlan.hasOpenRemainder
         ? 'realized_partial'
         : 'realized'
       : plannedR !== null
@@ -1218,7 +1245,7 @@ export function computeTradeMetrics({
         : manualR !== null
           ? 'manual'
           : 'missing'
-  const pnlBasedRiskAmount = effectiveNetPnL !== null && rValue !== 0 ? Math.abs(effectiveNetPnL / rValue) : null
+  const pnlBasedRiskAmount = effectiveNetPnL !== null && rValue !== null && rValue !== 0 ? Math.abs(effectiveNetPnL / rValue) : null
   const riskAmount = stopRiskAmount ?? pnlBasedRiskAmount
   const plannedRiskAmount =
     accountSizeValue !== null && accountSizeValue > 0 && riskPercentValue !== null && riskPercentValue > 0

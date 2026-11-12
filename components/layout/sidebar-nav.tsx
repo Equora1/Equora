@@ -8,19 +8,19 @@ import { AppIcon, type AppIconName } from '@/components/ui/app-icon'
 
 const primaryNavItems = [
   { label: 'Start', href: '/dashboard', icon: 'dashboard', hint: 'Heute, P&L und nächster Schritt' },
-  { label: 'Trades', href: '/trades', icon: 'trades', hint: 'Ledger, Erfassung und Details' },
-  { label: 'Review', href: '/review', icon: 'review', hint: 'Heute, Woche und Verhalten prüfen' },
-  { label: 'Statistik', href: '/statistik', icon: 'stats', hint: 'Setups, Zeiten und Muster lesen' },
-  { label: 'Setups', href: '/setups', icon: 'setups', hint: 'Regeln, Bilder und Setup-Wirkung' },
+  { label: 'Trades', href: '/trades', icon: 'trades', hint: 'Trades erfassen und nachsehen' },
+  { label: 'Review', href: '/review', icon: 'review', hint: 'Entscheidungen nachbereiten' },
+  { label: 'Statistik', href: '/statistik', icon: 'stats', hint: 'Ergebnisse und Muster ansehen' },
+  { label: 'Setups', href: '/setups', icon: 'setups', hint: 'Regeln und Beispiele festhalten' },
 ] satisfies NavItem[]
 
 const advancedNavItems = [
   { label: 'Kalender', href: '/kalender', icon: 'calendar', hint: 'Trades nach Tagen sehen' },
-  { label: 'Sessions', href: '/review-sessions', icon: 'sessions', hint: 'Reviews bündeln und vergleichen' },
-  { label: 'Vault', href: '/share', icon: 'vault', hint: 'Geteilte Trades & Community-Setups' },
+  { label: 'Review-Sammlungen', href: '/review-sessions', icon: 'sessions', hint: 'Reviews bündeln und vergleichen' },
+  { label: 'Teilen', href: '/share', icon: 'vault', hint: 'Trades und Setups teilen' },
   { label: 'Kosten', href: '/cost-profiles', icon: 'cost', hint: 'Gebühren und Kostenprofile' },
-  { label: 'Daily Note', href: '/daily-note', icon: 'note', hint: 'Optionale Tagesnotiz' },
-  { label: 'Broker verbinden', href: '/broker-sync', icon: 'sync', hint: 'Historische Brokerdaten für einen Scope vorbereiten' },
+  { label: 'Tagesnotiz', href: '/daily-note', icon: 'note', hint: 'Optionale Tagesnotiz' },
+  { label: 'Broker verbinden', href: '/broker-sync', icon: 'sync', hint: 'Verbindungen und Dateiübernahme' },
 ] satisfies NavItem[]
 
 type NavItem = { label: string; href: string; icon: AppIconName; hint?: string }
@@ -247,8 +247,8 @@ function NavSection({
                 <AppIcon name={item.icon} aria-hidden="true" />
               </span>
               <span className="min-w-0">
-                <span className="block truncate font-medium">{item.label}</span>
-                {item.hint ? <span className="mt-0.5 block truncate text-[11px] text-white/60">{item.hint}</span> : null}
+                <span className="block whitespace-normal break-words font-medium">{item.label}</span>
+                {item.hint ? <span className="mt-0.5 block whitespace-normal break-words text-[11px] text-white/60">{item.hint}</span> : null}
               </span>
             </span>
             {isPending ? (

@@ -27,12 +27,13 @@ import {
   validateTradeCaptureInput,
 } from '@/lib/utils/trade-validation'
 import { inferTradeCaptureResultFromPnL } from '@/lib/utils/trade-capture'
-import { deriveTradeSessionLabel, resolveTradeTimeInputToIso } from '@/lib/utils/trade-time'
+import { deriveTradeSessionLabel, getTradeTimeInputError, resolveTradeTimeInputToIso } from '@/lib/utils/trade-time'
 import { appendTradeImportMeta, extractTradeImportMeta } from '@/lib/utils/trade-import-meta'
 import type { TradeMediaUploadInput } from '@/lib/types/media'
 import { assertOwnedTradeMediaPath } from '@/lib/utils/media-security'
 import { processMediaCleanupForPaths } from '@/lib/server/media-cleanup'
 import { normalizeTradeCurrency } from '@/lib/utils/currency'
+import { getExitPriceBasis } from '@/lib/utils/trade-exit-basis'
 
 function toNumericField(value: string) {
   return value.trim() ? parseTradingNumber(value) : null
@@ -324,6 +325,7 @@ export async function createTradeEntry(input: CreateTradeInput) {
       risk_percent: toNumericField(input.riskPercent),
       account_size: toNumericField(normalizedInput.accountSize),
       partial_exits: partialExits,
+      exit_price_basis: getExitPriceBasis(input.exit, partialExits),
       r_multiple: resolvedStoredRMultiple,
       pnl_mode: normalizedPnLMode,
       cost_profile: normalizedCostProfile,
@@ -361,7 +363,7 @@ export async function createTradeEntry(input: CreateTradeInput) {
       concept: null,
     }
 
-    const { error: tradeInsertError } = await supabase.rpc('equora_create_trade_v1', {
+    const { error: tradeInsertError } = await supabase.rpc('equora_create_trade_v2', {
       p_trade_id: tradeId,
       p_trade: tradePayload,
       p_tags: input.tags,
@@ -385,7 +387,8 @@ export async function createTradeEntry(input: CreateTradeInput) {
 export async function updateTradeEntry(tradeId: string, input: CreateTradeInput) {
   const normalizedInput = { ...input, exit: resolveEffectiveExit(input) }
   const partialExits = resolvePartialExits(input)
-  const validation = validateTradeCaptureInput(normalizedInput)
+  // Time validation needs the owned stored instant to preserve an unchanged DST fold.
+  const validation = validateTradeCaptureInput({ ...normalizedInput, tradeOccurredAt: '' })
 
   if (!validation.isValid) {
     return {
@@ -419,6 +422,8 @@ export async function updateTradeEntry(tradeId: string, input: CreateTradeInput)
   }
 
   if (!hasSupabaseClientEnv()) {
+    const timeError = getTradeTimeInputError(input.tradeOccurredAt)
+    if (timeError) return { success: false, mode: 'demo' as const, tradeId, message: timeError, fieldErrors: { tradeOccurredAt: timeError } }
     return {
       success: true,
       mode: 'demo' as const,
@@ -449,7 +454,10 @@ export async function updateTradeEntry(tradeId: string, input: CreateTradeInput)
     }
 
     const timestamp = new Date().toISOString()
-    const resolvedTradeOccurredAt = resolveTradeTimeInputToIso(input.tradeOccurredAt, existingTrade.captured_at ?? existingTrade.created_at ?? timestamp)
+    const originalTradeTimeIso = existingTrade.captured_at ?? existingTrade.created_at ?? timestamp
+    const timeError = getTradeTimeInputError(input.tradeOccurredAt, originalTradeTimeIso)
+    if (timeError) return { success: false, mode: 'supabase' as const, tradeId, message: timeError, fieldErrors: { tradeOccurredAt: timeError } }
+    const resolvedTradeOccurredAt = resolveTradeTimeInputToIso(input.tradeOccurredAt, originalTradeTimeIso, originalTradeTimeIso)
     const normalizedBrokerProfile = normalizeTradeBrokerProfile(input.brokerProfile)
     const brokerPreset = getTradeBrokerProfilePreset(normalizedBrokerProfile)
     const normalizedInstrumentType = normalizeInstrumentType(input.instrumentType || brokerPreset.defaultInstrumentType)
@@ -524,6 +532,7 @@ export async function updateTradeEntry(tradeId: string, input: CreateTradeInput)
       risk_percent: toNumericField(input.riskPercent),
       account_size: toNumericField(normalizedInput.accountSize),
       partial_exits: partialExits,
+      exit_price_basis: getExitPriceBasis(input.exit, partialExits),
       r_multiple: resolvedStoredRMultiple,
       pnl_mode: normalizedPnLMode,
       cost_profile: normalizedCostProfile,
@@ -561,7 +570,7 @@ export async function updateTradeEntry(tradeId: string, input: CreateTradeInput)
       concept: null,
     }
 
-    const { error: tradeUpdateError } = await supabase.rpc('equora_update_trade_v1', {
+    const { error: tradeUpdateError } = await supabase.rpc('equora_update_trade_v2', {
       p_trade_id: tradeId,
       p_trade: tradePayload,
       p_tags: input.tags,
@@ -722,13 +731,17 @@ export async function closeTradeEntry(input: CloseTradeInput) {
 
     const { data: trade, error: tradeError } = await supabase
       .from('trades')
-      .select('id, user_id, market, setup, notes, account_currency')
+      .select('id, user_id, market, setup, notes, account_currency, partial_exits')
       .eq('id', input.tradeId)
       .eq('user_id', user.id)
       .maybeSingle()
 
     if (tradeError || !trade) {
       return { success: false, mode: 'supabase' as const, message: 'Trade nicht gefunden oder kein Zugriff.' }
+    }
+
+    if (Array.isArray(trade.partial_exits) && trade.partial_exits.length > 0) {
+      return { success: false, mode: 'supabase' as const, message: 'Dieser Trade enthält Teilverkäufe. Bitte über „Bearbeiten“ die Ausstiegspreise prüfen und die Position vollständig schließen.' }
     }
 
     const timestamp = new Date().toISOString()
