@@ -1357,7 +1357,7 @@ const ALLOWED_PRODUCT_NETWORK_FINDINGS = new Set([
   'lib/server/mexc-transport.ts:fetch-reference',
 ])
 const ALLOWED_PRODUCT_DYNAMIC_IMPORT_CALLSITES = Object.freeze([
-  'components/trades/snipping-assist-dynamic.tsx:16:9:@/components/trades/snipping-assist-card',
+  'components/trades/snipping-assist-dynamic.tsx:19:9:@/components/trades/snipping-assist-card',
   'components/trades/trade-import-panel.tsx:194:31:read-excel-file/browser',
   'lib/utils/snipping-ocr.ts:79:38:tesseract.js',
 ])
