@@ -1,11 +1,13 @@
 'use client'
 
 import { useEffect, useState, type MouseEvent } from 'react'
+import { useFormStatus } from 'react-dom'
+import Image from 'next/image'
 import Link from 'next/link'
 import { usePathname, useSearchParams } from 'next/navigation'
 import { FuturisticCard } from '@/components/ui/futuristic-card'
 import { AppIcon, type AppIconName } from '@/components/ui/app-icon'
-import type { JournalLocale } from '@/lib/i18n/journal'
+import { journalLanguages, type JournalLocale } from '@/lib/i18n/journal'
 
 const primaryNavItems = [
   {
@@ -83,6 +85,7 @@ const navigationCopy = {
     closeNavigation: 'Navigation schließen',
     menu: 'Menü',
     journalNavigation: 'Journal-Navigation',
+    language: 'Sprache wählen',
     advanced: 'Erweitert',
     show: 'Anzeigen',
     hide: 'Ausblenden',
@@ -98,6 +101,7 @@ const navigationCopy = {
     closeNavigation: 'Close navigation',
     menu: 'Menu',
     journalNavigation: 'Journal navigation',
+    language: 'Choose language',
     advanced: 'More',
     show: 'Show',
     hide: 'Hide',
@@ -115,7 +119,10 @@ type NavItem = {
 } & Record<JournalLocale, { label: string; hint?: string }>
 type OverviewCounts = { trades: number; aSetups: number; losses: number }
 
-export function SidebarNav({ locale }: { locale: JournalLocale }) {
+export function SidebarNav({ locale, changeLanguageAction }: {
+  locale: JournalLocale
+  changeLanguageAction: (formData: FormData) => Promise<void>
+}) {
   const copy = navigationCopy[locale]
   const pathname = usePathname()
   const searchParams = useSearchParams()
@@ -196,6 +203,9 @@ export function SidebarNav({ locale }: { locale: JournalLocale }) {
             <AppIcon name="spark" className="h-4 w-4" aria-hidden="true" />
           </div>
         </div>
+        <form action={changeLanguageAction} aria-label={copy.language} className="mt-3 flex flex-wrap gap-1.5 border-t border-white/10 pt-2">
+          <LanguageButtons locale={locale} />
+        </form>
       </FuturisticCard>
 
       <div id="journal-mobile-menu" className={`${showMobileMenu ? 'block' : 'hidden'} space-y-3 xl:block`}>
@@ -301,6 +311,33 @@ export function SidebarNav({ locale }: { locale: JournalLocale }) {
       </div>
     </div>
   )
+}
+
+function LanguageButtons({ locale }: { locale: JournalLocale }) {
+  const { pending } = useFormStatus()
+
+  return journalLanguages.map(({ code, name }) => {
+    const selected = code === locale
+    return (
+      <button
+        key={code}
+        type="submit"
+        name="language"
+        value={code}
+        aria-label={name}
+        aria-pressed={selected}
+        disabled={pending || selected}
+        lang={code}
+        title={name}
+        className={`inline-flex min-h-9 items-center gap-1.5 rounded-lg border px-2 text-xs font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#f0a855]/60 ${
+          selected ? 'border-[#c8823a]/45 bg-[#c8823a]/15 text-[#ffd19b]' : 'border-white/10 text-white/75 hover:bg-white/10 hover:text-white'
+        }`}
+      >
+        <Image src={code === 'de' ? '/flags/de.png' : '/flags/gb.png'} alt="" width={20} height={10} className="rounded-[2px] ring-1 ring-white/15" />
+        {code.toUpperCase()}
+      </button>
+    )
+  })
 }
 
 function NavSection({

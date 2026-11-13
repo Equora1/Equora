@@ -1,5 +1,6 @@
 import { SidebarNav } from '@/components/layout/sidebar-nav'
 import type { JournalLocale } from '@/lib/i18n/journal'
+import { setJournalLocale } from '@/lib/server/journal-locale'
 
 type AppShellProps = {
   children: React.ReactNode
@@ -25,6 +26,12 @@ export function AppShell({ children }: AppShellProps) {
 }
 
 export function JournalShell({ children, locale, contentWidth = 'wide' }: JournalShellProps) {
+  async function changeLanguage(formData: FormData) {
+    'use server'
+
+    await setJournalLocale(formData.get('language'))
+  }
+
   const widthClass = contentWidth === 'wide' ? 'max-w-[1880px]' : 'max-w-7xl'
 
   return (
@@ -33,7 +40,7 @@ export function JournalShell({ children, locale, contentWidth = 'wide' }: Journa
       <div className={`relative mx-auto ${widthClass} px-3 py-3 sm:px-5 sm:py-5 lg:px-6 xl:px-7 xl:py-6 2xl:px-9`}>
         <div className="grid min-w-0 gap-4 xl:grid-cols-[272px_minmax(0,1fr)] xl:gap-6 2xl:grid-cols-[284px_minmax(0,1fr)]">
           <aside lang={locale} className="min-w-0 xl:sticky xl:top-6 xl:self-start">
-            <SidebarNav locale={locale} />
+            <SidebarNav locale={locale} changeLanguageAction={changeLanguage} />
           </aside>
           <main className="min-w-0 space-y-5 pb-8 xl:space-y-6">
             {children}
