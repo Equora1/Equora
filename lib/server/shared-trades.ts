@@ -2,7 +2,7 @@ import { createSupabaseAuthServerClient } from '@/lib/supabase/server-auth'
 import { hasSupabaseClientEnv, hasSupabaseServerEnv } from '@/lib/supabase/config'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { isEquoraAdminUser } from '@/lib/server/admin'
-import type { SharedTradeSubmissionRow } from '@/lib/types/db'
+import type { FeaturedSharedTrade, SharedTradeSubmissionRow } from '@/lib/types/db'
 
 function sortByCreatedDesc(rows: SharedTradeSubmissionRow[]) {
   return [...rows].sort((left, right) => {
@@ -63,21 +63,31 @@ export async function getAdminSharedTradeSubmissionsServer(): Promise<SharedTrad
 }
 
 
-export async function getFeaturedSharedTradeSubmissionsServer(): Promise<SharedTradeSubmissionRow[]> {
+export async function getFeaturedSharedTradeSubmissionsServer(): Promise<FeaturedSharedTrade[]> {
   if (!hasSupabaseClientEnv()) return []
 
   try {
     const supabase = await createSupabaseAuthServerClient()
-    const { data, error } = await supabase
-      .from('shared_trade_submissions')
-      .select('*')
-      .eq('status', 'featured')
-      .eq('vault_opt_in', true)
-      .order('featured_at', { ascending: false })
-      .order('reviewed_at', { ascending: false })
+    const { data, error } = await supabase.rpc('equora_featured_shared_trades_v1')
 
-    if (error || !data) return []
-    return data as SharedTradeSubmissionRow[]
+    if (error || !Array.isArray(data)) return []
+    return (data as FeaturedSharedTrade[]).map((row) => ({
+      id: row.id,
+      status: row.status,
+      learning_category: row.learning_category,
+      visibility: row.visibility,
+      submitted_by_name: row.visibility === 'named' ? row.submitted_by_name : null,
+      shared_market: row.shared_market,
+      shared_setup: row.shared_setup,
+      shared_result: row.shared_result,
+      shared_net_pnl: row.shared_net_pnl,
+      shared_currency: row.shared_currency,
+      shared_r_multiple: row.shared_r_multiple,
+      shared_screenshot_url: row.shared_screenshot_url,
+      vault_blurb: row.vault_blurb,
+      coach_feedback: row.coach_feedback,
+      review_labels: row.review_labels,
+    }))
   } catch {
     return []
   }

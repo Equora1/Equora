@@ -10,7 +10,7 @@ import {
 } from '@/app/actions/shared-trades'
 import { SectionHeader } from '@/components/layout/section-header'
 import { FuturisticCard } from '@/components/ui/futuristic-card'
-import type { SharedTradeSubmissionRow } from '@/lib/types/db'
+import type { FeaturedSharedTrade, SharedTradeSubmissionRow } from '@/lib/types/db'
 import type { Trade } from '@/lib/types/trade'
 import { formatCurrency, formatRMultiple } from '@/lib/utils/calculations'
 import {
@@ -70,7 +70,7 @@ function toneForStatus(status: SharedTradeStatus | string | null | undefined) {
   }
 }
 
-function renderSubmissionIdentity(submission: SharedTradeSubmissionRow) {
+function renderSubmissionIdentity(submission: Pick<SharedTradeSubmissionRow, 'visibility' | 'submitted_by_name'>) {
   if (submission.visibility === 'named' && submission.submitted_by_name?.trim()) {
     return submission.submitted_by_name.trim()
   }
@@ -100,7 +100,7 @@ function buildAdminDraft(submission: SharedTradeSubmissionRow): AdminDraft {
 type EquoraShareHubProps = {
   trades: Trade[]
   ownSubmissions: SharedTradeSubmissionRow[]
-  featuredSubmissions?: SharedTradeSubmissionRow[]
+  featuredSubmissions?: FeaturedSharedTrade[]
   adminSubmissions?: SharedTradeSubmissionRow[]
   selectedTradeId?: string
   isAdmin?: boolean
@@ -439,7 +439,7 @@ function TextPanel({ eyebrow, children, tone = 'neutral' }: { eyebrow: string; c
   )
 }
 
-function VaultCurationOverview({ featuredSubmissions }: { featuredSubmissions: SharedTradeSubmissionRow[] }) {
+function VaultCurationOverview({ featuredSubmissions }: { featuredSubmissions: FeaturedSharedTrade[] }) {
   const reviewReady = featuredSubmissions.length
   const uniqueCategories = new Set(featuredSubmissions.map((item) => item.learning_category).filter(Boolean)).size
 
@@ -475,7 +475,7 @@ function VaultCurationOverview({ featuredSubmissions }: { featuredSubmissions: S
   )
 }
 
-function FeaturedVaultCard({ submission }: { submission: SharedTradeSubmissionRow }) {
+function FeaturedVaultCard({ submission }: { submission: FeaturedSharedTrade }) {
   return (
     <div className="overflow-hidden rounded-3xl border border-white/10 bg-black/25">
       {submission.shared_screenshot_url ? (

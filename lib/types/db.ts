@@ -205,6 +205,25 @@ export type SharedTradeSubmissionRow = {
   reviewed_by: string | null
 }
 
+export type FeaturedSharedTrade = Pick<
+  SharedTradeSubmissionRow,
+  | 'id'
+  | 'status'
+  | 'learning_category'
+  | 'visibility'
+  | 'submitted_by_name'
+  | 'shared_market'
+  | 'shared_setup'
+  | 'shared_result'
+  | 'shared_net_pnl'
+  | 'shared_currency'
+  | 'shared_r_multiple'
+  | 'shared_screenshot_url'
+  | 'vault_blurb'
+  | 'coach_feedback'
+  | 'review_labels'
+>
+
 export type ReviewSessionRow = {
   calculation_version?: string | null
   r_count?: number | null
