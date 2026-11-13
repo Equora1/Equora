@@ -45,6 +45,23 @@ const trade: Trade = {
 }
 
 describe('bilingual journal display', () => {
+  it.each([
+    ['de', 'Ausgewählte Beiträge konnten nicht geladen werden.', 'Erneut laden', 'Keine Einträge.'],
+    ['en', 'Could not load featured trades.', 'Try again', 'No featured trades yet.'],
+  ] as const)('distinguishes featured trade errors from an empty list in %s', (locale, error, retry, empty) => {
+    const render = (featuredSubmissions: [] | null) => renderToStaticMarkup(
+      <JournalLocaleProvider locale={locale}>
+        <EquoraShareHub trades={[]} ownSubmissions={[]} featuredSubmissions={featuredSubmissions} source="supabase" />
+      </JournalLocaleProvider>,
+    )
+
+    const unavailable = render(null)
+    expect(unavailable).toContain(error)
+    expect(unavailable).toContain(retry)
+    expect(unavailable).not.toContain(empty)
+    expect(render([])).toContain(empty)
+  })
+
   it('keeps the Berlin trade date, currency and precision while localizing the display', () => {
     expect(formatJournalTradeDate(trade, 'de')).toBe('01 Mär 2026')
     expect(formatJournalTradeDate(trade, 'en')).toBe('01 Mar 2026')

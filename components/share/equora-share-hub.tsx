@@ -107,7 +107,7 @@ function buildAdminDraft(submission: SharedTradeSubmissionRow): AdminDraft {
 type EquoraShareHubProps = {
   trades: Trade[]
   ownSubmissions: SharedTradeSubmissionRow[]
-  featuredSubmissions?: FeaturedSharedTrade[]
+  featuredSubmissions?: FeaturedSharedTrade[] | null
   adminSubmissions?: SharedTradeSubmissionRow[]
   selectedTradeId?: string
   isAdmin?: boolean
@@ -135,6 +135,7 @@ export function EquoraShareHub({
   const [userNote, setUserNote] = useState('')
   const [statusText, setStatusText] = useState('')
   const [isPending, startTransition] = useTransition()
+  const [isReloadingFeatured, startFeaturedRefresh] = useTransition()
 
   const selectedTrade = useMemo(() => trades.find((trade) => trade.id === tradeId), [tradeId, trades])
   const existingSubmission = useMemo(
@@ -221,13 +222,27 @@ export function EquoraShareHub({
         <summary className="flex cursor-pointer list-none items-center justify-between gap-3">
           <span className="text-lg font-semibold text-white">{text('Ausgewählte Beiträge', 'Featured trades')}</span>
           <span className="rounded-full border border-orange-300/20 bg-orange-400/10 px-3 py-1 text-xs text-orange-100/85">
-            {featuredSubmissions.length}
+            {featuredSubmissions === null ? text('Nicht verfügbar', 'Unavailable') : featuredSubmissions.length}
             <span className="ml-2 group-open:hidden">{text('Öffnen', 'Show')}</span>
             <span className="ml-2 hidden group-open:inline">{text('Schließen', 'Hide')}</span>
           </span>
         </summary>
         <div className="mt-4">
-          <VaultCurationOverview featuredSubmissions={featuredSubmissions} />
+          {featuredSubmissions === null ? (
+            <div className="space-y-3 rounded-2xl border border-white/10 bg-black/25 p-4 text-sm text-white/75">
+              <p role="status">{text('Ausgewählte Beiträge konnten nicht geladen werden.', 'Could not load featured trades.')}</p>
+              <button
+                type="button"
+                disabled={isReloadingFeatured}
+                onClick={() => startFeaturedRefresh(() => router.refresh())}
+                className="rounded-full border border-white/15 bg-black/25 px-4 py-2 text-sm text-white transition hover:bg-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-300/60 disabled:opacity-60"
+              >
+                {isReloadingFeatured ? text('Wird geladen …', 'Loading…') : text('Erneut laden', 'Try again')}
+              </button>
+            </div>
+          ) : (
+            <VaultCurationOverview featuredSubmissions={featuredSubmissions} />
+          )}
         </div>
       </details>
 

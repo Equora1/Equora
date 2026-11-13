@@ -48,6 +48,13 @@ describe('featured trade sharing', () => {
     expect(from).not.toHaveBeenCalled()
   })
 
+  it('keeps a successful empty card response distinct from a failure', async () => {
+    const rpc = vi.fn().mockResolvedValue({ data: [], error: null })
+    createAuthClient.mockResolvedValueOnce({ rpc })
+
+    await expect(getFeaturedSharedTradeSubmissionsServer()).resolves.toEqual([])
+  })
+
   it.each([
     { data: null, error: { code: 'PGRST202' } },
     { data: { unexpected: true }, error: null },
@@ -56,7 +63,7 @@ describe('featured trade sharing', () => {
     const from = vi.fn()
     createAuthClient.mockResolvedValueOnce({ from, rpc })
 
-    await expect(getFeaturedSharedTradeSubmissionsServer()).resolves.toEqual([])
+    await expect(getFeaturedSharedTradeSubmissionsServer()).resolves.toBeNull()
     expect(from).not.toHaveBeenCalled()
   })
 })

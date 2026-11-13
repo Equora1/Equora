@@ -63,14 +63,14 @@ export async function getAdminSharedTradeSubmissionsServer(): Promise<SharedTrad
 }
 
 
-export async function getFeaturedSharedTradeSubmissionsServer(): Promise<FeaturedSharedTrade[]> {
+export async function getFeaturedSharedTradeSubmissionsServer(): Promise<FeaturedSharedTrade[] | null> {
   if (!hasSupabaseClientEnv()) return []
 
   try {
     const supabase = await createSupabaseAuthServerClient()
     const { data, error } = await supabase.rpc('equora_featured_shared_trades_v1')
 
-    if (error || !Array.isArray(data)) return []
+    if (error || !Array.isArray(data)) return null
     return (data as FeaturedSharedTrade[]).map((row) => ({
       id: row.id,
       status: row.status,
@@ -89,6 +89,6 @@ export async function getFeaturedSharedTradeSubmissionsServer(): Promise<Feature
       review_labels: row.review_labels,
     }))
   } catch {
-    return []
+    return null
   }
 }
