@@ -1,7 +1,8 @@
 import React from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-const state = vi.hoisted(() => ({ availability: 'ready', count: 0, reader: vi.fn(), transform: vi.fn(), workbench: vi.fn() }))
+const state = vi.hoisted(() => ({ availability: 'ready', locale: 'de', count: 0, reader: vi.fn(), transform: vi.fn(), workbench: vi.fn() }))
+vi.mock('@/lib/server/journal-locale', () => ({ getJournalLocale: async () => state.locale }))
 vi.mock('@/lib/server/auth', () => ({ getJournalAccess: async () => ({ user: { id: 'owner' } }) }))
 vi.mock('@/lib/server/journal', () => ({ getStatisticsSnapshotServer: async (id: string) => {
   state.reader(id)
@@ -16,7 +17,7 @@ vi.mock('@/components/analytics/statistik-workbench', () => ({ StatistikWorkbenc
 } }))
 import StatistikPage from '@/app/(journal)/statistik/page'
 
-beforeEach(() => { state.availability = 'ready'; state.count = 0; state.reader.mockClear(); state.transform.mockClear(); state.workbench.mockClear() })
+beforeEach(() => { state.availability = 'ready'; state.locale = 'de'; state.count = 0; state.reader.mockClear(); state.transform.mockClear(); state.workbench.mockClear() })
 
 describe('statistics availability before calculation or rendering', () => {
   it('renders the complete loaded set rather than slicing the page input at 1000', async () => {
@@ -38,6 +39,15 @@ describe('statistics availability before calculation or rendering', () => {
     expect(state.transform).not.toHaveBeenCalled()
     expect(state.workbench).not.toHaveBeenCalled()
   })
+  it('uses the selected language when the analysis cannot be loaded', async () => {
+    state.availability = 'unavailable'
+    state.locale = 'en'
+    const html = renderToStaticMarkup(await StatistikPage({}))
+    expect(html).toContain('Statistics are currently unavailable')
+    expect(html).toContain('>Reload</a>')
+    expect(state.workbench).not.toHaveBeenCalled()
+  })
+
   it('offers login when the reader cannot establish an owner', async () => {
     state.availability = 'unauthenticated'
     const html = renderToStaticMarkup(await StatistikPage({}))

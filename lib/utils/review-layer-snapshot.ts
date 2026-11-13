@@ -1,3 +1,5 @@
+import { journalText, type JournalLocale } from '@/lib/i18n/journal'
+import { formatReviewAnswer, formatReviewState } from '@/lib/utils/review-display'
 import type { Trade } from '@/lib/types/trade'
 import { resolveTradeOccurredAt } from '@/lib/utils/trade-time'
 import { buildTradesHref, clampNumber, shortenReviewText } from '@/lib/utils/review-helpers'
@@ -18,7 +20,8 @@ export function resolveTradeReviewState(trade: Trade) {
   return normalizeReviewValue(trade.reviewState) || normalizeReviewValue(trade.emotion)
 }
 
-export function buildReviewLayerSnapshot(tradesCurrent: Trade[]): ReviewLayerSnapshot {
+export function buildReviewLayerSnapshot(tradesCurrent: Trade[], locale: JournalLocale = 'de'): ReviewLayerSnapshot {
+  const text = journalText(locale)
   const reviewedTrades = tradesCurrent.filter(hasTradeReview)
   const totalTrades = tradesCurrent.length
   const coverage = totalTrades ? (reviewedTrades.length / totalTrades) * 100 : 0
@@ -53,10 +56,10 @@ export function buildReviewLayerSnapshot(tradesCurrent: Trade[]): ReviewLayerSna
     const href = buildTradesHref({ reviewMatch: 'reviewed', reviewFocus: `Verhaltensprüfung · Regelkonformität ${ruleCounts[0][0]}` })
     highlights.push({
       label: 'Regelspur',
-      value: `${ruleYes}/${reviewedTrades.length || 1} Ja`,
+      value: text(`${ruleYes}/${reviewedTrades.length || 1} Ja`, `${ruleYes}/${reviewedTrades.length || 1} yes`),
       detail: ruleNo > 0
-        ? `${ruleNo} Trades wurden im Review klar als nicht regelkonform markiert.`
-        : 'Die meisten gesetzten Reviews zeigen einen sauberen Regelpfad.',
+        ? text(`${ruleNo} Trades wurden im Review klar als nicht regelkonform markiert.`, `${ruleNo} trades were marked as breaking the rules.`)
+        : text('Die meisten gesetzten Reviews zeigen einen sauberen Regelpfad.', 'The recorded reviews mostly followed the rules.'),
       tone,
       href,
     })
@@ -66,12 +69,12 @@ export function buildReviewLayerSnapshot(tradesCurrent: Trade[]): ReviewLayerSna
     const tone = repeatYes >= Math.max(1, repeatNo) ? 'emerald' as const : repeatNo > 0 ? 'orange' as const : 'orange' as const
     highlights.push({
       label: 'Replizierbarkeit',
-      value: repeatCounts[0][0],
+      value: formatReviewAnswer(repeatCounts[0][0], locale),
       detail: repeatYes > 0
-        ? `${repeatYes} Trades würdest du in ähnlicher Form wieder nehmen.`
+        ? text(`${repeatYes} Trades würdest du in ähnlicher Form wieder nehmen.`, `You would take ${repeatYes} similar trades again.`)
         : repeatNo > 0
-          ? `${repeatNo} Trades sollen so ausdrücklich nicht wiederkommen.`
-          : 'Noch kein klares Wiederholungsmuster im Verhaltensprüfung.',
+          ? text(`${repeatNo} Trades sollen so ausdrücklich nicht wiederkommen.`, `You would avoid repeating ${repeatNo} trades.`)
+          : text('Noch kein klares Wiederholungsmuster im Verhaltensprüfung.', 'No clear pattern in which trades you would repeat.'),
       tone,
       href: buildTradesHref({ reviewMatch: 'repeatability', reviewFocus: `Verhaltensprüfung · Replizierbarkeit ${repeatCounts[0][0]}` }),
     })
@@ -81,8 +84,8 @@ export function buildReviewLayerSnapshot(tradesCurrent: Trade[]): ReviewLayerSna
     const stateTone = ['Impulsiv', 'Unscharf', 'Müde', 'Gejagt'].includes(dominantState[0]) ? 'red' as const : ['Geduldig', 'Fokussiert'].includes(dominantState[0]) ? 'emerald' as const : 'orange' as const
     highlights.push({
       label: 'Dominanter Zustand',
-      value: dominantState[0],
-      detail: `${dominantState[1]} Review-Trades tragen dieses Zustandsmuster.`,
+      value: formatReviewState(dominantState[0], locale),
+      detail: text(`${dominantState[1]} Review-Trades tragen dieses Zustandsmuster.`, `${dominantState[1]} reviewed trades had this mindset.`),
       tone: stateTone,
       href: buildTradesHref({ reviewMatch: 'state', reviewValue: dominantState[0], reviewFocus: `Verhaltensprüfung · Zustand ${dominantState[0]}` }),
     })
@@ -91,7 +94,7 @@ export function buildReviewLayerSnapshot(tradesCurrent: Trade[]): ReviewLayerSna
   if (latestLesson) {
     highlights.push({
       label: 'Letzter Lerneffekt',
-      value: 'Kurz notiert',
+      value: text('Kurz notiert', 'Recorded'),
       detail: shortenReviewText(latestLesson, 120),
       tone: 'orange',
       href: latestLessonTrade ? buildTradesHref({ reviewMatch: 'trade', reviewValue: latestLessonTrade.id, reviewFocus: 'Verhaltensprüfung · Letzter Lerneffekt' }) : undefined,
@@ -99,24 +102,24 @@ export function buildReviewLayerSnapshot(tradesCurrent: Trade[]): ReviewLayerSna
   }
 
   const headline = !totalTrades
-    ? 'Noch keine Review-Signale im Zeitraum'
+    ? text('Noch keine Review-Signale im Zeitraum', 'No review signals in this period')
     : coverage >= 70
-      ? 'Die Verhaltensprüfung liefert schon belastbare Verhaltenstrends'
+      ? text('Die Verhaltensprüfung liefert schon belastbare Verhaltenstrends', 'Review coverage is high')
       : coverage >= 35
-        ? 'Die Verhaltensprüfung zeigt erste Verhaltensmuster'
-        : 'Die Verhaltensprüfung ist noch punktuell, aber schon nützlich'
+        ? text('Die Verhaltensprüfung zeigt erste Verhaltensmuster', 'Behaviour patterns are emerging')
+        : text('Die Verhaltensprüfung ist noch punktuell, aber schon nützlich', 'Few trades have been reviewed')
 
   const summary = !totalTrades
-    ? 'Sobald Trades im Zeitraum liegen, verdichtet Equora hier Regelspur, Replizierbarkeit, Zustand und Lerneffekte.'
+    ? text('Sobald Trades im Zeitraum liegen, verdichtet Equora hier Regelspur, Replizierbarkeit, Zustand und Lerneffekte.', 'Add trades to review rule adherence, repeatability, mindset and takeaways.')
     : reviewedTrades.length === 0
-      ? 'Für diesen Zeitraum fehlen noch Angaben zu deinen Entscheidungen. Ergänze sie in den Tradedetails, um Verhaltensmuster zu erkennen.'
-      : `${reviewedTrades.length} von ${totalTrades} Trades tragen Review-Signale. ${ruleNo > 0 ? `${ruleNo} Trades fallen klar als Regelbruch auf.` : repeatYes > 0 ? `${repeatYes} Trades sehen nach replizierbarem Kernmaterial aus.` : 'Die Angaben zeigen erste Muster in deinen Entscheidungen.'}`
+      ? text('Für diesen Zeitraum fehlen noch Angaben zu deinen Entscheidungen. Ergänze sie in den Tradedetails, um Verhaltensmuster zu erkennen.', 'Add review details to your trades to see patterns in your decisions.')
+      : text(`${reviewedTrades.length} von ${totalTrades} Trades tragen Review-Signale. ${ruleNo > 0 ? `${ruleNo} Trades fallen klar als Regelbruch auf.` : repeatYes > 0 ? `${repeatYes} Trades sehen nach replizierbarem Kernmaterial aus.` : 'Die Angaben zeigen erste Muster in deinen Entscheidungen.'}`, `You reviewed ${reviewedTrades.length} of ${totalTrades} trades. ${ruleNo > 0 ? `${ruleNo} trades were marked as breaking the rules.` : repeatYes > 0 ? `You would take ${repeatYes} similar trades again.` : 'These reviews show early patterns in your decisions.'}`)
 
   const checklist = [
-    coverage < 70 ? 'Fehlende Angaben zu deinen Entscheidungen in den Tradedetails ergänzen' : null,
-    ruleNo > 0 ? `Regelbruch-Setups aus ${ruleNo} Trades vor dem nächsten Einstieg prüfen` : null,
-    repeatYes > 0 ? `${repeatYes} replizierbare Trades als Referenz offen halten` : null,
-    dominantState ? `Vor dem Einstieg auf Zustand „${dominantState[0]}“ achten` : null,
+    coverage < 70 ? text('Fehlende Angaben zu deinen Entscheidungen in den Tradedetails ergänzen', 'Fill in the missing review details on your trades') : null,
+    ruleNo > 0 ? text(`Regelbruch-Setups aus ${ruleNo} Trades vor dem nächsten Einstieg prüfen`, `Review the ${ruleNo} trades that broke the rules before your next entry`) : null,
+    repeatYes > 0 ? text(`${repeatYes} replizierbare Trades als Referenz offen halten`, `Keep the ${repeatYes} trades you would repeat open as a reference`) : null,
+    dominantState ? text(`Vor dem Einstieg auf Zustand „${dominantState[0]}“ achten`, `Check for “${formatReviewState(dominantState[0], locale)}” before entering`) : null,
     latestLesson ? shortenReviewText(latestLesson, 100) : null,
   ].filter(Boolean) as string[]
 

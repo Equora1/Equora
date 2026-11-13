@@ -1,3 +1,5 @@
+import { useJournalLocale } from '@/components/layout/journal-locale-provider'
+import { journalText, type JournalLocale } from '@/lib/i18n/journal'
 import type { Trade, TradeDetail } from '@/lib/types/trade'
 import {
   buildTradeActivityTimeline,
@@ -5,10 +7,9 @@ import {
   type TradeActivityTone,
 } from '@/lib/utils/trade-activity'
 
-const evidenceLabels: Record<TradeActivityEvidence, string> = {
-  recorded: 'Gespeichert',
-  derived: 'Abgeleitet',
-  manual: 'Manuell',
+const evidenceLabels: Record<JournalLocale, Record<TradeActivityEvidence, string>> = {
+  de: { recorded: 'Gespeichert', derived: 'Abgeleitet', manual: 'Manuell' },
+  en: { recorded: 'Recorded', derived: 'Calculated', manual: 'Manual' },
 }
 
 const toneClasses: Record<TradeActivityTone, string> = {
@@ -27,22 +28,27 @@ export function TradeActivityTimeline({
   detail?: TradeDetail
   tagCount?: number
 }) {
-  const items = buildTradeActivityTimeline(trade, detail, tagCount)
+  const locale = useJournalLocale()
+  const text = journalText(locale)
+  const items = buildTradeActivityTimeline(trade, detail, tagCount, locale)
 
   return (
     <section aria-labelledby="trade-activity-title" className="rounded-[28px] border border-white/10 bg-black/25 p-5 xl:p-6">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <p className="text-[10px] uppercase tracking-[0.22em] text-[#b09a7a]">Dokumentationsverlauf</p>
-          <h3 id="trade-activity-title" className="mt-2 text-base font-semibold text-white">Trade Activity</h3>
+          <p className="text-[10px] uppercase tracking-[0.22em] text-[#b09a7a]">{text('Dokumentationsverlauf', 'Journal history')}</p>
+          <h3 id="trade-activity-title" className="mt-2 text-base font-semibold text-white">{text('Trade Activity', 'Trade activity')}</h3>
         </div>
         <span className="w-fit rounded-full border border-white/10 bg-black/30 px-2.5 py-1 text-[11px] uppercase tracking-[0.14em] text-white/65">
-          Aus Journalfeldern
+          {text('Aus Journalfeldern', 'From journal records')}
         </span>
       </div>
 
       <p className="mt-3 text-xs leading-5 text-white/60">
-        Diese Ansicht ordnet gespeicherte und berechnete Journalinformationen. Sie behauptet keine nicht gespeicherten Broker-Fills oder Fill-Zeitpunkte.
+        {text(
+          'Diese Ansicht ordnet gespeicherte und berechnete Journalinformationen. Sie behauptet keine nicht gespeicherten Broker-Fills oder Fill-Zeitpunkte.',
+          'This history uses the information in your journal. It does not independently verify broker fills or fill times.',
+        )}
       </p>
 
       <ol className="mt-5 space-y-0">
@@ -54,7 +60,7 @@ export function TradeActivityTimeline({
               <div className="flex flex-wrap items-center gap-2">
                 <p className="text-sm font-medium text-white">{item.title}</p>
                 <span className="rounded-full border border-white/10 bg-black/25 px-2 py-0.5 text-[11px] uppercase tracking-[0.14em] text-white/65">
-                  {evidenceLabels[item.evidence]}
+                  {evidenceLabels[locale][item.evidence]}
                 </span>
               </div>
               <p className="mt-1 text-xs leading-5 text-white/55">{item.description}</p>

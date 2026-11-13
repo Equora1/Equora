@@ -3,6 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { Trade } from '@/lib/types/trade'
 import type { SavedReviewSession } from '@/lib/types/review-session'
+import { JournalLocaleProvider } from '@/components/layout/journal-locale-provider'
 import { ReviewSessionsHub } from '@/components/review/review-sessions-hub'
 import { ReviewRhythmCard } from '@/components/review/review-rhythm-card'
 import { ReviewSummaryCard } from '@/components/review/review-summary-card'
@@ -47,9 +48,9 @@ describe.sequential('Review display has an explicit day contract across server a
     const selected=buildDailyNoteFlowSummary(rows,[],day,getReviewTradeDateKey)
     expect(day).toBe('2026-05-09'); expect(selected.totalTrades).toBe(1); expect(selected.trustedPnL).toBe(0)
     expect(selected.dayTrades[0].id).toBe('synthetic-trade'); expect(rows).toEqual(before)
-    // Other daily-note callers retain their previous default selector.
-    expect(buildDailyNoteFlowSummary(rows,[],'2026-05-08').totalTrades).toBe(1)
-    expect(buildDailyNoteFlowSummary(rows,[],'2026-05-09').totalTrades).toBe(0)
+    // The default selector now follows the same Berlin day as the explicit review selector.
+    expect(buildDailyNoteFlowSummary(rows,[],'2026-05-08').totalTrades).toBe(0)
+    expect(buildDailyNoteFlowSummary(rows,[],'2026-05-09').totalTrades).toBe(1)
   })
 
   it('pins empty-day fallback and title to the server-provided reference across midnight', () => {
@@ -59,6 +60,37 @@ describe.sequential('Review display has an explicit day contract across server a
     expect(buildReviewTitle('14 Tage',reference)).toBe(title)
     expect(title).toBe('Review 14 Tage · 18.10.2026')
     expect(getLatestReviewDateKey([],reference)).toBe(reference)
+  })
+
+  it('renders English review screens with the same trade scope and original saved content', () => {
+    process.env.TZ = 'America/New_York'
+    const de = buildReviewSnapshots(rows, [], [], 'mock')
+    const en = buildReviewSnapshots(rows, [], [], 'mock', 'en')
+    for (const preset of ['7d', '14d', '30d', '90d'] as const) {
+      expect(en[preset].sessionDraft).toEqual(de[preset].sessionDraft)
+      expect(en[preset].periodStart).toBe(de[preset].periodStart)
+      expect(en[preset].periodEnd).toBe(de[preset].periodEnd)
+      expect(en[preset].periodLabel).toBe(de[preset].periodLabel)
+    }
+
+    const session = { ...saved, note: 'Handelsplan unverändert.', labels: ['Wochenrückblick'] }
+    const html = renderToStaticMarkup(
+      <JournalLocaleProvider locale="en">
+        <ReviewSummaryCard snapshots={en} source="mock" referenceDateKey="2026-10-18" />
+        <ReviewRhythmCard trades={rows} weeklySnapshot={en['7d']} referenceDateKey="2026-10-18" />
+        <ReviewSessionsHub initialSessions={[session]} source="mock" />
+      </JournalLocaleProvider>,
+    )
+
+    expect(html).toContain('Review overview')
+    expect(html).toContain('Win rate')
+    expect(html).toContain('Review · 7 days · 18 Oct 2026')
+    expect(html).toContain('Saturday, 09 May 2026')
+    expect(html).toContain('Review collections')
+    expect(html).toContain('<option value="open" selected="">Open</option>')
+    expect(html).toContain('Synthetischer Review')
+    expect(html).toContain('Handelsplan unverändert.')
+    expect(html).toContain('Wochenrückblick')
   })
 
   it.each(['collection','rhythm','summary'] as const)('renders identical real %s component markup across five machine zones', scenario => {

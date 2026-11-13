@@ -1,3 +1,4 @@
+import { journalText, type JournalLocale } from '@/lib/i18n/journal'
 import { hasSupabaseClientEnv, hasSupabaseServerEnv } from '@/lib/supabase/config'
 import { createSupabaseAuthServerClient } from '@/lib/supabase/server-auth'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
@@ -63,17 +64,20 @@ function emptySnapshot(overrides: Partial<BrokerSyncSnapshot> = {}): BrokerSyncS
   }
 }
 
-export async function getBrokerSyncSnapshotServer(userId?: string | null): Promise<BrokerSyncSnapshot> {
+export async function getBrokerSyncSnapshotServer(userId?: string | null, locale: JournalLocale = 'de'): Promise<BrokerSyncSnapshot> {
+  const text = journalText(locale)
   const localReviewSnapshot = getLocalMb4ReviewSnapshot({
     nodeEnv: process.env.NODE_ENV,
     fixtureFlag: process.env.EQUORA_MB4_REVIEW_FIXTURE,
   })
-  if (localReviewSnapshot) return localReviewSnapshot
+  if (localReviewSnapshot) {
+    return locale === 'de' ? localReviewSnapshot : { ...localReviewSnapshot, notice: 'Local demo: sample data only. Broker access is off.' }
+  }
 
   if (!hasSupabaseClientEnv()) {
     return emptySnapshot({
       source: 'demo',
-      notice: 'Demo: Brokerverbindungen sind in dieser Umgebung noch nicht eingerichtet.',
+      notice: text("Demo: Brokerverbindungen sind in dieser Umgebung noch nicht eingerichtet.", "Demo: Broker connections are unavailable."),
     })
   }
 
@@ -85,7 +89,7 @@ export async function getBrokerSyncSnapshotServer(userId?: string | null): Promi
       : await createSupabaseAuthServerClient()
 
     if (!scopedUserId && serverAvailable) {
-      return emptySnapshot({ notice: 'Kein Nutzerkonto für die Broker-Verbindung verfügbar.' })
+      return emptySnapshot({ notice: text("Kein Nutzerkonto für die Broker-Verbindung verfügbar.", "No user account is available for this connection.") })
     }
 
     let resolvedUserId = scopedUserId
@@ -93,13 +97,13 @@ export async function getBrokerSyncSnapshotServer(userId?: string | null): Promi
       const { data: { user }, error: authError } = await supabase.auth.getUser()
       if (authError) {
         return emptySnapshot({
-          notice: 'Die Anmeldung konnte gerade nicht geprüft werden. Der gespeicherte Verbindungsbestand bleibt unbekannt.',
+          notice: text("Die Anmeldung konnte gerade nicht geprüft werden. Der gespeicherte Verbindungsbestand bleibt unbekannt.", "Your sign-in and saved connections could not be checked."),
         })
       }
       resolvedUserId = user?.id ?? null
     }
     if (!resolvedUserId) {
-      return emptySnapshot({ notice: 'Bitte anmelden, um einen Broker zu verbinden.' })
+      return emptySnapshot({ notice: text("Bitte anmelden, um einen Broker zu verbinden.", "Sign in to connect a broker.") })
     }
 
     const connectionsResponse = await supabase
@@ -112,12 +116,12 @@ export async function getBrokerSyncSnapshotServer(userId?: string | null): Promi
       if (isMissingBrokerSchemaError(connectionsResponse.error)) {
         return emptySnapshot({
           schemaState: 'missing',
-          notice: 'Die Brokerverwaltung ist in dieser Umgebung noch nicht eingerichtet. Bitte wende dich an die Administration.',
+          notice: text("Die Brokerverwaltung ist in dieser Umgebung noch nicht eingerichtet. Bitte wende dich an die Administration.", "Broker management is unavailable here. Contact your administrator."),
         })
       }
 
       return emptySnapshot({
-        notice: 'Die Broker-Verbindungsübersicht konnte gerade nicht gelesen werden. Es wurden keine Zugangsdaten verändert.',
+        notice: text("Die Broker-Verbindungsübersicht konnte gerade nicht gelesen werden. Es wurden keine Zugangsdaten verändert.", "The connection list could not be loaded. Your credentials were not changed."),
       })
     }
 
@@ -142,12 +146,12 @@ export async function getBrokerSyncSnapshotServer(userId?: string | null): Promi
       readScope: 'connection_summary_only',
       source: 'supabase',
       notice: runtimeEnabled
-        ? 'Die Connectionübersicht ist lesbar. Secure-Store-, Account-, Capture- und Rohdatendetails bleiben über diesen begrenzten Read-Pfad nicht verfügbar. Diese Ansicht startet keinen Capturelauf.'
-        : 'Die Connectionübersicht ist lesbar. Secure-Store-, Account-, Capture- und Rohdatendetails bleiben ohne freigegebenes Read-Modell nicht verfügbar. Der MEXC-Connector ist per MEXC_RUNTIME_MODE=off deaktiviert; es werden keine Brokerrequests ausgeführt.',
+        ? text("Die Verbindungsübersicht ist verfügbar. Kontodetails und Abrufverlauf fehlen in dieser Ansicht. Diese Ansicht startet keinen Datenabruf.", "The connection list is available. Account details and retrieval history are unavailable in this view. Opening this page does not start data retrieval.")
+        : text("Die Verbindungsübersicht ist verfügbar. Kontodetails und Abrufverlauf fehlen in dieser Ansicht. Der MEXC-Abruf ist deaktiviert.", "The connection list is available. Account details and retrieval history are unavailable in this view. MEXC data access is off."),
     }
   } catch {
     return emptySnapshot({
-      notice: 'Die Broker-Verbindung ist derzeit nicht erreichbar. Es wurden keine Zugangsdaten übertragen.',
+      notice: text("Die Broker-Verbindung ist derzeit nicht erreichbar. Es wurden keine Zugangsdaten übertragen.", "The broker connection is unavailable. No credentials were sent."),
     })
   }
 }

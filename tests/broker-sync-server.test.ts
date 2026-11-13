@@ -207,20 +207,21 @@ describe('broker sync server snapshot', () => {
 
     expect(snapshot.runtimeEnabled).toBe(true)
     expect(snapshot.connectorState).toBe('not_read')
-    expect(snapshot.notice).toContain('Diese Ansicht startet keinen Capturelauf')
+    expect(snapshot.notice).toContain('Diese Ansicht startet keinen Datenabruf')
     expect(snapshot.notice).not.toContain('Connector und Capture bleiben fail-closed gesperrt')
   })
 
   it('keeps demo mode schema and dependencies unknown', async () => {
     mocks.hasClientEnv.mockReturnValue(false)
 
-    const snapshot = await getBrokerSyncSnapshotServer('user-1')
+    const snapshot = await getBrokerSyncSnapshotServer('user-1', 'en')
 
     expect(snapshot).toMatchObject({
       source: 'demo',
       schemaState: 'unknown',
       secureStoreState: 'not_read',
       connectorState: 'not_read',
+      notice: 'Demo: Broker connections are unavailable.',
     })
     expect(mocks.createServerClient).not.toHaveBeenCalled()
     expect(mocks.createAuthClient).not.toHaveBeenCalled()

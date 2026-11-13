@@ -1,15 +1,17 @@
+import { journalText, type JournalLocale } from '@/lib/i18n/journal'
 import type { Trade } from '@/lib/types/trade'
-import { resolveTradeOccurredAt } from '@/lib/utils/trade-time'
+import { getTradeDateKey, resolveTradeOccurredAt } from '@/lib/utils/trade-time'
 import { resolveMonetaryScope, type MonetaryScope } from '@/lib/utils/currency'
 import { formatCurrency, formatPlainNumber, normalizePartialExitLegs } from '@/lib/utils/calculations'
 
 /** A missing stored exit must never fall back to a monetary result under a price label. */
-export function getCalendarFeaturedResult(trade: Trade) {
+export function getCalendarFeaturedResult(trade: Trade, locale: JournalLocale = 'de') {
+  const text = journalText(locale)
   if (normalizePartialExitLegs(trade.partialExits ?? []).length > 0) {
-    return { label: 'Gespeicherter Ausstieg', value: trade.effectiveExit !== null && trade.effectiveExit !== undefined && Number.isFinite(trade.effectiveExit) ? formatPlainNumber(trade.effectiveExit, 4) : '—' }
+    return { label: text('Gespeicherter Ausstieg', 'Saved exit price'), value: trade.effectiveExit !== null && trade.effectiveExit !== undefined && Number.isFinite(trade.effectiveExit) ? formatPlainNumber(trade.effectiveExit, 4, locale) : '—' }
   }
   return { label: 'P&L', value: trade.netPnL !== null && trade.netPnL !== undefined
-    ? trade.accountCurrencyStatus === 'unsupported' ? 'Währung nicht unterstützt' : formatCurrency(trade.netPnL, 2, trade.accountCurrency)
+    ? trade.accountCurrencyStatus === 'unsupported' ? text('Währung nicht unterstützt', 'Unsupported currency') : formatCurrency(trade.netPnL, 2, trade.accountCurrency, locale)
     : '—' }
 }
 
@@ -89,6 +91,36 @@ export function getDateKeyFromDate(date: Date): string {
   return `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`
 }
 
+/** Zoned trade times use Berlin. Legacy date-only labels retain their recorded day. */
+export function getCalendarTradeDay(trade: Trade): string | null {
+  const value = resolveTradeOccurredAt(trade).trim()
+  if (/[T ].*(?:Z|[+-]\d{2}:?\d{2})$/i.test(value)) return getTradeDateKey(value)
+
+  const civilDate = /^(\d{4})-(\d{2})-(\d{2})(?:$|[T ])/.exec(value)
+  if (civilDate) return validCalendarDay(Number(civilDate[1]), Number(civilDate[2]), Number(civilDate[3]))
+
+  const legacyDate = /^(\d{1,2})\s+([A-Za-zÄÖÜäöüß.]+)\s+(\d{4})$/.exec(value)
+  if (!legacyDate) return null
+  const month = germanMonthMap[legacyDate[2].replace('.', '').toLowerCase()]
+  return typeof month === 'number' ? validCalendarDay(Number(legacyDate[3]), month + 1, Number(legacyDate[1])) : null
+}
+
+function validCalendarDay(year: number, month: number, day: number) {
+  const key = calendarDateKey(year, month - 1, day)
+  const date = new Date(key + 'T00:00:00Z')
+  return Number.isFinite(date.getTime()) && date.toISOString().slice(0, 10) === key ? key : null
+}
+
+export function isCalendarDateKey(value: string | undefined): value is string {
+  if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false
+  const [year, month, day] = value.split('-').map(Number)
+  return validCalendarDay(year, month, day) === value
+}
+
+export function calendarDateKey(year: number, month: number, day: number) {
+  return [String(year).padStart(4, '0'), String(month + 1).padStart(2, '0'), String(day).padStart(2, '0')].join('-')
+}
+
 function hasScreenshot(trade: Trade) {
   return Boolean(trade.screenshotUrl || (trade.screenshotUrls?.length ?? 0) > 0 || (trade.screenshotCount ?? 0) > 0)
 }
@@ -107,11 +139,10 @@ export function buildCalendarSummary(trades: Trade[]): CalendarDaySummary[] {
   }
 
   const grouped = trades.reduce<Record<string, MutableDaySummary>>((acc, trade) => {
-    const tradeDate = normalizeTradeDate(resolveTradeOccurredAt(trade))
-    const year = tradeDate.getFullYear()
-    const month = tradeDate.getMonth()
-    const day = tradeDate.getDate()
-    const dateKey = getDateKeyFromDate(tradeDate)
+    const dateKey = getCalendarTradeDay(trade)
+    if (!dateKey) return acc
+    const [year, calendarMonth, day] = dateKey.split('-').map(Number)
+    const month = calendarMonth - 1
 
     if (!acc[dateKey]) {
       acc[dateKey] = {
@@ -186,10 +217,10 @@ export function buildCalendarSummary(trades: Trade[]): CalendarDaySummary[] {
 }
 
 export function buildMonthGrid(year: number, month: number) {
-  const firstDay = new Date(year, month, 1)
-  const lastDay = new Date(year, month + 1, 0)
-  const daysInMonth = lastDay.getDate()
-  const startingWeekday = (firstDay.getDay() + 6) % 7
+  const firstDay = new Date(Date.UTC(year, month, 1))
+  const lastDay = new Date(Date.UTC(year, month + 1, 0))
+  const daysInMonth = lastDay.getUTCDate()
+  const startingWeekday = (firstDay.getUTCDay() + 6) % 7
   const cells: Array<{ day: number | null }> = []
 
   for (let i = 0; i < startingWeekday; i += 1) cells.push({ day: null })

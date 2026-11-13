@@ -12,6 +12,7 @@ export type AppIconName =
   | 'cost'
   | 'calendar'
   | 'sync'
+  | 'settings'
   | 'logout'
   | 'spark'
   | 'playbook'
@@ -23,6 +24,14 @@ const common = 'h-4 w-4'
 
 export function AppIcon({ name, className, ...props }: { name: AppIconName } & SVGProps<SVGSVGElement>) {
   const resolvedClassName = className ? `${common} ${className}` : common
+
+  if (name === 'settings') {
+    return (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" className={resolvedClassName} {...props}>
+        <path d="M4 6h5m4 0h7M4 12h11m4 0h1M4 18h1m4 0h11M11 3v6M17 9v6M7 15v6" />
+      </svg>
+    )
+  }
 
   if (name === 'dashboard') {
     return (

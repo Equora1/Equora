@@ -91,6 +91,7 @@ export type ReviewSnapshot = {
   periodPresetLabel: string
   periodLabel: string
   previousPeriodLabel: string
+  displayPeriod?: { current: string; previous: string }
   previousNetPnL: number
   currency: TradeCurrency | null
   monetaryScopeKind: MonetaryScopeKind

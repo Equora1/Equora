@@ -1,3 +1,4 @@
+import { journalText, type JournalLocale } from '@/lib/i18n/journal'
 import { getTradeDateKey } from '@/lib/utils/trade-time'
 
 export type TradeTableDateRange = { dateFrom: string; dateTo: string }
@@ -9,12 +10,13 @@ function isCalendarDate(value: string) {
   return Number.isFinite(date.getTime()) && date.toISOString().slice(0, 10) === value
 }
 
-export function getTradeTableDateRangeError({ dateFrom, dateTo }: TradeTableDateRange) {
+export function getTradeTableDateRangeError({ dateFrom, dateTo }: TradeTableDateRange, locale: JournalLocale = 'de') {
+  const text = journalText(locale)
   if ((dateFrom && !isCalendarDate(dateFrom)) || (dateTo && !isCalendarDate(dateTo))) {
-    return 'Bitte gültige Datumswerte eingeben.'
+    return text('Bitte gültige Datumswerte eingeben.', 'Enter valid dates.')
   }
   if (dateFrom && dateTo && dateFrom > dateTo) {
-    return 'Das Von-Datum muss vor oder am Bis-Datum liegen.'
+    return text('Das Von-Datum muss vor oder am Bis-Datum liegen.', 'The start date must be on or before the end date.')
   }
   return null
 }

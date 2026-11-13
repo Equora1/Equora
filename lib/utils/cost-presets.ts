@@ -1,3 +1,4 @@
+import type { JournalLocale } from '@/lib/i18n/journal'
 import type { TradeCostProfile } from '@/lib/types/trade'
 import { normalizeTradeCostProfile } from '@/lib/utils/trade-preset-normalizers'
 
@@ -119,8 +120,20 @@ export function getTradeCostProfilePreset(profile?: string | null): TradeCostPro
   return costProfiles[normalizeTradeCostProfile(profile)]
 }
 
-export function getCostProfileLabel(profile?: string | null): string {
-  return getTradeCostProfilePreset(profile).label
+const englishLabels: Partial<Record<TradeCostProfile, string>> = {
+  manual: 'Manual',
+  'user-custom': 'Custom cost profile',
+  none: 'No costs',
+  'stocks-light': 'Stocks light',
+  'futures-standard': 'Futures standard',
+  'crypto-swing': 'Crypto swing (legacy)',
+  'crypto-spot': 'Crypto spot',
+  'crypto-perps': 'Crypto perps',
+}
+
+export function getCostProfileLabel(profile?: string | null, locale: JournalLocale = 'de'): string {
+  const preset = getTradeCostProfilePreset(profile)
+  return (locale === 'en' ? englishLabels[preset.value] : undefined) ?? preset.label
 }
 
 export const costProfileOptions: Array<{ value: TradeCostProfile; label: string }> = [

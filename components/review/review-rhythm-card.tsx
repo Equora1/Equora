@@ -2,6 +2,8 @@
 
 import { formatRMultiple } from '@/lib/utils/calculations'
 import Link from 'next/link'
+import { useJournalLocale } from '@/components/layout/journal-locale-provider'
+import { journalText, type JournalLocale } from '@/lib/i18n/journal'
 import type { ReactNode } from 'react'
 import { useMemo, useState } from 'react'
 import type { Trade } from '@/lib/types/trade'
@@ -11,9 +13,10 @@ import { formatReviewCalendarDay, getLatestReviewDateKey, getReviewTradeDateKey 
 import type { ReviewSnapshot } from '@/lib/utils/review'
 import { buildReviewCoachingBrief } from '@/lib/utils/review-coaching'
 
-function getDayTitle(daySummary: ReturnType<typeof buildDailyNoteFlowSummary>, referenceDateKey: string) {
-  if (daySummary.dateKey === referenceDateKey) return 'Heute'
-  return 'Letzter aktiver Tag'
+function getDayTitle(daySummary: ReturnType<typeof buildDailyNoteFlowSummary>, referenceDateKey: string, locale: JournalLocale) {
+  const text = journalText(locale)
+  if (daySummary.dateKey === referenceDateKey) return text('Heute', 'Today')
+  return text('Letzter aktiver Tag', 'Last active day')
 }
 
 type ReviewMode = 'day' | 'week'
@@ -27,14 +30,16 @@ export function ReviewRhythmCard({
   weeklySnapshot: ReviewSnapshot
   referenceDateKey: string
 }) {
+  const locale = useJournalLocale()
+  const text = journalText(locale)
   const [mode, setMode] = useState<ReviewMode>('day')
   const activeDateKey = useMemo(() => getLatestReviewDateKey(trades, referenceDateKey), [trades, referenceDateKey])
-  const daySummary = useMemo(() => buildDailyNoteFlowSummary(trades, [], activeDateKey, getReviewTradeDateKey), [activeDateKey, trades])
+  const daySummary = useMemo(() => buildDailyNoteFlowSummary(trades, [], activeDateKey, getReviewTradeDateKey, locale), [activeDateKey, trades, locale])
   const dayTradeIds = daySummary.dayTrades.map((trade) => trade.id).join(',')
   const dayFocusHref = dayTradeIds
-    ? `/trades?reviewTradeIds=${encodeURIComponent(dayTradeIds)}&reviewFocus=${encodeURIComponent(`Tagesreview · ${activeDateKey}`)}`
+    ? `/trades?reviewTradeIds=${encodeURIComponent(dayTradeIds)}&reviewFocus=${encodeURIComponent(text(`Tagesreview · ${activeDateKey}`, `Daily review · ${activeDateKey}`))}`
     : '/trades'
-  const coachingBrief = useMemo(() => buildReviewCoachingBrief(weeklySnapshot), [weeklySnapshot])
+  const coachingBrief = useMemo(() => buildReviewCoachingBrief(weeklySnapshot, locale), [weeklySnapshot, locale])
   const strongestSignal = weeklySnapshot.topPerformers[0]
   const warningSignal = weeklySnapshot.weakSpots[0] ?? weeklySnapshot.errorClusters[0]
   const nextFocus = coachingBrief.focus
@@ -44,13 +49,13 @@ export function ReviewRhythmCard({
       <div className="flex flex-col gap-4 border-b border-white/10 pb-5 lg:flex-row lg:items-end lg:justify-between">
         <div className="max-w-3xl">
           <p className="text-xs uppercase tracking-[0.24em] text-orange-200/70">Review</p>
-          <h2 className="mt-2 text-2xl font-semibold text-white">Tag / Woche</h2>
+          <h2 className="mt-2 text-2xl font-semibold text-white">{text('Tag / Woche', 'Day and week')}</h2>
         </div>
 
         <div className="inline-flex w-full max-w-sm rounded-2xl border border-white/10 bg-white/[0.03] p-1">
           {[
-            { key: 'day', label: 'Tag' },
-            { key: 'week', label: 'Woche' },
+            { key: 'day', label: text('Tag', 'Day') },
+            { key: 'week', label: text('Woche', 'Week') },
           ].map((option) => {
             const isActive = mode === option.key
             return (
@@ -71,66 +76,65 @@ export function ReviewRhythmCard({
 
       {mode === 'day' ? (
         <div className="mt-7 space-y-6">
-          <WidePanel eyebrow={getDayTitle(daySummary, referenceDateKey)} title={formatReviewCalendarDay(activeDateKey)}>
+          <WidePanel eyebrow={getDayTitle(daySummary, referenceDateKey, locale)} title={formatReviewCalendarDay(activeDateKey, locale)}>
             <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
               <MetricCard label="Trades" value={String(daySummary.totalTrades)} tone="text-white" />
-              <MetricCard label="Belastbar" value={`${daySummary.trustedTrades.length}/${daySummary.totalTrades || 0}`} tone="text-emerald-300" />
-              <MetricCard label="P&L" value={daySummary.monetaryScope.isComparable ? formatCurrency(daySummary.trustedPnL, 0, daySummary.monetaryScope.currency) : 'Gesperrt'} tone={daySummary.monetaryScope.isComparable && daySummary.trustedPnL >= 0 ? 'text-emerald-300' : daySummary.monetaryScope.isComparable && daySummary.trustedPnL < 0 ? 'text-red-300' : 'text-orange-100'} />
-              <MetricCard label="Dominantes Setup" value={daySummary.dominantSetup ?? '—'} tone="text-orange-100/90" />
+              <MetricCard label={text('Belastbar', 'Ready for review')} value={`${daySummary.trustedTrades.length}/${daySummary.totalTrades || 0}`} tone="text-emerald-300" />
+              <MetricCard label="P&L" value={daySummary.monetaryScope.isComparable ? formatCurrency(daySummary.trustedPnL, 0, daySummary.monetaryScope.currency, locale) : text('Gesperrt', 'Unavailable')} tone={daySummary.monetaryScope.isComparable && daySummary.trustedPnL >= 0 ? 'text-emerald-300' : daySummary.monetaryScope.isComparable && daySummary.trustedPnL < 0 ? 'text-red-300' : 'text-orange-100'} />
+              <MetricCard label={text('Dominantes Setup', 'Most common setup')} value={daySummary.dominantSetup ?? '—'} tone="text-orange-100/90" />
             </div>
           </WidePanel>
 
-          <WidePanel eyebrow="Fragen" title="Heute">
+          <WidePanel eyebrow={text('Fragen', 'Questions')} title={text('Heute', 'Today')}>
             <div className="space-y-3">
-              {daySummary.prompts.slice(0, 3).map((prompt, index) => (
+              {daySummary.prompts.slice(0, 3).map((prompt) => (
                 <div key={prompt} className="rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 text-sm text-white/72">
-                  <span className="mr-3 text-xs uppercase tracking-[0.2em] text-white/35">0{index + 1}</span>
                   {prompt}
                 </div>
               ))}
             </div>
           </WidePanel>
 
-          <WidePanel eyebrow="Nächster Schritt" title="Aktion">
+          <WidePanel eyebrow={text('Nächster Schritt', 'Next step')} title={text('Aktion', 'Actions')}>
             <div className="flex flex-wrap gap-3">
               <Link href={dayFocusHref} className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-white/75 transition hover:border-white/20 hover:text-white">
                 Trades
               </Link>
               <Link href="/kalender" className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-white/75 transition hover:border-white/20 hover:text-white">
-                Kalender
+                {text('Kalender', 'Calendar')}
               </Link>
             </div>
           </WidePanel>
         </div>
       ) : (
         <div className="mt-7 space-y-6">
-          <WidePanel eyebrow="Woche" title={weeklySnapshot.headline}>
+          <WidePanel eyebrow={text('Woche', 'Week')} title={weeklySnapshot.headline}>
             <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
               <MetricCard label="Trades" value={String(weeklySnapshot.sessionDraft.tradeCount)} tone="text-white" />
-              <MetricCard label="P&L" value={weeklySnapshot.sessionDraft.monetaryScopeKind === 'single' ? formatCurrency(weeklySnapshot.sessionDraft.netPnL, 0, weeklySnapshot.sessionDraft.currency) : 'Gesperrt'} tone={weeklySnapshot.sessionDraft.monetaryScopeKind === 'single' && weeklySnapshot.sessionDraft.netPnL >= 0 ? 'text-emerald-300' : weeklySnapshot.sessionDraft.monetaryScopeKind === 'single' && weeklySnapshot.sessionDraft.netPnL < 0 ? 'text-red-300' : 'text-orange-100'} />
-              <MetricCard label="Trefferquote" value={`${formatPlainNumber(weeklySnapshot.sessionDraft.winRate, 0)}%`} tone="text-orange-100/90" />
-              <MetricCard label="Ø R" value={formatRMultiple(weeklySnapshot.sessionDraft.averageR)} tone={weeklySnapshot.sessionDraft.averageR === null ? 'text-white/55' : weeklySnapshot.sessionDraft.averageR >= 0 ? 'text-emerald-300' : 'text-red-300'} />
+              <MetricCard label="P&L" value={weeklySnapshot.sessionDraft.monetaryScopeKind === 'single' ? formatCurrency(weeklySnapshot.sessionDraft.netPnL, 0, weeklySnapshot.sessionDraft.currency, locale) : text('Gesperrt', 'Unavailable')} tone={weeklySnapshot.sessionDraft.monetaryScopeKind === 'single' && weeklySnapshot.sessionDraft.netPnL >= 0 ? 'text-emerald-300' : weeklySnapshot.sessionDraft.monetaryScopeKind === 'single' && weeklySnapshot.sessionDraft.netPnL < 0 ? 'text-red-300' : 'text-orange-100'} />
+              <MetricCard label={text('Trefferquote', 'Win rate')} value={`${formatPlainNumber(weeklySnapshot.sessionDraft.winRate, 0, locale)}%`} tone="text-orange-100/90" />
+              <MetricCard label="Ø R" value={formatRMultiple(weeklySnapshot.sessionDraft.averageR, 2, locale)} tone={weeklySnapshot.sessionDraft.averageR === null ? 'text-white/55' : weeklySnapshot.sessionDraft.averageR >= 0 ? 'text-emerald-300' : 'text-red-300'} />
             </div>
           </WidePanel>
 
-          <WidePanel eyebrow="Muster" title="Woche">
+          <WidePanel eyebrow={text('Muster', 'Patterns')} title={text('Woche', 'Week')}>
             <div className="grid gap-3 xl:grid-cols-3">
-              <SignalCard label="Läuft gerade" title={strongestSignal?.value ?? 'Noch kein klares Stärke-Signal'} detail={strongestSignal?.detail ?? ''} tone="emerald" />
-              <SignalCard label="Bremst gerade" title={warningSignal?.value ?? 'Noch kein klares Warnsignal'} detail={warningSignal?.detail ?? ''} tone="red" />
-              <SignalCard label="Schritt" title={nextFocus} detail={coachingBrief.summary} tone="orange" />
+              <SignalCard label={text('Läuft gerade', 'What worked')} title={strongestSignal?.value ?? text('Noch kein klares Stärke-Signal', 'No clear strength yet')} detail={strongestSignal?.detail ?? ''} tone="emerald" />
+              <SignalCard label={text('Bremst gerade', 'What held you back')} title={warningSignal?.value ?? text('Noch kein klares Warnsignal', 'No clear warning yet')} detail={warningSignal?.detail ?? ''} tone="red" />
+              <SignalCard label={text('Schritt', 'Next step')} title={nextFocus} detail={coachingBrief.summary} tone="orange" />
             </div>
           </WidePanel>
 
-          <WidePanel eyebrow="Nächster Schritt" title="Aktion">
+          <WidePanel eyebrow={text('Nächster Schritt', 'Next step')} title={text('Aktion', 'Actions')}>
             <div className="flex flex-wrap gap-3">
               <Link href="/trades" className="rounded-full border border-orange-400/25 bg-orange-400/10 px-4 py-2 text-sm text-orange-100 transition hover:border-orange-400/40 hover:text-white">
-                Alle Trades öffnen
+                {text('Alle Trades öffnen', 'Open all trades')}
               </Link>
               <Link href="/review?periodPreset=7d" className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-white/75 transition hover:border-white/20 hover:text-white">
-                Wochenreview
+                {text('Wochenreview', 'Weekly review')}
               </Link>
               <Link href="/review-sessions" className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-white/75 transition hover:border-white/20 hover:text-white">
-                Review-Sammlung
+                {text('Review-Sammlung', 'Review collections')}
               </Link>
             </div>
           </WidePanel>

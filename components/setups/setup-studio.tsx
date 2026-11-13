@@ -1,5 +1,7 @@
 'use client'
 
+import { useJournalLocale } from '@/components/layout/journal-locale-provider'
+import { journalText, type JournalLocale } from '@/lib/i18n/journal'
 import { useEffect, useMemo, useRef, useState, useTransition, type ChangeEvent, type DragEvent } from 'react'
 import { deleteSetupEntry, saveSetupEntry } from '@/app/actions/setups'
 import { requestUncommittedMediaCleanup } from '@/app/actions/media-cleanup'
@@ -136,13 +138,15 @@ function getStudioViewForSetup(setup: SavedSetup): StudioView {
 }
 
 export function SetupStudio({ initialSetups, initialTrades, source, canManageMaster = false }: { initialSetups: SavedSetup[]; initialTrades: Trade[]; source: 'supabase' | 'mock'; canManageMaster?: boolean }) {
+  const locale = useJournalLocale()
+  const text = journalText(locale)
   const [studioView, setStudioView] = useState<StudioView>('active')
   const initialStudioSetups = getStudioSetups(initialSetups, canManageMaster, 'active')
   const [setups, setSetups] = useState(initialSetups)
   const [selectedId, setSelectedId] = useState<string | null>(initialStudioSetups[0]?.id ?? null)
   const [isCreatingNew, setIsCreatingNew] = useState(false)
   const [draft, setDraft] = useState<DraftSetup>(buildDraft(initialStudioSetups[0]))
-  const [status, setStatus] = useState(source === 'mock' ? 'Demo: Setups können hier nicht dauerhaft in einem Nutzerkonto gespeichert werden.' : '')
+  const [status, setStatus] = useState('')
   const [isExpanded, setIsExpanded] = useState(false)
   const [removedStoragePaths, setRemovedStoragePaths] = useState<string[]>([])
   const [dragActive, setDragActive] = useState(false)
@@ -181,7 +185,7 @@ export function SetupStudio({ initialSetups, initialTrades, source, canManageMas
         setRemovedStoragePaths([])
         setActiveExtraSection(null)
         setDraft(buildDraft(targetSetup))
-        setStatus('Bilderbereich geöffnet. Cover, Beispiel oder Fehlerbild bearbeiten.')
+        setStatus(text('Bilderbereich geöffnet. Cover, Beispiel oder Fehlerbild bearbeiten.', 'Images opened. Choose a cover, example or mistake image.'))
       } else {
         setIsExpanded(true)
         setStudioView('active')
@@ -192,7 +196,7 @@ export function SetupStudio({ initialSetups, initialTrades, source, canManageMas
         const templateMedia = buildTemplateMedia(detail.media)
         setDraft({
           ...buildDraft(null),
-          title: detail.title ? `${detail.title} · eigene Version` : '',
+          title: detail.title ? text(`${detail.title} · eigene Version`, `${detail.title} · my copy`) : '',
           category: detail.category?.trim() || 'Custom',
           description: detail.description ?? '',
           entry: detail.entry ?? '',
@@ -204,7 +208,7 @@ export function SetupStudio({ initialSetups, initialTrades, source, canManageMas
           isMaster: false,
           media: templateMedia,
         })
-        setStatus(templateMedia.length ? 'Eigene Setup-Version vorbereitet. Dummy-Bilder sind übernommen. Entfernen, ersetzen oder ergänzen und speichern.' : 'Eigene Setup-Version vorbereitet. Bild hinzufügen und speichern.')
+        setStatus(templateMedia.length ? text('Eigene Setup-Version vorbereitet. Dummy-Bilder sind übernommen. Entfernen, ersetzen oder ergänzen und speichern.', 'Your setup copy is ready to edit. You can keep, replace or remove the example images.') : text('Eigene Setup-Version vorbereitet. Bild hinzufügen und speichern.', 'Your setup copy is ready to edit. Add an image and save it.'))
       }
 
       window.setTimeout(() => {
@@ -215,7 +219,7 @@ export function SetupStudio({ initialSetups, initialTrades, source, canManageMas
 
     window.addEventListener('equora:setup-media-edit', handleMediaEdit)
     return () => window.removeEventListener('equora:setup-media-edit', handleMediaEdit)
-  }, [setups, canManageMaster])
+  }, [setups, canManageMaster, locale])
 
   const orderedSetups = useMemo(
     () => [...getStudioSetups(setups, canManageMaster, studioView)].sort((left, right) => left.sortOrder - right.sortOrder || left.title.localeCompare(right.title, 'de')),
@@ -227,16 +231,16 @@ export function SetupStudio({ initialSetups, initialTrades, source, canManageMas
   const selectedSetup = orderedSetups.find((setup) => setup.id === selectedId)
   const canEditDraft = !selectedSetup?.isMaster || canManageMaster
   const canPublishDraft = canManageMaster && canEditDraft && Boolean(draft.id)
-  const activeViewLabel = studioView === 'master' ? 'Master-Bibliothek' : studioView === 'archive' ? 'Archiv' : 'Aktive Setups'
-  const draftTitle = isCreatingNew ? (draft.isMaster ? 'Neues Master-Setup' : 'Neues Setup') : 'Grunddaten'
+  const activeViewLabel = studioView === 'master' ? text('Master-Bibliothek', 'Shared library') : studioView === 'archive' ? text('Archiv', 'Archive') : text('Aktive Setups', 'Active setups')
+  const draftTitle = isCreatingNew ? (draft.isMaster ? text('Neues Master-Setup', 'New shared setup') : text('Neues Setup', 'New setup')) : text('Grunddaten', 'Basic details')
   const tradeLinkOptions = useMemo<TradeLinkOption[]>(() =>
     [...initialTrades]
       .sort((left, right) => `${right.date}-${right.market}`.localeCompare(`${left.date}-${left.market}`, 'de'))
       .map((trade) => ({
         id: trade.id,
-        label: `${trade.market} · ${trade.setup || 'Ohne Setup'}`,
+        label: `${trade.market} · ${trade.setup || text('Ohne Setup', 'No setup')}`,
         meta: `${trade.date} · ${trade.session || '—'} · ${trade.result || '—'}`,
-      })), [initialTrades])
+      })), [initialTrades, locale])
   const filteredTradeLinkOptions = useMemo(() => {
     const query = tradeLinkQuery.trim().toLowerCase()
     const selected = new Set(draft.linkedTradeIds)
@@ -267,7 +271,7 @@ export function SetupStudio({ initialSetups, initialTrades, source, canManageMas
     setRemovedStoragePaths([])
     setActiveExtraSection(null)
     setDraft({ ...buildDraft(null), isMaster: createMaster })
-    setStatus(createMaster ? 'Neues Master-Setup bereit.' : 'Neues Setup bereit.')
+    setStatus(createMaster ? text('Neues Master-Setup bereit.', 'New shared setup ready to edit.') : text('Neues Setup bereit.', 'New setup ready to edit.'))
     window.setTimeout(() => {
       editorRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
       titleInputRef.current?.focus()
@@ -281,7 +285,7 @@ export function SetupStudio({ initialSetups, initialTrades, source, canManageMas
     setDraft(buildDraft(nextSetup))
     setRemovedStoragePaths([])
     setActiveExtraSection(null)
-    setStatus('Entwurf verworfen.')
+    setStatus(text('Entwurf verworfen.', 'Draft discarded.'))
   }
 
   function handleFiles(files: File[]) {
@@ -310,7 +314,7 @@ export function SetupStudio({ initialSetups, initialTrades, source, canManageMas
         media: [...current.media, ...nextMedia].map((item, index) => ({ ...item, sortOrder: index, isCover: item.isCover || (!current.media.some((candidate) => candidate.isCover) && index === 0) })),
       }
     })
-    setStatus(`${files.length} Bild${files.length === 1 ? '' : 'er'} bereit zum Speichern.`)
+    setStatus(text(`${files.length} Bild${files.length === 1 ? '' : 'er'} bereit zum Speichern.`, `${files.length} ${files.length === 1 ? 'image' : 'images'} ready to save.`))
   }
 
   function onFileChange(event: ChangeEvent<HTMLInputElement>) {
@@ -379,7 +383,7 @@ export function SetupStudio({ initialSetups, initialTrades, source, canManageMas
 
   function handleSave() {
     startTransition(async () => {
-      setStatus('Setup wird gespeichert …')
+      setStatus(text('Setup wird gespeichert …', 'Saving setup…'))
       const pendingItems = draft.media.filter((item) => !item.persisted && item.file)
       const setupId = draft.id ?? crypto.randomUUID()
       let uploaded: Awaited<ReturnType<typeof uploadSetupImages>> = []
@@ -424,7 +428,7 @@ export function SetupStudio({ initialSetups, initialTrades, source, canManageMas
           media: combinedMedia,
           removedStoragePaths,
           linkedTradeIds: draft.linkedTradeIds,
-        })
+        }, locale)
 
         if (!result.success) {
           if (uploaded.length) {
@@ -450,7 +454,7 @@ export function SetupStudio({ initialSetups, initialTrades, source, canManageMas
         if (uploaded.length) {
           await requestUncommittedMediaCleanup({ kind: 'setup', parentId: setupId, storagePaths: uploaded.map((item) => item.storagePath) })
         }
-        setStatus(error instanceof Error ? error.message : 'Setup konnte nicht gespeichert werden.')
+        setStatus(locale === 'de' && error instanceof Error ? error.message : text('Setup konnte nicht gespeichert werden.', 'Could not save the setup. Check the setup before trying again.'))
       }
     })
   }
@@ -458,25 +462,25 @@ export function SetupStudio({ initialSetups, initialTrades, source, canManageMas
 
   function handleSetMaster(nextIsMaster: boolean) {
     if (!canManageMaster) {
-      setStatus('Nur Admins können Master-Setups veröffentlichen.')
+      setStatus(text('Nur Admins können Master-Setups veröffentlichen.', 'Only admins can publish shared setups.'))
       return
     }
 
     if (!draft.id) {
       applyDraft({ isMaster: nextIsMaster, isArchived: false })
       setStudioView(nextIsMaster ? 'master' : 'active')
-      setStatus(nextIsMaster ? 'Wird beim Speichern als Master veröffentlicht.' : 'Wird beim Speichern als eigenes Setup angelegt.')
+      setStatus(nextIsMaster ? text('Wird beim Speichern als Master veröffentlicht.', 'This setup will be shared when you save it.') : text('Wird beim Speichern als eigenes Setup angelegt.', 'This will be saved as a personal setup.'))
       return
     }
 
     const pendingItems = draft.media.filter((item) => !item.persisted && item.file)
     if (pendingItems.length) {
-      setStatus('Bitte Bilder zuerst speichern, dann Master-Status ändern.')
+      setStatus(text('Bitte Bilder zuerst speichern, dann Master-Status ändern.', 'Save the images before changing the sharing status.'))
       return
     }
 
     startTransition(async () => {
-      setStatus(nextIsMaster ? 'Setup wird als Master veröffentlicht …' : 'Master-Status wird zurückgenommen …')
+      setStatus(nextIsMaster ? text('Setup wird als Master veröffentlicht …', 'Publishing the shared setup…') : text('Master-Status wird zurückgenommen …', 'Changing the setup to personal…'))
       const persistedMedia = draft.media
         .filter((item) => item.persisted && item.storagePath)
         .map<SavedSetupMedia>((item, index) => ({
@@ -508,7 +512,7 @@ export function SetupStudio({ initialSetups, initialTrades, source, canManageMas
         media: persistedMedia,
         removedStoragePaths,
         linkedTradeIds: draft.linkedTradeIds,
-      })
+      }, locale)
 
       setStatus(result.message)
       if (!result.success || !result.setup) return
@@ -527,21 +531,21 @@ export function SetupStudio({ initialSetups, initialTrades, source, canManageMas
 
   function handleDelete() {
     if (!canEditDraft) {
-      setStatus('Master-Setup ist nur für Admins editierbar.')
+      setStatus(text('Master-Setup ist nur für Admins editierbar.', 'Only admins can edit shared setups.'))
       return
     }
 
     if (!draft.id) {
       selectSetup(null)
-      setStatus('Neues Setup verworfen.')
+      setStatus(text('Neues Setup verworfen.', 'New setup discarded.'))
       return
     }
 
-    const confirmed = window.confirm(`Setup „${draft.title}“ wirklich löschen?`)
+    const confirmed = window.confirm(text(`Setup „${draft.title}“ wirklich löschen?`, `Delete the setup “${draft.title}”?`))
     if (!confirmed) return
 
     startTransition(async () => {
-      const result = await deleteSetupEntry(draft.id as string)
+      const result = await deleteSetupEntry(draft.id as string, locale)
       setStatus(result.message)
       if (!result.success) return
       const remainingInView = orderedSetups.filter((setup) => setup.id !== draft.id)
@@ -557,9 +561,9 @@ export function SetupStudio({ initialSetups, initialTrades, source, canManageMas
       <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
         <div>
           <p className="text-[10px] uppercase tracking-[0.24em] text-[#998a72]">Setup Studio</p>
-          <h3 className="mt-2 text-xl font-semibold text-white">Regeln und Bilder bearbeiten</h3>
+          <h3 className="mt-2 text-xl font-semibold text-white">{text('Regeln und Bilder bearbeiten', 'Edit rules and images')}</h3>
           <p className="mt-2 max-w-2xl text-sm leading-6 text-white/58">
-            Eigene Setups bearbeitest du direkt hier. Als Admin kannst du in der Master-Bibliothek auch Dummy-Bilder dauerhaft ersetzen.
+            {text('Eigene Setups bearbeitest du direkt hier. Als Admin kannst du in der Master-Bibliothek auch Dummy-Bilder dauerhaft ersetzen.', 'Edit your setup rules, example images and linked trades here.')}
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -568,7 +572,7 @@ export function SetupStudio({ initialSetups, initialTrades, source, canManageMas
             onClick={() => setIsExpanded((current) => !current)}
             className="rounded-full border border-white/10 bg-black/20 px-4 py-2 text-xs font-medium text-white/70 transition hover:border-white/20 hover:text-white"
           >
-            {isExpanded ? 'Studio ausblenden' : 'Studio öffnen'}
+            {isExpanded ? text('Studio ausblenden', 'Hide studio') : text('Studio öffnen', 'Open studio')}
           </button>
           {!isExpanded ? (
             <button
@@ -576,7 +580,7 @@ export function SetupStudio({ initialSetups, initialTrades, source, canManageMas
               onClick={() => { setIsExpanded(true); handleCreateSetup() }}
               className="rounded-full border border-orange-300/25 bg-orange-400/10 px-4 py-2 text-xs font-medium text-orange-100 transition hover:border-orange-200/45"
             >
-              Neues Setup
+              {text('Neues Setup', 'New setup')}
             </button>
           ) : null}
         </div>
@@ -586,11 +590,14 @@ export function SetupStudio({ initialSetups, initialTrades, source, canManageMas
         <div className="mt-5 rounded-2xl border border-white/10 bg-black/20 p-4 text-sm leading-6 text-white/58">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <div>
-              <p>Der Setup-Bereich wurde gestrafft. Öffne das Studio nur dann, wenn du Regeln oder Bilder wirklich bearbeiten willst.</p>
-              <p className="mt-2 text-xs text-white/42">{orderedSetups.length} Setups · {orderedSetups.reduce((sum, setup) => sum + setup.media.length, 0)} Bilder · Ansicht: {activeViewLabel}</p>
+              <p>{text('Der Setup-Bereich wurde gestrafft. Öffne das Studio nur dann, wenn du Regeln oder Bilder wirklich bearbeiten willst.', 'Open the studio to edit your setups.')}</p>
+              <p className="mt-2 text-xs text-white/42">{text(
+                `${orderedSetups.length} Setups · ${orderedSetups.reduce((sum, setup) => sum + setup.media.length, 0)} Bilder · Ansicht: ${activeViewLabel}`,
+                `${orderedSetups.length} setups · ${orderedSetups.reduce((sum, setup) => sum + setup.media.length, 0)} images · ${activeViewLabel}`,
+              )}</p>
             </div>
             <div className="rounded-2xl border border-emerald-300/15 bg-emerald-400/[0.06] px-4 py-3 text-xs text-emerald-100/80">
-              Tipp: Öffne oben in der Bibliothek ein Master-Setup und klicke als Admin auf „Master-Bilder bearbeiten“.
+              {text('Tipp: Öffne oben in der Bibliothek ein Master-Setup und klicke als Admin auf „Master-Bilder bearbeiten“.', 'To edit shared images, choose a shared setup in the library and select Edit shared images.')}
             </div>
           </div>
         </div>
@@ -650,7 +657,7 @@ export function SetupStudio({ initialSetups, initialTrades, source, canManageMas
               filteredTradeLinkOptions={filteredTradeLinkOptions}
               dragActive={dragActive}
               onSetDragActive={setDragActive}
-              status={status}
+              status={status || (source === 'mock' ? text('Demo: Setups können hier nicht dauerhaft in einem Nutzerkonto gespeichert werden.', 'Demo: setups are not saved to an account.') : '')}
               onApplyDraft={applyDraft}
               onFileChange={onFileChange}
               onDrop={onDrop}

@@ -1,6 +1,7 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
+import { journalText, type JournalLocale } from '@/lib/i18n/journal'
 import { createSupabaseAuthServerClient } from '@/lib/supabase/server-auth'
 import { hasSupabaseClientEnv } from '@/lib/supabase/config'
 import { mapUserCostProfileRow } from '@/lib/server/user-cost-profiles'
@@ -110,16 +111,18 @@ async function clearCompetingTemplateDefaults(
 
 export async function saveUserCostProfile(
   input: SaveUserCostProfileInput,
+  locale: JournalLocale = 'de',
 ): Promise<{ success: boolean; message: string; profile?: SavedUserCostProfile }> {
+  const text = journalText(locale)
   const title = input.title.trim()
   if (!title) {
-    return { success: false, message: 'Bitte einen Namen für das Kostenprofil vergeben.' }
+    return { success: false, message: text('Bitte einen Namen für das Kostenprofil vergeben.', 'Enter a name for the cost profile.') }
   }
 
   if (!hasSupabaseClientEnv()) {
     return {
       success: true,
-      message: `Demo-Flow aktiv. Profil „${title}“ lokal bereit zum Speichern.`,
+      message: text(`Demo-Flow aktiv. Profil „${title}“ lokal bereit zum Speichern.`, `Cost profile “${title}” prepared in demo mode.`),
       profile: buildMockProfile({ ...input, title }),
     }
   }
@@ -129,13 +132,13 @@ export async function saveUserCostProfile(
     const {
       data: { user },
     } = await supabase.auth.getUser()
-    if (!user) return { success: false, message: 'Bitte zuerst einloggen.' }
+    if (!user) return { success: false, message: text('Bitte zuerst einloggen.', 'Sign in to manage cost profiles.') }
 
     const payload = buildPersistPayload(user.id, { ...input, title })
 
     const { data, error } = await supabase.from('user_cost_profiles').insert(payload).select('*').single()
     if (error || !data) {
-      return { success: false, message: 'Kostenprofil konnte nicht gespeichert werden.' }
+      return { success: false, message: text('Kostenprofil konnte nicht gespeichert werden.', 'Could not save the cost profile.') }
     }
 
     await clearCompetingTemplateDefaults(supabase, user.id, data.id, input)
@@ -145,23 +148,25 @@ export async function saveUserCostProfile(
     revalidatePath('/cost-profiles')
     return {
       success: true,
-      message: `Kostenprofil „${title}“ gespeichert.`,
+      message: text(`Kostenprofil „${title}“ gespeichert.`, `Cost profile “${title}” saved.`),
       profile: mapUserCostProfileRow((refreshed ?? data) as UserCostProfileRow, 'supabase'),
     }
   } catch {
-    return { success: false, message: 'Kostenprofil konnte nicht gespeichert werden.' }
+    return { success: false, message: text('Kostenprofil konnte nicht gespeichert werden.', 'Could not save the cost profile.') }
   }
 }
 
 export async function deleteUserCostProfile(
   profileId: string,
+  locale: JournalLocale = 'de',
 ): Promise<{ success: boolean; message: string; deletedId?: string }> {
+  const text = journalText(locale)
   if (!profileId.trim()) {
-    return { success: false, message: 'Es wurde kein Kostenprofil zum Löschen übergeben.' }
+    return { success: false, message: text('Es wurde kein Kostenprofil zum Löschen übergeben.', 'No cost profile was selected for deletion.') }
   }
 
   if (!hasSupabaseClientEnv()) {
-    return { success: true, message: 'Demo-Flow aktiv. Lokales Kostenprofil entfernt.', deletedId: profileId }
+    return { success: true, message: text('Demo-Flow aktiv. Lokales Kostenprofil entfernt.', 'Local cost profile removed in demo mode.'), deletedId: profileId }
   }
 
   try {
@@ -169,35 +174,37 @@ export async function deleteUserCostProfile(
     const {
       data: { user },
     } = await supabase.auth.getUser()
-    if (!user) return { success: false, message: 'Bitte zuerst einloggen.' }
+    if (!user) return { success: false, message: text('Bitte zuerst einloggen.', 'Sign in to manage cost profiles.') }
 
     const { error } = await supabase.from('user_cost_profiles').delete().eq('id', profileId).eq('user_id', user.id)
-    if (error) return { success: false, message: 'Kostenprofil konnte nicht gelöscht werden.' }
+    if (error) return { success: false, message: text('Kostenprofil konnte nicht gelöscht werden.', 'Could not delete the cost profile.') }
 
     revalidatePath('/trades')
     revalidatePath('/cost-profiles')
-    return { success: true, message: 'Kostenprofil gelöscht.', deletedId: profileId }
+    return { success: true, message: text('Kostenprofil gelöscht.', 'Cost profile deleted.'), deletedId: profileId }
   } catch {
-    return { success: false, message: 'Kostenprofil konnte nicht gelöscht werden.' }
+    return { success: false, message: text('Kostenprofil konnte nicht gelöscht werden.', 'Could not delete the cost profile.') }
   }
 }
 
 export async function updateUserCostProfile(
   profileId: string,
   input: UpdateUserCostProfileInput,
+  locale: JournalLocale = 'de',
 ): Promise<{ success: boolean; message: string; profile?: SavedUserCostProfile }> {
+  const text = journalText(locale)
   const title = input.title.trim()
   if (!profileId.trim()) {
-    return { success: false, message: 'Es wurde kein Kostenprofil zum Aktualisieren übergeben.' }
+    return { success: false, message: text('Es wurde kein Kostenprofil zum Aktualisieren übergeben.', 'Select a cost profile to update.') }
   }
   if (!title) {
-    return { success: false, message: 'Bitte einen Namen für das Kostenprofil vergeben.' }
+    return { success: false, message: text('Bitte einen Namen für das Kostenprofil vergeben.', 'Enter a name for the cost profile.') }
   }
 
   if (!hasSupabaseClientEnv()) {
     return {
       success: true,
-      message: `Demo-Flow aktiv. Profil „${title}“ lokal bereit zum Aktualisieren.`,
+      message: text(`Demo-Flow aktiv. Profil „${title}“ lokal bereit zum Aktualisieren.`, `Changes to “${title}” prepared in demo mode.`),
       profile: { ...buildMockProfile({ ...input, title }), id: profileId },
     }
   }
@@ -207,7 +214,7 @@ export async function updateUserCostProfile(
     const {
       data: { user },
     } = await supabase.auth.getUser()
-    if (!user) return { success: false, message: 'Bitte zuerst einloggen.' }
+    if (!user) return { success: false, message: text('Bitte zuerst einloggen.', 'Sign in to manage cost profiles.') }
 
     const payload = buildPersistPayload(user.id, { ...input, title })
     const { data, error } = await supabase
@@ -219,7 +226,7 @@ export async function updateUserCostProfile(
       .single()
 
     if (error || !data) {
-      return { success: false, message: 'Kostenprofil konnte nicht aktualisiert werden.' }
+      return { success: false, message: text('Kostenprofil konnte nicht aktualisiert werden.', 'Could not update the cost profile.') }
     }
 
     await clearCompetingTemplateDefaults(supabase, user.id, profileId, input)
@@ -229,10 +236,10 @@ export async function updateUserCostProfile(
     revalidatePath('/cost-profiles')
     return {
       success: true,
-      message: `Kostenprofil „${title}“ aktualisiert.`,
+      message: text(`Kostenprofil „${title}“ aktualisiert.`, `Cost profile “${title}” updated.`),
       profile: mapUserCostProfileRow((refreshed ?? data) as UserCostProfileRow, 'supabase'),
     }
   } catch {
-    return { success: false, message: 'Kostenprofil konnte nicht aktualisiert werden.' }
+    return { success: false, message: text('Kostenprofil konnte nicht aktualisiert werden.', 'Could not update the cost profile.') }
   }
 }

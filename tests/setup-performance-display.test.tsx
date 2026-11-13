@@ -5,9 +5,11 @@ import type { Trade } from '@/lib/types/trade'
 import type { SetupDetail } from '@/lib/types/setup'
 import { buildDynamicSetupDetail, buildSetupPerformanceRows } from '@/lib/utils/setup-analytics'
 import { getSetupPerformanceDisplay } from '@/lib/utils/setup-performance-display'
+import { SetupStudioEditor } from '@/components/setups/setup-studio-editor'
 import { SetupExplorer } from '@/components/setups/setup-explorer'
 import { SetupDetailCard } from '@/components/setups/setup-detail-card'
 import { SetupCard } from '@/components/setups/setup-card'
+import { JournalLocaleProvider } from '@/components/layout/journal-locale-provider'
 import { StatistikWorkbench } from '@/components/analytics/statistik-workbench'
 import { DashboardOverview } from '@/components/dashboard/dashboard-overview'
 
@@ -48,6 +50,12 @@ describe('setup display distinguishes unavailable data from documented zero', ()
     const r=row([trade({result})])
     expect(r.lastTradePnL).toBeNull()
     expect(r.resolvedTrades).toBe(0)
+  })
+  it('uses the same Berlin trade day for the latest setup trade in both languages', () => {
+    const trades = [trade({ tradeOccurredAt: '2026-05-08T22:15:00Z' })]
+
+    expect(buildSetupPerformanceRows([title], trades, [], 'de')[0].lastTradeDate).toBe('09.05.26')
+    expect(buildSetupPerformanceRows([title], trades, [], 'en')[0].lastTradeDate).toBe('09/05/26')
   })
   it('retains documented monetary zero, zero win rate and zero R while hiding undefined 0/0 PF', () => {
     const d=display([trade({netPnL:0,rValue:0,rSource:'manual'})])
@@ -129,6 +137,119 @@ describe('actual Journal surfaces use the same setup availability contract', () 
     const small=plain(renderToStaticMarkup(<StatistikWorkbench trades={trades.slice(0,2)} tradeTags={[]} setupTitles={[title]} initialLayer="setups" />))
     expect(small).toContain('Für Vergleiche liegen noch zu wenige Trades vor.')
   })
+  it('uses English labels for the same setup selection, Berlin window and P&L', () => {
+    const setup = 'Eigener Rücklauf'
+    const trades = Array.from({ length: 6 }, (_, index) => trade({
+      id: String(index),
+      setup: index < 5 ? setup : 'Other',
+      date: '2026-07-01T06:30:00Z',
+      netPnL: index < 5 ? 10 : -100,
+      accountCurrency: 'USDT',
+    }))
+    const workbench = <StatistikWorkbench trades={trades} tradeTags={[]} setupTitles={[setup, 'Other']} initialSetup={setup} />
+    const german = plain(renderToStaticMarkup(workbench))
+    const english = plain(renderToStaticMarkup(<JournalLocaleProvider locale="en">{workbench}</JournalLocaleProvider>))
+
+    expect(german).toContain('5 passend')
+    expect(german).toContain('08–10 Uhr')
+    expect(english).toContain('5 matched')
+    expect(english).toContain('08:00–10:00')
+    expect(english).toContain('recorded time (Berlin)')
+    expect(english).toContain(`Setup: ${setup}`)
+    expect(english).toContain('Win rate 100.0%')
+    for (const screen of [german, english]) expect(screen).toContain('50 USDT')
+  })
+
+  it.each([
+    ['setups', 'Historical results for setups with enough trades'],
+    ['psychology', 'Current winning streak'],
+    ['drawdown', 'Longest recovery'],
+    ['curves', 'P&amp;L chart'],
+    ['deepdive', 'Compare results by category'],
+  ])('renders the English %s section with enough trades to compare', (initialLayer, caption) => {
+    const trades = Array.from({ length: 6 }, (_, index) => trade({
+      id: String(index),
+      setup: index < 3 ? title : 'Other',
+      netPnL: index < 3 ? 10 : -5,
+    }))
+    const html = plain(renderToStaticMarkup(
+      <JournalLocaleProvider locale="en">
+        <StatistikWorkbench trades={trades} tradeTags={[]} setupTitles={[title, 'Other']} initialLayer={initialLayer} />
+      </JournalLocaleProvider>,
+    ))
+    expect(html).toContain(caption)
+    expect(html).toContain('6 matched')
+  })
+
+  it('displays setup results in their own currencies without ranking mixed amounts', () => {
+    const trades = Array.from({ length: 6 }, (_, index) => trade({
+      id: String(index),
+      setup: index < 3 ? 'Alpha' : 'Zulu',
+      accountCurrency: index < 3 ? 'EUR' : 'USDT',
+      netPnL: index < 3 ? 10 : 100,
+    }))
+    const html = plain(renderToStaticMarkup(
+      <JournalLocaleProvider locale="en">
+        <StatistikWorkbench trades={trades} tradeTags={[]} setupTitles={['Alpha', 'Zulu']} initialLayer="setups" />
+      </JournalLocaleProvider>,
+    ))
+    expect(html).toContain('Setup P&amp;L can only be compared when results use the same currency.')
+    expect(html).toContain('300 USDT')
+    expect(html).not.toContain('had the highest')
+    expect(html.indexOf('Alpha')).toBeLessThan(html.indexOf('Zulu'))
+  })
+
+  it('localizes the setup detail while displaying saved rules and captions verbatim', () => {
+    const linkedTrades = [trade({ netPnL: 5, accountCurrency: 'USDT' })]
+    const data = {
+      ...template,
+      entry: 'Nur nach Rücklauf einsteigen.',
+      exampleImageItems: [{ url: '/fixture.png', mediaRole: 'mistake' as const, caption: 'Zu früh eingestiegen.' }],
+    }
+    const html = plain(renderToStaticMarkup(
+      <JournalLocaleProvider locale="en">
+        <SetupDetailCard title={title} data={data} linkedTrades={linkedTrades} performance={row(linkedTrades)} />
+      </JournalLocaleProvider>,
+    ))
+    expect(html).toContain('Setup rules')
+    expect(html).toContain('Linked trades')
+    expect(html).toContain('5 USDT')
+    expect(html).toContain('Nur nach Rücklauf einsteigen.')
+    expect(html).toContain('Zu früh eingestiegen.')
+    expect(html).toContain('Mistake example')
+  })
+
+  it('keeps the original editor values while translating the image role and archive controls', () => {
+    const noop = () => {}
+    const html = renderToStaticMarkup(
+      <JournalLocaleProvider locale="en">
+        <SetupStudioEditor
+          editorRef={{ current: null }} titleInputRef={{ current: null }} fileInputRef={{ current: null }}
+          isCreatingNew={false} draftTitle="Basic details"
+          draft={{
+            id: 'setup-1', title: 'Rücklauf', category: 'Custom', description: '', entry: 'Regel prüfen',
+            exit: '', invalidation: '', playbook: '', checklist: '', mistakes: '', isArchived: true, isMaster: false,
+            sortOrder: 0, linkedTradeIds: [],
+            media: [{ tempId: 'image-1', storagePath: 'demo/image.png', publicUrl: '/fixture.png',
+              previewUrl: '/fixture.png', persisted: true, sortOrder: 0, isCover: false,
+              mediaRole: 'mistake', caption: 'Originaler Bildtext' }],
+          }}
+          canManageMaster={false} canEditDraft activeExtraSection="status" onSetActiveExtraSection={noop}
+          tradeLinkQuery="" onSetTradeLinkQuery={noop} tradeLinkOptions={[]} filteredTradeLinkOptions={[]}
+          dragActive={false} onSetDragActive={noop} status="" onApplyDraft={noop}
+          onFileChange={noop} onDrop={noop} onUpdateMedia={noop} onMoveMedia={noop} onMarkAsCover={noop}
+          onToggleLinkedTrade={noop} onRemoveMedia={noop} onDelete={noop}
+        />
+      </JournalLocaleProvider>,
+    )
+    expect(html).toContain('value="Rücklauf"')
+    expect(html).toContain('>Regel prüfen</textarea>')
+    expect(html).toContain('checked=""')
+    expect(html).toContain('>Delete setup</button>')
+    expect(html).toContain('<option value="mistake" selected="">Mistake example</option>')
+    expect(html).toContain('>Originaler Bildtext</textarea>')
+  })
+
   it.each([1,2])('uses the correct dashboard noun for %i records needing attention', count => {
     const trades=Array.from({length:count},(_,i)=>trade({id:String(i),netPnL:10,accountCurrency:null}))
     const html=plain(renderToStaticMarkup(<DashboardOverview trades={trades} dailyNotes={[]} source="supabase" availability="ready" />))

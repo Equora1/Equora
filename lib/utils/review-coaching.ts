@@ -1,3 +1,4 @@
+import { journalText, type JournalLocale } from '@/lib/i18n/journal'
 import type { ReviewSnapshot } from '@/lib/utils/review'
 import { buildReviewActionPlan } from '@/lib/utils/review-to-action'
 
@@ -34,8 +35,9 @@ function buildFallbackDetail(value: string, fallback: string) {
   return clean.length ? shortenSentence(clean) : fallback
 }
 
-export function buildReviewCoachingBrief(snapshot: ReviewSnapshot): ReviewCoachingBrief {
-  const actionPlan = buildReviewActionPlan(snapshot)
+export function buildReviewCoachingBrief(snapshot: ReviewSnapshot, locale: JournalLocale = 'de'): ReviewCoachingBrief {
+  const text = journalText(locale)
+  const actionPlan = buildReviewActionPlan(snapshot, locale)
   const keepSignal = snapshot.topPerformers[0] ?? snapshot.tagRadar.find((item) => item.tone === 'emerald')
   const brakeSignal = snapshot.errorClusters[0] ?? snapshot.weakSpots[0] ?? snapshot.tagDrift.find((item) => item.tone !== 'emerald')
   const testRule = snapshot.playbook[0] ?? snapshot.reviewLayer.checklist[0] ?? actionPlan.checklist[0] ?? actionPlan.dailyFocusSuggestion
@@ -45,42 +47,42 @@ export function buildReviewCoachingBrief(snapshot: ReviewSnapshot): ReviewCoachi
   const lanes: ReviewCoachingLane[] = [
     {
       label: 'Behalten',
-      title: keepSignal ? cleanLead(keepSignal.value) : 'Den sauberen Ablauf wiederholen',
+      title: keepSignal ? cleanLead(keepSignal.value) : text('Den sauberen Ablauf wiederholen', 'Repeat the process that worked'),
       detail: keepSignal
-        ? buildFallbackDetail(keepSignal.detail, 'Das ist gerade die verlässlichste Spur im Review.')
-        : 'Halte morgen an dem fest, was im Review bereits stabil aussieht.',
+        ? buildFallbackDetail(keepSignal.detail, text('Das ist gerade die verlässlichste Spur im Review.', 'Start with the strongest pattern in this review.'))
+        : text('Halte morgen an dem fest, was im Review bereits stabil aussieht.', 'Keep following the process that has worked consistently.'),
       tone: 'emerald',
       href: keepSignal?.href ?? keepStep?.href ?? '/trades',
-      cta: 'Mehr davon öffnen',
+      cta: text('Mehr davon öffnen', 'Open supporting trades'),
     },
     {
       label: 'Bremsen',
-      title: brakeSignal ? cleanLead(brakeSignal.value) : 'Vor dem ersten Fehler abbremsen',
+      title: brakeSignal ? cleanLead(brakeSignal.value) : text('Vor dem ersten Fehler abbremsen', 'Review your rules before entering'),
       detail: brakeSignal
-        ? buildFallbackDetail(brakeSignal.detail, 'Das ist gerade die teuerste Spur im Review.')
-        : 'Nicht mehr handeln, wenn der Prozess kippt. Erst Struktur, dann Tempo.',
+        ? buildFallbackDetail(brakeSignal.detail, text('Das ist gerade die teuerste Spur im Review.', 'Review the trades behind this warning.'))
+        : text('Nicht mehr handeln, wenn der Prozess kippt. Erst Struktur, dann Tempo.', 'Take a break when you stop following your process.'),
       tone: brakeStep?.tone === 'orange' ? 'orange' : 'red',
       href: brakeSignal?.href ?? brakeStep?.href ?? '/trades',
-      cta: 'Warnmuster öffnen',
+      cta: text('Warnmuster öffnen', 'Open trades behind the warning'),
     },
     {
       label: 'Testen morgen',
       title: actionPlan.dailyFocusSuggestion,
-      detail: buildFallbackDetail(testRule, 'Ein kleiner Test reicht. Review muss morgen in eine sichtbare Handlung übergehen.'),
+      detail: buildFallbackDetail(testRule, text('Ein kleiner Test reicht. Review muss morgen in eine sichtbare Handlung übergehen.', 'Pick one change to try in the next session.')),
       tone: 'orange',
       href: `/trades?reviewFocus=${encodeURIComponent(actionPlan.dailyFocusSuggestion)}`,
-      cta: 'Fokus öffnen',
+      cta: text('Fokus öffnen', 'Open trades for this focus'),
     },
   ]
 
   const redLanes = lanes.filter((lane) => lane.tone === 'red').length
   const headline = redLanes > 0
-    ? 'Drei klare Züge statt zehn guter Vorsätze'
-    : 'Das Review wird jetzt zu einer kleinen Agenda für morgen'
+    ? text('Drei klare Züge statt zehn guter Vorsätze', 'Three priorities for the next session')
+    : text('Das Review wird jetzt zu einer kleinen Agenda für morgen', 'Plan your next session')
 
   const summary = redLanes > 0
-    ? 'Behalten, was trägt. Bremsen, was Geld kostet. Nur einen Test mit in den nächsten Tag nehmen.'
-    : 'Nur drei Dinge merken: der stärkste Wiederholer, der wichtigste Warnpunkt und ein Fokus für morgen.'
+    ? text('Behalten, was trägt. Bremsen, was Geld kostet. Nur einen Test mit in den nächsten Tag nehmen.', 'Keep what worked, address what hurt results and choose one change to try.')
+    : text('Nur drei Dinge merken: der stärkste Wiederholer, der wichtigste Warnpunkt und ein Fokus für morgen.', 'Review what worked, the main warning and one focus for next time.')
 
   return {
     headline,

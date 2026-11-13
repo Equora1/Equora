@@ -1,3 +1,5 @@
+import { getJournalLocale } from '@/lib/server/journal-locale'
+import { journalText } from '@/lib/i18n/journal'
 import { AppShell } from '@/components/layout/app-shell'
 import { QuickTradeForm } from '@/components/trades/quick-trade-form'
 import { TradeLedgerCapture } from '@/components/trades/trade-ledger-capture'
@@ -188,7 +190,9 @@ function buildReviewContext(
 }
 
 export default async function TradesPage({ searchParams }: { searchParams?: Promise<TradesSearchParams> }) {
-  const params = (await searchParams) ?? {}
+  const [incomingParams, locale] = await Promise.all([searchParams, getJournalLocale()])
+  const params = incomingParams ?? {}
+  const text = journalText(locale)
   const reviewFocus = getParamValue(params.reviewFocus)
   const reviewSessionId = getParamValue(params.reviewSession)
   const queryParams = new URLSearchParams()
@@ -196,10 +200,10 @@ export default async function TradesPage({ searchParams }: { searchParams?: Prom
   const tableQuery = parseTradeTableQuery(queryParams)
   const reviewScope = readReviewDrilldownScope(queryParams)
   if (reviewScope.kind === 'invalid') {
-    return <AppShell><section role="alert" className="rounded-3xl border border-orange-400/20 p-6">
-      <h1 className="text-xl font-semibold">Review-Auswahl nicht verfügbar</h1>
-      <p className="mt-3 text-sm text-white/65">Bitte öffne die passenden Trades erneut über dein Review.</p>
-      <a href="/review" className="mt-4 inline-block">Zum Review</a>
+    return <AppShell><section lang={locale} role="alert" className="rounded-3xl border border-orange-400/20 p-6">
+      <h1 className="text-xl font-semibold">{text('Review-Auswahl nicht verfügbar', 'Review selection unavailable')}</h1>
+      <p className="mt-3 text-sm text-white/65">{text('Bitte öffne die passenden Trades erneut über dein Review.', 'Open the matching trades again from your review.')}</p>
+      <a href="/review" className="mt-4 inline-block">{text('Zum Review', 'Open review')}</a>
     </section></AppShell>
   }
   const pageSize = 30
@@ -213,10 +217,10 @@ export default async function TradesPage({ searchParams }: { searchParams?: Prom
   ])
 
   if (snapshot.availability !== 'ready') {
-    return <AppShell><div role="alert" className="rounded-3xl border border-orange-400/20 bg-black/30 p-6 text-white">
-      <h1 className="text-xl font-semibold">Journal konnte nicht vollständig geladen werden</h1>
-      <p className="mt-3 text-sm text-white/65">Bitte lade die Seite erneut. Es werden keine unvollständigen Treffer angezeigt. Die globale Ansicht unterstützt derzeit bis zu 10.000 Trades.</p>
-      <a href="/trades" className="mt-4 inline-block rounded-full border border-white/20 px-4 py-2">Erneut laden</a>
+    return <AppShell><div lang={locale} role="alert" className="rounded-3xl border border-orange-400/20 bg-black/30 p-6 text-white">
+      <h1 className="text-xl font-semibold">{text('Journal konnte nicht vollständig geladen werden', 'The journal could not be loaded in full')}</h1>
+      <p className="mt-3 text-sm text-white/65">{text('Bitte lade die Seite erneut. Es werden keine unvollständigen Treffer angezeigt. Die globale Ansicht unterstützt derzeit bis zu 10.000 Trades.', 'Please reload. The journal only shows complete results and currently supports up to 10,000 trades.')}</p>
+      <a href="/trades" className="mt-4 inline-block rounded-full border border-white/20 px-4 py-2">{text('Erneut laden', 'Reload')}</a>
     </div></AppShell>
   }
   const totalTradeCount = snapshot.tradeRows.length
@@ -278,14 +282,17 @@ export default async function TradesPage({ searchParams }: { searchParams?: Prom
     closeTradeId: getParamValue(params.closeTradeId), capture: getParamValue(params.capture),
   })
   const { selectedTradeId, editTradeId, closeTradeId, captureMode: activeCaptureMode } = selection
-  let selectionError: string | undefined
+  let selectionError: Record<'de' | 'en', string> | undefined
 
   let selectedRow = selectedTradeId ? snapshot.tradeRows.find((row) => row.id === selectedTradeId) : undefined
   if (selectedTradeId && !selectedRow) {
     try {
       selectedRow = await measurePerformance('database.trade_detail', 'database', () => getTradeByIdServer(selectedTradeId, access.user?.id), { route: '/trades' })
     } catch {
-      selectionError = 'Der ausgewählte Trade konnte nicht geladen werden. Bitte kehre zur Liste zurück oder versuche es erneut.'
+      selectionError = {
+        de: 'Der ausgewählte Trade konnte nicht geladen werden. Bitte kehre zur Liste zurück oder versuche es erneut.',
+        en: 'The selected trade could not be loaded. Go back to the list or try again.',
+      }
     }
   }
 
@@ -299,7 +306,10 @@ export default async function TradesPage({ searchParams }: { searchParams?: Prom
         measurePerformance('database.trade_detail_tags', 'database', () => getTradeTagsServer(selectedRow.id, access.user?.id, true), { route: '/trades' }),
       ])
     } catch {
-      selectionError = 'Die Details des ausgewählten Trades konnten nicht vollständig geladen werden. Bitte versuche es erneut.'
+      selectionError = {
+        de: 'Die Details des ausgewählten Trades konnten nicht vollständig geladen werden. Bitte versuche es erneut.',
+        en: 'The selected trade details could not be loaded in full. Please try again.',
+      }
     }
   }
 
@@ -319,7 +329,7 @@ export default async function TradesPage({ searchParams }: { searchParams?: Prom
   const weekdayOptions = Array.from(new Set(trades.map(getTradeWeekdayLabel)))
 
   const selectedLinkedSetup = selectedRow ? linkedSetupByTradeId[selectedRow.id] ?? null : null
-  const selectedTradeDetail = selectedRow ? mapTradeRowToTradeDetail(selectedRow, selectedMediaRows, selectedLinkedSetup) : undefined
+  const selectedTradeDetail = selectedRow ? mapTradeRowToTradeDetail(selectedRow, selectedMediaRows, selectedLinkedSetup, locale) : undefined
   const selectedTradeSummary = selectedRow ? mapTradeRowToTrade(selectedRow, selectedMediaRows, selectedLinkedSetup) : undefined
   const returnHref = (tradeId?: string) => buildTradeTableHref(queryParams.toString(), {
     filters: initialFilters, sort: tableQuery.sort, page, reviewOnly: tableQuery.reviewOnly, tradeId,
@@ -332,12 +342,17 @@ export default async function TradesPage({ searchParams }: { searchParams?: Prom
   return (
     <AppShell>
       <div className="space-y-6">
-        {selectionError && !selection.drawerTradeId ? <div role="alert" className="rounded-2xl border border-orange-300/20 bg-orange-400/5 p-4 text-sm text-orange-50">
-          <p>{selectionError}</p>
-          <a href={returnHref()} className="mt-3 inline-block underline">Zur Journal-Liste</a>
+        {selectionError && !selection.drawerTradeId ? <div lang={locale} role="alert" className="rounded-2xl border border-orange-300/20 bg-orange-400/5 p-4 text-sm text-orange-50">
+          <p>{selectionError[locale]}</p>
+          <a href={returnHref()} className="mt-3 inline-block underline">{text('Zur Journal-Liste', 'Back to trade list')}</a>
         </div> : null}
         {!activeCaptureMode && !closeTradeRow && !(editTradeInitialValues && editTradeRow) ? (
-          <TradeLedgerCapture marketOptions={marketOptions} setupOptions={setupOptions} emotionOptions={emotionOptions.length ? emotionOptions : defaultEmotions} />
+          <TradeLedgerCapture
+            marketOptions={marketOptions}
+            setupOptions={setupOptions}
+            emotionOptions={emotionOptions.length ? emotionOptions : defaultEmotions}
+            initialTradeInstant={new Date().toISOString()}
+          />
         ) : null}
         {closeTradeRow || (editTradeInitialValues && editTradeRow) || activeCaptureMode ? (
           <section id="trade-editor" className="rounded-3xl border border-orange-300/18 bg-white/[0.05] p-5 shadow-2xl">
@@ -403,7 +418,7 @@ export default async function TradesPage({ searchParams }: { searchParams?: Prom
           activeTradeTags={selectedTags}
           tradeTags={snapshot.tradeTags}
           selectedTradeId={selection.drawerTradeId}
-          tradeDetailError={selectionError}
+          tradeDetailError={selectionError?.[locale]}
           tagOptions={tagOptions}
           marketOptions={marketOptions}
           accountOptions={accountOptions}

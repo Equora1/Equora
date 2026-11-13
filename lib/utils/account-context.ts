@@ -1,3 +1,4 @@
+import { journalText, type JournalLocale } from '@/lib/i18n/journal'
 import type { Trade } from '@/lib/types/trade'
 import { getAccountTemplateLabel } from '@/lib/utils/trade-presets'
 
@@ -19,11 +20,11 @@ export function getTradeAccountKey(trade: Pick<Trade, 'accountId' | 'accountTemp
   return trade.accountId || trade.accountTemplate || DEFAULT_ACCOUNT_KEY
 }
 
-export function getTradeAccountLabel(trade: Pick<Trade, 'accountLabel' | 'accountId' | 'accountTemplate' | 'brokerProfile'>) {
+export function getTradeAccountLabel(trade: Pick<Trade, 'accountLabel' | 'accountId' | 'accountTemplate' | 'brokerProfile'>, locale: JournalLocale = 'de') {
   if (trade.accountLabel?.trim()) return trade.accountLabel.trim()
   const key = getTradeAccountKey(trade)
-  if (key === DEFAULT_ACCOUNT_KEY) return DEFAULT_ACCOUNT_LABEL
-  return getAccountTemplateLabel(key)
+  if (key === DEFAULT_ACCOUNT_KEY) return journalText(locale)(DEFAULT_ACCOUNT_LABEL, 'Main account')
+  return getAccountTemplateLabel(key, locale)
 }
 
 export function buildAccountContexts(trades: Trade[]): AccountContext[] {
@@ -66,5 +67,23 @@ export function buildAccountContexts(trades: Trade[]): AccountContext[] {
 }
 
 export function getAccountOptionLabels(trades: Trade[]) {
-  return buildAccountContexts(trades).map((account) => account.label)
+  const counts = new Map<string, number>()
+  for (const trade of trades) {
+    const label = getTradeAccountLabel(trade)
+    counts.set(label, (counts.get(label) ?? 0) + 1)
+  }
+  return [...counts.entries()]
+    .sort(([left, leftCount], [right, rightCount]) => rightCount - leftCount || left.localeCompare(right, 'de'))
+    .map(([label]) => label)
+}
+
+export function getTradeAccountDisplayLabels(trades: Trade[], locale: JournalLocale) {
+  const labels = new Map<string, string>()
+  for (const trade of trades) {
+    const filterValue = getTradeAccountLabel(trade)
+    const label = getTradeAccountLabel(trade, locale)
+    const existing = labels.get(filterValue)
+    labels.set(filterValue, existing !== undefined && existing !== label ? filterValue : label)
+  }
+  return labels
 }

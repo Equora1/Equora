@@ -34,6 +34,97 @@ describe('owned Create/Update time contract with mocked persistence', () => {
     expect(payload).toMatchObject({ captured_at: '2026-07-01T10:00:00.000Z', exit: 117.5, exit_price_basis: 'weighted-remainder-v1' })
     expect(mapTradeRowToTrade({ ...payload, id })).toMatchObject({ netPnL: 35, rValue: 1.75 })
   })
+  it('sends the same trade data in either language, including time and partial exits', async () => {
+    const { rpc } = client()
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-07-01T09:00:00Z'))
+    try {
+      const values = input({ tradeOccurredAt: '2026-07-01T12:00' })
+      const de = await createTradeEntry(values)
+      const en = await createTradeEntry(values, 'en')
+      expect(de.success).toBe(true)
+      expect(en.message).toBe('Trade saved: TEST-USDT.P · Test.')
+      expect(rpc).toHaveBeenCalledTimes(2)
+      const [deCall, enCall] = rpc.mock.calls
+      expect(deCall[1].p_trade_id).toBe(deCall[1].p_trade.id)
+      expect(enCall[1].p_trade_id).toBe(enCall[1].p_trade.id)
+      expect(enCall).toEqual([deCall[0], {
+        ...deCall[1],
+        p_trade_id: enCall[1].p_trade_id,
+        p_trade: { ...deCall[1].p_trade, id: enCall[1].p_trade.id },
+      }])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('explains an ambiguous Berlin time in English before a write', async () => {
+    const { rpc } = client()
+    const result = await updateTradeEntry(id, input({ tradeOccurredAt: '2026-10-25T02:30' }), 'en')
+    expect(result).toMatchObject({
+      success: false,
+      fieldErrors: { tradeOccurredAt: 'This time occurs twice because the clocks change in Berlin. Choose a different time.' },
+    })
+    expect(rpc).not.toHaveBeenCalled()
+  })
+
+  it.each(['manual', 'override', ''])('rejects an English P&L with a comma before create or update in mode %j', async (pnlMode) => {
+    const values = input({ pnlMode, netPnL: '1,234' })
+    for (const result of [await createTradeEntry(values, 'en'), await updateTradeEntry(id, values, 'en')]) {
+      expect(result).toMatchObject({
+        success: false,
+        fieldErrors: { netPnL: expect.stringContaining('no thousands separators') },
+      })
+    }
+    expect(mocks.client).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['entry', 'entry'],
+    ['exit', 'exit'],
+    ['partialExit1Price', 'exit'],
+    ['partialExit1Percent', 'exit'],
+    ['positionSize', 'positionSize'],
+    ['fees', 'fees'],
+  ] as const)('rejects an English comma in %s before interpreting or writing the number', async (inputField, errorField) => {
+    const values = input({ [inputField]: '1,234' })
+    for (const result of [await createTradeEntry(values, 'en'), await updateTradeEntry(id, values, 'en')]) {
+      expect(result).toMatchObject({
+        success: false,
+        fieldErrors: { [errorField]: expect.stringContaining('no thousands separators') },
+      })
+    }
+    expect(mocks.client).not.toHaveBeenCalled()
+  })
+
+  it('retains the precision of an amount taken from the calculator in override mode', async () => {
+    const { rpc } = client()
+    expect((await createTradeEntry(input({ pnlMode: 'override', netPnL: String(0.004) }), 'en')).success).toBe(true)
+    expect(rpc.mock.calls[0][1].p_trade).toMatchObject({ net_pnl: 0.004, pnl_mode: 'override' })
+  })
+
+  it('keeps the explicit instant when the Berlin clock shows a repeated time', async () => {
+    const { rpc } = client()
+    const instant = '2026-10-25T01:30:12.345Z'
+    expect(formatTradeTimeInputValue(instant)).toBe('2026-10-25T02:30')
+    expect((await createTradeEntry(input({ tradeOccurredAt: instant }), 'en')).success).toBe(true)
+    expect(rpc.mock.calls[0][1].p_trade.captured_at).toBe(instant)
+  })
+
+  it.each([
+    ['en', '1234.56', 1234.56],
+    ['de', '1234,56', 1234.56],
+    ['de', '1234.56', 1234.56],
+    ['en', '0', 0],
+    ['en', '-0.004', -0.004],
+  ] as const)('saves the explicit %s P&L %s without rounding', async (locale, netPnL, amount) => {
+    const { rpc } = client()
+    const values = input({ pnlMode: 'manual', netPnL })
+    expect((await createTradeEntry(values, locale)).success).toBe(true)
+    expect((await updateTradeEntry(id, values, locale)).success).toBe(true)
+    expect(rpc.mock.calls.map((call) => call[1].p_trade.net_pnl)).toEqual([amount, amount])
+  })
+
   it('creates the original winter regression case at 11:00Z', async () => {
     const { rpc } = client()
     expect((await createTradeEntry(input())).success).toBe(true)

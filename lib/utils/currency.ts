@@ -1,3 +1,4 @@
+import { journalNumberLocale, journalText, type JournalLocale } from '@/lib/i18n/journal'
 import type { Trade } from '@/lib/types/trade'
 
 export const SUPPORTED_TRADE_CURRENCIES = ['EUR', 'USD', 'GBP', 'USDT', 'USDC'] as const
@@ -87,21 +88,29 @@ export function resolveTradeMonetaryScope(
   return resolveMonetaryScope(trades.filter(hasMonetaryValue).map((trade) => trade.accountCurrency))
 }
 
-export function getMonetaryScopeMessage(scope: MonetaryScope): string {
+export function getMonetaryScopeMessage(scope: MonetaryScope, locale: JournalLocale = 'de'): string {
+  const text = journalText(locale)
   if (scope.kind === 'mixed') {
-    return `Geld-Auswertung gesperrt: mehrere Währungen (${scope.currencies.join(', ')}) ohne Umrechnungskurs.`
+    return text(
+      `Geld-Auswertung gesperrt: mehrere Währungen (${scope.currencies.join(', ')}) ohne Umrechnungskurs.`,
+      `P&L totals are unavailable: multiple currencies (${scope.currencies.join(', ')}) without an exchange rate.`,
+    )
   }
   if (scope.kind === 'unknown') {
-    return `Geld-Auswertung gesperrt: ${scope.unknownCount} monetäre${scope.unknownCount === 1 ? 'r Trade hat' : ' Trades haben'} keine unterstützte Währung.`
+    return text(
+      `Geld-Auswertung gesperrt: ${scope.unknownCount} monetäre${scope.unknownCount === 1 ? 'r Trade hat' : ' Trades haben'} keine unterstützte Währung.`,
+      `P&L totals are unavailable: ${scope.unknownCount} ${scope.unknownCount === 1 ? 'trade has' : 'trades have'} no supported currency.`,
+    )
   }
-  if (scope.kind === 'empty') return 'Noch keine monetären Trades für diese Auswertung vorhanden.'
-  return `Geld-Auswertung in ${scope.currency}.`
+  if (scope.kind === 'empty') return text('Noch keine monetären Trades für diese Auswertung vorhanden.', 'No trades with P&L are available for this view yet.')
+  return text(`Geld-Auswertung in ${scope.currency}.`, `P&L is shown in ${scope.currency}.`)
 }
 
-export function formatMoney(value: number, currency: string | null | undefined, fractionDigits = 0): string {
+export function formatMoney(value: number, currency: string | null | undefined, fractionDigits = 0, locale: JournalLocale = 'de'): string {
+  const text = journalText(locale)
   const normalizedCurrency = normalizeTradeCurrency(currency)
-  if (!normalizedCurrency) return getTradeCurrencyStatus(currency) === 'unsupported' ? 'Währung nicht unterstützt' : 'Währung fehlt'
-  if (!Number.isFinite(value)) return 'Betrag fehlt'
+  if (!normalizedCurrency) return getTradeCurrencyStatus(currency) === 'unsupported' ? text('Währung nicht unterstützt', 'Unsupported currency') : text('Währung fehlt', 'Currency missing')
+  if (!Number.isFinite(value)) return text('Betrag fehlt', 'Amount missing')
 
   // Keep cents in compact labels and extra precision for smaller amounts.
   const magnitude = Math.abs(value)
@@ -109,7 +118,7 @@ export function formatMoney(value: number, currency: string | null | undefined, 
   const maximumDigits = Math.max(8, baseDigits)
   const smallestDisplayedUnit = 10 ** -maximumDigits
   if (magnitude > 0 && magnitude < smallestDisplayedUnit) {
-    const threshold = smallestDisplayedUnit.toLocaleString('de-DE', {
+    const threshold = smallestDisplayedUnit.toLocaleString(journalNumberLocale[locale], {
       minimumFractionDigits: maximumDigits,
       maximumFractionDigits: maximumDigits,
     })
@@ -118,7 +127,7 @@ export function formatMoney(value: number, currency: string | null | undefined, 
   const displayDigits = magnitude > 0 && magnitude < 10 ** -baseDigits
     ? Math.min(maximumDigits, Math.ceil(-Math.log10(magnitude)))
     : baseDigits
-  const formatter = new Intl.NumberFormat('de-DE', {
+  const formatter = new Intl.NumberFormat(journalNumberLocale[locale], {
     minimumFractionDigits: fractionDigits,
     maximumFractionDigits: displayDigits,
   })

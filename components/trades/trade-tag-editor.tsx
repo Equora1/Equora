@@ -1,5 +1,7 @@
 'use client'
 
+import { useJournalLocale } from '@/components/layout/journal-locale-provider'
+import { journalText } from '@/lib/i18n/journal'
 import { useRef, useState, useTransition } from 'react'
 import { setTradeTagsForTrade } from '@/app/actions/trade-tags'
 
@@ -28,6 +30,7 @@ type TradeTagEditorProps = {
 }
 
 export function TradeTagEditor({ tradeId, initialTags, tagOptions = PRESET_TAGS, source }: TradeTagEditorProps) {
+  const text = journalText(useJournalLocale())
   const [isEditing, setIsEditing] = useState(false)
   const [activeTags, setActiveTags] = useState<string[]>(initialTags)
   const [draftTags, setDraftTags] = useState<string[]>(initialTags)
@@ -108,7 +111,7 @@ export function TradeTagEditor({ tradeId, initialTags, tagOptions = PRESET_TAGS,
             onClick={openEditor}
             className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[11px] text-white/55 opacity-0 transition hover:border-orange-400/20 hover:bg-orange-400/10 hover:text-orange-100/80 group-hover:opacity-100"
           >
-            Bearbeiten
+            {text('Bearbeiten', 'Edit')}
           </button>
         </div>
 
@@ -129,12 +132,12 @@ export function TradeTagEditor({ tradeId, initialTags, tagOptions = PRESET_TAGS,
             onClick={openEditor}
             className="text-sm text-white/35 transition hover:text-white/55"
           >
-            Tags hinzufügen…
+            {text('Tags hinzufügen…', 'Add tags…')}
           </button>
         )}
 
         {source === 'mock' && (
-          <p className="mt-3 text-[11px] text-white/30">Demo: Änderungen an Tags werden nicht dauerhaft gespeichert</p>
+          <p className="mt-3 text-[11px] text-white/30">{text('Demo: Änderungen an Tags werden nicht dauerhaft gespeichert', 'Demo mode. Tag changes are temporary.')}</p>
         )}
       </div>
     )
@@ -144,13 +147,13 @@ export function TradeTagEditor({ tradeId, initialTags, tagOptions = PRESET_TAGS,
   return (
     <div className="rounded-2xl border border-orange-400/25 bg-black/50 p-4 shadow-[0_0_24px_rgba(251,146,60,0.07)]">
       <div className="mb-4 flex items-center justify-between">
-        <p className="text-xs uppercase tracking-[0.2em] text-white/40">Tags bearbeiten</p>
+        <p className="text-xs uppercase tracking-[0.2em] text-white/40">{text('Tags bearbeiten', 'Edit tags')}</p>
         <button
           type="button"
           onClick={cancelEditor}
           className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[11px] text-white/55 transition hover:text-white/80"
         >
-          Abbrechen
+          {text('Abbrechen', 'Cancel')}
         </button>
       </div>
 
@@ -167,7 +170,7 @@ export function TradeTagEditor({ tradeId, initialTags, tagOptions = PRESET_TAGS,
                 <button
                   type="button"
                   onClick={() => removeDraftTag(tag)}
-                  aria-label={`${tag} entfernen`}
+                  aria-label={text(`${tag} entfernen`, `Remove ${tag}`)}
                   className="flex h-4 w-4 items-center justify-center rounded-full text-orange-100/50 transition hover:bg-orange-400/20 hover:text-orange-100"
                 >
                   <svg viewBox="0 0 10 10" width="8" height="8" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round">
@@ -178,13 +181,13 @@ export function TradeTagEditor({ tradeId, initialTags, tagOptions = PRESET_TAGS,
             ))}
           </div>
         ) : (
-          <p className="text-xs text-white/30">Noch keine Tags gewählt</p>
+          <p className="text-xs text-white/30">{text('Noch keine Tags gewählt', 'No tags selected yet')}</p>
         )}
       </div>
 
       {/* Preset-Buttons */}
       <div className="mb-4">
-        <p className="mb-2 text-[11px] uppercase tracking-[0.18em] text-white/30">Schnellauswahl</p>
+        <p className="mb-2 text-[11px] uppercase tracking-[0.18em] text-white/30">{text('Schnellauswahl', 'Quick picks')}</p>
         <div className="flex flex-wrap gap-1.5">
           {presets.map((tag) => {
             const isActive = draftTags.includes(tag)
@@ -208,14 +211,14 @@ export function TradeTagEditor({ tradeId, initialTags, tagOptions = PRESET_TAGS,
 
       {/* Freier Custom-Input */}
       <div className="mb-5">
-        <p className="mb-2 text-[11px] uppercase tracking-[0.18em] text-white/30">Eigener Tag</p>
+        <p className="mb-2 text-[11px] uppercase tracking-[0.18em] text-white/30">{text('Eigener Tag', 'Custom tag')}</p>
         <div className="flex gap-2">
           <input
             ref={inputRef}
             value={customInput}
             onChange={(e) => setCustomInput(e.target.value)}
             onKeyDown={handleCustomKeyDown}
-            placeholder="z.B. FOMC-Tag, Reversal …"
+            placeholder={text('z.B. FOMC-Tag, Reversal …', 'e.g. FOMC day, reversal …')}
             className="flex-1 rounded-2xl border border-orange-400/15 bg-orange-400/5 px-4 py-2.5 text-sm text-white outline-none placeholder:text-white/30 focus:border-orange-400/30"
           />
           <button
@@ -224,7 +227,7 @@ export function TradeTagEditor({ tradeId, initialTags, tagOptions = PRESET_TAGS,
             disabled={!customInput.trim()}
             className="rounded-2xl border border-orange-400/20 bg-orange-400/10 px-4 py-2.5 text-xs text-orange-100/80 transition hover:bg-orange-400/18 hover:text-orange-100 disabled:cursor-not-allowed disabled:opacity-40"
           >
-            Hinzufügen
+            {text('Hinzufügen', 'Add')}
           </button>
         </div>
       </div>
@@ -233,7 +236,7 @@ export function TradeTagEditor({ tradeId, initialTags, tagOptions = PRESET_TAGS,
       <div className="flex items-center justify-between gap-3">
         <div className="min-h-[1.25rem]">
           {status && (
-            <p className={`text-xs ${status.ok ? 'text-emerald-400' : 'text-red-400'}`}>
+            <p lang="de" className={`text-xs ${status.ok ? 'text-emerald-400' : 'text-red-400'}`}>
               {status.text}
             </p>
           )}
@@ -244,7 +247,7 @@ export function TradeTagEditor({ tradeId, initialTags, tagOptions = PRESET_TAGS,
           disabled={isPending}
           className="rounded-2xl border border-orange-400/30 bg-orange-400 px-5 py-2.5 text-xs font-medium text-black transition hover:scale-[1.02] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-70"
         >
-          {isPending ? 'Wird gespeichert…' : `${draftTags.length} Tag${draftTags.length === 1 ? '' : 's'} speichern`}
+          {isPending ? text('Wird gespeichert…', 'Saving…') : text(`${draftTags.length} Tag${draftTags.length === 1 ? '' : 's'} speichern`, `Save ${draftTags.length} ${draftTags.length === 1 ? 'tag' : 'tags'}`)}
         </button>
       </div>
     </div>

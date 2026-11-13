@@ -1,5 +1,7 @@
 'use client'
 
+import { useJournalLocale } from '@/components/layout/journal-locale-provider'
+import { journalText } from '@/lib/i18n/journal'
 import { useEffect, useRef } from 'react'
 import { TradeDetailCard } from '@/components/trades/trade-detail-card'
 import type { Trade, TradeDetail } from '@/lib/types/trade'
@@ -31,6 +33,8 @@ export function TradeDetailDrawer({
   onDelete: () => void
   isDeleting: boolean
 }) {
+  const locale = useJournalLocale()
+  const text = journalText(locale)
   const closeButtonRef = useRef<HTMLButtonElement>(null)
   const dialogRef = useRef<HTMLElement>(null)
 
@@ -99,11 +103,11 @@ export function TradeDetailDrawer({
   if (!tradeId) return null
 
   return (
-    <div className="fixed inset-0 z-[70]">
+    <div lang={locale} className="fixed inset-0 z-[70]">
       <button
         type="button"
         tabIndex={-1}
-        aria-label="Trade-Details schließen"
+        aria-label={text('Trade-Details schließen', 'Close trade details')}
         onClick={onClose}
         className="absolute inset-0 bg-black/72 backdrop-blur-sm"
       />
@@ -116,9 +120,9 @@ export function TradeDetailDrawer({
       >
         <div className="sticky top-0 z-20 flex items-center justify-between gap-4 border-b border-white/10 bg-[#090909]/95 px-5 py-4 backdrop-blur-xl sm:px-6">
           <div className="min-w-0">
-            <p className="text-[10px] uppercase tracking-[0.22em] text-[#b09a7a]">Trade Detail</p>
+            <p className="text-[10px] uppercase tracking-[0.22em] text-[#b09a7a]">{text('Trade Detail', 'Trade details')}</p>
             <h2 id="trade-detail-drawer-title" className="mt-1 truncate text-sm font-medium text-white">
-              {error ? 'Trade konnte nicht geladen werden' : trade ? `${trade.market} · ${trade.setup || 'Ohne Setup'}` : 'Trade wird geladen'}
+              {error ? text('Trade konnte nicht geladen werden', 'Could not load the trade') : trade ? `${trade.market} · ${trade.setup || text('Ohne Setup', 'No setup')}` : text('Trade wird geladen', 'Loading trade')}
             </h2>
           </div>
           <button
@@ -126,7 +130,7 @@ export function TradeDetailDrawer({
             type="button"
             onClick={onClose}
             className="inline-flex h-10 w-10 flex-none items-center justify-center rounded-full border border-white/10 bg-white/5 text-xl text-white/70 transition hover:border-white/20 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#f0a855]/60"
-            aria-label="Detailansicht schließen"
+            aria-label={text('Detailansicht schließen', 'Close detail view')}
           >
             ×
           </button>
@@ -135,7 +139,7 @@ export function TradeDetailDrawer({
         <div className="p-3 sm:p-5">
           {error ? <div role="alert" className="rounded-2xl border border-orange-300/20 bg-orange-400/5 p-5 text-sm text-orange-50">
             <p>{error}</p>
-            <button type="button" onClick={onClose} className="mt-4 rounded-full border border-white/20 px-4 py-2">Zur Liste zurück</button>
+            <button type="button" onClick={onClose} className="mt-4 rounded-full border border-white/20 px-4 py-2">{text('Zur Liste zurück', 'Back to trade list')}</button>
           </div> : isLoading || !detail || !trade ? (
             <div role="status" className="space-y-4 rounded-3xl border border-white/10 bg-white/[0.03] p-5">
               <div className="h-7 w-2/5 animate-pulse rounded-full bg-white/10" />
@@ -144,7 +148,7 @@ export function TradeDetailDrawer({
                 <div className="h-24 animate-pulse rounded-[24px] bg-white/5" />
                 <div className="h-24 animate-pulse rounded-[24px] bg-white/5" />
               </div>
-              <span className="sr-only">Trade-Details werden geladen.</span>
+              <span className="sr-only">{text('Trade-Details werden geladen.', 'Loading trade details.')}</span>
             </div>
           ) : (
             <TradeDetailCard

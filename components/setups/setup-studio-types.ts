@@ -1,3 +1,4 @@
+import { journalText, type JournalLocale } from '@/lib/i18n/journal'
 import type { SavedSetupMedia, SetupImageRole } from '@/lib/types/setup'
 
 export type DraftSetupMedia = SavedSetupMedia & {
@@ -35,8 +36,13 @@ export type StudioView = 'active' | 'master' | 'archive'
 
 export const defaultCategories = ['SMC', 'Breakout', 'Price Action', 'Momentum', 'Mean Reversion', 'Trend', 'Custom']
 
-export const mediaRoleOptions: Array<{ value: SetupImageRole; label: string }> = [
-  { value: 'example', label: 'Beispiel' },
-  { value: 'best-practice', label: 'Saubere Ausführung' },
-  { value: 'mistake', label: 'Fehlerbild' },
+export const mediaRoleOptions: Array<{ value: SetupImageRole; label: string; en: string }> = [
+  { value: 'example', label: 'Beispiel', en: 'Example' },
+  { value: 'best-practice', label: 'Saubere Ausführung', en: 'Good execution' },
+  { value: 'mistake', label: 'Fehlerbild', en: 'Mistake example' },
 ]
+
+export function getSetupImageRoleLabel(role: string | null | undefined, locale: JournalLocale) {
+  const option = mediaRoleOptions.find((item) => item.value === role)
+  return journalText(locale)(option?.label ?? 'Beispiel', option?.en ?? 'Example')
+}

@@ -1,3 +1,4 @@
+import type { JournalLocale } from '@/lib/i18n/journal'
 import type {
   TradeAccountTemplate,
   TradeBrokerProfile,
@@ -190,8 +191,11 @@ export function getTradeAccountTemplatePreset(template?: string | null): TradeAc
   return accountTemplates[normalizeTradeAccountTemplate(template)]
 }
 
-export function getAccountTemplateLabel(template?: string | null): string {
-  return getTradeAccountTemplatePreset(template).label
+export function getAccountTemplateLabel(template?: string | null, locale: JournalLocale = 'de'): string {
+  const preset = getTradeAccountTemplatePreset(template)
+  if (locale === 'en' && preset.value === 'manual') return 'Manual / custom'
+  if (locale === 'en' && preset.value === 'swing-europe') return 'Europe swing trading'
+  return preset.label
 }
 
 export type TradeMarketTemplatePreset = {
@@ -444,8 +448,9 @@ export function getTradeMarketTemplatePreset(template?: string | null): TradeMar
   return marketTemplates[normalizeTradeMarketTemplate(template)]
 }
 
-export function getMarketTemplateLabel(template?: string | null): string {
-  return getTradeMarketTemplatePreset(template).label
+export function getMarketTemplateLabel(template?: string | null, locale: JournalLocale = 'de'): string {
+  const preset = getTradeMarketTemplatePreset(template)
+  return locale === 'en' && preset.value === 'manual' ? 'No market template' : preset.label
 }
 
 export const accountTemplateOptions: Array<{ value: TradeAccountTemplate; label: string }> = [

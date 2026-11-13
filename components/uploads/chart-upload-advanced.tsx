@@ -1,5 +1,7 @@
 'use client'
 
+import { useJournalLocale } from '@/components/layout/journal-locale-provider'
+import { journalText } from '@/lib/i18n/journal'
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type DragEvent, type MouseEvent } from 'react'
 import { SetupImageLightbox } from '@/components/setups/setup-image-lightbox'
 
@@ -9,7 +11,7 @@ type PreviewItem = {
 }
 
 export function ChartUploadAdvanced({
-  label = 'Screenshots / Chartbilder',
+  label,
   multiple = true,
   onFilesChange,
 }: {
@@ -17,6 +19,8 @@ export function ChartUploadAdvanced({
   multiple?: boolean
   onFilesChange?: (files: File[]) => void
 }) {
+  const locale = useJournalLocale()
+  const text = journalText(locale)
   const inputRef = useRef<HTMLInputElement | null>(null)
   const [files, setFiles] = useState<File[]>([])
   const [dragActive, setDragActive] = useState(false)
@@ -75,7 +79,7 @@ export function ChartUploadAdvanced({
 
   return (
     <div className="rounded-2xl border border-orange-400/15 bg-black/40 p-4">
-      <p className="text-xs uppercase tracking-[0.2em] text-white/45">{label}</p>
+      <p className="text-xs uppercase tracking-[0.2em] text-white/45">{label ?? text('Screenshots / Chartbilder', 'Screenshots and chart images')}</p>
 
       <input
         ref={inputRef}
@@ -105,7 +109,7 @@ export function ChartUploadAdvanced({
         }`}
       >
         <div>
-          <p>Datei ziehen, klicken oder mit Strg+V Screenshot einfügen</p>
+          <p>{text('Bild hierher ziehen, klicken oder einfügen', 'Drop an image here, click to choose one, or paste it')}</p>
           <p className="mt-2 text-xs text-white/35">PNG / JPG / WEBP</p>
         </div>
       </div>
@@ -117,8 +121,8 @@ export function ChartUploadAdvanced({
               <SetupImageLightbox
                 src={preview.url}
                 alt={preview.file.name}
-                badge="Trade-Medium"
-                hint="Klick für Großansicht"
+                badge={text('Trade-Bild', 'Trade image')}
+                hint={text('Klick für Großansicht', 'Click to enlarge')} locale={locale}
                 className="rounded-xl"
                 imageClassName="h-28 w-full rounded-xl object-cover"
               />
@@ -132,7 +136,7 @@ export function ChartUploadAdvanced({
                   }}
                   className="rounded-full border border-red-400/20 bg-red-400/10 px-2 py-1 text-[10px] text-red-300"
                 >
-                  Entfernen
+                  {text('Entfernen', 'Remove')}
                 </button>
               </div>
             </div>

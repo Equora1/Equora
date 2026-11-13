@@ -1,3 +1,5 @@
+import { formatReviewWeekday } from '@/lib/utils/review-display'
+import { journalText, type JournalLocale } from '@/lib/i18n/journal'
 import Link from 'next/link'
 import { formatMoney, type TradeCurrency } from '@/lib/utils/currency'
 
@@ -22,17 +24,19 @@ type HeatmapData = {
   }[]
 }
 
-export function TagHeatmapCard({ data }: { data: HeatmapData }) {
+export function TagHeatmapCard({ data, locale = 'de' }: { data: HeatmapData; locale?: JournalLocale }) {
+  const text = journalText(locale)
+
   const cellMap = new Map(data.cells.map((cell) => [`${cell.weekday}__${cell.tag}`, cell]))
 
   return (
     <div className="rounded-3xl border border-white/10 bg-black/40 p-4">
       <div className="mb-4 flex items-center justify-between gap-3">
         <div>
-          <h3 className="text-lg font-semibold text-white">Tag Heatmap</h3>
-          <p className="mt-1 text-sm text-white/50">Wochentage gegen die aktivsten Tags im Review-Zeitraum</p>
+          <h3 className="text-lg font-semibold text-white">{text('Tag Heatmap', 'Tag heatmap')}</h3>
+          <p className="mt-1 text-sm text-white/50">{text('Wochentage gegen die aktivsten Tags im Review-Zeitraum', 'Results by weekday and tag for this period')}</p>
         </div>
-        <span className="rounded-full border border-orange-400/20 bg-orange-400/10 px-2.5 py-1 text-[11px] text-orange-100/80">grün glüht, rot warnt</span>
+        <span className="rounded-full border border-orange-400/20 bg-orange-400/10 px-2.5 py-1 text-[11px] text-orange-100/80">{text('grün glüht, rot warnt', 'Green for profit, red for loss')}</span>
       </div>
 
       {data.tags.length ? (
@@ -42,7 +46,7 @@ export function TagHeatmapCard({ data }: { data: HeatmapData }) {
               className="grid gap-2"
               style={{ gridTemplateColumns: `140px repeat(${data.tags.length}, minmax(0, 1fr))` }}
             >
-              <div className="px-3 py-2 text-[11px] uppercase tracking-[0.22em] text-white/35">Wochentag</div>
+              <div className="px-3 py-2 text-[11px] uppercase tracking-[0.22em] text-white/35">{text('Wochentag', 'Weekday')}</div>
               {data.tags.map((tag) => (
                 <div key={tag} className="rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-center text-xs font-medium text-white/80">
                   {tag}
@@ -57,7 +61,7 @@ export function TagHeatmapCard({ data }: { data: HeatmapData }) {
                 style={{ gridTemplateColumns: `140px repeat(${data.tags.length}, minmax(0, 1fr))` }}
               >
                 <div className="flex items-center rounded-2xl border border-white/10 bg-white/5 px-3 py-3 text-sm text-white/75">
-                  {weekday}
+                  {formatReviewWeekday(weekday, locale)}
                 </div>
 
                 {data.tags.map((tag) => {
@@ -73,8 +77,8 @@ export function TagHeatmapCard({ data }: { data: HeatmapData }) {
                         <span className="text-[11px] uppercase tracking-[0.16em] text-white/45">Trades</span>
                         <span className="text-base font-semibold text-white">{cell?.tradeCount ?? 0}</span>
                       </div>
-                      <p className="mt-3 text-sm text-white/85">{cell?.currency ? formatMoney(cell.netPnL, cell.currency) : '—'}</p>
-                      {cell?.href ? <p className="mt-3 text-xs uppercase tracking-[0.18em] text-white/35">Drilldown öffnen</p> : null}
+                      <p className="mt-3 text-sm text-white/85">{cell?.currency ? formatMoney(cell.netPnL, cell.currency, 0, locale) : '—'}</p>
+                      {cell?.href ? <p className="mt-3 text-xs uppercase tracking-[0.18em] text-white/35">{text('Drilldown öffnen', 'View tagged trades')}</p> : null}
                     </div>
                   )
 
@@ -92,7 +96,7 @@ export function TagHeatmapCard({ data }: { data: HeatmapData }) {
         </div>
       ) : (
         <div className="rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-white/55">
-          Noch zu wenig Tag-Daten für eine Heatmap. Sobald im Review-Zeitraum mehrere sauber getaggte Trades liegen, glühen hier die aktiven Muster auf.
+          {text('Noch zu wenig Tag-Daten für eine Heatmap. Sobald im Review-Zeitraum mehrere sauber getaggte Trades liegen, glühen hier die aktiven Muster auf.', 'Tag more trades in this period to see the weekday heatmap.')}
         </div>
       )}
     </div>

@@ -1,4 +1,6 @@
 export type SnippingCaptureResult = 'winner' | 'loser' | 'breakeven' | 'open'
+import { journalText, type JournalLocale } from '@/lib/i18n/journal'
+
 export type SnippingSource = 'tradingview-position' | 'generic'
 export type SnippingPlausibility = 'good' | 'review' | 'critical'
 export type SnippingCheckLevel = 'good' | 'review' | 'critical'
@@ -293,7 +295,8 @@ function makePlausibilityChecks(input: {
   leverage?: string
   statedRiskReward?: string
   calculatedRiskReward?: string
-}) {
+}, locale: JournalLocale) {
+  const copy = journalText(locale)
   const checks: SnippingPlausibilityCheck[] = []
   const entry = parseNumberish(input.entry)
   const stop = parseNumberish(input.stopLoss)
@@ -308,10 +311,10 @@ function makePlausibilityChecks(input: {
 
   if (input.source === 'tradingview-position') {
     if (entry === null) {
-      checks.push({ key: 'entry-missing', label: 'Entry', level: 'review', message: 'Entry wurde nicht sicher erkannt.' })
+      checks.push({ key: 'entry-missing', label: 'Entry', level: 'review', message: copy('Entry wurde nicht sicher erkannt.', 'The entry price could not be read reliably.') })
     }
     if (stop === null) {
-      checks.push({ key: 'stop-missing', label: 'Stop', level: 'review', message: 'Stop wurde nicht sicher erkannt.' })
+      checks.push({ key: 'stop-missing', label: 'Stop', level: 'review', message: copy('Stop wurde nicht sicher erkannt.', 'The stop price could not be read reliably.') })
     }
   }
 
@@ -319,11 +322,11 @@ function makePlausibilityChecks(input: {
     const validStop = input.bias === 'Long' ? stop < entry : stop > entry
     checks.push({
       key: 'stop-direction',
-      label: 'Stop-Richtung',
+      label: copy('Stop-Richtung', 'Stop placement'),
       level: validStop ? 'good' : 'critical',
       message: validStop
-        ? `Stop liegt für ${input.bias} auf der plausiblen Seite des Entry.`
-        : `Stop liegt für ${input.bias} auf der falschen Seite des Entry. Dezimalstellen oder Richtung prüfen.`,
+        ? copy(`Stop liegt für ${input.bias} auf der plausiblen Seite des Entry.`, `The stop is on the expected side of the entry for ${input.bias}.`)
+        : copy(`Stop liegt für ${input.bias} auf der falschen Seite des Entry. Dezimalstellen oder Richtung prüfen.`, `The stop is on the wrong side of the entry for ${input.bias}. Check the decimal places or direction.`),
     })
   }
 
@@ -331,44 +334,44 @@ function makePlausibilityChecks(input: {
     const validTarget = input.bias === 'Long' ? target > entry : target < entry
     checks.push({
       key: 'target-direction',
-      label: 'Ziel-Richtung',
+      label: copy('Ziel-Richtung', 'Target placement'),
       level: validTarget ? 'good' : 'critical',
       message: validTarget
-        ? `Take Profit liegt für ${input.bias} auf der plausiblen Seite des Entry.`
-        : `Take Profit liegt für ${input.bias} auf der falschen Seite des Entry. OCR-Wert prüfen.`,
+        ? copy(`Take Profit liegt für ${input.bias} auf der plausiblen Seite des Entry.`, `The target is on the expected side of the entry for ${input.bias}.`)
+        : copy(`Take Profit liegt für ${input.bias} auf der falschen Seite des Entry. OCR-Wert prüfen.`, `The target is on the wrong side of the entry for ${input.bias}. Check the suggested price.`),
     })
   }
 
   if (!input.bias && entry !== null && (stop !== null || target !== null)) {
-    checks.push({ key: 'bias-missing', label: 'Richtung', level: 'review', message: 'Long/Short fehlt. Ohne Richtung kann Equora Stop und Ziel nicht vollständig prüfen.' })
+    checks.push({ key: 'bias-missing', label: copy('Richtung', 'Direction'), level: 'review', message: copy('Long/Short fehlt. Ohne Richtung kann Equora Stop und Ziel nicht vollständig prüfen.', 'Select long or short to check whether the stop and target match the direction.') })
   }
 
   if (riskPercent !== null) {
     const level: SnippingCheckLevel = riskPercent <= 0 || riskPercent > 10 ? 'critical' : riskPercent > 3 ? 'review' : 'good'
     const message = riskPercent <= 0
-      ? 'Risiko muss größer als 0 % sein.'
+      ? copy('Risiko muss größer als 0 % sein.', 'Risk must be above 0%.')
       : riskPercent > 10
-        ? `${formatNumberish(riskPercent)} % Risiko wirkt unplausibel hoch. Dezimalstelle prüfen.`
+        ? copy(`${formatNumberish(riskPercent)} % Risiko wirkt unplausibel hoch. Dezimalstelle prüfen.`, `Risk of ${formatNumberish(riskPercent)}% looks unusually high. Check the decimal place.`)
         : riskPercent > 3
-          ? `${formatNumberish(riskPercent)} % Risiko ist erhöht und sollte bewusst bestätigt werden.`
-          : `${formatNumberish(riskPercent)} % Risiko liegt im plausiblen Prüfbereich.`
-    checks.push({ key: 'risk-percent', label: 'Risiko', level, message })
+          ? copy(`${formatNumberish(riskPercent)} % Risiko ist erhöht und sollte bewusst bestätigt werden.`, `Risk of ${formatNumberish(riskPercent)}% is high. Verify the value.`)
+          : copy(`${formatNumberish(riskPercent)} % Risiko liegt im plausiblen Prüfbereich.`, `Risk of ${formatNumberish(riskPercent)}% is within the expected range.`)
+    checks.push({ key: 'risk-percent', label: copy('Risiko', 'Risk'), level, message })
   }
 
   if (leverage !== null) {
     const level: SnippingCheckLevel = leverage <= 0 || leverage > 100 ? 'critical' : leverage > 30 ? 'review' : 'good'
     const message = leverage <= 0
-      ? 'Hebel muss größer als 0 sein.'
+      ? copy('Hebel muss größer als 0 sein.', 'Leverage must be above zero.')
       : leverage > 100
-        ? `${formatNumberish(leverage)}x Hebel wirkt wie ein OCR- oder Eingabefehler.`
+        ? copy(`${formatNumberish(leverage)}x Hebel wirkt wie ein OCR- oder Eingabefehler.`, `${formatNumberish(leverage)}x leverage looks like a reading or entry error.`)
         : leverage > 30
-          ? `${formatNumberish(leverage)}x Hebel ist sehr hoch und sollte geprüft werden.`
-          : `${formatNumberish(leverage)}x Hebel wurde plausibel erkannt.`
-    checks.push({ key: 'leverage', label: 'Hebel', level, message })
+          ? copy(`${formatNumberish(leverage)}x Hebel ist sehr hoch und sollte geprüft werden.`, `${formatNumberish(leverage)}x leverage is very high. Verify the value.`)
+          : copy(`${formatNumberish(leverage)}x Hebel wurde plausibel erkannt.`, `${formatNumberish(leverage)}x leverage looks plausible.`)
+    checks.push({ key: 'leverage', label: copy('Hebel', 'Leverage'), level, message })
   }
 
   if (positionSize !== null && positionSize <= 0) {
-    checks.push({ key: 'position-size', label: 'Positionsgröße', level: 'critical', message: 'Positionsgröße muss größer als 0 sein.' })
+    checks.push({ key: 'position-size', label: copy('Positionsgröße', 'Position size'), level: 'critical', message: copy('Positionsgröße muss größer als 0 sein.', 'Position size must be above zero.') })
   }
 
   if (accountSize !== null && riskAmount !== null && accountSize > 0) {
@@ -378,14 +381,14 @@ function makePlausibilityChecks(input: {
       const tolerance = Math.max(0.25, Math.abs(riskPercent) * 0.2)
       checks.push({
         key: 'risk-consistency',
-        label: 'Risiko-Abgleich',
+        label: copy('Risiko-Abgleich', 'Risk check'),
         level: difference <= tolerance ? 'good' : 'review',
         message: difference <= tolerance
-          ? `Risikobetrag und Kontogröße entsprechen ungefähr ${formatNumberish(derivedPercent)} %.`
-          : `Risikobetrag/Kontogröße ergeben ${formatNumberish(derivedPercent)} %, erkannt wurden aber ${formatNumberish(riskPercent)} %.`,
+          ? copy(`Risikobetrag und Kontogröße entsprechen ungefähr ${formatNumberish(derivedPercent)} %.`, `The risk amount is about ${formatNumberish(derivedPercent)}% of the account value.`)
+          : copy(`Risikobetrag/Kontogröße ergeben ${formatNumberish(derivedPercent)} %, erkannt wurden aber ${formatNumberish(riskPercent)} %.`, `The risk amount is ${formatNumberish(derivedPercent)}% of the account value. The screenshot shows ${formatNumberish(riskPercent)}%.`),
       })
     } else {
-      checks.push({ key: 'risk-derived', label: 'Risiko-Abgleich', level: 'good', message: `Aus Kontogröße und Risikobetrag ergeben sich ungefähr ${formatNumberish(derivedPercent)} %.` })
+      checks.push({ key: 'risk-derived', label: copy('Risiko-Abgleich', 'Risk check'), level: 'good', message: copy(`Aus Kontogröße und Risikobetrag ergeben sich ungefähr ${formatNumberish(derivedPercent)} %.`, `The risk amount is about ${formatNumberish(derivedPercent)}% of the account value.`) })
     }
   }
 
@@ -393,11 +396,11 @@ function makePlausibilityChecks(input: {
     const difference = Math.abs(statedRr - calculatedRr)
     checks.push({
       key: 'rr-consistency',
-      label: 'CRV-Abgleich',
+      label: copy('CRV-Abgleich', 'Risk/reward check'),
       level: difference <= 0.25 ? 'good' : 'review',
       message: difference <= 0.25
-        ? `Angegebenes und aus Entry/Stop/Ziel berechnetes CRV stimmen ungefähr überein.`
-        : `Angegebenes CRV ${formatNumberish(statedRr)} weicht vom berechneten CRV ${formatNumberish(calculatedRr)} ab.`,
+        ? copy(`Angegebenes und aus Entry/Stop/Ziel berechnetes CRV stimmen ungefähr überein.`, `The stated risk/reward ratio roughly matches the entry, stop and target.`)
+        : copy(`Angegebenes CRV ${formatNumberish(statedRr)} weicht vom berechneten CRV ${formatNumberish(calculatedRr)} ab.`, `The stated risk/reward ratio of ${formatNumberish(statedRr)} differs from the calculated ${formatNumberish(calculatedRr)}.`),
     })
   }
 
@@ -410,7 +413,8 @@ function makePlausibilityChecks(input: {
   return { checks, plausibility }
 }
 
-export function parseTradeFromSnipText(rawText: string, marketOptions: string[] = [], preset: ParserPreset = 'auto'): SnippingParseResult {
+export function parseTradeFromSnipText(rawText: string, marketOptions: string[] = [], preset: ParserPreset = 'auto', locale: JournalLocale = 'de'): SnippingParseResult {
+  const copy = journalText(locale)
   const text = normalizeText(rawText)
   const lines = splitLines(text)
   const hints: string[] = []
@@ -421,14 +425,14 @@ export function parseTradeFromSnipText(rawText: string, marketOptions: string[] 
   const market = marketResult.value
   if (market) {
     fieldConfidence.market = marketResult.confidence
-    hints.push(`Markt erkannt: ${market}`)
+    hints.push(copy(`Markt erkannt: ${market}`, `Market detected: ${market}`))
   }
 
   const biasResult = detectBias(text)
   const bias = biasResult.value
   if (bias) {
     fieldConfidence.bias = biasResult.confidence
-    hints.push(`Richtung erkannt: ${bias}`)
+    hints.push(copy(`Richtung erkannt: ${bias}`, `Direction detected: ${bias}`))
   }
 
   const entryResult = extractLabeledNumber(lines, [
@@ -491,7 +495,7 @@ export function parseTradeFromSnipText(rawText: string, marketOptions: string[] 
     leverage,
     statedRiskReward: rrResult.value,
     calculatedRiskReward,
-  })
+  }, locale)
 
   const captureResult = inferCaptureResult(netPnL, source)
   const detectedValues = [market, bias, entry, exit, stopLoss, takeProfit, positionSize, netPnL, accountSize, riskPercent, riskAmount, leverage, riskRewardRatio]
@@ -504,16 +508,16 @@ export function parseTradeFromSnipText(rawText: string, marketOptions: string[] 
   const confidence = Math.min(0.97, Math.max(0.12, averageConfidence * 0.72 + coverage * 0.28 - plausibilityPenalty))
 
   if (source === 'tradingview-position') {
-    hints.push('TradingView-Positionsmaske erkannt. Alle Werte bleiben Vorschläge und müssen vor dem Speichern geprüft werden.')
-    if (!market) hints.push('Der Markt steht oft nicht im Einstellungsfenster. Falls er fehlt, bitte im Trade-Formular ergänzen.')
-    if (entry && stopLoss && takeProfit && riskRewardRatio) hints.push(`CRV abgeleitet: ${riskRewardRatio} : 1`)
+    hints.push(copy('TradingView-Positionsmaske erkannt. Alle Werte bleiben Vorschläge und müssen vor dem Speichern geprüft werden.', 'TradingView position settings detected. Check the suggested values before saving.'))
+    if (!market) hints.push(copy('Der Markt steht oft nicht im Einstellungsfenster. Falls er fehlt, bitte im Trade-Formular ergänzen.', 'If the market is missing from the screenshot, add it in the trade form.'))
+    if (entry && stopLoss && takeProfit && riskRewardRatio) hints.push(copy(`CRV abgeleitet: ${riskRewardRatio} : 1`, `Calculated risk/reward: ${riskRewardRatio} : 1`))
   } else if (!entry && !exit && !netPnL) {
-    hints.push('Tipp: Schneide möglichst nur die Positionsbox oder Order-Zeile aus, dann wird OCR deutlich treffsicherer.')
+    hints.push(copy('Tipp: Schneide möglichst nur die Positionsbox oder Order-Zeile aus, dann wird OCR deutlich treffsicherer.', 'Crop the image to the position box or order row for better results.'))
   }
-  if (netPnL) hints.push(`P&L erkannt: ${netPnL}`)
-  if (positionSize) hints.push(`Größe erkannt: ${positionSize}`)
-  if (riskPercent) hints.push(`Geplantes Risiko erkannt: ${riskPercent}%`)
-  if (leverage) hints.push(`Hebel erkannt: ${leverage}x`)
+  if (netPnL) hints.push(copy(`P&L erkannt: ${netPnL}`, `P&L detected: ${netPnL}`))
+  if (positionSize) hints.push(copy(`Größe erkannt: ${positionSize}`, `Position size detected: ${positionSize}`))
+  if (riskPercent) hints.push(copy(`Geplantes Risiko erkannt: ${riskPercent}%`, `Planned risk detected: ${riskPercent}%`))
+  if (leverage) hints.push(copy(`Hebel erkannt: ${leverage}x`, `Leverage detected: ${leverage}x`))
 
   return {
     rawText: text,

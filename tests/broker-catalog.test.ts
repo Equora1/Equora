@@ -161,6 +161,8 @@ describe("provider-neutral broker catalog", () => {
     expect(
       findBrokerCatalogEntries("Optionen").map((broker) => broker.brokerCode),
     ).toEqual(["generic_csv"]);
+    expect(findBrokerCatalogEntries("Other brokers").map((broker) => broker.brokerCode)).toEqual(["generic_csv"]);
+    expect(findBrokerCatalogEntries("options").map((broker) => broker.brokerCode)).toEqual(["generic_csv"]);
     expect(
       findBrokerCatalogEntries("cTrader").map((broker) => broker.brokerCode),
     ).toEqual(["ctrader_platform"]);

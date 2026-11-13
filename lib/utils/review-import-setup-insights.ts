@@ -1,3 +1,4 @@
+import { journalText, type JournalLocale } from '@/lib/i18n/journal'
 import type { Trade } from '@/lib/types/trade'
 import type { ReviewTagRadarItem } from '@/lib/utils/review-types'
 import { formatCurrency, formatRMultiple } from '@/lib/utils/calculations'
@@ -45,16 +46,17 @@ function buildSetupBuckets(trades: Trade[]): SetupBucket[] {
     .sort((left, right) => right.trades.length - left.trades.length || Math.abs(right.netPnL) - Math.abs(left.netPnL))
 }
 
-export function buildReviewSetupInsights(trades: Trade[]): ReviewTagRadarItem[] {
+export function buildReviewSetupInsights(trades: Trade[], locale: JournalLocale = 'de'): ReviewTagRadarItem[] {
+  const text = journalText(locale)
   const currency = getCoreMetrics(trades).currency
-  const money = (value: number) => formatCurrency(value, 0, currency)
+  const money = (value: number) => formatCurrency(value, 0, currency, locale)
   const buckets = buildSetupBuckets(trades)
   if (!buckets.length) {
     return [
       {
         label: 'Setups',
-        value: 'Noch nicht verknüpft',
-        detail: 'Trades einem Setup zuordnen. Dann sieht Review, was wirklich trägt.',
+        value: text('Noch nicht verknüpft', 'No linked setups'),
+        detail: text('Trades einem Setup zuordnen. Dann sieht Review, was wirklich trägt.', 'Link trades to setups to see how each setup performed.'),
         tone: 'orange',
         href: '/setups',
       },
@@ -68,9 +70,9 @@ export function buildReviewSetupInsights(trades: Trade[]): ReviewTagRadarItem[] 
 
   if (strongest) {
     insights.push({
-      label: 'Trägt',
+      label: text('Trägt', 'Strongest'),
       value: strongest.setup,
-      detail: `${strongest.trades.length} Trades · ${money(strongest.netPnL)} · Trefferquote ${Math.round(strongest.winRate)}% · ØR ${formatRMultiple(strongest.averageR)}`,
+      detail: text(`${strongest.trades.length} Trades · ${money(strongest.netPnL)} · Trefferquote ${Math.round(strongest.winRate)}% · ØR ${formatRMultiple(strongest.averageR, 2, locale)}`, `${strongest.trades.length} trades · ${money(strongest.netPnL)} · ${Math.round(strongest.winRate)}% win rate · Avg. R ${formatRMultiple(strongest.averageR, 2, locale)}`),
       tone: toneFromPnL(strongest.netPnL),
       href: `/trades?setup=${encodeURIComponent(strongest.setup)}`,
     })
@@ -78,9 +80,9 @@ export function buildReviewSetupInsights(trades: Trade[]): ReviewTagRadarItem[] 
 
   if (weakest && weakest.setup !== strongest?.setup && weakest.netPnL < 0) {
     insights.push({
-      label: 'Prüfen',
+      label: text('Prüfen', 'Review'),
       value: weakest.setup,
-      detail: `${weakest.trades.length} Trades · ${money(weakest.netPnL)}. Regel oder Session enger fassen.`,
+      detail: text(`${weakest.trades.length} Trades · ${money(weakest.netPnL)}. Regel oder Session enger fassen.`, `${weakest.trades.length} trades · ${money(weakest.netPnL)}. Review the setup rules or session.`),
       tone: 'red',
       href: `/trades?setup=${encodeURIComponent(weakest.setup)}&reviewFocus=${encodeURIComponent('Setup prüfen')}`,
     })
@@ -88,9 +90,9 @@ export function buildReviewSetupInsights(trades: Trade[]): ReviewTagRadarItem[] 
 
   if (mostTraded && mostTraded.setup !== strongest?.setup && mostTraded.setup !== weakest?.setup) {
     insights.push({
-      label: 'Häufig',
+      label: text('Häufig', 'Most traded'),
       value: mostTraded.setup,
-      detail: `${mostTraded.trades.length} Trades · ${money(mostTraded.netPnL)}. Prüfen, ob Häufigkeit auch Qualität bringt.`,
+      detail: text(`${mostTraded.trades.length} Trades · ${money(mostTraded.netPnL)}. Prüfen, ob Häufigkeit auch Qualität bringt.`, `${mostTraded.trades.length} trades · ${money(mostTraded.netPnL)}. Review whether trading it more often improved results.`),
       tone: toneFromPnL(mostTraded.netPnL),
       href: `/trades?setup=${encodeURIComponent(mostTraded.setup)}`,
     })
@@ -99,14 +101,15 @@ export function buildReviewSetupInsights(trades: Trade[]): ReviewTagRadarItem[] 
   return insights.slice(0, 3)
 }
 
-export function buildReviewImportInsights(trades: Trade[]): ReviewTagRadarItem[] {
+export function buildReviewImportInsights(trades: Trade[], locale: JournalLocale = 'de'): ReviewTagRadarItem[] {
+  const text = journalText(locale)
   const importedTrades = trades.filter((trade) => trade.hasImportMeta)
   if (!importedTrades.length) {
     return [
       {
         label: 'Import',
-        value: 'Manuelle Trades',
-        detail: 'Keine Importdaten im Zeitraum. Review liest nur manuelle Einträge.',
+        value: text('Manuelle Trades', 'Manually entered trades'),
+        detail: text('Keine Importdaten im Zeitraum. Review liest nur manuelle Einträge.', 'No imported trades in this period.'),
         tone: 'orange',
         href: '/trades',
       },
@@ -123,8 +126,8 @@ export function buildReviewImportInsights(trades: Trade[]): ReviewTagRadarItem[]
   const insights: ReviewTagRadarItem[] = [
     {
       label: 'Import',
-      value: `${importedTrades.length} importiert`,
-      detail: averageTrust !== null ? `${preset} · Vertrauen ${averageTrust}%. Feldherkunft im Trade-Detail prüfen.` : `${preset}. Feldherkunft im Trade-Detail prüfen.`,
+      value: text(`${importedTrades.length} importiert`, `${importedTrades.length} imported`),
+      detail: averageTrust !== null ? text(`${preset} · Vertrauen ${averageTrust}%. Feldherkunft im Trade-Detail prüfen.`, `${preset} · ${averageTrust}% confidence. Open trade details to see where each field came from.`) : text(`${preset}. Feldherkunft im Trade-Detail prüfen.`, `${preset}. Open trade details to see where each field came from.`),
       tone: averageTrust !== null && averageTrust >= 75 ? 'emerald' : 'orange',
       href: '/trades',
     },
@@ -132,27 +135,27 @@ export function buildReviewImportInsights(trades: Trade[]): ReviewTagRadarItem[]
 
   if (missingR.length) {
     insights.push({
-      label: 'R offen',
+      label: text('R offen', 'R missing'),
       value: `${missingR.length} Trade${missingR.length === 1 ? '' : 's'}`,
-      detail: 'Stop oder Risiko fehlt im Export. R nicht erzwingen, Risiko nachtragen.',
+      detail: text('Stop oder Risiko fehlt im Export. R nicht erzwingen, Risiko nachtragen.', 'The export lacks a stop or risk value. Add the missing risk data before calculating R.'),
       tone: 'orange',
-      href: `/trades?reviewFocus=${encodeURIComponent('R offen')}`,
+      href: `/trades?reviewFocus=${encodeURIComponent(text('R offen', 'R missing'))}`,
     })
   }
 
   if (warnings) {
     insights.push({
-      label: 'Warnungen',
-      value: `${warnings} Hinweis${warnings === 1 ? '' : 'e'}`,
-      detail: 'Import-Zeilen mit Hinweis zuerst prüfen. Lieber offen als falsch sauber.',
+      label: text('Warnungen', 'Warnings'),
+      value: text(`${warnings} Hinweis${warnings === 1 ? '' : 'e'}`, `${warnings} ${warnings === 1 ? 'warning' : 'warnings'}`),
+      detail: text('Import-Zeilen mit Hinweis zuerst prüfen. Lieber offen als falsch sauber.', 'Review import rows with warnings first.'),
       tone: 'red',
       href: `/trades?reviewFocus=${encodeURIComponent('Import prüfen')}`,
     })
   } else if (pnlFromFile.length) {
     insights.push({
       label: 'P&L',
-      value: 'Aus Datei',
-      detail: `${pnlFromFile.length} Ergebnis${pnlFromFile.length === 1 ? '' : 'se'} wurden aus Importdaten gelesen, nicht geraten.`,
+      value: text('Aus Datei', 'From file'),
+      detail: text(`${pnlFromFile.length} Ergebnis${pnlFromFile.length === 1 ? '' : 'se'} wurden aus Importdaten gelesen, nicht geraten.`, `${pnlFromFile.length} ${pnlFromFile.length === 1 ? 'result came' : 'results came'} directly from the import file.`),
       tone: 'emerald',
       href: '/trades',
     })

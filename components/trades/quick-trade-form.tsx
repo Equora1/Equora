@@ -1,5 +1,7 @@
 'use client'
 
+import { useJournalLocale } from '@/components/layout/journal-locale-provider'
+import { journalText } from '@/lib/i18n/journal'
 import { useEffect, useMemo, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { createQuickTradeEntry, syncTradeMedia } from '@/app/actions/trades'
@@ -14,7 +16,7 @@ import { getTradeCaptureResultLabel } from '@/lib/utils/trade-capture'
 import {
   getInitialQuickCapturePromptIndex,
   getNextQuickCapturePromptIndex,
-  quickCapturePrompts,
+  getQuickCapturePrompt,
 } from '@/lib/utils/quick-capture-prompts'
 
 const QUICK_CAPTURE_PREFS_KEY = 'equora.quickCapturePrefs.v56.20'
@@ -26,11 +28,8 @@ type QuickCapturePrefs = {
   tradeState?: 'open' | 'closed'
 }
 
-const quickResultOptions = [
-  { value: 'winner', label: getTradeCaptureResultLabel('winner') },
-  { value: 'loser', label: getTradeCaptureResultLabel('loser') },
-  { value: 'breakeven', label: getTradeCaptureResultLabel('breakeven') },
-] as const
+const quickResults = ['winner', 'loser', 'breakeven'] as const
+type QuickResult = (typeof quickResults)[number]
 
 function dedupeFiles(files: File[]) {
   return Array.from(new Map(files.map((file) => [`${file.name}-${file.size}-${file.lastModified}`, file])).values())
@@ -49,13 +48,15 @@ export function QuickTradeForm({
   setups: string[]
   tagOptions: string[]
 }) {
+  const locale = useJournalLocale()
+  const text = journalText(locale)
   const router = useRouter()
   const [market, setMarket] = useState(markets[0] ?? '')
   const [setup, setSetup] = useState(setups[0] ?? '')
   const [tradeState, setTradeState] = useState<'open' | 'closed'>('open')
-  const [captureResult, setCaptureResult] = useState<(typeof quickResultOptions)[number]['value']>('winner')
+  const [captureResult, setCaptureResult] = useState<QuickResult>('winner')
   const [notes, setNotes] = useState('')
-  const [promptIndex, setPromptIndex] = useState(() => getInitialQuickCapturePromptIndex())
+  const [promptIndex, setPromptIndex] = useState(0)
   const [selectedTags, setSelectedTags] = useState<string[]>([])
   const [snippingFiles, setSnippingFiles] = useState<File[]>([])
   const [files, setFiles] = useState<File[]>([])
@@ -65,15 +66,16 @@ export function QuickTradeForm({
   const [isPending, startTransition] = useTransition()
 
   const pendingFiles = useMemo(() => dedupeFiles([...snippingFiles, ...files]), [files, snippingFiles])
-  const activePrompt = quickCapturePrompts[promptIndex] ?? quickCapturePrompts[0]
+  const activePrompt = getQuickCapturePrompt(promptIndex, locale)
   const effectiveCaptureResult: 'winner' | 'loser' | 'breakeven' | 'open' = tradeState === 'open' ? 'open' : captureResult
-  const selectedTagHint = useMemo(() => {
-    if (selectedTags.length === 0) return 'Tags bleiben optional. Ein oder zwei Tags helfen später beim Review.'
-    if (selectedTags.length === 1) return 'Noch ein Tag möglich.'
-    return 'Tag-Limit erreicht.'
-  }, [selectedTags])
+  const selectedTagHint = selectedTags.length === 0
+    ? text('Tags bleiben optional. Ein oder zwei Tags helfen später beim Review.', 'Add up to two tags to help with your review later.')
+    : selectedTags.length === 1
+      ? text('Noch ein Tag möglich.', 'You can add one more tag.')
+      : text('Tag-Limit erreicht.', 'Two tags selected.')
 
   useEffect(() => {
+    setPromptIndex(getInitialQuickCapturePromptIndex())
     if (typeof window === 'undefined') return
     try {
       const raw = window.localStorage.getItem(QUICK_CAPTURE_PREFS_KEY)
@@ -118,7 +120,7 @@ export function QuickTradeForm({
         setCaptureResult(payload.captureResult)
       }
     }
-    setStatus('Snipping-Vorschläge übernommen. Du kannst jetzt direkt speichern.')
+    setStatus(text('Snipping-Vorschläge übernommen. Du kannst jetzt direkt speichern.', 'Screenshot suggestions applied. Review the details before saving.'))
   }
 
   function resetForm() {
@@ -132,7 +134,7 @@ export function QuickTradeForm({
     setPromptIndex((current) => getNextQuickCapturePromptIndex(current))
   }
 
-  const saveLabel = pendingFiles.length ? 'Screenshot sichern' : market.trim() || setup.trim() ? 'Trade + Zeit sichern' : 'Markt, Setup oder Screenshot ergänzen'
+  const saveLabel = pendingFiles.length ? text('Screenshot sichern', 'Save screenshot') : market.trim() || setup.trim() ? text('Trade + Zeit sichern', 'Save trade and time') : text('Markt, Setup oder Screenshot ergänzen', 'Add a market, setup or screenshot')
 
   function handleSubmit() {
     setStatus('')
@@ -140,7 +142,7 @@ export function QuickTradeForm({
     setValidationErrors({})
 
     if (!pendingFiles.length && !market.trim() && !setup.trim() && !notes.trim()) {
-      setStatus('Bitte mindestens einen Screenshot sichern oder Asset / Setup kurz benennen.')
+      setStatus(text('Bitte mindestens einen Screenshot sichern oder Asset / Setup kurz benennen.', 'Add a screenshot, market or setup first.'))
       return
     }
 
@@ -153,7 +155,7 @@ export function QuickTradeForm({
         capturedAt: new Date().toISOString(),
         screenshotUrl: '',
         tags: selectedTags,
-      })
+      }, locale)
 
       if (!result.success) {
         setStatus(result.message)
@@ -168,25 +170,26 @@ export function QuickTradeForm({
       if (pendingFiles.length && result.tradeId && result.mode === 'supabase') {
         let uploaded: TradeMediaUploadInput[] = []
         try {
-          setStatus('Screenshots werden in den Bucket geladen...')
+          setStatus(text('Screenshots werden hochgeladen …', 'Uploading screenshots…'))
           uploaded = await uploadTradeScreenshots(result.tradeId, pendingFiles)
           const mediaResult = await syncTradeMedia(result.tradeId, normalizeMedia(uploaded))
           if (!mediaResult.success) {
             await requestUncommittedMediaCleanup({ kind: 'trade', parentId: result.tradeId, storagePaths: uploaded.map((item) => item.storagePath) })
-            setStatus(`${result.message} Screenshot-Sync hakt noch: ${mediaResult.message}`)
+            setStatus(`${result.message} ${text('Die Screenshots konnten nicht angehängt werden.', 'The screenshots could not be attached.')}`)
             return
           }
-          setStatus(`${result.message} ${pendingFiles.length} Screenshot(s) angehängt.`)
-        } catch (error) {
+          const count = pendingFiles.length
+          setStatus(`${result.message} ${text(`${count} Screenshot(s) angehängt.`, `${count} ${count === 1 ? 'screenshot' : 'screenshots'} attached.`)}`)
+        } catch {
           if (uploaded.length) {
             await requestUncommittedMediaCleanup({ kind: 'trade', parentId: result.tradeId, storagePaths: uploaded.map((item) => item.storagePath) })
           }
-          setStatus(`${result.message} Screenshot-Upload hakt noch: ${error instanceof Error ? error.message : 'Unbekannter Fehler.'}`)
+          setStatus(`${result.message} ${text('Die Screenshots konnten nicht hochgeladen werden.', 'The screenshots could not be uploaded.')}`)
           return
         }
       } else {
         if (pendingFiles.length && result.mode !== 'supabase') {
-          setStatus(`${result.message} Screenshot-Upload bleibt im Demo-Modus lokal offen.`)
+          setStatus(`${result.message} ${text('Im Demo-Modus werden keine Screenshots hochgeladen.', 'Demo mode keeps screenshots on this device.')}`)
         } else {
           setStatus(result.message)
         }
@@ -198,11 +201,11 @@ export function QuickTradeForm({
   }
 
   return (
-    <section className="rounded-[30px] border border-[#c8823a]/16 bg-[#c8823a]/[0.045] p-5 shadow-2xl xl:p-6">
+    <section lang={locale} className="rounded-[30px] border border-[#c8823a]/16 bg-[#c8823a]/[0.045] p-5 shadow-2xl xl:p-6">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
         <div>
-          <p className="text-xs uppercase tracking-[0.24em] text-[#f0a855]/78">Schnellerfassung mit Screenshot</p>
-          <h2 className="mt-2 text-2xl font-semibold text-white">Erst den Screenshot sichern, den Rest später</h2>
+          <p className="text-xs uppercase tracking-[0.24em] text-[#f0a855]/78">{text('Schnellerfassung mit Screenshot', 'Quick entry with a screenshot')}</p>
+          <h2 className="mt-2 text-2xl font-semibold text-white">{text('Erst den Screenshot sichern, den Rest später', 'Save a screenshot and add details later')}</h2>
           
         </div>
         <button
@@ -211,14 +214,14 @@ export function QuickTradeForm({
           disabled={isPending}
           className="eq-button-primary rounded-2xl px-5 py-3 text-sm font-medium transition hover:scale-[1.01] disabled:cursor-not-allowed disabled:opacity-70"
         >
-          {isPending ? 'Sichert gerade...' : saveLabel}
+          {isPending ? text('Sichert gerade...', 'Saving…') : saveLabel}
         </button>
       </div>
 
       <div className="mt-5 rounded-3xl border border-white/10 bg-black/18 p-4">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <p className="text-[10px] uppercase tracking-[0.22em] text-white/38">Trade-Stand</p>
+            <p className="text-[10px] uppercase tracking-[0.22em] text-white/38">{text('Trade-Stand', 'Trade status')}</p>
             
           </div>
           <div className="flex rounded-full border border-white/10 bg-black/30 p-1 text-sm">
@@ -229,70 +232,71 @@ export function QuickTradeForm({
                 onClick={() => setTradeState(option)}
                 className={`rounded-full px-4 py-2 transition ${tradeState === option ? 'bg-[#f0a855] text-black' : 'text-white/60 hover:text-white'}`}
               >
-                {option === 'open' ? 'Offen' : 'Geschlossen'}
+                {option === 'open' ? text('Offen', 'Open') : text('Geschlossen', 'Closed')}
               </button>
             ))}
           </div>
         </div>
         {tradeState === 'closed' ? (
           <div className="mt-4 rounded-2xl border border-[#c8823a]/14 bg-[#c8823a]/[0.06] p-4">
-            <label className="block text-xs uppercase tracking-[0.2em] text-white/40">Status</label>
+            <label className="block text-xs uppercase tracking-[0.2em] text-white/40">{text('Status', 'Outcome')}</label>
             <select
+              aria-label={text('Status', 'Outcome')}
               value={captureResult}
-              onChange={(event) => setCaptureResult(event.target.value as (typeof quickResultOptions)[number]['value'])}
+              onChange={(event) => setCaptureResult(event.target.value as QuickResult)}
               className="mt-3 w-full rounded-2xl border border-[#c8823a]/18 bg-[#c8823a]/[0.07] px-4 py-3 text-sm text-white outline-none"
             >
-              {quickResultOptions.map((option) => (
-                <option key={option.value} value={option.value} className="bg-black text-white">
-                  {option.label}
+              {quickResults.map((result) => (
+                <option key={result} value={result} className="bg-black text-white">
+                  {getTradeCaptureResultLabel(result, locale)}
                 </option>
               ))}
             </select>
           </div>
         ) : (
-          <p className="mt-4 text-xs leading-5 text-white/50">Exit und exakte Rechnung kommen erst beim Schließen des Trades. Für den ersten Save reicht der Screenshot.</p>
+          <p className="mt-4 text-xs leading-5 text-white/50">{text('Exit und exakte Rechnung kommen erst beim Schließen des Trades. Für den ersten Save reicht der Screenshot.', 'Add the exit and final P&L when you close the trade. You can save a screenshot now.')}</p>
         )}
       </div>
       <div className="mt-4 rounded-3xl border border-white/10 bg-black/18 p-4">
         <div className="flex items-center justify-between gap-3">
           <div>
-            <p className="text-[10px] uppercase tracking-[0.22em] text-white/38">Screenshot zuerst</p>
-            <p className="mt-1 text-sm text-white/60">Der Screenshot ist dein sicherer Anker. Wenn darauf schon alles sichtbar ist, darf der Rest später kommen.</p>
+            <p className="text-[10px] uppercase tracking-[0.22em] text-white/38">{text('Screenshot zuerst', 'Screenshot first')}</p>
+            <p className="mt-1 text-sm text-white/60">{text('Der Screenshot ist dein sicherer Anker. Wenn darauf schon alles sichtbar ist, darf der Rest später kommen.', 'Capture the chart or position details now. You can fill in the trade later.')}</p>
           </div>
-          {pendingFiles.length ? <span className="eq-pill-soft px-3 py-1 text-[11px] uppercase tracking-[0.16em] text-[#f0a855]">{pendingFiles.length} Bild(er) im Puffer</span> : null}
+          {pendingFiles.length ? <span className="eq-pill-soft px-3 py-1 text-[11px] uppercase tracking-[0.16em] text-[#f0a855]">{text(`${pendingFiles.length} Bild(er) ausgewählt`, `${pendingFiles.length} ${pendingFiles.length === 1 ? 'image' : 'images'} selected`)}</span> : null}
         </div>
         <div className="mt-4">
           <SnippingAssistCard mode="quick" marketOptions={markets} onApply={applySnippingValues} onFilesChange={setSnippingFiles} />
         </div>
         <div className="mt-4">
-          <ChartUploadAdvanced label="Weitere Screenshots / Chartbilder" onFilesChange={setFiles} />
+          <ChartUploadAdvanced label={text('Weitere Screenshots / Chartbilder', 'More screenshots')} onFilesChange={setFiles} />
         </div>
       </div>
 
       <details className="mt-4 rounded-3xl border border-white/10 bg-black/18 p-4">
-        <summary className="cursor-pointer list-none text-sm font-medium text-white">Optionale Felder jetzt oder später ergänzen</summary>
+        <summary className="cursor-pointer list-none text-sm font-medium text-white">{text('Optionale Felder jetzt oder später ergänzen', 'Optional details')}</summary>
         <div className="mt-4 space-y-4">
           <div className="grid gap-4 lg:grid-cols-2">
             <div className="space-y-2 rounded-3xl border border-white/10 bg-black/20 p-4">
-              <label htmlFor="quick-trade-market" className="block text-xs uppercase tracking-[0.2em] text-white/40">Asset / Markt optional</label>
+              <label htmlFor="quick-trade-market" className="block text-xs uppercase tracking-[0.2em] text-white/40">{text('Asset / Markt optional', 'Market (optional)')}</label>
               <input
                 id="quick-trade-market"
                 list="quick-market-options"
                 value={market}
                 onChange={(event) => setMarket(event.target.value)}
-                placeholder="z. B. NASDAQ, BTC/USD, EUR/USD"
+                placeholder={text('z. B. NASDAQ, BTC/USD, EUR/USD', 'e.g. NASDAQ, BTC/USD, EUR/USD')}
                 className="w-full rounded-2xl border border-[#c8823a]/18 bg-[#c8823a]/[0.07] px-4 py-3 text-sm text-white outline-none placeholder:text-white/30"
               />
             </div>
 
             <div className="space-y-2 rounded-3xl border border-white/10 bg-black/20 p-4">
-              <label htmlFor="quick-trade-setup" className="block text-xs uppercase tracking-[0.2em] text-white/40">Grund / Setup optional</label>
+              <label htmlFor="quick-trade-setup" className="block text-xs uppercase tracking-[0.2em] text-white/40">{text('Grund / Setup optional', 'Setup (optional)')}</label>
               <input
                 id="quick-trade-setup"
                 list="quick-setup-options"
                 value={setup}
                 onChange={(event) => setSetup(event.target.value)}
-                placeholder="z. B. Sweep, Pullback, Reclaim"
+                placeholder={text('z. B. Sweep, Pullback, Reclaim', 'e.g. Sweep, Pullback, Reclaim')}
                 className="w-full rounded-2xl border border-[#c8823a]/18 bg-[#c8823a]/[0.07] px-4 py-3 text-sm text-white outline-none placeholder:text-white/30"
               />
             </div>
@@ -300,15 +304,15 @@ export function QuickTradeForm({
           <div className="rounded-3xl border border-[#c8823a]/14 bg-[#c8823a]/[0.06] p-4">
             <div className="flex items-center justify-between gap-3">
               <div>
-                <p className="text-[10px] uppercase tracking-[0.22em] text-[#f0a855]/60">Kurzer Kontext</p>
-                <p className="mt-1 text-sm text-white/65">Ein Satz reicht. Wenn nichts da steht, speichert der Trade trotzdem sauber.</p>
+                <p className="text-[10px] uppercase tracking-[0.22em] text-[#f0a855]/60">{text('Kurzer Kontext', 'Quick note')}</p>
+                <p className="mt-1 text-sm text-white/65">{text('Ein Satz reicht. Wenn nichts da steht, speichert der Trade trotzdem sauber.', 'A sentence is enough. The note is optional.')}</p>
               </div>
               <button
                 type="button"
                 onClick={() => setPromptIndex((current) => getNextQuickCapturePromptIndex(current))}
                 className="eq-pill-soft px-3 py-1 text-[11px] uppercase tracking-[0.18em] text-[#f0a855]"
               >
-                Neue Frage
+                {text('Neue Frage', 'New question')}
               </button>
             </div>
             <p className="mt-3 text-sm font-medium text-white">{activePrompt}</p>
@@ -317,7 +321,7 @@ export function QuickTradeForm({
               value={notes}
               onChange={(event) => setNotes(event.target.value)}
               rows={3}
-              placeholder="Ein Satz reicht"
+              placeholder={text('Ein Satz reicht', 'One sentence is enough')}
               className="mt-3 min-h-[108px] w-full rounded-2xl border border-[#c8823a]/18 bg-black/25 px-4 py-3 text-sm text-white outline-none placeholder:text-white/30"
             />
           </div>
@@ -335,7 +339,9 @@ export function QuickTradeForm({
 
       <div className="mt-5 flex flex-col gap-3 border-t border-white/10 pt-5 sm:flex-row sm:items-center sm:justify-between">
         <div className="text-sm text-white/50">
-          Gespeichert als <span className="text-[#f0a855]">{tradeState === 'open' ? 'Offen / Unvollständig' : 'Geschlossen in Kurzform'}</span>, damit der Moment zuerst sicher bleibt.
+          {tradeState === 'open'
+            ? text('Der Trade wird offen gespeichert. Fehlende Angaben kannst du später ergänzen.', 'This trade will be saved as open. Add missing details later.')
+            : text('Der Trade wird geschlossen mit dem gewählten Status erfasst. Beträge kannst du später ergänzen.', 'This trade will be recorded as closed with the selected outcome. Add amounts later.')}
         </div>
         <button
           type="button"
@@ -343,12 +349,12 @@ export function QuickTradeForm({
           disabled={isPending}
           className="eq-button-primary rounded-2xl px-5 py-3 text-sm font-medium transition hover:scale-[1.01] disabled:cursor-not-allowed disabled:opacity-70"
         >
-          {isPending ? 'Schnellerfassung speichert...' : saveLabel}
+          {isPending ? text('Schnellerfassung speichert...', 'Saving quick entry…') : saveLabel}
         </button>
       </div>
 
-      {status ? <p className="mt-4 text-sm text-white/65">{status}</p> : null}
-      {lastSavedTradeId ? <p className="mt-2 text-xs text-white/45">Trade-ID gespeichert: {lastSavedTradeId}</p> : null}
+      {status ? <p role="status" className="mt-4 text-sm text-white/65">{status}</p> : null}
+      {lastSavedTradeId ? <p className="mt-2 text-xs text-white/45">{text('Trade-ID gespeichert:', 'Saved trade ID:')} {lastSavedTradeId}</p> : null}
 
       <datalist id="quick-market-options">
         {markets.map((option) => (

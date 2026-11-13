@@ -1,3 +1,4 @@
+import { journalText, type JournalLocale } from '@/lib/i18n/journal'
 import type { Trade, TradeCalculationSource } from '@/lib/types/trade'
 import { getCoreMetrics } from '@/lib/utils/analytics'
 import { getTradeRValue, getDocumentedTradeRValue } from '@/lib/utils/trade-r'
@@ -31,11 +32,12 @@ export function getDashboardMoneyLockReason({
 }: {
   scopeKind: MonetaryScopeKind
   trustedTradeCount: number
-}) {
-  if (trustedTradeCount === 0) return 'Keine belastbaren Abschlüsse'
-  if (scopeKind === 'mixed') return 'Mehrere Währungen ohne Umrechnungskurs'
-  if (scopeKind === 'unknown') return 'Mindestens eine Währung fehlt oder wird nicht unterstützt'
-  if (scopeKind === 'empty') return 'Keine monetären Abschlüsse'
+}, locale: JournalLocale = 'de') {
+  const text = journalText(locale)
+  if (trustedTradeCount === 0) return text('Keine belastbaren Abschlüsse', 'No completed trades with reliable results')
+  if (scopeKind === 'mixed') return text('Mehrere Währungen ohne Umrechnungskurs', 'Multiple currencies without an exchange rate')
+  if (scopeKind === 'unknown') return text('Mindestens eine Währung fehlt oder wird nicht unterstützt', 'At least one currency is missing or unsupported')
+  if (scopeKind === 'empty') return text('Keine monetären Abschlüsse', 'No closed trades with P&L')
   return null
 }
 

@@ -1,18 +1,20 @@
 'use client'
 
+import { journalText, type JournalLocale } from '@/lib/i18n/journal'
 import type { CompareDimension } from '@/lib/utils/compare'
 
-const options: { label: string; value: CompareDimension }[] = [
-  { label: 'Setup', value: 'setup' },
-  { label: 'Session', value: 'session' },
-  { label: 'Emotion', value: 'emotion' },
-  { label: 'Markt', value: 'market' },
-  { label: 'Qualität', value: 'quality' },
-  { label: 'Konzept', value: 'concept' },
-  { label: 'Tags', value: 'tag' },
+const options: { label: string; en: string; value: CompareDimension }[] = [
+  { label: 'Setup', en: 'Setup', value: 'setup' },
+  { label: 'Session', en: 'Session', value: 'session' },
+  { label: 'Emotion', en: 'Emotion', value: 'emotion' },
+  { label: 'Markt', en: 'Market', value: 'market' },
+  { label: 'Qualität', en: 'Quality', value: 'quality' },
+  { label: 'Konzept', en: 'Concept', value: 'concept' },
+  { label: 'Tags', en: 'Tags', value: 'tag' },
 ]
 
-export function CompareControl({ value, onChange }: { value: CompareDimension; onChange: (value: CompareDimension) => void }) {
+export function CompareControl({ value, onChange, locale = 'de' }: { value: CompareDimension; onChange: (value: CompareDimension) => void; locale?: JournalLocale }) {
+  const text = journalText(locale)
   return (
     <div className="flex flex-wrap gap-2">
       {options.map((option) => {
@@ -27,7 +29,7 @@ export function CompareControl({ value, onChange }: { value: CompareDimension; o
                 : 'border-white/10 bg-black/20 text-white/60 hover:border-white/14 hover:text-white/75'
             }`}
           >
-            {option.label}
+            {text(option.label, option.en)}
           </button>
         )
       })}

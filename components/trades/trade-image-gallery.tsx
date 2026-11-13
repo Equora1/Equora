@@ -1,5 +1,7 @@
 'use client'
 
+import { useJournalLocale } from '@/components/layout/journal-locale-provider'
+import { journalText, type JournalLocale } from '@/lib/i18n/journal'
 import { useMemo, useState, useTransition } from 'react'
 import { removeTradeMediaItem } from '@/app/actions/trades'
 import { SetupImageLightbox } from '@/components/setups/setup-image-lightbox'
@@ -11,8 +13,10 @@ type TradeImageGalleryProps = {
 }
 
 export function TradeImageGallery({ images, tradeId, source = 'mock' }: TradeImageGalleryProps) {
+  const locale = useJournalLocale()
+  const text = journalText(locale)
   const [activeImages, setActiveImages] = useState(images)
-  const [status, setStatus] = useState<{ text: string; ok: boolean } | null>(null)
+  const [status, setStatus] = useState<{ text: string; ok: boolean; lang: JournalLocale } | null>(null)
   const [pendingImageId, setPendingImageId] = useState<string | null>(null)
   const [isPending, startTransition] = useTransition()
 
@@ -24,7 +28,7 @@ export function TradeImageGallery({ images, tradeId, source = 'mock' }: TradeIma
 
   function handleDelete(imageId: string) {
     if (!tradeId || source === 'mock') {
-      setStatus({ text: source === 'mock' ? 'Demo-Modus: Bilder werden hier nicht wirklich gelöscht.' : 'Trade-ID fehlt zum Löschen des Bildes.', ok: false })
+      setStatus({ text: source === 'mock' ? text('Demo-Modus: Bilder werden hier nicht wirklich gelöscht.', 'Demo mode. The image is kept.') : text('Trade-ID fehlt zum Löschen des Bildes.', 'The trade ID is missing. The image could not be deleted.'), ok: false, lang: locale })
       return
     }
 
@@ -32,7 +36,7 @@ export function TradeImageGallery({ images, tradeId, source = 'mock' }: TradeIma
       setPendingImageId(imageId)
       const result = await removeTradeMediaItem(tradeId, imageId)
       setPendingImageId(null)
-      setStatus({ text: result.message, ok: result.success })
+      setStatus({ text: result.message, ok: result.success, lang: 'de' })
       if (result.success) {
         setActiveImages((current) => current.filter((image) => image.id !== imageId))
       }
@@ -40,7 +44,7 @@ export function TradeImageGallery({ images, tradeId, source = 'mock' }: TradeIma
   }
 
   if (!activeImages.length) {
-    return <div className="rounded-[28px] border border-white/10 bg-white/5 px-5 py-4 text-sm text-white/55">Noch keine Screenshots vorhanden.</div>
+    return <div className="rounded-[28px] border border-white/10 bg-white/5 px-5 py-4 text-sm text-white/55">{text('Noch keine Screenshots vorhanden.', 'No screenshots yet.')}</div>
   }
 
   return (
@@ -53,9 +57,9 @@ export function TradeImageGallery({ images, tradeId, source = 'mock' }: TradeIma
               <div className="relative">
                 <SetupImageLightbox
                   src={image.image_url}
-                  alt={`Trade-Screenshot ${index + 1}`}
-                  badge={`Trade-Screenshot ${index + 1}`}
-                  hint="Klick für Großansicht"
+                  alt={text(`Trade-Screenshot ${index + 1}`, `Trade screenshot ${index + 1}`)}
+                  badge={text(`Trade-Screenshot ${index + 1}`, `Trade screenshot ${index + 1}`)}
+                  hint={text('Klick für Großansicht', 'Click to enlarge')} locale={locale}
                   className="rounded-[24px] border border-white/10 bg-black/45"
                   imageClassName="aspect-[16/6] w-full rounded-[24px] bg-[#050505] p-4 object-contain sm:aspect-[16/6] lg:aspect-[16/5]"
                   dialogClassName="max-w-[min(99vw,2200px)]"
@@ -66,7 +70,7 @@ export function TradeImageGallery({ images, tradeId, source = 'mock' }: TradeIma
                     type="button"
                     onClick={() => handleDelete(image.id)}
                     disabled={isPending}
-                    aria-label={`Trade-Screenshot ${index + 1} löschen`}
+                    aria-label={text(`Trade-Screenshot ${index + 1} löschen`, `Delete trade screenshot ${index + 1}`)}
                     className="absolute right-2 top-2 inline-flex h-8 w-8 items-center justify-center rounded-full border border-red-400/25 bg-black/70 text-red-100 transition hover:border-red-400/40 hover:bg-red-400/15 disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     {isDeletingThis ? (
@@ -86,8 +90,8 @@ export function TradeImageGallery({ images, tradeId, source = 'mock' }: TradeIma
           )
         })}
       </div>
-      <p className={`text-xs ${statusTone}`}>
-        {status?.text ?? (source === 'mock' ? 'Demo: Änderungen an der Galerie werden nicht dauerhaft gespeichert.' : 'Klicke auf ein Bild, um es zu vergrößern.')}
+      <p lang={status?.lang} className={`text-xs ${statusTone}`}>
+        {status?.text ?? (source === 'mock' ? text('Demo: Änderungen an der Galerie werden nicht dauerhaft gespeichert.', 'Demo mode. Gallery changes are temporary.') : text('Klicke auf ein Bild, um es zu vergrößern.', 'Click an image to enlarge it.'))}
       </p>
     </div>
   )

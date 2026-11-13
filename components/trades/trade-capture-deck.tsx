@@ -1,7 +1,10 @@
 'use client'
 
+import { useJournalLocale } from '@/components/layout/journal-locale-provider'
+import { journalText } from '@/lib/i18n/journal'
 import Link from 'next/link'
 import { useEffect, useState, type ReactNode } from 'react'
+import { getBrokerFileImportCopy } from '@/lib/i18n/broker-file'
 import { brokerFileImportCapability } from '@/lib/utils/broker-file-import-capability'
 
 export function TradeCaptureDeck({
@@ -17,6 +20,9 @@ export function TradeCaptureDeck({
   initialMode?: 'none' | 'quick' | 'full' | 'import'
   closeHref?: string
 }) {
+  const locale = useJournalLocale()
+  const text = journalText(locale)
+  const importCopy = getBrokerFileImportCopy(locale)
   const [mode, setMode] = useState<'none' | 'quick' | 'full' | 'import'>(initialMode)
 
   useEffect(() => {
@@ -51,16 +57,16 @@ export function TradeCaptureDeck({
   }, [])
 
   const controls = [
-    { key: 'quick' as const, label: 'Schnell', activeClass: 'border-orange-300/45 bg-orange-400/15 text-white', idleClass: 'border-orange-400/20 bg-black/30 text-orange-100/80 hover:border-orange-300/45 hover:text-white' },
-    { key: 'import' as const, label: brokerFileImportCapability.previewActionLabel, activeClass: 'border-emerald-300/35 bg-emerald-400/15 text-white', idleClass: 'border-emerald-400/20 bg-black/30 text-emerald-100/80 hover:border-emerald-300/45 hover:text-white' },
-    { key: 'full' as const, label: 'Vollständig', activeClass: 'border-white/25 bg-white/10 text-white', idleClass: 'border-white/10 bg-black/30 text-white/75 hover:border-white/20 hover:text-white' },
+    { key: 'quick' as const, label: text('Schnell', 'Screenshot'), activeClass: 'border-orange-300/45 bg-orange-400/15 text-white', idleClass: 'border-orange-400/20 bg-black/30 text-orange-100/80 hover:border-orange-300/45 hover:text-white' },
+    { key: 'import' as const, label: importCopy.preview, activeClass: 'border-emerald-300/35 bg-emerald-400/15 text-white', idleClass: 'border-emerald-400/20 bg-black/30 text-emerald-100/80 hover:border-emerald-300/45 hover:text-white' },
+    { key: 'full' as const, label: text('Vollständig', 'Full form'), activeClass: 'border-white/25 bg-white/10 text-white', idleClass: 'border-white/10 bg-black/30 text-white/75 hover:border-white/20 hover:text-white' },
   ]
 
   return (
-    <section id="trade-capture" className="rounded-3xl border border-white/10 bg-white/[0.04] p-5 shadow-2xl">
+    <section lang={locale} id="trade-capture" className="rounded-3xl border border-white/10 bg-white/[0.04] p-5 shadow-2xl">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <div className="max-w-3xl">
-          <h2 className="text-2xl font-semibold text-white">Erfassen</h2>
+          <h2 className="text-2xl font-semibold text-white">{text('Erfassen', 'Log a trade')}</h2>
         </div>
         <div className="flex flex-wrap gap-2">
           {closeHref ? (
@@ -69,7 +75,7 @@ export function TradeCaptureDeck({
               prefetch={false}
               className="rounded-full border border-white/10 bg-black/30 px-4 py-2 text-sm text-white/70 transition hover:border-white/20 hover:text-white"
             >
-              Schließen
+              {text('Schließen', 'Close')}
             </Link>
           ) : null}
           {controls.map((control) => {
@@ -80,7 +86,7 @@ export function TradeCaptureDeck({
                 key={control.key}
                 type="button"
                 disabled={isDisabled}
-                title={control.key === 'import' ? brokerFileImportCapability.blockedReason : undefined}
+                title={control.key === 'import' ? importCopy.reason : undefined}
                 onClick={() => {
                   if (isDisabled) return
                   setMode((current) => (current === control.key ? 'none' : control.key))

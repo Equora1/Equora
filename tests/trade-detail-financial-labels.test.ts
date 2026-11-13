@@ -89,6 +89,11 @@ describe('detail financial labels preserve position and currency state', () => {
     expect(restoreRemainderExitFromStoredAverage({ exit: null, partialExits: [{ percent: 50, price: 120 }] })).toBeNull()
     expect(restoreRemainderExitFromStoredAverage({ exit: 120, partialExits: [{ percent: 100, price: 120 }] })).toBeNull()
   })
+  it('identifies a weighted exit as derived when no exit price was stored', () => {
+    const exits = { ...row, partial_exits: [{ percent: 50, price: 120 }, { percent: 50, price: 110 }] }
+    expect(mapTradeRowToTradeDetail(exits).effectiveExitLabel).toBe('115,0000 aus Teilverkäufen berechnet')
+    expect(mapTradeRowToTradeDetail(exits, [], null, 'en').effectiveExitLabel).toBe('115.0000 calculated from partial exits')
+  })
   it.each([115, 117.5])('does not guess the price basis of a legacy closed partial position (%s)', (exit) => {
     const legacy = { ...row, exit, partial_exits: [{ percent: 50, price: 120 }] }
     expect(mapTradeRowToTrade(legacy)).toMatchObject({ netPnL: 10, rValue: null, rSource: 'missing' })

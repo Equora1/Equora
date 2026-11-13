@@ -1,6 +1,8 @@
+import { journalText, type JournalLocale } from '@/lib/i18n/journal'
 import Link from 'next/link'
 import { FuturisticCard } from '@/components/ui/futuristic-card'
 import { AppIcon, type AppIconName } from '@/components/ui/app-icon'
+import { getBrokerFileImportCopy } from '@/lib/i18n/broker-file'
 import { brokerFileImportCapability } from '@/lib/utils/broker-file-import-capability'
 
 type Action = {
@@ -13,20 +15,24 @@ type Action = {
 export function SimpleStartCard({
   tradeCount = 0,
   trustedTradeCount = 0,
-  evidenceLabel = 'Kleine Stichprobe',
+  evidenceLabel,
+  locale = 'de',
 }: {
   tradeCount?: number
   trustedTradeCount?: number
   evidenceLabel?: string
+  locale?: JournalLocale
 }) {
-  const mainAction: Action = { href: '/trades?focus=ledger#ledger-capture', title: 'Trade erfassen', icon: 'trades' }
+  const text = journalText(locale)
+  const importCopy = getBrokerFileImportCopy(locale)
+  const mainAction: Action = { href: '/trades?focus=ledger#ledger-capture', title: text('Trade erfassen', 'Log a trade'), icon: 'trades' }
   const secondaryActions: Action[] = [
     ...(brokerFileImportCapability.previewEnabled
       ? [{
           href: brokerFileImportCapability.previewHref,
-          title: brokerFileImportCapability.previewActionLabel,
+          title: importCopy.preview,
           icon: 'scan' as const,
-          hint: brokerFileImportCapability.blockedReason,
+          hint: importCopy.reason,
         }]
       : []),
     { href: '/broker-sync', title: 'Broker', icon: 'sync' },
@@ -38,15 +44,18 @@ export function SimpleStartCard({
       <div className="flex flex-col gap-6 xl:flex-row xl:items-center xl:justify-between">
         <div className="max-w-3xl">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="eq-pill px-3 py-1.5 text-[10px] uppercase tracking-[0.18em]">Dein Überblick</span>
-            <span className="eq-pill-soft px-3 py-1.5 text-[10px] uppercase tracking-[0.16em]">Letzte {tradeCount} Trades</span>
-            <span className="eq-pill-soft px-3 py-1.5 text-[10px] uppercase tracking-[0.16em]">{evidenceLabel}</span>
+            <span className="eq-pill px-3 py-1.5 text-[10px] uppercase tracking-[0.18em]">{text('Dein Überblick', 'Your overview')}</span>
+            <span className="eq-pill-soft px-3 py-1.5 text-[10px] uppercase tracking-[0.16em]">{text(`Letzte ${tradeCount} Trades`, `Last ${tradeCount} ${tradeCount === 1 ? 'trade' : 'trades'}`)}</span>
+            <span className="eq-pill-soft px-3 py-1.5 text-[10px] uppercase tracking-[0.16em]">{evidenceLabel ?? text('Kleine Stichprobe', 'Small sample')}</span>
           </div>
           <h1 className="mt-5 text-3xl font-semibold tracking-[-0.045em] text-white sm:text-4xl xl:text-[2.75rem]">
-            Dein Trading. <span className="eq-text-gradient">Klar im Blick.</span>
+            {text('Dein Trading.', 'Your trading.')} <span className="eq-text-gradient">{text('Klar im Blick.', 'At a glance.')}</span>
           </h1>
           <p className="mt-3 max-w-2xl text-sm leading-6 text-white/70 sm:text-base">
-            Deine Trades, Ergebnisse und Entwicklung im Überblick. Für die Kennzahlen können derzeit {trustedTradeCount} Abschlüsse berücksichtigt werden.
+            {text(
+              `Deine Trades, Ergebnisse und Entwicklung im Überblick. Für die Kennzahlen können derzeit ${trustedTradeCount} Abschlüsse berücksichtigt werden.`,
+              `See your trades, results and progress. The metrics include ${trustedTradeCount} closed ${trustedTradeCount === 1 ? 'trade' : 'trades'}.`,
+            )}
           </p>
         </div>
 

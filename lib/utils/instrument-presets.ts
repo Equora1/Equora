@@ -1,3 +1,4 @@
+import type { JournalLocale } from '@/lib/i18n/journal'
 import type {
   TradeCostProfile,
   TradeCryptoMarketType,
@@ -86,8 +87,16 @@ export function getTradeInstrumentPreset(type?: string | null): TradeInstrumentP
   return instrumentPresets[normalizeInstrumentType(type)]
 }
 
-export function getInstrumentLabel(type?: string | null): string {
-  return getTradeInstrumentPreset(type).label
+const englishLabels: Partial<Record<TradeInstrumentType, string>> = {
+  stocks: 'Stock / ETF',
+  futures: 'Futures',
+  crypto: 'Crypto',
+  unknown: 'Unknown / manual',
+}
+
+export function getInstrumentLabel(type?: string | null, locale: JournalLocale = 'de'): string {
+  const preset = getTradeInstrumentPreset(type)
+  return (locale === 'en' ? englishLabels[preset.type] : undefined) ?? preset.label
 }
 
 export const instrumentOptions: Array<{ value: TradeInstrumentType; label: string }> = [

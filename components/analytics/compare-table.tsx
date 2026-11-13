@@ -1,24 +1,26 @@
+import { journalText, type JournalLocale } from '@/lib/i18n/journal'
 import { formatRMultiple } from '@/lib/utils/calculations'
 import { FuturisticCard } from '@/components/ui/futuristic-card'
 import type { CompareResult } from '@/lib/utils/compare'
 import { formatMoney } from '@/lib/utils/currency'
 
-export function CompareTable({ title, rows }: { title: string; rows: CompareResult[] }) {
+export function CompareTable({ title, rows, locale = 'de' }: { title: string; rows: CompareResult[]; locale?: JournalLocale }) {
+  const text = journalText(locale)
   return (
     <FuturisticCard glow="orange" className="p-5">
       <div className="mb-4 flex items-center justify-between">
         <div>
-          <p className="text-[10px] uppercase tracking-[0.3em] text-white/36">Compare &amp; Conquer</p>
+          <p className="text-[10px] uppercase tracking-[0.3em] text-white/36">{text('Compare & Conquer', 'Compare trades')}</p>
           <h3 className="mt-2 text-2xl font-semibold tracking-tight text-orange-300">{title}</h3>
         </div>
-        <div className="rounded-full border border-white/10 bg-black/20 px-3 py-1 text-xs text-white/45">{rows.length} Kategorien</div>
+        <div className="rounded-full border border-white/10 bg-black/20 px-3 py-1 text-xs text-white/45">{text(`${rows.length} Kategorien`, `${rows.length} ${rows.length === 1 ? 'category' : 'categories'}`)}</div>
       </div>
 
       <div className="overflow-hidden rounded-2xl border border-white/10">
         <div className="grid grid-cols-6 gap-2 border-b border-white/10 bg-white/[0.03] px-4 py-3 text-[10px] uppercase tracking-[0.24em] text-white/40">
-          <span>Kategorie</span>
+          <span>{text('Kategorie', 'Category')}</span>
           <span>Trades</span>
-          <span>Trefferquote</span>
+          <span>{text('Trefferquote', 'Win rate')}</span>
           <span>Avg R</span>
           <span>P&amp;L</span>
           <span>PF</span>
@@ -30,14 +32,14 @@ export function CompareTable({ title, rows }: { title: string; rows: CompareResu
               <span className="font-medium text-white">{row.label}</span>
               <span className="text-white/65">{row.totalTrades}</span>
               <span className={row.winRate >= 50 ? 'text-emerald-300' : 'text-red-300'}>{row.winRate.toFixed(1)}%</span>
-              <span className={row.avgR === null ? 'text-white/55' : row.avgR >= 0 ? 'text-emerald-300' : 'text-red-300'}>{formatRMultiple(row.avgR)}</span>
-              <span className={row.netPnL >= 0 ? 'text-emerald-300' : 'text-red-300'}>{row.currency ? formatMoney(row.netPnL, row.currency) : '—'}</span>
+              <span className={row.avgR === null ? 'text-white/55' : row.avgR >= 0 ? 'text-emerald-300' : 'text-red-300'}>{formatRMultiple(row.avgR, 2, locale)}</span>
+              <span className={row.netPnL >= 0 ? 'text-emerald-300' : 'text-red-300'}>{row.currency ? formatMoney(row.netPnL, row.currency, 0, locale) : '—'}</span>
               <span className="text-white/65">{row.profitFactor === Infinity ? '∞' : row.profitFactor.toFixed(2)}</span>
             </div>
           ))
         ) : (
           <div className="px-4 py-8 text-sm text-white/45">
-            Für diese Auswahl sind noch keine Vergleichsdaten vorhanden.
+            {text('Für diese Auswahl sind noch keine Vergleichsdaten vorhanden.', 'No comparison data for this selection.')}
           </div>
         )}
       </div>

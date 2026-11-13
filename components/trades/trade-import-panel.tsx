@@ -1,5 +1,9 @@
 "use client";
 
+import { useJournalLocale } from "@/components/layout/journal-locale-provider";
+import { journalNumberLocale, journalText, type JournalLocale } from "@/lib/i18n/journal";
+import { getBrokerFileImportCopy } from "@/lib/i18n/broker-file";
+import { importDiagnostic, importFieldLabel, importPresetCopy } from "@/lib/i18n/import-preview";
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
@@ -178,11 +182,12 @@ function findSpreadsheetHeaderRow(rows: string[][]) {
   return fallback;
 }
 
-async function parseSpreadsheetFile(file: File): Promise<ParsedCsvData> {
+async function parseSpreadsheetFile(file: File, locale: JournalLocale): Promise<ParsedCsvData> {
+  const text = journalText(locale);
   const extension = getFileExtension(file.name);
   if (extension === "xls") {
     throw new Error(
-      "Alte .xls-Dateien bitte in Excel als .xlsx oder .csv speichern und erneut wählen.",
+      text("Alte .xls-Dateien bitte in Excel als .xlsx oder .csv speichern und erneut wählen.", "Save this .xls file as .xlsx or .csv and select it again."),
     );
   }
 
@@ -203,7 +208,7 @@ async function parseSpreadsheetFile(file: File): Promise<ParsedCsvData> {
     )
   ) {
     throw new Error(
-      `Excel-Datei überschreitet das sichere Limit von ${CSV_IMPORT_LIMITS.maxRows} Zeilen, ${CSV_IMPORT_LIMITS.maxColumns} Spalten oder ${CSV_IMPORT_LIMITS.maxCellCharacters} Zeichen je Zelle.`,
+      text(`Excel-Datei überschreitet das sichere Limit von ${CSV_IMPORT_LIMITS.maxRows} Zeilen, ${CSV_IMPORT_LIMITS.maxColumns} Spalten oder ${CSV_IMPORT_LIMITS.maxCellCharacters} Zeichen je Zelle.`, `The spreadsheet exceeds a limit: ${CSV_IMPORT_LIMITS.maxRows} rows, ${CSV_IMPORT_LIMITS.maxColumns} columns or ${CSV_IMPORT_LIMITS.maxCellCharacters} characters per cell.`),
     );
   }
 
@@ -215,7 +220,7 @@ async function parseSpreadsheetFile(file: File): Promise<ParsedCsvData> {
   );
   if (overwideRowIndex >= 0) {
     throw new Error(
-      `Excel-Zeile ${headerRowIndex + overwideRowIndex + 2} enthält mehr Zellen als die Kopfzeile und wurde nicht still abgeschnitten.`,
+      text(`Excel-Zeile ${headerRowIndex + overwideRowIndex + 2} enthält mehr Zellen als die Kopfzeile und wurde nicht still abgeschnitten.`, `Spreadsheet row ${headerRowIndex + overwideRowIndex + 2} has more cells than the header row.`),
     );
   }
   const rows = dataRows.map((row) =>
@@ -231,26 +236,27 @@ async function parseSpreadsheetFile(file: File): Promise<ParsedCsvData> {
 const htmlReportExtensions = new Set(["html", "htm"]);
 type ParsedImportFile = ParsedCsvData & Readonly<{ notice?: string }>;
 
-async function parseImportFile(file: File): Promise<ParsedImportFile> {
+async function parseImportFile(file: File, locale: JournalLocale): Promise<ParsedImportFile> {
+  const text = journalText(locale);
   const extension = getFileExtension(file.name);
   if (!allowedImportExtensions.has(extension)) {
     throw new Error(
-      "Nur CSV, TSV, TXT, XLSX oder offizielle MT4-HTML-Berichte werden unterstützt.",
+      text("Nur CSV, TSV, TXT, XLSX oder offizielle MT4-HTML-Berichte werden unterstützt.", "Choose a CSV, TSV, TXT or XLSX file, or an official MT4 HTML report."),
     );
   }
   if (file.size > CSV_IMPORT_LIMITS.maxFileBytes) {
-    throw new Error("Datei ist zu groß. Erlaubt sind höchstens 5 MB.");
+    throw new Error(text("Datei ist zu groß. Erlaubt sind höchstens 5 MB.", "The file exceeds the 5 MB limit."));
   }
 
   if (spreadsheetExtensions.has(extension)) {
-    return parseSpreadsheetFile(file);
+    return parseSpreadsheetFile(file, locale);
   }
 
   if (htmlReportExtensions.has(extension)) {
     const { summary, ...parsed } = parseMetaTrader4ReportHtml(await file.text());
     return {
       ...parsed,
-      notice: `${summary.closedTradeCount} geschlossene MT4-Trades erkannt; ${summary.excludedRowCount} nicht als geschlossene Trades übernommene Berichtszeilen transparent ausgeschlossen. Netto-P&L vollständig abgeleitet: ${summary.derivedNetPnlCount}; manuell zu prüfen: ${summary.incompleteNetPnlCount}.`,
+      notice: text(`${summary.closedTradeCount} geschlossene MT4-Trades erkannt; ${summary.excludedRowCount} nicht als geschlossene Trades übernommene Berichtszeilen transparent ausgeschlossen. Netto-P&L vollständig abgeleitet: ${summary.derivedNetPnlCount}; manuell zu prüfen: ${summary.incompleteNetPnlCount}.`, `Closed MT4 trades found: ${summary.closedTradeCount}. Other rows skipped: ${summary.excludedRowCount}. Net P&L calculated: ${summary.derivedNetPnlCount}. P&L to review: ${summary.incompleteNetPnlCount}.`),
     };
   }
 
@@ -270,24 +276,26 @@ function BrokerImportDetectionNotice({
   detection: BrokerImportDetection;
   selectedPreset: CsvImportPresetKey;
 }) {
-  const detectedLabel = getCsvImportPresetMeta(detection.presetKey).label;
-  const selectedLabel = getCsvImportPresetMeta(selectedPreset).label;
+  const locale = useJournalLocale();
+  const text = journalText(locale);
+  const detectedLabel = importPresetCopy(getCsvImportPresetMeta(detection.presetKey), locale).label;
+  const selectedLabel = importPresetCopy(getCsvImportPresetMeta(selectedPreset), locale).label;
 
   if (detection.confidence === "high") {
     if (detection.presetKey !== selectedPreset) {
       return (
         <>
-          Dateisignatur und gewähltes Preset widersprechen sich. Erkannt wurde{" "}
-          <span className="font-medium text-orange-100">{detectedLabel}</span>, aktiv bleibt{" "}
-          <span className="font-medium text-white">{selectedLabel}</span>. Bitte Auswahl und Zuordnung vor der Vorschau prüfen.
+          {text('Dateisignatur und gewähltes Preset widersprechen sich. Erkannt wurde ', 'The file does not match the selected preset. Detected: ')}
+          <span className="font-medium text-orange-100">{detectedLabel}</span>{text(', aktiv bleibt ', '. Still selected: ')}
+          <span className="font-medium text-white">{selectedLabel}</span>{text('. Bitte Auswahl und Zuordnung vor der Vorschau prüfen.', '. Check the preset and column mapping before previewing.')}
         </>
       );
     }
 
     return (
       <>
-        Dateisignatur erkannt: <span className="font-medium text-orange-100">{detectedLabel}</span>{" "}
-        · {detection.score}/100 · {detection.matchedSignals.join(", ")}
+        {text('Dateisignatur erkannt:', 'File format detected:')} <span className="font-medium text-orange-100">{detectedLabel}</span>{" "}
+        · {detection.score}/100 · {detection.matchedSignals.map((signal) => signal === "Dateiname" ? text("Dateiname", "File name") : signal).join(", ")}
       </>
     );
   }
@@ -295,20 +303,22 @@ function BrokerImportDetectionNotice({
   if (detection.confidence === "low") {
     return (
       <>
-        Möglicher Treffer: <span className="font-medium text-white">{detectedLabel}</span>. Wegen uneindeutiger
-        Signatur wurde nicht automatisch umgestellt. Aktiv bleibt {selectedLabel}.
+        {text('Möglicher Treffer:', 'Possible match:')} <span className="font-medium text-white">{detectedLabel}</span>{text(`. Wegen uneindeutiger Signatur bleibt ${selectedLabel} ausgewählt.`, `. The match is uncertain, so ${selectedLabel} remains selected.`)}
       </>
     );
   }
 
   return (
     <>
-      Keine eindeutige Broker-Signatur erkannt. Aktiv bleibt {selectedLabel}; bitte die Zuordnung manuell prüfen.
+      {text(`Keine eindeutige Broker-Signatur erkannt. Aktiv bleibt ${selectedLabel}; bitte die Zuordnung manuell prüfen.`, `The file format could not be identified. ${selectedLabel} remains selected. Check the column mapping.`)}
     </>
   );
 }
 
 export function TradeImportPanel() {
+  const locale = useJournalLocale();
+  const text = journalText(locale);
+  const importCopy = getBrokerFileImportCopy(locale);
   const router = useRouter();
   const searchParams = useSearchParams();
   const requestedPreset = searchParams.get("preset");
@@ -351,8 +361,9 @@ export function TradeImportPanel() {
     () => getCsvImportPresetMeta(selectedPreset),
     [selectedPreset],
   );
+  const presetCopy = importPresetCopy(presetMeta, locale);
   const displayAccountLabel =
-    importAccountLabel.trim() || "Zielkonto noch nicht benannt";
+    importAccountLabel.trim() || text("Zielkonto noch nicht benannt", "Destination account unnamed");
   const availableImportAccounts = useMemo(
     () =>
       importAccounts.filter(
@@ -392,7 +403,7 @@ export function TradeImportPanel() {
     );
   }, [previewRows]);
 
-  const trustSummary = useMemo(() => buildImportTrustSummary(previewRows), [previewRows]);
+  const trustSummary = useMemo(() => buildImportTrustSummary(previewRows, locale), [previewRows, locale]);
 
   const drafts = useMemo(
     () =>
@@ -416,6 +427,7 @@ export function TradeImportPanel() {
         counts.importable,
         counts.check,
         counts.skip,
+        locale,
       ),
     [
       counts.check,
@@ -424,6 +436,7 @@ export function TradeImportPanel() {
       counts.total,
       headers,
       mapping,
+      locale,
     ],
   );
 
@@ -447,7 +460,11 @@ export function TradeImportPanel() {
 
   function handleRevertImport(batch: TradeImportBatchSummary) {
     if (batch.status === "reverted") return;
-    const confirmed = window.confirm(`Import „${batch.fileName || batch.presetLabel || "ohne Namen"}“ wirklich rückgängig machen? Alle Trades aus diesem Upload werden gelöscht.`);
+    const name = batch.fileName || batch.presetLabel || text('ohne Namen', 'untitled');
+    const confirmed = window.confirm(text(
+      `Import „${name}“ wirklich rückgängig machen? Alle Trades aus diesem Upload werden gelöscht.`,
+      `Undo import “${name}”? This deletes all trades from this upload.`,
+    ));
     if (!confirmed) return;
 
     startHistoryTransition(async () => {
@@ -474,7 +491,7 @@ export function TradeImportPanel() {
     }
 
     try {
-      const parsed = await parseImportFile(file);
+      const parsed = await parseImportFile(file, locale);
       setFileName(file.name);
       setHeaders(parsed.headers);
       setRawRows(parsed.rows);
@@ -494,7 +511,7 @@ export function TradeImportPanel() {
 
       if (!parsed.headers.length || !parsed.rows.length) {
         setStatusMessage(
-          "Datei gelesen, aber ohne brauchbare Kopfzeile oder Datenzeilen.",
+          text("Datei gelesen, aber ohne brauchbare Kopfzeile oder Datenzeilen.", "The file has no usable header or data rows."),
         );
       } else if (parsed.notice) {
         setStatusMessage(parsed.notice);
@@ -507,8 +524,8 @@ export function TradeImportPanel() {
       setProfileDetection(null);
       setStatusMessage(
         error instanceof Error
-          ? error.message
-          : "Datei konnte nicht gelesen werden.",
+          ? importDiagnostic(error.message, locale)
+          : text('Datei konnte nicht gelesen werden.', 'The file could not be read.'),
       );
     }
   }
@@ -562,15 +579,15 @@ export function TradeImportPanel() {
 
   function handleImport() {
     if (!brokerFileImportCapability.persistenceEnabled) {
-      setStatusMessage(brokerFileImportCapability.blockedReason);
+      setStatusMessage(importCopy.reason);
       return;
     }
     if (!drafts.length) {
-      setStatusMessage("Noch keine importierbaren Zeilen ausgewählt.");
+      setStatusMessage(text("Noch keine importierbaren Zeilen ausgewählt.", "Select rows ready to import."));
       return;
     }
     if (!accountCurrency) {
-      setStatusMessage("Vor dem Import eine Kontowährung auswählen. Sie wird nicht aus dem Preset geraten.");
+      setStatusMessage(text("Vor dem Import eine Kontowährung auswählen. Sie wird nicht aus dem Preset geraten.", "Select the account currency before importing."));
       return;
     }
     const normalizedAccountLabel = importAccountLabel.trim();
@@ -579,7 +596,7 @@ export function TradeImportPanel() {
       normalizedAccountLabel.length > 60
     ) {
       setStatusMessage(
-        "Vor dem Import ein Zielkonto mit 3 bis 60 Zeichen benennen.",
+        text("Vor dem Import ein Zielkonto mit 3 bis 60 Zeichen benennen.", "Enter a destination account name of 3 to 60 characters."),
       );
       return;
     }
@@ -588,7 +605,7 @@ export function TradeImportPanel() {
       !isExplicitCsvImportAccountLabel(normalizedAccountLabel)
     ) {
       setStatusMessage(
-        `Für dieses Preset das Zielkonto eindeutig benennen, zum Beispiel ${getSourceAccountExample(selectedPreset)}. „Hauptkonto“ reicht nicht.`,
+        text(`Für dieses Preset das Zielkonto eindeutig benennen, zum Beispiel ${getSourceAccountExample(selectedPreset)}. „Hauptkonto“ reicht nicht.`, `Use a distinct account name, for example ${getSourceAccountExample(selectedPreset)}.`),
       );
       return;
     }
@@ -652,18 +669,21 @@ export function TradeImportPanel() {
   }
 
   return (
-    <div className="space-y-5">
+    <div lang={locale} className="space-y-5">
+      {!brokerFileImportCapability.persistenceEnabled ? (
+        <p className="rounded-2xl border border-orange-300/20 bg-orange-400/5 px-4 py-3 text-sm text-orange-100">{importCopy.reason}</p>
+      ) : null}
       <div className="rounded-[28px] border border-white/10 bg-black/20 p-5">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
           <div>
             <p className="text-[11px] uppercase tracking-[0.24em] text-white/60">
-              Import-Verlauf
+              {text("Import-Verlauf", "Import history")}
             </p>
             <h3 className="mt-2 text-xl font-semibold text-white">
-              Letzte Uploads
+              {text("Letzte Uploads", "Recent uploads")}
             </h3>
             <p className="mt-2 text-sm leading-6 text-white/55">
-              Hier kannst du einen kompletten CSV- oder Excel-Import wieder entfernen, falls Datei, Zeitraum oder Konto falsch waren.
+              {text("Hier kannst du einen kompletten CSV- oder Excel-Import wieder entfernen, falls Datei, Zeitraum oder Konto falsch waren.", "Undo a complete import if you chose the wrong file, time period or account.")}
             </p>
           </div>
           <button
@@ -672,7 +692,7 @@ export function TradeImportPanel() {
             disabled={isHistoryPending}
             className="rounded-full border border-white/10 bg-black/25 px-4 py-2 text-sm text-white/70 transition hover:border-white/20 hover:text-white disabled:cursor-not-allowed disabled:text-white/35"
           >
-            {isHistoryPending ? "Lädt …" : "Aktualisieren"}
+            {isHistoryPending ? text("Lädt …", "Loading…") : text("Aktualisieren", "Refresh")}
           </button>
         </div>
 
@@ -697,7 +717,7 @@ export function TradeImportPanel() {
                         {batch.fileName || batch.presetLabel || "Import"}
                       </p>
                       <p className="mt-1 text-xs text-white/45">
-                        {new Date(batch.createdAt).toLocaleString("de-DE")} · {batch.presetLabel || "Preset offen"} · {batch.accountLabel || "Konto offen"}
+                        {new Date(batch.createdAt).toLocaleString(journalNumberLocale[locale])} · {batch.presetLabel || text("Preset offen", "Preset unavailable")} · {batch.accountLabel || text("Konto offen", "Account unavailable")}
                       </p>
                     </div>
                     <div className="flex flex-wrap items-center gap-2 text-xs">
@@ -706,23 +726,23 @@ export function TradeImportPanel() {
                       </span>
                       {batch.duplicateCount ? (
                         <span className="rounded-full border border-orange-300/15 bg-orange-400/[0.06] px-3 py-1 text-orange-100/80">
-                          {batch.duplicateCount} Dubletten
+                          {text(`${batch.duplicateCount} Dubletten`, `${batch.duplicateCount} duplicates`)}
                         </span>
                       ) : null}
                       {batch.skippedCount || batch.invalidCount ? (
                         <span className="rounded-full border border-orange-300/15 bg-orange-400/[0.06] px-3 py-1 text-orange-100/80">
-                          {batch.skippedCount} ausgelassen · {batch.invalidCount} prüfpflichtig
+                          {text(`${batch.skippedCount} ausgelassen · ${batch.invalidCount} prüfpflichtig`, `${batch.skippedCount} skipped · ${batch.invalidCount} to review`)}
                         </span>
                       ) : null}
                       <span className="rounded-full border border-white/10 bg-black/25 px-3 py-1 text-white/55">
-                        {batch.sourceRowCount} Quellenzeilen
+                        {text(`${batch.sourceRowCount} Quellenzeilen`, `${batch.sourceRowCount} source rows`)}
                       </span>
                       <span className="rounded-full border border-white/10 bg-black/25 px-3 py-1 text-white/55">
-                        {batch.trustScore ?? "—"}% · {batch.trustLabel || "Vertrauen offen"}
+                        {batch.trustScore ?? "—"}% · {batch.trustLabel ? importDiagnostic(batch.trustLabel, locale) : text('Vertrauen offen', 'Confidence unavailable')}
                       </span>
                       {reverted ? (
                         <span className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-white/45">
-                          rückgängig
+                          {text("rückgängig", "Undone")}
                         </span>
                       ) : (
                         <button
@@ -731,7 +751,7 @@ export function TradeImportPanel() {
                           disabled={isHistoryPending}
                           className="rounded-full border border-red-300/20 bg-red-400/[0.07] px-3 py-1 text-red-100/85 transition hover:border-red-200/40 disabled:cursor-not-allowed disabled:text-white/35"
                         >
-                          Import rückgängig
+                          {text("Import rückgängig", "Undo import")}
                         </button>
                       )}
                     </div>
@@ -742,7 +762,7 @@ export function TradeImportPanel() {
           </div>
         ) : (
           <div className="mt-5 rounded-2xl border border-white/10 bg-black/25 px-4 py-3 text-sm text-white/50">
-            Noch kein Import-Verlauf.
+            {text("Noch kein Import-Verlauf.", "No imports yet.")}
           </div>
         )}
       </div>
@@ -751,18 +771,19 @@ export function TradeImportPanel() {
         <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
           <div>
             <p className="text-[10px] uppercase tracking-[0.24em] text-white/35">
-              1. Preset
+              {text("1. Preset", "1. File format")}
             </p>
-            <h3 className="mt-2 text-xl font-semibold text-white">Preset</h3>
+            <h3 className="mt-2 text-xl font-semibold text-white">{text("Preset", "File format")}</h3>
           </div>
           <div className="rounded-2xl border border-orange-300/20 bg-orange-400/10 px-4 py-3 text-sm text-orange-100">
-            {presetMeta.label} · {presetMeta.badge} · {displayAccountLabel}
+            {presetCopy.label} · {presetCopy.badge} · {displayAccountLabel}
           </div>
         </div>
 
         <div className="mt-5 grid gap-3 xl:grid-cols-3">
           {csvImportPresets.map((preset) => {
             const active = preset.key === selectedPreset;
+            const copy = importPresetCopy(preset, locale);
             return (
               <button
                 key={preset.key}
@@ -772,16 +793,16 @@ export function TradeImportPanel() {
               >
                 <div className="flex items-center justify-between gap-3">
                   <span className="text-base font-semibold text-white">
-                    {preset.label}
+                    {copy.label}
                   </span>
                   <span
                     className={`rounded-full border px-2.5 py-1 text-[10px] uppercase tracking-[0.2em] ${active ? "border-orange-300/30 bg-orange-400/15 text-orange-100" : "border-white/10 bg-black/30 text-white/45"}`}
                   >
-                    {preset.badge}
+                    {copy.badge}
                   </span>
                 </div>
                 <p className="mt-2 text-sm text-white/50">
-                  {preset.description}
+                  {copy.description}
                 </p>
               </button>
             );
@@ -799,7 +820,7 @@ export function TradeImportPanel() {
         ) : null}
         <div className="mt-5 grid gap-3 lg:grid-cols-2">
           <label className="block rounded-2xl border border-orange-300/20 bg-black/25 p-4">
-            <span className="text-[11px] uppercase tracking-[0.24em] text-white/60">Zielkonto · Pflichtfeld</span>
+            <span className="text-[11px] uppercase tracking-[0.24em] text-white/60">{text("Zielkonto · Pflichtfeld", "Destination account (required)")}</span>
             {availableImportAccounts.length ? (
               <select
                 value={selectedImportAccountId}
@@ -820,7 +841,7 @@ export function TradeImportPanel() {
                 }}
                 className="mt-3 w-full rounded-xl border border-orange-300/20 bg-black/40 px-3 py-2.5 text-sm text-white outline-none focus:border-orange-300/45"
               >
-                <option value="">Neues Importkonto anlegen</option>
+                <option value="">{text("Neues Importkonto anlegen", "Create a new import account")}</option>
                 {availableImportAccounts.map((account) => (
                   <option key={account.id} value={account.id}>
                     {account.displayLabel} · {account.accountCurrency}
@@ -837,28 +858,28 @@ export function TradeImportPanel() {
               maxLength={60}
               autoComplete="off"
               className="mt-3 w-full rounded-xl border border-orange-300/20 bg-black/40 px-3 py-2.5 text-sm text-white outline-none focus:border-orange-300/45"
-              placeholder={`Zum Beispiel ${getSourceAccountExample(selectedPreset)}`}
+              placeholder={text(`Zum Beispiel ${getSourceAccountExample(selectedPreset)}`, `For example ${getSourceAccountExample(selectedPreset)}`)}
             />
             <span className="mt-2 block text-xs leading-5 text-white/50">
-              Ein gespeichertes Konto besitzt eine dauerhafte interne ID; der sichtbare Name bleibt editierbar. Exporte mit Ticket- oder Deal-ID bewusst eindeutig benennen.
+              {text("Ein gespeichertes Konto besitzt eine dauerhafte interne ID; der sichtbare Name bleibt editierbar. Exporte mit Ticket- oder Deal-ID bewusst eindeutig benennen.", "Use a distinct account name for files with ticket or deal IDs. You can rename the account later.")}
             </span>
           </label>
           <label className="block rounded-2xl border border-orange-300/20 bg-black/25 p-4">
-            <span className="text-[11px] uppercase tracking-[0.24em] text-white/60">Kontowährung · Pflichtfeld</span>
+            <span className="text-[11px] uppercase tracking-[0.24em] text-white/60">{text("Kontowährung · Pflichtfeld", "Account currency (required)")}</span>
             <select
               value={accountCurrency}
               onChange={(event) => { setAccountCurrency(event.target.value); setStatusMessage(""); }}
               className="mt-3 w-full rounded-xl border border-orange-300/20 bg-black/40 px-3 py-2.5 text-sm text-white outline-none focus:border-orange-300/45"
             >
-              <option value="">Bitte bewusst auswählen</option>
+              <option value="">{text("Bitte bewusst auswählen", "Select a currency")}</option>
               {SUPPORTED_TRADE_CURRENCIES.map((currency) => <option key={currency} value={currency}>{currency}</option>)}
             </select>
-            <span className="mt-2 block text-xs leading-5 text-white/50">Enthält eine Dateizeile eine gültige Währung, wird diese verwendet. Sonst gilt die hier gewählte Währung. USD, USDT und USDC bleiben getrennt; es findet keine Umrechnung statt.</span>
+            <span className="mt-2 block text-xs leading-5 text-white/50">{text("Enthält eine Dateizeile eine gültige Währung, wird diese verwendet. Sonst gilt die hier gewählte Währung. USD, USDT und USDC bleiben getrennt; es findet keine Umrechnung statt.", "A supported currency in the file takes priority. This selection fills in missing currencies. Equora treats USD, USDT and USDC as separate currencies.")}</span>
           </label>
         </div>
         <label className="mt-3 block rounded-2xl border border-orange-300/20 bg-black/25 p-4">
             <span className="text-[10px] uppercase tracking-[0.24em] text-white/60">
-              Export-UTC-Offset · Pflichtfeld bei Zeit ohne Zone
+              {text("Export-UTC-Offset · Pflichtfeld bei Zeit ohne Zone", "Export UTC offset (required for times without a zone)")}
             </span>
             <input
               value={statementUtcOffset}
@@ -874,7 +895,7 @@ export function TradeImportPanel() {
               className="mt-3 w-full rounded-xl border border-orange-300/20 bg-black/40 px-3 py-2.5 text-sm text-white outline-none focus:border-orange-300/45"
             />
             <span className="mt-2 block text-xs leading-5 text-white/60">
-              Der Offset wird aus Kopfzeilen wie UTC+02:00 übernommen, wenn vorhanden. Andernfalls den im Broker-Export verwendeten Offset ausdrücklich eintragen; ohne belastbare Zone bleiben zonenlose Zeiten gesperrt.
+              {text("Der Offset wird aus Kopfzeilen wie UTC+02:00 übernommen, wenn vorhanden. Andernfalls den im Broker-Export verwendeten Offset ausdrücklich eintragen; ohne belastbare Zone bleiben zonenlose Zeiten gesperrt.", "If a column header shows an offset such as UTC+02:00, Equora uses it. Otherwise, enter the offset used in the broker export.")}
             </span>
           </label>
       </div>
@@ -883,17 +904,17 @@ export function TradeImportPanel() {
         <label className="flex min-h-[190px] cursor-pointer flex-col justify-between rounded-[28px] border border-dashed border-orange-300/25 bg-black/25 p-5 transition hover:border-orange-300/45 hover:bg-orange-400/[0.05]">
           <div>
             <p className="text-[10px] uppercase tracking-[0.24em] text-white/35">
-              2. Datei
+              {text("2. Datei", "2. File")}
             </p>
             <h3 className="mt-3 text-2xl font-semibold text-white">
-              CSV, Excel oder MT4-Bericht wählen
+              {text("CSV, Excel oder MT4-Bericht wählen", "Choose a CSV, Excel or MT4 report")}
             </h3>
           </div>
           <div className="flex flex-wrap items-center gap-3 pt-6 text-sm text-white/70">
             <span className="rounded-full border border-orange-400/20 bg-orange-400/10 px-4 py-2 text-orange-100">
-              Lokale Datei wählen
+              {text("Lokale Datei wählen", "Choose a local file")}
             </span>
-            <span className="text-white/45">Zielkonto: {displayAccountLabel}</span>
+            <span className="text-white/45">{text('Zielkonto:', 'Destination account:')} {displayAccountLabel}</span>
           </div>
           <input
             ref={inputRef}
@@ -909,22 +930,22 @@ export function TradeImportPanel() {
         <div className="space-y-3">
           <div className="grid gap-3 sm:grid-cols-2">
             <MetricTile
-              label="Datei"
-              value={fileName || "Noch keine Datei"}
+              label={text("Datei", "File")}
+              value={fileName || text("Noch keine Datei", "No file selected")}
               tone={fileName ? "text-white" : "text-white/45"}
             />
             <MetricTile
-              label="Zeilen"
+              label={text("Zeilen", "Rows")}
               value={String(counts.total)}
               tone={counts.total ? "text-white" : "text-white/45"}
             />
             <MetricTile
-              label="Importierbar"
+              label={text("Importierbar", "Ready")}
               value={String(counts.importable)}
               tone="text-emerald-200"
             />
             <MetricTile
-              label="Prüfen"
+              label={text("Prüfen", "Review")}
               value={String(counts.check + counts.skip)}
               tone={repairRows.length ? "text-orange-100" : "text-white/45"}
             />
@@ -932,7 +953,7 @@ export function TradeImportPanel() {
           {headers.length ? (
             <div className={`rounded-2xl border px-4 py-3 ${readiness.tone}`}>
               <p className="text-[10px] uppercase tracking-[0.24em] text-white/35">
-                Feldcheck
+                {text("Feldcheck", "Field check")}
               </p>
               <p className="mt-2 text-sm font-semibold text-white">
                 {readiness.title}
@@ -954,40 +975,40 @@ export function TradeImportPanel() {
           ) : null}
           <details className="group rounded-2xl border border-white/8 bg-black/20 p-3">
             <summary className="flex cursor-pointer list-none items-center justify-between rounded-xl px-2 py-1 text-sm text-white/65 transition hover:text-white">
-              <span>Importdetails</span>
+              <span>{text("Importdetails", "Import details")}</span>
               <span className="rounded-full border border-white/10 bg-white/[0.03] px-2.5 py-1 text-[10px] uppercase tracking-[0.18em] text-white/45">
-                <span className="group-open:hidden">Anzeigen</span>
-                <span className="hidden group-open:inline">Ausblenden</span>
+                <span className="group-open:hidden">{text("Anzeigen", "Show")}</span>
+                <span className="hidden group-open:inline">{text("Ausblenden", "Hide")}</span>
               </span>
             </summary>
             <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
               <MetricTile
                 label="Preset"
-                value={presetMeta.label}
+                value={presetCopy.label}
                 tone="text-white"
               />
               <MetricTile
-                label="Zielkonto"
+                label={text("Zielkonto", "Destination account")}
                 value={displayAccountLabel}
                 tone="text-orange-100"
               />
               <MetricTile
-                label="Vertrauen"
+                label={text("Vertrauen", "Confidence")}
                 value={trustSummary.label}
                 tone={trustSummary.tone}
               />
               <MetricTile
-                label="Spalten"
+                label={text("Spalten", "Columns")}
                 value={headers.length ? String(headers.length) : "0"}
                 tone="text-white"
               />
               <MetricTile
-                label="Prüfen / Skip"
+                label={text("Prüfen / Skip", "Review / skipped")}
                 value={`${counts.check} / ${counts.skip}`}
                 tone="text-orange-100"
               />
               <MetricTile
-                label="Manuell"
+                label={text("Manuell", "Manual")}
                 value={String(counts.manual)}
                 tone={counts.manual ? "text-orange-100" : "text-white/45"}
               />
@@ -1017,7 +1038,7 @@ export function TradeImportPanel() {
           <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
             <div>
               <p className="text-[10px] uppercase tracking-[0.24em] text-white/35">
-                Import-Vertrauen
+                {text("Import-Vertrauen", "Preview quality")}
               </p>
               <h3 className="mt-2 text-xl font-semibold text-white">
                 {trustSummary.label}
@@ -1027,7 +1048,7 @@ export function TradeImportPanel() {
               </p>
             </div>
             <div className="rounded-2xl border border-white/10 bg-black/25 px-4 py-3 text-sm text-white/75">
-              {trustSummary.score}% · {trustSummary.importableRows} von {trustSummary.totalRows} Zeilen
+              {text(`${trustSummary.score}% · ${trustSummary.importableRows} von ${trustSummary.totalRows} Zeilen`, `${trustSummary.score}% · ${trustSummary.importableRows} of ${trustSummary.totalRows} rows`)}
             </div>
           </div>
           <div className="mt-4 flex flex-wrap gap-2">
@@ -1060,10 +1081,10 @@ export function TradeImportPanel() {
           <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
             <div>
               <p className="text-[10px] uppercase tracking-[0.24em] text-white/35">
-                Importbericht
+                {text("Importbericht", "Import report")}
               </p>
               <h3 className="mt-2 text-xl font-semibold text-white">
-                Importbericht
+                {text("Importbericht", "Import report")}
               </h3>
             </div>
             <div className="rounded-2xl border border-white/10 bg-black/25 px-4 py-3 text-sm text-white/70">
@@ -1072,12 +1093,12 @@ export function TradeImportPanel() {
           </div>
           <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
             <MetricTile
-              label="Importiert"
+              label={text("Importiert", "Imported")}
               value={String(lastImportReport.importedCount)}
               tone="text-emerald-200"
             />
             <MetricTile
-              label="Dubletten"
+              label={text("Dubletten", "Duplicates")}
               value={String(lastImportReport.duplicateCount)}
               tone={
                 lastImportReport.duplicateCount
@@ -1086,7 +1107,7 @@ export function TradeImportPanel() {
               }
             />
             <MetricTile
-              label="Ausgelassen"
+              label={text("Ausgelassen", "Skipped")}
               value={String(lastImportReport.skippedCount)}
               tone={
                 lastImportReport.skippedCount
@@ -1095,7 +1116,7 @@ export function TradeImportPanel() {
               }
             />
             <MetricTile
-              label="Prüfpflichtig"
+              label={text("Prüfpflichtig", "Needs review")}
               value={String(lastImportReport.invalidCount)}
               tone={
                 lastImportReport.invalidCount
@@ -1104,12 +1125,12 @@ export function TradeImportPanel() {
               }
             />
             <MetricTile
-              label="Quellenzeilen"
+              label={text("Quellenzeilen", "Source rows")}
               value={String(lastImportReport.sourceRowCount)}
               tone="text-white/70"
             />
             <MetricTile
-              label="Problemzeilen offen"
+              label={text("Problemzeilen offen", "Rows to review")}
               value={String(lastImportReport.repairCount)}
               tone={
                 lastImportReport.repairCount
@@ -1126,10 +1147,10 @@ export function TradeImportPanel() {
           <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
             <div>
               <p className="text-[10px] uppercase tracking-[0.24em] text-white/35">
-                3. Zuordnung
+                {text("3. Zuordnung", "3. Map columns")}
               </p>
               <h3 className="mt-2 text-xl font-semibold text-white">
-                Zuordnung
+                {text("Zuordnung", "Map columns")}
               </h3>
             </div>
             <div className="flex flex-wrap gap-2">
@@ -1138,7 +1159,7 @@ export function TradeImportPanel() {
                 onClick={() => setShowOptionalMappings((current) => !current)}
                 className={`rounded-full border px-4 py-2 text-sm transition ${showOptionalMappings ? "border-orange-300/35 bg-orange-400/10 text-orange-100" : "border-white/10 bg-black/25 text-white/70 hover:border-white/20 hover:text-white"}`}
               >
-                {showOptionalMappings ? "Weniger" : "Mehr"}
+                {showOptionalMappings ? text("Weniger", "Show less") : text("Mehr", "Show more")}
               </button>
               <label className="inline-flex items-center gap-3 rounded-2xl border border-white/10 bg-black/25 px-4 py-3 text-sm text-white/75">
                 <input
@@ -1149,7 +1170,7 @@ export function TradeImportPanel() {
                   }
                   className="h-4 w-4 accent-orange-300"
                 />
-                Prüfzeilen mitnehmen
+                {text("Prüfzeilen mitnehmen", "Include rows that need review")}
               </label>
             </div>
           </div>
@@ -1171,11 +1192,11 @@ export function TradeImportPanel() {
                 >
                   <div className="flex items-center justify-between gap-3">
                     <span className="text-sm font-medium text-white">
-                      {field.label}
+                      {importFieldLabel(field.key, field.label, locale)}
                     </span>
                     {field.required ? (
                       <span className="rounded-full border border-orange-300/20 bg-orange-400/10 px-2.5 py-1 text-[10px] uppercase tracking-[0.2em] text-orange-100">
-                        Pflicht
+                        {text("Pflicht", "Required")}
                       </span>
                     ) : null}
                   </div>
@@ -1187,7 +1208,7 @@ export function TradeImportPanel() {
                     className="mt-3 w-full rounded-2xl border border-orange-400/15 bg-orange-400/5 px-4 py-3 text-sm text-white outline-none"
                   >
                     <option value="" className="bg-black text-white">
-                      Nicht zuordnen
+                      {text("Nicht zuordnen", "Do not map")}
                     </option>
                     {headers.map((header) => (
                       <option
@@ -1210,16 +1231,16 @@ export function TradeImportPanel() {
           <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
             <div>
               <p className="text-[10px] uppercase tracking-[0.24em] text-white/35">
-                4. Vorschau
+                {text("4. Vorschau", "4. Preview")}
               </p>
-              <h3 className="mt-2 text-xl font-semibold text-white">Dateivorschau</h3>
+              <h3 className="mt-2 text-xl font-semibold text-white">{text("Dateivorschau", "File preview")}</h3>
               <p
                 id="file-import-deployment-status"
                 className="mt-2 max-w-2xl text-xs leading-5 text-white/60"
               >
                 {brokerFileImportCapability.persistenceEnabled
-                  ? "Produktiver Dateiimport ist freigegeben."
-                  : brokerFileImportCapability.blockedReason}
+                  ? text("Produktiver Dateiimport ist freigegeben.", "File import is available.")
+                  : importCopy.reason}
               </p>
             </div>
             <button
@@ -1240,10 +1261,10 @@ export function TradeImportPanel() {
               }`}
             >
               {isImporting
-                ? "Import läuft …"
+                ? text("Import läuft …", "Importing…")
                 : !brokerFileImportCapability.persistenceEnabled
-                  ? brokerFileImportCapability.blockedActionLabel
-                  : `${drafts.length} Trades importieren`}
+                  ? importCopy.blocked
+                  : text(`${drafts.length} Trades importieren`, `Import ${drafts.length} ${drafts.length === 1 ? 'trade' : 'trades'}`)}
             </button>
           </div>
 
@@ -1251,14 +1272,14 @@ export function TradeImportPanel() {
             <table className="min-w-full divide-y divide-white/10 text-left text-sm text-white/75">
               <thead className="bg-white/[0.03] text-xs uppercase tracking-[0.2em] text-white/35">
                 <tr>
-                  <th className="px-4 py-3">Zeile</th>
+                  <th className="px-4 py-3">{text("Zeile", "Row")}</th>
                   <th className="px-4 py-3">Status</th>
-                  <th className="px-4 py-3">Datum</th>
-                  <th className="px-4 py-3">Markt</th>
-                  <th className="px-4 py-3">Kontext</th>
-                  <th className="px-4 py-3">Vertrauen</th>
-                  <th className="px-4 py-3">Quellen</th>
-                  <th className="px-4 py-3">Hinweis</th>
+                  <th className="px-4 py-3">{text("Datum", "Date")}</th>
+                  <th className="px-4 py-3">{text("Markt", "Market")}</th>
+                  <th className="px-4 py-3">{text("Kontext", "Details")}</th>
+                  <th className="px-4 py-3">{text("Vertrauen", "Confidence")}</th>
+                  <th className="px-4 py-3">{text("Quellen", "Sources")}</th>
+                  <th className="px-4 py-3">{text("Hinweis", "Notes")}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/10">
@@ -1271,7 +1292,7 @@ export function TradeImportPanel() {
                     <td className="px-4 py-3">
                       {row.normalized.date
                         ? new Date(row.normalized.date).toLocaleDateString(
-                            "de-DE",
+                            journalNumberLocale[locale],
                           )
                         : "—"}
                     </td>
@@ -1285,7 +1306,7 @@ export function TradeImportPanel() {
                           ? `Entry ${row.normalized.entry} → Exit ${row.normalized.exit}`
                           : row.normalized.entry
                             ? `Entry ${row.normalized.entry}`
-                            : "Basisdaten"}
+                            : text("Basisdaten", "Basic details")}
                       {row.normalized.leverage ? (
                         <span className="ml-2 text-white/35">
                           · {row.normalized.leverage}x
@@ -1293,13 +1314,13 @@ export function TradeImportPanel() {
                       ) : null}
                     </td>
                     <td className="px-4 py-3 text-white/65">
-                      {row.trustScore}% · {row.trustLabel}
+                      {row.trustScore}% · {importDiagnostic(row.trustLabel, locale)}
                     </td>
                     <td className="px-4 py-3">
                       <SourceSummaryChips row={row} compact />
                     </td>
                     <td className="px-4 py-3 text-white/55">
-                      {row.issues[0] ?? row.warnings[0] ?? "Sieht gut aus."}
+                      {importDiagnostic(row.issues[0] ?? row.warnings[0] ?? text('Sieht gut aus.', 'No issue detected.'), locale)}
                     </td>
                   </tr>
                 ))}
@@ -1314,14 +1335,14 @@ export function TradeImportPanel() {
           <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
             <div>
               <p className="text-[10px] uppercase tracking-[0.24em] text-white/35">
-                5. Problemzeilen
+                {text("5. Problemzeilen", "5. Rows to review")}
               </p>
               <h3 className="mt-2 text-xl font-semibold text-white">
-                Problemzeilen
+                {text("Problemzeilen", "Rows to review")}
               </h3>
             </div>
             <div className="rounded-2xl border border-orange-300/20 bg-orange-400/10 px-4 py-3 text-sm text-orange-100">
-              Offen: {repairRows.length}
+              {text('Offen:', 'To review:')} {repairRows.length}
             </div>
           </div>
 
@@ -1335,7 +1356,7 @@ export function TradeImportPanel() {
                   <div>
                     <div className="flex flex-wrap items-center gap-3">
                       <span className="text-sm font-semibold text-white">
-                        Zeile {row.rowNumber}
+                        {text('Zeile', 'Row')} {row.rowNumber}
                       </span>
                       <StatusPill status={row.status} />
                     </div>
@@ -1345,7 +1366,7 @@ export function TradeImportPanel() {
                           key={`${row.rowNumber}-${issue}`}
                           className="rounded-full border border-orange-300/20 bg-orange-400/10 px-3 py-1 text-xs text-orange-100"
                         >
-                          {issue}
+                          {importDiagnostic(issue, locale)}
                         </span>
                       ))}
                     </div>
@@ -1359,7 +1380,7 @@ export function TradeImportPanel() {
                             key={`${row.rowNumber}-${warning}`}
                             className="rounded-full border border-white/10 bg-black/25 px-3 py-1 text-xs text-white/58"
                           >
-                            {warning}
+                            {importDiagnostic(warning, locale)}
                           </span>
                         ))}
                       </div>
@@ -1370,7 +1391,7 @@ export function TradeImportPanel() {
                     onClick={() => handleResetRow(row.rowNumber)}
                     className="rounded-full border border-white/10 bg-black/20 px-4 py-2 text-xs uppercase tracking-[0.2em] text-white/55 transition hover:border-white/20 hover:text-white"
                   >
-                    Reset
+                    {text("Reset", "Reset")}
                   </button>
                 </div>
 
@@ -1384,8 +1405,7 @@ export function TradeImportPanel() {
                     return (
                       <RepairField
                         key={`${row.rowNumber}-${fieldKey}`}
-                        label={field.label}
-                        helper={field.helper}
+                        label={importFieldLabel(field.key, field.label, locale)}
                         value={value}
                         onChange={(nextValue) =>
                           handleRepairChange(row.rowNumber, fieldKey, nextValue)
@@ -1410,7 +1430,9 @@ function buildImportTrustSummary(
     trustScore: number;
     warnings: string[];
   }>,
+  locale: JournalLocale,
 ) {
+  const text = journalText(locale);
   const totalRows = rows.length;
   const importableRows = rows.filter((row) => row.status === "importable").length;
   const checkRows = rows.filter((row) => row.status === "check").length;
@@ -1424,7 +1446,7 @@ function buildImportTrustSummary(
   const score = totalRows
     ? Math.round(rows.reduce((sum, row) => sum + row.trustScore, 0) / totalRows)
     : 0;
-  const label = score >= 88 ? "Hohes Vertrauen" : score >= 70 ? "Solide prüfen" : score >= 50 ? "Nur mit Prüfung" : "Niedriges Vertrauen";
+  const label = importDiagnostic(score >= 88 ? "Hohes Vertrauen" : score >= 70 ? "Solide prüfen" : score >= 50 ? "Nur mit Prüfung" : "Niedriges Vertrauen", locale);
   const tone = score >= 88 ? "text-emerald-100" : score >= 70 ? "text-white" : score >= 50 ? "text-orange-100" : "text-red-100";
   const cardTone = score >= 88
     ? "border-emerald-300/18 bg-emerald-400/[0.05]"
@@ -1434,14 +1456,17 @@ function buildImportTrustSummary(
   const warnings = Array.from(warningCounts.entries())
     .sort((left, right) => right[1] - left[1])
     .slice(0, 4)
-    .map(([warning, count]) => (count > 1 ? `${warning} (${count}x)` : warning));
+    .map(([warning, count]) => {
+      const message = importDiagnostic(warning, locale);
+      return count > 1 ? `${message} (${count}×)` : message;
+    });
   const description = totalRows
     ? score >= 88
-      ? "Die Datei ist sauber lesbar. Trotzdem Vorschau kurz prüfen, bevor sie ins Journal geht."
+      ? text("Die Datei ist sauber lesbar. Trotzdem Vorschau kurz prüfen, bevor sie ins Journal geht.", "The file was read successfully. Review the rows before using them.")
       : score >= 70
-        ? "Die Basis passt. Einzelne Felder bleiben bewusst markiert, damit nichts still falsch gespeichert wird."
-        : "Der Import braucht Aufmerksamkeit. Problemzeilen prüfen und fehlende Werte nur ergänzen, wenn sie sicher sind."
-    : "Datei wählen. Danach zeigt Equora, wo die Werte herkommen und was offen bleibt.";
+        ? text("Die Basis passt. Einzelne Felder bleiben bewusst markiert, damit nichts still falsch gespeichert wird.", "The basic fields are present. Check the marked values.")
+        : text("Der Import braucht Aufmerksamkeit. Problemzeilen prüfen und fehlende Werte nur ergänzen, wenn sie sicher sind.", "Review the flagged rows. Only add values you can verify.")
+    : text("Datei wählen. Danach zeigt Equora, wo die Werte herkommen und was offen bleibt.", "Choose a file to see where values came from and which details are missing.");
 
   return {
     score,
@@ -1452,10 +1477,10 @@ function buildImportTrustSummary(
     totalRows,
     importableRows,
     chips: [
-      `Importierbar: ${importableRows}`,
-      `Prüfen: ${checkRows}`,
-      `Skip: ${skipRows}`,
-      `Warnungen: ${Array.from(warningCounts.values()).reduce((sum, count) => sum + count, 0)}`,
+      text(`Importierbar: ${importableRows}`, `Ready: ${importableRows}`),
+      text(`Prüfen: ${checkRows}`, `Review: ${checkRows}`),
+      text(`Skip: ${skipRows}`, `Skipped: ${skipRows}`),
+      text(`Warnungen: ${Array.from(warningCounts.values()).reduce((sum, count) => sum + count, 0)}`, `Warnings: ${Array.from(warningCounts.values()).reduce((sum, count) => sum + count, 0)}`),
     ],
     warnings,
   };
@@ -1468,7 +1493,9 @@ function buildImportReadiness(
   importableRows: number,
   checkRows: number,
   skipRows: number,
+  locale: JournalLocale,
 ) {
+  const text = journalText(locale);
   const mappedRequired = requiredFieldKeys.filter((key) =>
     Boolean(mapping[key]),
   ).length;
@@ -1482,16 +1509,16 @@ function buildImportReadiness(
     ? Math.round((importableRows / totalRows) * 100)
     : 0;
   const chips = [
-    `Spalten: ${headers.length}`,
-    `Pflicht: ${mappedRequired}/${requiredFieldKeys.length}`,
-    `Kernfelder: ${mappedCore}/${coreOptionalFieldKeys.length}`,
-    `Optional: ${mappedOptional}`,
+    text(`Spalten: ${headers.length}`, `Columns: ${headers.length}`),
+    text(`Pflicht: ${mappedRequired}/${requiredFieldKeys.length}`, `Required: ${mappedRequired}/${requiredFieldKeys.length}`),
+    text(`Kernfelder: ${mappedCore}/${coreOptionalFieldKeys.length}`, `Key fields: ${mappedCore}/${coreOptionalFieldKeys.length}`),
+    text(`Optional: ${mappedOptional}`, `Optional: ${mappedOptional}`),
   ];
 
   if (!headers.length) {
     return {
-      title: "Noch keine Datei",
-      description: "CSV oder Excel wählen. Danach zeigt Equora, was direkt lesbar ist.",
+      title: text("Noch keine Datei", "No file selected"),
+      description: text("CSV oder Excel wählen. Danach zeigt Equora, was direkt lesbar ist.", "Choose a file to see which fields Equora can read."),
       chips,
       tone: "border-white/10 bg-black/20",
     };
@@ -1499,8 +1526,8 @@ function buildImportReadiness(
 
   if (mappedRequired < requiredFieldKeys.length) {
     return {
-      title: "Pflichtfeld fehlt",
-      description: "Datum und Markt müssen sitzen. Erst dann ist die Vorschau belastbar.",
+      title: text("Pflichtfeld fehlt", "A required field is missing"),
+      description: text("Datum und Markt müssen sitzen. Erst dann ist die Vorschau belastbar.", "Map the date and market columns to preview the trades."),
       chips,
       tone: "border-orange-300/20 bg-orange-400/[0.06]",
     };
@@ -1508,28 +1535,28 @@ function buildImportReadiness(
 
   if (skipRows > 0) {
     return {
-      title: "Einige Zeilen fallen raus",
+      title: text("Einige Zeilen fallen raus", "Some rows will be skipped"),
       description:
-        "Die Repair Queue zeigt, was fehlt. Lieber prüfen als falsch speichern.",
-      chips: [...chips, `Skip: ${skipRows}`],
+        text("Die Repair Queue zeigt, was fehlt. Lieber prüfen als falsch speichern.", "See Rows to review for the reason each row was skipped."),
+      chips: [...chips, text(`Skip: ${skipRows}`, `Skipped: ${skipRows}`)],
       tone: "border-orange-300/20 bg-orange-400/[0.06]",
     };
   }
 
   if (checkRows > 0) {
     return {
-      title: "Vorschau möglich, aber prüfen",
-      description: "Basis passt. Einige Zeilen brauchen P&L oder Preiskontext.",
-      chips: [...chips, `Treffer: ${rowRate}%`],
+      title: text("Vorschau möglich, aber prüfen", "Some rows need review"),
+      description: text("Basis passt. Einige Zeilen brauchen P&L oder Preiskontext.", "Some rows are missing P&L or price details."),
+      chips: [...chips, text(`Treffer: ${rowRate}%`, `Ready: ${rowRate}%`)],
       tone: "border-orange-300/20 bg-orange-400/[0.06]",
     };
   }
 
   return {
-    title: "Vorschau wirkt sauber",
+    title: text("Vorschau wirkt sauber", "Preview looks ready"),
     description:
-      `Pflichtfelder und Kernwerte sind erkannt. ${brokerFileImportCapability.blockedReason}`,
-    chips: [...chips, `Treffer: ${rowRate}%`],
+      `${text('Pflichtfelder und Kernwerte sind erkannt.', 'Required fields and key values were found.')} ${getBrokerFileImportCopy(locale).reason}`,
+    chips: [...chips, text(`Treffer: ${rowRate}%`, `Ready: ${rowRate}%`)],
     tone: "border-emerald-300/20 bg-emerald-400/[0.06]",
   };
 }
@@ -1590,13 +1617,16 @@ function SourceSummaryChips({
   };
   compact?: boolean;
 }) {
+  const locale = useJournalLocale();
+  const text = journalText(locale);
   const groups = [
     buildSourceGroup(
       row.sources,
       "csv",
-      "Direkt",
+      text("Direkt", "From file"),
       "border-emerald-300/20 bg-emerald-400/10 text-emerald-100",
       compact,
+      locale,
     ),
     buildSourceGroup(
       row.sources,
@@ -1604,13 +1634,15 @@ function SourceSummaryChips({
       "Preset",
       "border-sky-300/20 bg-sky-400/10 text-sky-100",
       compact,
+      locale,
     ),
     buildSourceGroup(
       row.sources,
       "manual",
-      "Manuell",
+      text("Manuell", "Manual"),
       "border-orange-300/20 bg-orange-400/10 text-orange-100",
       compact,
+      locale,
     ),
   ].filter(Boolean) as Array<{
     label: string;
@@ -1621,7 +1653,7 @@ function SourceSummaryChips({
   if (!groups.length) {
     return (
       <span className="rounded-full border border-white/10 bg-black/20 px-3 py-1 text-xs text-white/45">
-        Noch keine Feldquelle
+        {text("Noch keine Feldquelle", "No field sources yet")}
       </span>
     );
   }
@@ -1646,8 +1678,9 @@ function buildSourceGroup(
   label: string,
   className: string,
   compact: boolean,
+  locale: JournalLocale,
 ) {
-  const fields = summarizeSourceFields(sources, source, compact);
+  const fields = summarizeSourceFields(sources, source, compact, locale);
   if (!fields.length) return null;
   return { label, detail: fields.join(" · "), className };
 }
@@ -1656,6 +1689,7 @@ function summarizeSourceFields(
   sources: Record<CsvImportFieldKey, CsvImportValueSource>,
   source: CsvImportValueSource,
   compact: boolean,
+  locale: JournalLocale,
 ) {
   const preferredFields: Array<{ key: CsvImportFieldKey; label: string }> = [
     { key: "date", label: "Datum" },
@@ -1673,7 +1707,7 @@ function summarizeSourceFields(
   return preferredFields
     .filter((field) => sources[field.key] === source)
     .slice(0, compact ? 2 : 4)
-    .map((field) => field.label);
+    .map((field) => importFieldLabel(field.key, field.label, locale));
 }
 
 function MetricTile({
@@ -1696,12 +1730,13 @@ function MetricTile({
 }
 
 function StatusPill({ status }: { status: CsvImportPreviewStatus }) {
+  const text = journalText(useJournalLocale());
   const copy =
     status === "importable"
-      ? "Importierbar"
+      ? text("Importierbar", "Ready")
       : status === "check"
-        ? "Prüfen"
-        : "Skip";
+        ? text("Prüfen", "Review")
+        : text("Skip", "Skipped");
   const tone =
     status === "importable"
       ? "border-emerald-300/25 bg-emerald-400/10 text-emerald-100"
@@ -1720,12 +1755,10 @@ function StatusPill({ status }: { status: CsvImportPreviewStatus }) {
 
 function RepairField({
   label,
-  helper,
   value,
   onChange,
 }: {
   label: string;
-  helper: string;
   value: string;
   onChange: (value: string) => void;
 }) {

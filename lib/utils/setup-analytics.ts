@@ -1,3 +1,4 @@
+import { journalNumberLocale, journalText, type JournalLocale } from '@/lib/i18n/journal'
 import { getTradeRValue } from '@/lib/utils/trade-r'
 import type { SetupMediaRow, SetupRow, SetupTradeLinkRow } from '@/lib/types/db'
 import type { SavedSetup, SavedSetupMedia, SetupDetail, SetupImageItem, SetupLibraryItem } from '@/lib/types/setup'
@@ -8,6 +9,7 @@ import { getSetupPerformanceDisplay } from '@/lib/utils/setup-performance-displa
 import type { TradeCurrency } from '@/lib/types/trade'
 import { resolveMonetaryScope, type MonetaryScopeKind } from '@/lib/utils/currency'
 import { MIN_ANALYTICS_BUCKET_SIZE } from '@/lib/utils/statistics-scope'
+import { DEFAULT_TRADE_TIMEZONE } from '@/lib/utils/trade-time'
 
 function normalizeCategory(category: string | null | undefined) {
   return category?.trim() || 'Custom'
@@ -91,11 +93,13 @@ function getTradeTimestamp(trade: Trade) {
   return Number.isFinite(time) ? time : 0
 }
 
-function formatTradeDate(value: string | null | undefined) {
+function formatTradeDate(value: string | null | undefined, locale: JournalLocale) {
   if (!value) return null
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return value
-  return date.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: '2-digit' })
+  return date.toLocaleDateString(journalNumberLocale[locale], {
+    day: '2-digit', month: '2-digit', year: '2-digit', timeZone: DEFAULT_TRADE_TIMEZONE,
+  })
 }
 
 function getTradeCosts(trade: Trade) {
@@ -155,6 +159,7 @@ export function buildSetupPerformanceRows(
   setupTitles: string[],
   trades: Trade[],
   savedSetups: Array<Pick<SavedSetup, 'title' | 'linkedTradeIds'>> = [],
+  locale: JournalLocale = 'de',
 ): SetupPerformanceRow[] {
   const titles = Array.from(new Set([...setupTitles.filter(Boolean), ...trades.map((trade) => trade.setup).filter(Boolean)]))
   return titles
@@ -195,7 +200,7 @@ export function buildSetupPerformanceRows(
         weakestSession: sessionLabels.weakest,
         bestMarket: marketLabels.best,
         weakestMarket: marketLabels.weakest,
-        lastTradeDate: formatTradeDate(latestTrade?.tradeOccurredAt || latestTrade?.completedAt || latestTrade?.capturedAt || latestTrade?.createdAt || latestTrade?.date),
+        lastTradeDate: formatTradeDate(latestTrade?.tradeOccurredAt || latestTrade?.completedAt || latestTrade?.capturedAt || latestTrade?.createdAt || latestTrade?.date, locale),
         lastTradePnL: latestTrade ? getTradePnL(latestTrade) : null,
         ...status,
         tone,
@@ -263,7 +268,8 @@ export function buildSavedSetups(setupRows: SetupRow[], setupMediaRows: SetupMed
     .sort((left, right) => left.sortOrder - right.sortOrder || left.title.localeCompare(right.title, 'de'))
 }
 
-export function buildSetupLibraryFromSources(baseSetups: SetupLibraryItem[], setupRows: SetupRow[], trades: Trade[]) {
+export function buildSetupLibraryFromSources(baseSetups: SetupLibraryItem[], setupRows: SetupRow[], trades: Trade[], locale: JournalLocale = 'de') {
+  const text = journalText(locale)
   const prioritizedSetupRows = [...setupRows].sort((left, right) => Number(Boolean(left.is_master)) - Number(Boolean(right.is_master)))
 
   const ordered = [
@@ -271,14 +277,14 @@ export function buildSetupLibraryFromSources(baseSetups: SetupLibraryItem[], set
     ...prioritizedSetupRows.map((setup) => ({
       title: setup.title,
       category: normalizeCategory(setup.category),
-      description: setup.description?.trim() || (setup.is_master ? 'Master-Setup' : 'Persönliches Setup'),
+      description: setup.description?.trim() || (setup.is_master ? text('Master-Setup', 'Shared setup') : text('Persönliches Setup', 'Personal setup')),
       isMaster: Boolean(setup.is_master),
       isPersonal: Boolean(setup.created_at && !setup.is_master),
     })),
     ...Array.from(new Set(trades.map((trade) => trade.setup))).map((title) => ({
       title,
       category: normalizeCategory(trades.find((trade) => trade.setup === title)?.concept),
-      description: 'Aus Trades erkannt',
+      description: text('Aus Trades erkannt', 'Found in your trades'),
       isMaster: false,
       isPersonal: false,
     })),
@@ -292,7 +298,9 @@ export function buildDynamicSetupDetail(
   linkedTrades: Trade[],
   row?: SetupRow,
   mediaRows: SetupMediaRow[] = [],
+  locale: JournalLocale = 'de',
 ): SetupDetail | undefined {
+  const text = journalText(locale)
   if (!base && !row && !linkedTrades.length) return undefined
 
   const metrics = getCoreMetrics(linkedTrades)
@@ -322,10 +330,10 @@ export function buildDynamicSetupDetail(
 
   return {
     category: normalizeCategory(row?.category ?? base?.category),
-    entry: row?.entry?.trim() || base?.entry || 'Noch keine feste Entry-Logik dokumentiert.',
-    exit: row?.exit?.trim() || base?.exit || 'Noch keine feste Exit-Logik dokumentiert.',
-    invalidation: row?.invalidation?.trim() || base?.invalidation || 'Noch keine Invalidierung dokumentiert.',
-    mistakes: row?.mistakes?.length ? row.mistakes : base?.mistakes ?? ['Noch keine typischen Fehler gesammelt.'],
+    entry: row?.entry?.trim() || base?.entry || text('Noch keine feste Entry-Logik dokumentiert.', 'No entry rule recorded yet.'),
+    exit: row?.exit?.trim() || base?.exit || text('Noch keine feste Exit-Logik dokumentiert.', 'No exit rule recorded yet.'),
+    invalidation: row?.invalidation?.trim() || base?.invalidation || text('Noch keine Invalidierung dokumentiert.', 'No invalidation rule recorded yet.'),
+    mistakes: row?.mistakes?.length ? row.mistakes : base?.mistakes ?? [text('Noch keine typischen Fehler gesammelt.', 'No common mistakes recorded yet.')],
     checklist: row?.checklist?.length ? row.checklist : base?.checklist ?? [],
     playbook: row?.playbook ?? base?.playbook ?? undefined,
     performance: getSetupPerformanceDisplay({

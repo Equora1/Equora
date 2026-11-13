@@ -1,4 +1,7 @@
 import Link from 'next/link'
+import { journalNumberLocale, journalText, type JournalLocale } from '@/lib/i18n/journal'
+import { getBrokerFileImportCopy } from '@/lib/i18n/broker-file'
+import { DEFAULT_TRADE_TIMEZONE } from '@/lib/utils/trade-time'
 import { AppIcon, type AppIconName } from '@/components/ui/app-icon'
 import { FuturisticCard } from '@/components/ui/futuristic-card'
 import { BrokerConnectionPanel } from '@/components/broker-sync/broker-connection-panel'
@@ -8,14 +11,15 @@ import type { BrokerCaptureRunSummary, BrokerPreviewItem } from '@/lib/types/bro
 import { brokerCatalogSummary } from '@/lib/utils/broker-catalog'
 import { brokerFileImportCapability } from '@/lib/utils/broker-file-import-capability'
 
-const workflow = [
-  ['1', 'Brokerstatus prüfen', 'Zugangsdaten werden nur für unterstützte und freigeschaltete Verbindungen abgefragt.'],
-  ['2', 'Lesezugriff prüfen', 'Equora prüft später nur fest benannte Leseabrufe; eine Testorder ist technisch nicht vorgesehen.'],
-  ['3', 'Gefundene Daten ansehen', 'Orders und Ausführungen erscheinen zuerst als übersichtliche Vorschau.'],
-  ['4', 'Später bewusst importieren', 'Erst in der nächsten Ausbaustufe entscheidest du, welche Trades ins Journal kommen.'],
-] as const
+export function BrokerSyncHub({ snapshot, locale = 'de' }: { snapshot: BrokerSyncSnapshot; locale?: JournalLocale }) {
+  const text = journalText(locale)
+  const importCopy = getBrokerFileImportCopy(locale)
+  const workflow = [
+    [text('Brokerstatus prüfen', 'Check broker availability'), text('Zugangsdaten werden nur bei freigeschalteten Verbindungen abgefragt.', 'Credentials are requested only for enabled connections.')],
+    [text('Lesezugriff prüfen', 'Check read access'), text('Equora prüft festgelegte Lesezugriffe.', 'Equora checks specific read permissions.')],
+    [text('Daten ansehen', 'Preview the data'), text('Orders und Ausführungen erscheinen zuerst in der Vorschau.', 'Orders and fills appear in a preview first.')],
+  ]
 
-export function BrokerSyncHub({ snapshot }: { snapshot: BrokerSyncSnapshot }) {
   const fullSnapshotAvailable = snapshot.readScope === 'full_snapshot'
   const userAttestedReadOnlyConnection = snapshot.connections.some((connection) =>
     connection.status === 'ready'
@@ -25,7 +29,7 @@ export function BrokerSyncHub({ snapshot }: { snapshot: BrokerSyncSnapshot }) {
     connection.technicalReadResult === 'legacy_read_observed',
   )
   return (
-    <div className="space-y-5 xl:space-y-6">
+    <div lang={locale} className="space-y-5 xl:space-y-6">
       <FuturisticCard glow="orange" className="p-6 sm:p-7">
         <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
           <div className="max-w-3xl">
@@ -34,22 +38,21 @@ export function BrokerSyncHub({ snapshot }: { snapshot: BrokerSyncSnapshot }) {
                 <AppIcon name="sync" className="h-5 w-5" aria-hidden="true" />
               </span>
               <div>
-                <p className="eq-display text-[0.62rem] text-[#b09a7a]">Kontrolliert dokumentieren</p>
-                <h1 className="mt-1 text-2xl font-semibold text-white sm:text-3xl">Broker verbinden</h1>
+
+                <h1 className="mt-1 text-2xl font-semibold text-white sm:text-3xl">{text("Broker verbinden", "Connect a broker")}</h1>
               </div>
             </div>
             <p className="mt-5 max-w-2xl text-sm leading-7 text-white/58 sm:text-base">
-              Prüfe verfügbare Verbindungen und Wege zur Dateiübernahme. Gefundene Brokerdaten erscheinen zunächst als Vorschau;
-              Equora handelt nicht für dich und übernimmt keine Trades automatisch.
+              {text("Prüfe verfügbare Verbindungen und Wege zur Dateiübernahme. Gefundene Brokerdaten erscheinen zunächst als Vorschau; Equora handelt nicht für dich und übernimmt keine Trades automatisch.", "Find your broker or preview a file. Broker data appears in a preview first. Equora never places trades or imports them automatically.")}
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
             <StatusPill
-              label={snapshot.runtimeEnabled ? 'Brokerabruf freigeschaltet' : 'Brokerabruf deaktiviert'}
+              label={snapshot.runtimeEnabled ? text("Brokerabruf freigeschaltet", "Broker data access enabled") : text("Brokerabruf deaktiviert", "Broker data access off")}
               tone={snapshot.runtimeEnabled ? 'quiet' : 'warning'}
             />
             {userAttestedReadOnlyConnection ? (
-              <StatusPill label="Nutzer bestätigt: Read-only-Key" tone="quiet" />
+              <StatusPill label={text("Nutzer bestätigt: Read-only-Key", "Read-only access confirmed by you")} tone="quiet" />
             ) : null}
           </div>
         </div>
@@ -65,103 +68,103 @@ export function BrokerSyncHub({ snapshot }: { snapshot: BrokerSyncSnapshot }) {
         <div className="border-b border-white/8 px-6 py-6 sm:px-7">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
             <div className="max-w-3xl">
-              <p className="eq-display text-[0.58rem] text-[#b09a7a]">Anbindungswege</p>
-              <h3 className="mt-2 text-2xl font-semibold text-white">Der schnellste passende Weg zu deinen Trades</h3>
+
+              <h3 className="mt-2 text-2xl font-semibold text-white">{text("Der schnellste passende Weg zu deinen Trades", "Ways to bring in your trades")}</h3>
               <p className="mt-3 text-sm leading-6 text-white/58">
-                Suche deinen Broker oder deine Handelsplattform. Du siehst, ob eine Dateivorschau vorbereitet ist
-                oder eine direkte Verbindung erst geplant wird.
+                {text("Suche deinen Broker oder deine Handelsplattform. Du siehst, ob eine Dateivorschau vorbereitet ist oder eine direkte Verbindung erst geplant wird.", "Search for your broker or platform to see which options are available.")}
               </p>
             </div>
             <span className="w-fit rounded-full border border-[#c8823a]/25 bg-[#c8823a]/10 px-3 py-1.5 text-[10px] uppercase tracking-[0.16em] text-[#f0a855]">
-              {brokerCatalogSummary.brokerCount} Broker · {brokerCatalogSummary.platformCount} Plattform · {brokerCatalogSummary.genericFallbackCount} weitere Auswahl
+              {text(`${brokerCatalogSummary.brokerCount} Broker · ${brokerCatalogSummary.platformCount} Plattformen`, `${brokerCatalogSummary.brokerCount} brokers · ${brokerCatalogSummary.platformCount} platforms`)}
             </span>
           </div>
         </div>
 
         <div className="grid lg:grid-cols-3">
           <OnboardingLane
-            step="01"
+
             icon="vault"
-            eyebrow={brokerFileImportCapability.statusLabel}
-            title="Dateiimport vorbereiten"
-            description={`CSV- und Excel-Dateien lassen sich vor der Übernahme prüfen. ${brokerFileImportCapability.blockedReason}`}
-            metric={`${brokerCatalogSummary.builtFileProfileCount} Dateivorlagen · Übernahme noch aus`}
-            inactiveLabel={brokerFileImportCapability.blockedActionLabel}
+            eyebrow={text(brokerFileImportCapability.statusLabel, 'File preview')}
+            title={text("Dateiimport vorbereiten", "Preview a file")}
+            description={text('CSV- und Excel-Dateien lassen sich prüfen.', 'Preview CSV and Excel files.')}
+            metric={text(`${brokerCatalogSummary.builtFileProfileCount} Dateivorlagen`, `${brokerCatalogSummary.builtFileProfileCount} file templates`)}
+            inactiveLabel={importCopy.blocked}
             tone="controlled"
           />
           <OnboardingLane
-            step="02"
+
             icon="sync"
-            eyebrow="Kontrollierter Ausbau"
-            title="Verbindung zum Lesen von Daten"
-            description="Verbindungen sind nur für unterstützte Broker möglich. Ein Verbindungscheck und die spätere Datenübernahme sind getrennte Schritte."
-            metric="MEXC-Abruf derzeit aus · OKX noch nicht verfügbar"
+            eyebrow={text("Kontrollierter Ausbau", "Direct connection")}
+            title={text("Verbindung zum Lesen von Daten", "Read broker data")}
+            description={text("Verbindungen sind nur für unterstützte Broker möglich. Ein Verbindungscheck und die spätere Datenübernahme sind getrennte Schritte.", "Check access for a supported broker before retrieving data.")}
+            metric={snapshot.runtimeEnabled
+              ? text('OKX noch nicht verfügbar', 'OKX connection unavailable')
+              : text('MEXC-Abruf aus · OKX noch nicht verfügbar', 'MEXC data access off · OKX unavailable')}
             href="#broker-connections"
-            action="Verbindungen prüfen"
+            action={text("Verbindungen prüfen", "Check connections")}
             tone="controlled"
           />
           <OnboardingLane
-            step="03"
+
             icon="scan"
-            eyebrow="Weitere Handelsplattformen"
-            title="Plattformfamilie nutzen"
-            description={`Dateivorlagen für cTrader und MetaTrader 4 sind vorbereitet. ${brokerFileImportCapability.blockedReason} Direkte Abrufe über MetaTrader 5 und DXtrade sind noch nicht verfügbar.`}
-            metric="cTrader und MT4: Dateivorlagen vorbereitet · Direkter Abruf aus"
-            inactiveLabel={brokerFileImportCapability.blockedActionLabel}
+            eyebrow={text("Weitere Handelsplattformen", "Other trading platforms")}
+            title={text("Plattformfamilie nutzen", "Use a platform export")}
+            description={text('Dateivorlagen für cTrader und MetaTrader 4 sind vorbereitet. Direkte Verbindungen zu MetaTrader 5 und DXtrade sind noch nicht verfügbar.', 'File templates are ready for cTrader and MetaTrader 4. Direct connections to MetaTrader 5 and DXtrade are still unavailable.')}
+            metric={text("cTrader und MT4: Dateivorlagen vorbereitet · Direkter Abruf aus", "File templates for cTrader and MT4")}
+            inactiveLabel={importCopy.blocked}
             tone="controlled"
           />
         </div>
       </FuturisticCard>
 
-      <BrokerOnboardingCatalog />
+      <BrokerOnboardingCatalog locale={locale} />
 
       <div className="grid gap-5 xl:grid-cols-[1.05fr_0.95fr]">
         <FuturisticCard className="p-6">
-          <SectionHeading eyebrow="Berechtigungen" title="Was Equora lesen darf" />
+          <SectionHeading eyebrow={text("Berechtigungen", "Permissions")} title={text("Was Equora lesen darf", "What Equora can read")} />
           <div className="mt-5 grid gap-3">
             <PermissionCard
-              title="Equora-Lesefunktion"
-              description="Equora verwendet festgelegte Leseabrufe. Jeder Abruf benötigt eine freigeschaltete Verbindung und deine Zustimmung."
-              state={limitedTechnicalReadObserved ? 'Begrenzter Leseabruf beobachtet' : 'Nicht technisch beobachtet'}
+              title={text("Equora-Lesefunktion", "Read access")}
+              description={text("Equora verwendet festgelegte Leseabrufe. Jeder Abruf benötigt eine freigeschaltete Verbindung und deine Zustimmung.", "Each data request needs an enabled connection and your consent.")}
+              state={limitedTechnicalReadObserved ? text("Begrenzter Leseabruf beobachtet", "Limited read access observed") : text("Nicht technisch beobachtet", "No read access observed")}
             />
             <PermissionCard
-              title="Trading in Equora"
-              description="Equora implementiert keine Funktion zum Öffnen, Ändern oder Schließen von Orders."
-              state="In der App nicht implementiert"
+              title={text("Trading in Equora", "Trading in Equora")}
+              description={text("Equora implementiert keine Funktion zum Öffnen, Ändern oder Schließen von Orders.", "Equora cannot open, change or close orders.")}
+              state={text("In der App nicht implementiert", "Unavailable in Equora")}
             />
             <PermissionCard
-              title="Schreibrechte beim Broker"
-              description="Deine Bestätigung allein zeigt nicht, welche Schreibrechte der Broker tatsächlich erlaubt."
+              title={text("Schreibrechte beim Broker", "Broker write permissions")}
+              description={text("Deine Bestätigung allein zeigt nicht, welche Schreibrechte der Broker tatsächlich erlaubt.", "Broker permissions must be checked separately from your confirmation.")}
               state={userAttestedReadOnlyConnection
-                ? 'Von dir als deaktiviert bestätigt; technisch nicht vollständig geprüft'
-                : 'Nicht vollständig technisch verifiziert'}
+                ? text("Von dir als deaktiviert bestätigt; technisch nicht vollständig geprüft", "You confirmed they are off. Verification is incomplete.")
+                : text("Nicht vollständig technisch verifiziert", "Full permissions unverified")}
             />
           </div>
           <p className="mt-5 rounded-2xl border border-white/8 bg-white/[0.025] p-4 text-sm leading-6 text-white/60">
-            Zugangsschlüssel werden auf dem Server verschlüsselt gespeichert und danach nicht wieder im Browser angezeigt.
-            Die Protokolle externer Broker und Plattformen sind damit nicht vollständig geprüft.
+            {text("Zugangsschlüssel werden auf dem Server verschlüsselt gespeichert und danach nicht wieder im Browser angezeigt. Die Protokolle externer Broker und Plattformen sind damit nicht vollständig geprüft.", "Equora stores keys encrypted on the server and hides them after saving. External broker and platform protocols are only partially verified.")}
           </p>
         </FuturisticCard>
 
         <FuturisticCard className="p-6">
-          <SectionHeading eyebrow="Bereitschaft" title="Was schon funktioniert" />
+          <SectionHeading eyebrow={text("Bereitschaft", "Availability")} title={text("Was schon funktioniert", "What is available")} />
           <div className="mt-5 space-y-3">
-            <ReadinessRow label="Verbindungsübersicht" value={schemaStateLabel(snapshot.schemaState)} />
+            <ReadinessRow label={text("Verbindungsübersicht", "Connections")} value={schemaStateLabel(snapshot.schemaState, locale)} />
             <ReadinessRow
-              label="Verschlüsselter Zugang"
-              value={dependencyStateLabel(snapshot.secureStoreState)}
+              label={text("Verschlüsselter Zugang", "Encrypted credential storage")}
+              value={dependencyStateLabel(snapshot.secureStoreState, locale)}
             />
             <ReadinessRow
-              label="Serverseitiger Verbindungscheck"
+              label={text("Serverseitiger Verbindungscheck", "Connection check")}
               value={!snapshot.runtimeEnabled
-                ? 'Brokerabruf deaktiviert'
+                ? text("Brokerabruf deaktiviert", "Broker data access off")
                 : snapshot.connectorState === 'ready'
-                  ? 'Voraussetzungen vorhanden; Start prüft erneut'
+                  ? text("Voraussetzungen vorhanden; Start prüft erneut", "Ready to check access")
                   : snapshot.connectorState === 'not_read'
-                    ? 'Status nicht lesbar; Setupformular nicht verfügbar'
-                    : 'Abruf freigeschaltet; Einrichtung noch unvollständig'}
+                    ? text("Status nicht lesbar; Setupformular nicht verfügbar", "Status unavailable. Setup is disabled.")
+                    : text("Abruf freigeschaltet; Einrichtung noch unvollständig", "Data access enabled. Finish setting up the connection.")}
             />
-            <ReadinessRow label="Automatisch ins Journal übernehmen" value="Noch ausgeschaltet" />
+            <ReadinessRow label={text("Automatisch ins Journal übernehmen", "Automatic journal import")} value={text("Noch ausgeschaltet", "Off")} />
           </div>
         </FuturisticCard>
       </div>
@@ -169,6 +172,7 @@ export function BrokerSyncHub({ snapshot }: { snapshot: BrokerSyncSnapshot }) {
       <div id="broker-connections" className="scroll-mt-6">
         <FuturisticCard className="p-5 sm:p-6">
           <BrokerConnectionPanel
+            locale={locale}
             connections={snapshot.connections}
             schemaState={snapshot.schemaState}
             connectorState={snapshot.connectorState}
@@ -179,39 +183,38 @@ export function BrokerSyncHub({ snapshot }: { snapshot: BrokerSyncSnapshot }) {
 
       <FuturisticCard className="p-6">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-          <SectionHeading eyebrow="Datenvorschau" title="Zuletzt bei Brokern gefunden" />
+          <SectionHeading eyebrow={text("Datenvorschau", "Data preview")} title={text("Zuletzt bei Brokern gefunden", "Recent broker data")} />
           <span className="text-xs text-white/60">
-            {fullSnapshotAvailable ? `${snapshot.preview.length} Einträge` : 'Vorschaudaten nicht geladen'}
+            {fullSnapshotAvailable ? text(`${snapshot.preview.length} Einträge`, `${snapshot.preview.length} items`) : text("Vorschaudaten nicht geladen", "Preview unavailable")}
           </span>
         </div>
         <div className="mt-5">
           {fullSnapshotAvailable && snapshot.preview.length ? (
             <div className="overflow-hidden rounded-2xl border border-white/8">
               <div className="hidden grid-cols-[0.7fr_1fr_1fr_0.8fr_0.8fr_1fr] gap-3 border-b border-white/8 bg-white/[0.025] px-4 py-3 text-[10px] uppercase tracking-[0.14em] text-white/60 md:grid">
-                <span>Art</span>
-                <span>Markt</span>
-                <span>Richtung</span>
-                <span>Preis</span>
-                <span>Ergebnis</span>
-                <span>Zeit</span>
+                <span>{text("Art", "Type")}</span>
+                <span>{text("Markt", "Market")}</span>
+                <span>{text("Richtung", "Side")}</span>
+                <span>{text("Preis", "Price")}</span>
+                <span>{text("Ergebnis", "Result")}</span>
+                <span>{text("Zeit", "Time")}</span>
               </div>
               <div className="divide-y divide-white/6">
-                {snapshot.preview.map((item) => <PreviewRow key={item.id} item={item} />)}
+                {snapshot.preview.map((item) => <PreviewRow key={item.id} item={item} locale={locale} />)}
               </div>
             </div>
           ) : !fullSnapshotAvailable ? (
             <div className="rounded-2xl border border-dashed border-white/12 px-6 py-9 text-center">
-              <p className="text-sm font-medium text-white">Die Datenvorschau ist derzeit nicht verfügbar.</p>
+              <p className="text-sm font-medium text-white">{text("Die Datenvorschau ist derzeit nicht verfügbar.", "The preview is unavailable.")}</p>
               <p className="mx-auto mt-2 max-w-xl text-xs leading-5 text-white/60">
-                Die Verbindungsübersicht hat keinen Zugriff auf diese Details. Daraus folgt nicht, dass beim Broker keine Daten vorliegen.
+                {text("Die Verbindungsübersicht hat keinen Zugriff auf diese Details. Daraus folgt nicht, dass beim Broker keine Daten vorliegen.", "This view cannot show whether the broker has data.")}
               </p>
             </div>
           ) : (
             <div className="rounded-2xl border border-dashed border-white/12 px-6 py-9 text-center">
-              <p className="text-sm font-medium text-white">Noch keine Datenvorschau vorhanden.</p>
+              <p className="text-sm font-medium text-white">{text("Noch keine Datenvorschau vorhanden.", "No preview data yet.")}</p>
               <p className="mx-auto mt-2 max-w-xl text-xs leading-5 text-white/60">
-                Erst nach einem freigegebenen Datenabruf erscheinen hier Brokerdaten. Ein Verbindungscheck speichert keine Rohdaten.
-                Daten in der Vorschau sind noch keine Trades in deinem Journal.
+                {text("Erst nach einem freigegebenen Datenabruf erscheinen hier Brokerdaten. Ein Verbindungscheck speichert keine Rohdaten. Daten in der Vorschau sind noch keine Trades in deinem Journal.", "An approved data retrieval can populate this preview. A connection check saves no raw data. Preview items are separate from journal trades.")}
               </p>
             </div>
           )}
@@ -220,14 +223,11 @@ export function BrokerSyncHub({ snapshot }: { snapshot: BrokerSyncSnapshot }) {
 
       <div className="grid gap-5 xl:grid-cols-[1.15fr_0.85fr]">
         <FuturisticCard className="p-6">
-          <SectionHeading eyebrow="Ablauf" title="Vom Broker zur kontrollierten Vorschau" />
+          <SectionHeading eyebrow={text("Ablauf", "How it works")} title={text("Vom Broker zur kontrollierten Vorschau", "From broker to preview")} />
           <div className="mt-5 grid gap-3 sm:grid-cols-2">
-            {workflow.map(([number, title, description]) => (
-              <div key={number} className="rounded-2xl border border-white/8 bg-white/[0.022] p-4">
-                <span className="inline-flex h-8 w-8 items-center justify-center rounded-xl border border-[#c8823a]/25 bg-[#c8823a]/10 text-xs font-semibold text-[#f0a855]">
-                  {number}
-                </span>
-                <p className="mt-4 text-sm font-medium text-white">{title}</p>
+            {workflow.map(([title, description]) => (
+              <div key={title} className="rounded-2xl border border-white/8 bg-white/[0.022] p-4">
+                <p className="text-sm font-medium text-white">{title}</p>
                 <p className="mt-2 text-xs leading-5 text-white/60">{description}</p>
               </div>
             ))}
@@ -235,20 +235,19 @@ export function BrokerSyncHub({ snapshot }: { snapshot: BrokerSyncSnapshot }) {
         </FuturisticCard>
 
         <FuturisticCard className="p-6">
-          <SectionHeading eyebrow="Letzte Prüfungen" title="Was zuletzt passiert ist" />
+          <SectionHeading eyebrow={text("Letzte Prüfungen", "Recent checks")} title={text("Was zuletzt passiert ist", "Data retrieval history")} />
           <div className="mt-5">
             {snapshot.recentRuns.length ? (
               <div className="space-y-3">
-                {snapshot.recentRuns.map((run) => <RunCard key={run.id} run={run} />)}
+                {snapshot.recentRuns.map((run) => <RunCard key={run.id} run={run} locale={locale} />)}
               </div>
             ) : !fullSnapshotAvailable ? (
               <div className="rounded-2xl border border-white/8 bg-white/[0.02] p-5 text-sm leading-6 text-white/60">
-                Nachweise zu Datenabrufen sind in dieser Ansicht nicht verfügbar. Ob frühere Abrufe vorliegen, lässt sich hier nicht feststellen.
+                {text("Nachweise zu Datenabrufen sind in dieser Ansicht nicht verfügbar. Ob frühere Abrufe vorliegen, lässt sich hier nicht feststellen.", "Retrieval history is unavailable in this view.")}
               </div>
             ) : (
               <div className="rounded-2xl border border-white/8 bg-white/[0.02] p-5 text-sm leading-6 text-white/60">
-                In den verfügbaren Nachweisen ist noch kein Datenabruf verzeichnet. Nach einem gesondert freigegebenen Abruf erscheint hier, wie viele Datensätze
-                beobachtet und wie viele bereits bekannt waren.
+                {text("In den verfügbaren Nachweisen ist noch kein Datenabruf verzeichnet. Nach einem gesondert freigegebenen Abruf erscheint hier, wie viele Datensätze beobachtet und wie viele bereits bekannt waren.", "No data retrievals are recorded in the available history. After an approved retrieval, you can see how many records were new and how many were already known.")}
               </div>
             )}
           </div>
@@ -259,7 +258,6 @@ export function BrokerSyncHub({ snapshot }: { snapshot: BrokerSyncSnapshot }) {
 }
 
 function OnboardingLane({
-  step,
   icon,
   eyebrow,
   title,
@@ -267,10 +265,9 @@ function OnboardingLane({
   metric,
   href,
   action,
-  inactiveLabel = 'Noch nicht aktiv',
+  inactiveLabel,
   tone,
 }: {
-  step: string
   icon: AppIconName
   eyebrow: string
   title: string
@@ -293,7 +290,6 @@ function OnboardingLane({
         <span className={`inline-flex h-11 w-11 items-center justify-center rounded-2xl border ${accentClass}`}>
           <AppIcon name={icon} className="h-5 w-5" aria-hidden="true" />
         </span>
-        <span className="eq-display text-[0.55rem] text-white/28">{step}</span>
       </div>
       <p className="mt-6 text-[10px] uppercase tracking-[0.16em] text-[#b09a7a]">{eyebrow}</p>
       <h4 className="mt-2 text-lg font-semibold text-white">{title}</h4>
@@ -308,11 +304,11 @@ function OnboardingLane({
             {action}
             <AppIcon name="arrow" className="h-3.5 w-3.5" aria-hidden="true" />
           </Link>
-        ) : (
+        ) : inactiveLabel ? (
           <span className="mt-4 inline-flex rounded-full border border-white/8 bg-black/20 px-3.5 py-2 text-[10px] uppercase tracking-[0.14em] text-white/35">
             {inactiveLabel}
           </span>
-        )}
+        ) : null}
       </div>
     </article>
   )
@@ -357,88 +353,100 @@ function ReadinessRow({ label, value }: { label: string; value: string }) {
   )
 }
 
-function schemaStateLabel(state: BrokerSyncSnapshot['schemaState']) {
-  if (state === 'ready') return 'Lesbar'
-  if (state === 'missing') return 'Einrichtung nicht verfügbar'
-  return 'Status nicht lesbar'
+function schemaStateLabel(state: BrokerSyncSnapshot['schemaState'], locale: JournalLocale) {
+  const text = journalText(locale)
+  if (state === 'ready') return text("Lesbar", "Available")
+  if (state === 'missing') return text("Einrichtung nicht verfügbar", "Setup unavailable")
+  return text("Status nicht lesbar", "Status unavailable")
 }
 
-function dependencyStateLabel(state: BrokerSyncSnapshot['secureStoreState']) {
-  if (state === 'ready') return 'Bereit'
-  if (state === 'not_ready') return 'Nicht verfügbar'
-  return 'Status nicht lesbar; Setupformular nicht verfügbar'
+function dependencyStateLabel(state: BrokerSyncSnapshot['secureStoreState'], locale: JournalLocale) {
+  const text = journalText(locale)
+  if (state === 'ready') return text("Bereit", "Ready")
+  if (state === 'not_ready') return text("Nicht verfügbar", "Unavailable")
+  return text("Status nicht lesbar; Setupformular nicht verfügbar", "Status unavailable. Setup is disabled.")
 }
 
-function PreviewRow({ item }: { item: BrokerPreviewItem }) {
+function PreviewRow({ item, locale }: { item: BrokerPreviewItem; locale: JournalLocale }) {
+  const text = journalText(locale)
+  const directions: Readonly<Record<string, string>> = {
+    'Long eröffnet': 'Opened long',
+    'Short geschlossen': 'Closed short',
+    'Short eröffnet': 'Opened short',
+    'Long geschlossen': 'Closed long',
+    'Richtung offen': 'Side unknown',
+  }
   return (
     <div className="grid gap-3 px-4 py-4 text-xs md:grid-cols-[0.7fr_1fr_1fr_0.8fr_0.8fr_1fr] md:items-center">
       <span className="w-fit rounded-full border border-white/9 bg-white/[0.03] px-2.5 py-1 text-[10px] uppercase tracking-[0.12em] text-white/60">
-        {item.kind === 'execution' ? 'Ausführung' : 'Order'}
+        {item.kind === 'execution' ? text("Ausführung", "Fill") : text("Order", "Order")}
       </span>
       <div>
-        <span className="text-white/60 md:hidden">Markt · </span>
+        <span className="text-white/60 md:hidden">{text("Markt · ", "Market · ")}</span>
         <span className="font-medium text-white/78">{item.symbol}</span>
       </div>
       <div>
-        <span className="text-white/60 md:hidden">Richtung · </span>
-        <span className="text-white/58">{item.direction}</span>
+        <span className="text-white/60 md:hidden">{text("Richtung · ", "Side · ")}</span>
+        <span className="text-white/58">{locale === 'en' ? (directions[item.direction] ?? item.direction) : item.direction}</span>
       </div>
       <div>
-        <span className="text-white/60 md:hidden">Preis · </span>
-        <span className="text-white/58">{formatNumber(item.price)}</span>
+        <span className="text-white/60 md:hidden">{text("Preis · ", "Price · ")}</span>
+        <span className="text-white/58">{formatNumber(item.price, locale)}</span>
       </div>
       <div>
-        <span className="text-white/60 md:hidden">Ergebnis · </span>
-        <span className="text-white/58">{formatSignedNumber(item.profit)}</span>
+        <span className="text-white/60 md:hidden">{text("Ergebnis · ", "Result · ")}</span>
+        <span className="text-white/58">{formatNumber(item.profit, locale, true)}</span>
       </div>
       <div>
-        <span className="text-white/60 md:hidden">Zeit · </span>
-        <span className="text-white/60">{formatDate(item.occurredAt)}</span>
+        <span className="text-white/60 md:hidden">{text("Zeit · ", "Time · ")}</span>
+        <span className="text-white/60">{formatDate(item.occurredAt, locale)}</span>
       </div>
     </div>
   )
 }
 
-function RunCard({ run }: { run: BrokerCaptureRunSummary }) {
+function RunCard({ run, locale }: { run: BrokerCaptureRunSummary; locale: JournalLocale }) {
+  const text = journalText(locale)
   return (
     <div className="rounded-2xl border border-white/8 bg-white/[0.02] p-4">
       <div className="flex items-center justify-between gap-3">
-        <span className="text-sm font-medium text-white">{runStatus(run.status)}</span>
-        <span className="text-[10px] uppercase tracking-[0.14em] text-white/60">{formatDate(run.created_at)}</span>
+        <span className="text-sm font-medium text-white">{runStatus(run.status, locale)}</span>
+        <span className="text-[10px] uppercase tracking-[0.14em] text-white/60">{formatDate(run.created_at, locale)}</span>
       </div>
       <p className="mt-3 text-xs leading-5 text-white/60">
-        Beobachtet {run.observed_event_count} · neu gespeichert {run.inserted_raw_event_count}
-        {' '}· wiederholt {run.repeated_observation_count} · Fehler {run.failed_request_count}
+        {text(
+          `Beobachtet ${run.observed_event_count} · Neu gespeichert ${run.inserted_raw_event_count} · Wiederholt ${run.repeated_observation_count} · Fehler ${run.failed_request_count}`,
+          `Observed ${run.observed_event_count} · Newly saved ${run.inserted_raw_event_count} · Repeated ${run.repeated_observation_count} · Errors ${run.failed_request_count}`,
+        )}
       </p>
     </div>
   )
 }
 
-function runStatus(status: string) {
+function runStatus(status: string, locale: JournalLocale) {
+  const text = journalText(locale)
   const labels: Record<string, string> = {
-    pending: 'Wartet',
-    running: 'Wird geprüft',
-    completed: 'Erfassung abgeschlossen',
-    partial: 'Teilweise gespeichert',
-    failed: 'Prüfung fehlgeschlagen',
-    cancelled: 'Abgebrochen',
+    pending: text("Wartet", "Pending"),
+    running: text("Wird geprüft", "Checking"),
+    completed: text("Erfassung abgeschlossen", "Retrieval complete"),
+    partial: text("Teilweise gespeichert", "Partially saved"),
+    failed: text("Prüfung fehlgeschlagen", "Check failed"),
+    cancelled: text("Abgebrochen", "Cancelled"),
   }
-  return labels[status] ?? 'Prüfung'
+  return labels[status] ?? text("Prüfung", "Check")
 }
 
-function formatNumber(value: number | null) {
-  if (value == null) return 'Offen'
-  return new Intl.NumberFormat('de-DE', { maximumFractionDigits: 8 }).format(value)
+function formatNumber(value: number | null, locale: JournalLocale, signed = false) {
+  if (value == null) return journalText(locale)('Offen', 'Unavailable')
+  return new Intl.NumberFormat(journalNumberLocale[locale], {
+    maximumFractionDigits: 8,
+    signDisplay: signed ? 'exceptZero' : 'auto',
+  }).format(value)
 }
 
-function formatSignedNumber(value: number | null) {
-  if (value == null) return 'Offen'
-  return new Intl.NumberFormat('de-DE', { maximumFractionDigits: 8, signDisplay: 'exceptZero' }).format(value)
-}
-
-function formatDate(value?: string | null) {
-  if (!value) return 'Ohne Datum'
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return 'Ohne Datum'
-  return new Intl.DateTimeFormat('de-DE', { dateStyle: 'short', timeStyle: 'short' }).format(date)
+function formatDate(value: string | null | undefined, locale: JournalLocale) {
+  if (!value || !Number.isFinite(Date.parse(value))) return journalText(locale)('Ohne Datum', 'No date')
+  return new Intl.DateTimeFormat(journalNumberLocale[locale], {
+    dateStyle: 'short', timeStyle: 'short', timeZone: DEFAULT_TRADE_TIMEZONE,
+  }).format(new Date(value))
 }

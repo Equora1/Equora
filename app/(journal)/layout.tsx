@@ -2,9 +2,11 @@ import { Suspense } from 'react'
 import { JournalShell } from '@/components/layout/app-shell'
 import { PerformanceNavigationTracker } from '@/components/performance/performance-navigation-tracker'
 import { isPerformanceDiagnosticsEnabled } from '@/lib/server/performance-diagnostics'
+import { getJournalLocale } from '@/lib/server/journal-locale'
 
-export default function JournalLayout({ children }: Readonly<{ children: React.ReactNode }>) {
+export default async function JournalLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   const diagnosticsEnabled = isPerformanceDiagnosticsEnabled()
+  const locale = await getJournalLocale()
 
   return (
     <>
@@ -13,7 +15,7 @@ export default function JournalLayout({ children }: Readonly<{ children: React.R
           <PerformanceNavigationTracker />
         </Suspense>
       ) : null}
-      <JournalShell>{children}</JournalShell>
+      <JournalShell locale={locale}>{children}</JournalShell>
     </>
   )
 }

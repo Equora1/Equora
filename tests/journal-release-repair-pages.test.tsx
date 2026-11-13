@@ -23,6 +23,7 @@ vi.mock('@/components/trades/close-trade-form',()=>({CloseTradeForm:()=>null}))
 vi.mock('@/components/trades/trade-import-panel',()=>({TradeImportPanel:()=>null}))
 vi.mock('@/components/trades/trades-workbench',()=>({TradesWorkbench:(props:any)=>{state.props=props;return null}}))
 import ReviewPage from '@/app/(journal)/review/page'
+vi.mock('@/lib/server/journal-locale', () => ({ getJournalLocale: async () => 'de' }))
 import TradesPage from '@/app/(journal)/trades/page'
 import {buildTradeTableView,buildTradeTagMap} from '@/lib/utils/trade-table'
 import {buildReviewSnapshot} from '@/lib/utils/review'

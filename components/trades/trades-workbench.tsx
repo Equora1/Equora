@@ -1,5 +1,8 @@
 'use client'
 
+import { useJournalLocale } from '@/components/layout/journal-locale-provider'
+import { journalText, type JournalLocale } from '@/lib/i18n/journal'
+import { formatJournalTradeDate, formatJournalTradeResult, formatJournalTradeR } from '@/lib/i18n/trade-display'
 import { getTradeRValue } from '@/lib/utils/trade-r'
 import React from 'react'
 import Link from 'next/link'
@@ -13,8 +16,9 @@ import type { TradeDetail, Trade } from '@/lib/types/trade'
 import type { TradeTag } from '@/lib/types/tag'
 import type { SavedReviewSession } from '@/lib/types/review-session'
 import { buildStreakMetrics } from '@/lib/utils/analytics'
-import { getTradeTrustMeta, getTradeTrustState } from '@/lib/utils/trade-trust'
-import { getTradeAccountLabel } from '@/lib/utils/account-context'
+import { getTradeTrustMeta } from '@/lib/utils/trade-trust'
+import { getTradeAccountDisplayLabels, getTradeAccountLabel } from '@/lib/utils/account-context'
+import { getBrokerFileImportCopy } from '@/lib/i18n/broker-file'
 import { brokerFileImportCapability } from '@/lib/utils/broker-file-import-capability'
 import { createTradeTableDateRange, getTradeTableDateRangeError } from '@/lib/utils/trade-table-date-range'
 import { buildTradeTableHref } from '@/lib/utils/trade-table-query'
@@ -28,11 +32,11 @@ import {
   type TradeTableSort,
 } from '@/lib/utils/trade-table'
 
-const sortOptions: Array<{ value: TradeTableSort; label: string }> = [
-  { value: 'newest', label: 'Neueste zuerst' },
-  { value: 'oldest', label: 'Älteste zuerst' },
-  { value: 'pnl-desc', label: 'P&L absteigend' },
-  { value: 'pnl-asc', label: 'P&L aufsteigend' },
+const sortOptions: Array<{ value: TradeTableSort; de: string; en: string }> = [
+  { value: 'newest', de: 'Neueste zuerst', en: 'Newest first' },
+  { value: 'oldest', de: 'Älteste zuerst', en: 'Oldest first' },
+  { value: 'pnl-desc', de: 'P&L absteigend', en: 'Highest P&L first' },
+  { value: 'pnl-asc', de: 'P&L aufsteigend', en: 'Lowest P&L first' },
 ]
 
 function getStreakTone(streak: ReturnType<typeof buildStreakMetrics>) {
@@ -42,25 +46,25 @@ function getStreakTone(streak: ReturnType<typeof buildStreakMetrics>) {
   return 'neutral'
 }
 
-function getStreakTitle(streak: ReturnType<typeof buildStreakMetrics>) {
-  if (streak.currentLossStreak >= 3) return `Vorsicht: ${streak.currentLossStreak} Verluste in Folge`
-  if (streak.currentLossStreak > 0) return `${streak.currentLossStreak} Verlust${streak.currentLossStreak === 1 ? '' : 'e'} in Folge`
-  if (streak.currentWinStreak > 0) return `${streak.currentWinStreak} Gewinn-Trade${streak.currentWinStreak === 1 ? '' : 's'} in Folge`
-  return 'Keine aktive Serie'
+function getStreakTitle(streak: ReturnType<typeof buildStreakMetrics>, text: ReturnType<typeof journalText>) {
+  if (streak.currentLossStreak >= 3) return text(`Vorsicht: ${streak.currentLossStreak} Verluste in Folge`, `Caution: ${streak.currentLossStreak} losses in a row`)
+  if (streak.currentLossStreak > 0) return text(`${streak.currentLossStreak} Verlust${streak.currentLossStreak === 1 ? '' : 'e'} in Folge`, `${streak.currentLossStreak} ${streak.currentLossStreak === 1 ? 'loss' : 'losses'} in a row`)
+  if (streak.currentWinStreak > 0) return text(`${streak.currentWinStreak} Gewinn-Trade${streak.currentWinStreak === 1 ? '' : 's'} in Folge`, `${streak.currentWinStreak} ${streak.currentWinStreak === 1 ? 'win' : 'wins'} in a row`)
+  return text('Keine aktive Serie', 'No active streak')
 }
 
-function getStreakHint(streak: ReturnType<typeof buildStreakMetrics>) {
-  if (streak.currentLossStreak >= 3) return 'Nicht rächen. Setup prüfen, Größe ruhig halten, erst Klarheit.'
-  if (streak.currentLossStreak > 0) return 'Verlustserie erkannt. Nächster Trade braucht Regelklarheit, nicht Tempo.'
-  if (streak.currentWinStreak >= 3) return 'Gute Serie. Nicht größer werden, nur sauber bleiben.'
-  if (streak.currentWinStreak > 0) return 'Momentum da. Weiter nur A-Logik handeln.'
-  return 'Sobald geschlossene Trades mit P&L vorliegen, wird die Serie sichtbar.'
+function getStreakHint(streak: ReturnType<typeof buildStreakMetrics>, text: ReturnType<typeof journalText>) {
+  if (streak.currentLossStreak >= 3) return text('Nicht rächen. Setup prüfen, Größe ruhig halten, erst Klarheit.', 'Avoid revenge trading. Review your setup and keep your position size steady.')
+  if (streak.currentLossStreak > 0) return text('Verlustserie erkannt. Nächster Trade braucht Regelklarheit, nicht Tempo.', 'Review your rules before taking the next trade.')
+  if (streak.currentWinStreak >= 3) return text('Gute Serie. Nicht größer werden, nur sauber bleiben.', 'Stick to your rules and keep your position size steady.')
+  if (streak.currentWinStreak > 0) return text('Momentum da. Weiter nur A-Logik handeln.', 'Keep focusing on your best setups.')
+  return text('Sobald geschlossene Trades mit P&L vorliegen, wird die Serie sichtbar.', 'Streaks appear once closed trades have recorded P&L.')
 }
 
-function getTodayLabel(streak: ReturnType<typeof buildStreakMetrics>) {
-  if (streak.todayTrades === 0) return 'Heute noch kein Trade'
-  if (streak.todayOpenTrades > 0 && streak.todayWins + streak.todayLosses + streak.todayBreakeven === 0) return `${streak.todayOpenTrades} offen`
-  return `${streak.todayWins}W · ${streak.todayLosses}L · ${streak.todayBreakeven}BE${streak.todayOpenTrades ? ` · ${streak.todayOpenTrades} offen` : ''}`
+function getTodayLabel(streak: ReturnType<typeof buildStreakMetrics>, text: ReturnType<typeof journalText>) {
+  if (streak.todayTrades === 0) return text('Heute noch kein Trade', 'No trades today')
+  if (streak.todayOpenTrades > 0 && streak.todayWins + streak.todayLosses + streak.todayBreakeven === 0) return `${streak.todayOpenTrades} ${text('offen', 'open')}`
+  return `${streak.todayWins}W · ${streak.todayLosses}L · ${streak.todayBreakeven}BE${streak.todayOpenTrades ? ` · ${streak.todayOpenTrades} ${text('offen', 'open')}` : ''}`
 }
 
 const COLUMN_STORAGE_KEY = 'equora-trades-visible-columns-v56.23'
@@ -69,16 +73,16 @@ type ColumnKey = 'account' | 'asset' | 'date' | 'session' | 'grund' | 'strategie
 
 const defaultVisibleColumns: ColumnKey[] = ['account', 'asset', 'date', 'session', 'grund', 'strategie', 'status', 'bild', 'ergebnis']
 
-const columnDefinitions: Array<{ key: ColumnKey; label: string }> = [
-  { key: 'account', label: 'Konto' },
-  { key: 'asset', label: 'Asset' },
-  { key: 'date', label: 'Datum' },
-  { key: 'session', label: 'Session' },
-  { key: 'grund', label: 'Grund' },
-  { key: 'strategie', label: 'Setup' },
-  { key: 'status', label: 'Status' },
-  { key: 'bild', label: 'Bild' },
-  { key: 'ergebnis', label: 'P&L' },
+const columnDefinitions: Array<{ key: ColumnKey; de: string; en: string }> = [
+  { key: 'account', de: 'Konto', en: 'Account' },
+  { key: 'asset', de: 'Asset', en: 'Asset' },
+  { key: 'date', de: 'Datum', en: 'Date' },
+  { key: 'session', de: 'Session', en: 'Session' },
+  { key: 'grund', de: 'Grund', en: 'Reason' },
+  { key: 'strategie', de: 'Setup', en: 'Setup' },
+  { key: 'status', de: 'Status', en: 'Status' },
+  { key: 'bild', de: 'Bild', en: 'Image' },
+  { key: 'ergebnis', de: 'P&L', en: 'P&L' },
 ]
 
 function escapeCsvCell(value: unknown) {
@@ -152,6 +156,9 @@ export function TradesWorkbench({
   pageSize,
   totalTradeCount,
 }: TradesWorkbenchProps) {
+  const locale = useJournalLocale()
+  const text = journalText(locale)
+  const importCopy = getBrokerFileImportCopy(locale)
   const router = useRouter()
   const searchParams = useSearchParams()
   const lastClosedTradeIdRef = useRef<string | null>(null)
@@ -164,7 +171,7 @@ export function TradesWorkbench({
   const [showMoreFilters, setShowMoreFilters] = useState(false)
   const [showColumnsMenu, setShowColumnsMenu] = useState(false)
   const [showReviewOnly, setShowReviewOnly] = useState(initialReviewOnly)
-  const [statusMessage, setStatusMessage] = useState('')
+  const [statusMessage, setStatusMessage] = useState<{ text: string; lang: JournalLocale } | null>(null)
   const [visibleColumns, setVisibleColumns] = useState<ColumnKey[]>(defaultVisibleColumns)
   const [hasLoadedColumnPreference, setHasLoadedColumnPreference] = useState(false)
   const [isDeletingTrade, startDeletingTrade] = useTransition()
@@ -226,6 +233,7 @@ export function TradesWorkbench({
   }, [hasLoadedColumnPreference, visibleColumns])
 
   const tradeTagMap = useMemo(() => buildTradeTagMap(tradeTagItems), [tradeTagItems])
+  const accountLabels = useMemo(() => getTradeAccountDisplayLabels(tradeItems, locale), [tradeItems, locale])
   const tableView = useMemo(() => buildTradeTableView(tradeItems, tradeTagMap, filters, sort, requestedPage, pageSize, showReviewOnly ? spotlightTradeIds : undefined), [tradeItems, tradeTagMap, filters, sort, requestedPage, pageSize, showReviewOnly, spotlightTradeIds])
   const displayedTrades = tableView.matches
   const visibleTrades = tableView.rows
@@ -248,7 +256,7 @@ export function TradesWorkbench({
 
   const activeFilterCount = countActiveTradeTableFilters(filters)
   const currencyQuality = useMemo(() => summarizeTradeCurrencyQuality(tradeItems), [tradeItems])
-  const dateRangeError = getTradeTableDateRangeError(filters)
+  const dateRangeError = getTradeTableDateRangeError(filters, locale)
   const listSummary = useMemo(
     () => ({
       open: displayedTrades.filter((trade) => trade.captureResult === 'open').length,
@@ -295,7 +303,7 @@ export function TradesWorkbench({
     setSort('newest')
     setRequestedPage(1)
     setShowReviewOnly(false)
-    setStatusMessage('')
+    setStatusMessage(null)
     setShowMoreFilters(false)
     router.push('/trades')
   }
@@ -316,12 +324,15 @@ export function TradesWorkbench({
     if (!selectedTradeDetail) return
 
     const tradeSummary = tradeItems.find((trade) => trade.id === selectedTradeDetail.id)
-    const confirmed = window.confirm(`Trade „${tradeSummary?.market ?? 'Trade'} · ${tradeSummary?.setup ?? ''}“ wirklich löschen?`)
+    const confirmed = window.confirm(text(
+      `Trade „${tradeSummary?.market ?? 'Trade'} · ${tradeSummary?.setup ?? ''}“ wirklich löschen?`,
+      `Delete “${tradeSummary?.market ?? 'Trade'} · ${tradeSummary?.setup ?? ''}”?`,
+    ))
     if (!confirmed) return
 
     startDeletingTrade(async () => {
       const result = await deleteTradeEntry(selectedTradeDetail.id)
-      setStatusMessage(result.message)
+      setStatusMessage({ text: result.message, lang: 'de' })
       if (!result.success || !result.deletedId) return
 
       setTradeItems((current) => current.filter((trade) => trade.id !== result.deletedId))
@@ -332,13 +343,16 @@ export function TradesWorkbench({
   }
 
   return (
-    <section className="rounded-3xl border border-orange-400/15 bg-white/[0.045] p-4 shadow-2xl sm:p-5">
+    <section lang={locale} className="rounded-3xl border border-orange-400/15 bg-white/[0.045] p-4 shadow-2xl sm:p-5">
       <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
         <div className="max-w-3xl">
-          <p className="text-[10px] uppercase tracking-[0.24em] text-[#b09a7a]">Deine Trades</p>
-          <h1 className="mt-2 text-2xl font-semibold text-orange-50 sm:text-3xl">Trade-Journal</h1>
+          <p className="text-[10px] uppercase tracking-[0.24em] text-[#b09a7a]">{text('Deine Trades', 'Your trades')}</p>
+          <h1 className="mt-2 text-2xl font-semibold text-orange-50 sm:text-3xl">{text('Trade-Journal', 'Trade journal')}</h1>
           <p className="mt-2 max-w-2xl text-sm leading-6 text-white/50">
-            Trades prüfen, filtern und direkt im Detail bearbeiten. Fehlende Angaben und die Herkunft deiner Ergebnisse bleiben erkennbar.
+            {text(
+              'Trades prüfen, filtern und direkt im Detail bearbeiten. Fehlende Angaben und die Herkunft deiner Ergebnisse bleiben erkennbar.',
+              'Find and edit your trades. See which details are missing and where the results come from.',
+            )}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -348,33 +362,33 @@ export function TradesWorkbench({
           {brokerFileImportCapability.previewEnabled ? (
             <Link
               href={`${buildHrefForPage(page)}&capture=import#trade-editor`}
-              title={brokerFileImportCapability.blockedReason}
+              title={importCopy.reason}
               className="rounded-full border border-white/10 bg-black/25 px-3 py-2 text-xs text-white/70 transition hover:border-white/20 hover:text-white"
             >
-              {brokerFileImportCapability.previewActionLabel}
+              {importCopy.preview}
             </Link>
           ) : (
             <span
               aria-disabled="true"
               className="cursor-not-allowed rounded-full border border-white/8 bg-black/20 px-3 py-2 text-xs text-white/40"
             >
-              {brokerFileImportCapability.blockedActionLabel}
+              {importCopy.blocked}
             </span>
           )}
           <Link href="/review" className="rounded-full border border-white/10 bg-black/25 px-3 py-2 text-xs text-white/70 transition hover:border-white/20 hover:text-white">
             Review
           </Link>
           <span className="rounded-full border border-white/10 bg-black/25 px-3 py-1 text-xs text-white/60">
-            {totalTradeCount} gesamt
+            {text(`${totalTradeCount} gesamt`, `${totalTradeCount} total`)}
           </span>
         </div>
       </div>
 
       <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <MetricTile label="Treffer" value={String(displayedTrades.length)} tone="text-white" />
-        <MetricTile label="Offen" value={String(listSummary.open)} tone="text-emerald-200" />
-        <MetricTile label="Unvollständig" value={String(listSummary.incomplete)} tone="text-orange-100" />
-        <MetricTile label="Mit Bild" value={String(listSummary.screenshots)} tone="text-sky-200" />
+        <MetricTile label={text('Treffer', 'Matches')} value={String(displayedTrades.length)} tone="text-white" />
+        <MetricTile label={text('Offen', 'Open')} value={String(listSummary.open)} tone="text-emerald-200" />
+        <MetricTile label={text('Unvollständig', 'Incomplete')} value={String(listSummary.incomplete)} tone="text-orange-100" />
+        <MetricTile label={text('Mit Bild', 'With image')} value={String(listSummary.screenshots)} tone="text-sky-200" />
       </div>
 
       <TradeCurrencyQualityPanel summary={currencyQuality} selected={filters.currencyCheck} onChange={value => updateFilter('currencyCheck', value)} />
@@ -396,7 +410,7 @@ export function TradesWorkbench({
                 onClick={() => { setShowReviewOnly((current) => !current); setRequestedPage(1) }}
                 className={`rounded-full border px-3 py-1.5 text-xs transition ${showReviewOnly ? 'border-emerald-300/40 bg-emerald-400/15 text-emerald-100' : 'border-white/10 bg-black/25 text-white/75 hover:border-white/25 hover:text-white'}`}
               >
-                {showReviewOnly ? 'Alle sichtbaren Trades' : 'Nur Review-Treffer'}
+                {showReviewOnly ? text('Alle sichtbaren Trades', 'All visible trades') : text('Nur Review-Treffer', 'Review matches only')}
               </button>
             ) : null}
           </div>
@@ -404,8 +418,8 @@ export function TradesWorkbench({
       ) : null}
 
       {!reviewContext && pinnedSessions.length ? (
-        <nav aria-label="Angepinnte Review-Sessions" className="mt-4 flex flex-wrap items-center gap-2 rounded-2xl border border-white/8 bg-black/20 p-3">
-          <span className="mr-1 text-[10px] uppercase tracking-[0.18em] text-white/35">Gespeicherte Views</span>
+        <nav aria-label={text('Angepinnte Review-Sessions', 'Pinned review collections')} className="mt-4 flex flex-wrap items-center gap-2 rounded-2xl border border-white/8 bg-black/20 p-3">
+          <span className="mr-1 text-[10px] uppercase tracking-[0.18em] text-white/35">{text('Gespeicherte Views', 'Saved views')}</span>
           {pinnedSessions.map((session) => (
             <Link
               key={session.id}
@@ -417,7 +431,7 @@ export function TradesWorkbench({
             </Link>
           ))}
           <Link href="/review" className="rounded-full border border-transparent px-2 py-1.5 text-xs text-[#f0a855] transition hover:border-[#c8823a]/25">
-            Alle Reviews
+            {text('Alle Reviews', 'All reviews')}
           </Link>
         </nav>
       ) : null}
@@ -425,25 +439,25 @@ export function TradesWorkbench({
       <div className="mt-5 flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
         <div className="flex flex-wrap gap-2">
           <ToolbarButton
-            label={showMoreFilters ? 'Filter zu' : 'Filter'}
+            label={showMoreFilters ? text('Filter zu', 'Hide filters') : text('Filter', 'Filters')}
             icon="filter"
             onClick={() => setShowMoreFilters((current) => !current)}
             active={showMoreFilters}
-            title="Filter ein- oder ausblenden"
+            title={text('Filter ein- oder ausblenden', 'Show or hide filters')}
             ariaExpanded={showMoreFilters}
             ariaControls="trade-more-filters"
           />
           <ToolbarButton
-            label={showColumnsMenu ? 'Spalten zu' : 'Spalten'}
+            label={showColumnsMenu ? text('Spalten zu', 'Hide columns') : text('Spalten', 'Columns')}
             icon="columns"
             onClick={() => setShowColumnsMenu((current) => !current)}
             active={showColumnsMenu}
-            title="Sichtbare Spalten wählen"
+            title={text('Sichtbare Spalten wählen', 'Choose visible columns')}
             ariaExpanded={showColumnsMenu}
             ariaControls="trade-columns-menu"
           />
           <ToolbarButton
-            label={isExporting ? 'Exportiert …' : 'CSV'}
+            label={isExporting ? text('Exportiert …', 'Exporting …') : 'CSV'}
             icon="upload"
             onClick={() => {
               startExporting(async () => {
@@ -468,48 +482,51 @@ export function TradesWorkbench({
                 anchor.click()
                 anchor.remove()
                 window.URL.revokeObjectURL(url)
-                setStatusMessage(`${displayedTrades.length} Trades als CSV exportiert.`)
+                setStatusMessage({
+                  text: text(`${displayedTrades.length} Trades als CSV exportiert.`, `${displayedTrades.length} ${displayedTrades.length === 1 ? 'trade' : 'trades'} exported as CSV.`),
+                  lang: locale,
+                })
               })
             }}
-            title="Alle gefilterten Treffer als CSV exportieren"
+            title={text('Alle gefilterten Treffer als CSV exportieren', 'Export all matching trades as CSV')}
           />
         </div>
 
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
           <div className="min-w-0 flex-1">
             <input
-              aria-label="Trades durchsuchen"
+              aria-label={text('Trades durchsuchen', 'Search trades')}
               aria-describedby="trade-search-help"
               value={filters.search}
               onChange={(event) => updateFilter('search', event.target.value)}
-              placeholder="Konto, Markt, Setup, Tag – z. B. BTC London"
-              className="w-full min-w-[240px] rounded-2xl border border-orange-400/15 bg-black/35 px-4 py-3 text-sm text-white outline-none placeholder:text-white/30"
+              placeholder={text('Z. B. BTC London', 'e.g. BTC London')}
+              className="w-full min-w-0 rounded-2xl border border-orange-400/15 bg-black/35 px-4 py-3 text-sm text-white outline-none placeholder:text-white/30"
             />
             <p id="trade-search-help" className="mt-2 text-xs text-white/50">
-              Alle Suchbegriffe müssen im selben Trade vorkommen. Du kannst mehrere Felder kombinieren.
+              {text('Suche nach Konto, Markt, Setup oder Tag. Alle Begriffe müssen zum selben Trade passen.', 'Search by account, market, setup or tag. All terms must match the same trade.')}
             </p>
           </div>
           <select
-            aria-label="Trades sortieren"
+            aria-label={text('Trades sortieren', 'Sort trades')}
             value={effectiveSort}
             onChange={(event) => { setSort(event.target.value as TradeTableSort); setRequestedPage(1) }}
             className="rounded-2xl border border-orange-400/15 bg-black/35 px-4 py-3 text-sm text-white outline-none"
           >
             {sortOptions.map((option) => (
               <option key={option.value} value={option.value} disabled={option.value.startsWith('pnl-') && !canSortByPnL} className="bg-black text-white">
-                {option.label}
+                {option[locale]}
               </option>
             ))}
           </select>
         </div>
-        {!canSortByPnL && displayedTrades.length > 0 ? <p className="text-xs text-white/50">P&L-Sortierung benötigt eine gemeinsame bekannte Kontowährung. Bitte grenze die Auswahl über das Konto ein.</p> : null}
+        {!canSortByPnL && displayedTrades.length > 0 ? <p className="text-xs text-white/50">{text('P&L-Sortierung benötigt eine gemeinsame bekannte Kontowährung. Bitte grenze die Auswahl über das Konto ein.', 'Sorting by P&L requires one known account currency. Filter by account to narrow your results.')}</p> : null}
       </div>
 
       <fieldset className="mt-4 min-w-0 rounded-2xl border border-white/10 bg-black/25 p-4">
-        <legend className="px-2 text-xs font-medium text-white/70">Zeitraum</legend>
+        <legend className="px-2 text-xs font-medium text-white/70">{text('Zeitraum', 'Date range')}</legend>
         <div className="grid min-w-0 gap-3 sm:grid-cols-2">
           <label className="min-w-0 text-xs text-white/65">
-            Von
+            {text('Von', 'From')}
             <input
               type="date"
               value={filters.dateFrom}
@@ -520,7 +537,7 @@ export function TradesWorkbench({
             />
           </label>
           <label className="min-w-0 text-xs text-white/65">
-            Bis
+            {text('Bis', 'To')}
             <input
               type="date"
               value={filters.dateTo}
@@ -533,9 +550,9 @@ export function TradesWorkbench({
         </div>
         <div className="mt-3 flex flex-wrap gap-2">
           {([
-            ['today', 'Heute'],
-            ['last-seven-days', 'Letzte 7 Tage'],
-            ['this-month', 'Dieser Monat'],
+            ['today', text('Heute', 'Today')],
+            ['last-seven-days', text('Letzte 7 Tage', 'Last 7 days')],
+            ['this-month', text('Dieser Monat', 'This month')],
           ] as const).map(([preset, label]) => (
             <button key={preset} type="button" onClick={() => { setFilters((current) => ({ ...current, ...createTradeTableDateRange(preset) })); setRequestedPage(1) }}
               className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-white/75 transition hover:border-white/20 hover:text-white">
@@ -544,18 +561,18 @@ export function TradesWorkbench({
           ))}
           <button type="button" onClick={() => { setFilters((current) => ({ ...current, dateFrom: '', dateTo: '' })); setRequestedPage(1) }}
             className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-white/75 transition hover:border-white/20 hover:text-white">
-            Zeitraum aufheben
+            {text('Zeitraum aufheben', 'Clear dates')}
           </button>
         </div>
         <p id="trade-date-range-help" className="mt-2 text-xs text-white/50">
-          Beide Tage eingeschlossen · Europe/Berlin · Filter und Sortierung gelten für das gesamte Journal.
+          {text('Beide Tage eingeschlossen · Europe/Berlin · Filter und Sortierung gelten für das gesamte Journal.', 'Both dates included · Europe/Berlin · Filters and sorting apply to the whole journal.')}
         </p>
         {dateRangeError ? <p id="trade-date-range-error" role="alert" className="mt-2 text-xs text-red-200">{dateRangeError}</p> : null}
       </fieldset>
 
       {isEditorOpen ? (
         <div className="mt-4 rounded-2xl border border-orange-300/20 bg-orange-400/10 px-4 py-3 text-sm text-orange-50/90">
-          Editor aktiv
+          {text('Editor aktiv', 'Editor open')}
         </div>
       ) : null}
 
@@ -570,7 +587,7 @@ export function TradesWorkbench({
               onClick={() => setVisibleColumns(defaultVisibleColumns)}
               className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-white/70 transition hover:border-white/20 hover:text-white"
             >
-Standard
+{text('Standard', 'Default')}
             </button>
           </div>
           <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
@@ -584,7 +601,7 @@ Standard
                     onChange={() => toggleColumn(column.key)}
                     className="h-4 w-4 rounded border-white/20 bg-black/35"
                   />
-                  <span>{column.label}</span>
+                  <span>{column[locale]}</span>
                 </label>
               )
             })}
@@ -594,10 +611,10 @@ Standard
 
       <div className="mt-4 flex flex-wrap gap-2">
         {[
-          { label: 'Offen', value: 'Offen' as const, tone: 'border-emerald-400/20 bg-emerald-400/10 text-emerald-200', count: listSummary.open },
-          { label: 'Unvollständig', value: 'Unvollständig' as const, tone: 'border-orange-400/20 bg-orange-400/10 text-orange-100/85', count: listSummary.incomplete },
-          { label: 'Geschlossen', value: 'Geschlossen' as const, tone: 'border-white/10 bg-white/5 text-white/75', count: listSummary.closed },
-          { label: 'Alle', value: 'Alle' as const, tone: 'border-white/10 bg-black/30 text-white/75', count: displayedTrades.length },
+          { label: text('Offen', 'Open'), value: 'Offen' as const, tone: 'border-emerald-400/20 bg-emerald-400/10 text-emerald-200', count: listSummary.open },
+          { label: text('Unvollständig', 'Incomplete'), value: 'Unvollständig' as const, tone: 'border-orange-400/20 bg-orange-400/10 text-orange-100/85', count: listSummary.incomplete },
+          { label: text('Geschlossen', 'Closed'), value: 'Geschlossen' as const, tone: 'border-white/10 bg-white/5 text-white/75', count: listSummary.closed },
+          { label: text('Alle', 'All'), value: 'Alle' as const, tone: 'border-white/10 bg-black/30 text-white/75', count: displayedTrades.length },
         ].map((tab) => {
           const isActive = filters.status === tab.value
           return (
@@ -617,14 +634,14 @@ Standard
           onClick={resetWorkbench}
           className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-white/65 transition hover:border-white/20 hover:text-white"
         >
-          Reset{activeFilterCount > 0 ? ` (${activeFilterCount})` : ''}
+          {text('Reset', 'Reset filters')}{activeFilterCount > 0 ? ` (${activeFilterCount})` : ''}
         </button>
       </div>
 
       {showMoreFilters ? (
         <div id="trade-more-filters" className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-          <FilterSelect label="Konto" value={filters.account} onChange={(value) => updateFilter('account', value)} options={accountOptions} />
-          <FilterSelect label="Markt" value={filters.market} onChange={(value) => updateFilter('market', value)} options={marketOptions} />
+          <FilterSelect label={text('Konto', 'Account')} value={filters.account} onChange={(value) => updateFilter('account', value)} options={accountOptions} optionLabels={accountLabels} />
+          <FilterSelect label={text('Markt', 'Market')} value={filters.market} onChange={(value) => updateFilter('market', value)} options={marketOptions} />
           <FilterSelect label="Setup" value={filters.setup} onChange={(value) => updateFilter('setup', value)} options={setupOptions} />
           <FilterSelect label="Session" value={filters.session} onChange={(value) => updateFilter('session', value)} options={sessionOptions} />
           <FilterSelect label="Tag" value={filters.tag} onChange={(value) => updateFilter('tag', value)} options={tagOptions} />
@@ -634,8 +651,8 @@ Standard
       <div className="mt-5 space-y-4">
         <div className="overflow-hidden rounded-2xl border border-orange-400/15 bg-black/30">
           <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
-            <p className="text-sm text-white/60">{visibleTrades.length} auf Seite {page} · {displayedTrades.length} Treffer · {tradeItems.length} gesamt</p>
-            {selectedTradeSummary ? <p className="text-xs text-white/40">{getTradeAccountLabel(selectedTradeSummary)} · {selectedTradeSummary.market} · {selectedTradeSummary.setup || 'Ohne Setup'}</p> : null}
+            <p className="text-sm text-white/60">{text(`${visibleTrades.length} auf Seite ${page} · ${displayedTrades.length} Treffer · ${tradeItems.length} gesamt`, `${visibleTrades.length} on page ${page} · ${displayedTrades.length} matches · ${tradeItems.length} total`)}</p>
+            {selectedTradeSummary ? <p className="text-xs text-white/40">{getTradeAccountLabel(selectedTradeSummary, locale)} · {selectedTradeSummary.market} · {selectedTradeSummary.setup || text('Ohne Setup', 'No setup')}</p> : null}
           </div>
 
           {visibleTrades.length ? (
@@ -659,16 +676,15 @@ Standard
                 <thead className="border-b border-white/10 bg-black/35 text-left text-[11px] uppercase tracking-[0.18em] text-white/40">
                   <tr>
                     {visibleColumns.map((column) => (
-                      <th key={column} className="px-4 py-3 font-medium whitespace-nowrap">{columnDefinitions.find((definition) => definition.key === column)?.label}</th>
+                      <th key={column} className="px-4 py-3 font-medium whitespace-nowrap">{columnDefinitions.find((definition) => definition.key === column)?.[locale]}</th>
                     ))}
-                    <th className="px-4 py-3 font-medium whitespace-nowrap text-right">Aktion</th>
+                    <th className="px-4 py-3 font-medium whitespace-nowrap text-right">{text('Aktion', 'Actions')}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-white/5">
                   {visibleTrades.map((trade) => {
                     const isSelected = selectedTrade === trade.id
                     const tags = tradeTagMap[trade.id] ?? []
-                    const trustState = getTradeTrustState(trade)
                     return (
                       <tr
                         key={trade.id}
@@ -677,7 +693,7 @@ Standard
                       >
                         {visibleColumns.map((column) => (
                           <td key={`${trade.id}-${column}`} className="px-4 py-3 text-white/75">
-                            <TradeTableCell column={column} trade={trade} tagCount={tags.length} trustState={trustState} />
+                            <TradeTableCell column={column} trade={trade} tagCount={tags.length} />
                           </td>
                         ))}
                         <td className="px-4 py-3 text-right" onClick={(event) => event.stopPropagation()}>
@@ -697,29 +713,29 @@ Standard
             </div>
             </>
           ) : (
-            <div className="px-4 py-10 text-center text-sm text-white/50">Keine Trades.</div>
+            <div className="px-4 py-10 text-center text-sm text-white/50">{text('Keine Trades.', 'No trades.')}</div>
           )}
 
           <div className="flex flex-col gap-3 border-t border-white/10 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-            <p className="text-xs text-white/45">Seite {page} von {totalPages} · maximal {pageSize} Trades pro Seite · {displayedTrades.length} Treffer im gesamten Journal.</p>
+            <p className="text-xs text-white/45">{text(`Seite ${page} von ${totalPages} · maximal ${pageSize} Trades pro Seite · ${displayedTrades.length} Treffer im gesamten Journal.`, `Page ${page} of ${totalPages} · up to ${pageSize} trades per page · ${displayedTrades.length} matches in the journal.`)}</p>
             <div className="flex items-center gap-2">
               {page > 1 ? (
-                <Link href={buildHrefForPage(page - 1)} className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-white/75 transition hover:border-white/20 hover:text-white">Zurück</Link>
+                <Link href={buildHrefForPage(page - 1)} className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-white/75 transition hover:border-white/20 hover:text-white">{text('Zurück', 'Previous')}</Link>
               ) : (
-                <span className="rounded-full border border-white/5 bg-white/[0.02] px-3 py-1.5 text-xs text-white/25">Zurück</span>
+                <span className="rounded-full border border-white/5 bg-white/[0.02] px-3 py-1.5 text-xs text-white/25">{text('Zurück', 'Previous')}</span>
               )}
               <span className="rounded-full border border-orange-300/20 bg-orange-400/10 px-3 py-1.5 text-xs text-orange-100">{page} / {totalPages}</span>
               {page < totalPages ? (
-                <Link href={buildHrefForPage(page + 1)} className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-white/75 transition hover:border-white/20 hover:text-white">Weiter</Link>
+                <Link href={buildHrefForPage(page + 1)} className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-white/75 transition hover:border-white/20 hover:text-white">{text('Weiter', 'Next')}</Link>
               ) : (
-                <span className="rounded-full border border-white/5 bg-white/[0.02] px-3 py-1.5 text-xs text-white/25">Weiter</span>
+                <span className="rounded-full border border-white/5 bg-white/[0.02] px-3 py-1.5 text-xs text-white/25">{text('Weiter', 'Next')}</span>
               )}
             </div>
           </div>
         </div>
 
         {statusMessage ? (
-          <div role="status" aria-live="polite" className="rounded-2xl border border-white/10 bg-black/25 px-4 py-3 text-sm text-white/65">{statusMessage}</div>
+          <div role="status" aria-live="polite" lang={statusMessage.lang} className="rounded-2xl border border-white/10 bg-black/25 px-4 py-3 text-sm text-white/65">{statusMessage.text}</div>
         ) : null}
       </div>
 
@@ -743,6 +759,7 @@ Standard
 
 
 function StreakPulseCard({ streak, tone }: { streak: ReturnType<typeof buildStreakMetrics>; tone: ReturnType<typeof getStreakTone> }) {
+  const text = journalText(useJournalLocale())
   const toneClass = tone === 'danger'
     ? 'border-red-400/25 bg-red-400/10'
     : tone === 'caution'
@@ -761,14 +778,14 @@ function StreakPulseCard({ streak, tone }: { streak: ReturnType<typeof buildStre
     <section className={`mt-5 rounded-2xl border p-4 ${toneClass}`}>
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1.35fr)_minmax(260px,0.65fr)] xl:items-center">
         <div>
-          <p className="text-[10px] uppercase tracking-[0.24em] text-white/40">Aktuelle Serie</p>
-          <h3 className={`mt-2 text-xl font-semibold ${titleTone}`}>{getStreakTitle(streak)}</h3>
-          <p className="mt-2 max-w-2xl text-sm leading-6 text-white/60">{getStreakHint(streak)}</p>
+          <p className="text-[10px] uppercase tracking-[0.24em] text-white/40">{text('Aktuelle Serie', 'Current streak')}</p>
+          <h3 className={`mt-2 text-xl font-semibold ${titleTone}`}>{getStreakTitle(streak, text)}</h3>
+          <p className="mt-2 max-w-2xl text-sm leading-6 text-white/60">{getStreakHint(streak, text)}</p>
         </div>
         <div className="grid grid-cols-3 gap-2 text-center">
-          <StreakMiniStat label="Heute" value={getTodayLabel(streak)} />
-          <StreakMiniStat label="Gewinnserie" value={streak.longestWinStreak ? String(streak.longestWinStreak) : '—'} />
-          <StreakMiniStat label="Verlustserie" value={streak.longestLossStreak ? String(streak.longestLossStreak) : '—'} />
+          <StreakMiniStat label={text('Heute', 'Today')} value={getTodayLabel(streak, text)} />
+          <StreakMiniStat label={text('Gewinnserie', 'Win streak')} value={streak.longestWinStreak ? String(streak.longestWinStreak) : '—'} />
+          <StreakMiniStat label={text('Verlustserie', 'Loss streak')} value={streak.longestLossStreak ? String(streak.longestLossStreak) : '—'} />
         </div>
       </div>
     </section>
@@ -815,22 +832,23 @@ function ToolbarButton({
       className={`inline-flex items-center gap-2 rounded-2xl border px-3 py-2 text-sm transition ${disabled ? 'cursor-not-allowed border-white/10 bg-black/20 text-white/30' : active ? 'border-orange-300/35 bg-orange-400/10 text-white' : 'border-white/10 bg-black/30 text-white/75 hover:border-white/20 hover:text-white'}`}
     >
       <span aria-hidden="true" className="rounded-xl border border-white/8 bg-white/[0.03] p-1.5"><WorkspaceIcon icon={icon} /></span>
-      <span className="hidden sm:inline">{label}</span>
+      <span>{label}</span>
     </button>
   )
 }
 
-function FilterSelect({ label, value, onChange, options }: { label: string; value: string; onChange: (value: string) => void; options: string[] }) {
+function FilterSelect({ label, value, onChange, options, optionLabels }: { label: string; value: string; onChange: (value: string) => void; options: string[]; optionLabels?: ReadonlyMap<string, string> }) {
+  const text = journalText(useJournalLocale())
   return (
     <label className="rounded-2xl border border-orange-400/15 bg-black/35 p-4">
       <span className="text-xs uppercase tracking-[0.2em] text-white/40">{label}</span>
       <select value={value} onChange={(event) => onChange(event.target.value)} className="mt-3 w-full rounded-2xl border border-orange-400/15 bg-orange-400/5 px-4 py-3 text-sm text-white outline-none">
         <option value="Alle" className="bg-black text-white">
-          Alle
+          {text('Alle', 'All')}
         </option>
         {options.map((option) => (
           <option key={option} value={option} className="bg-black text-white">
-            {option}
+            {optionLabels?.get(option) ?? option}
           </option>
         ))}
       </select>
@@ -847,23 +865,25 @@ function MetricTile({ label, value, tone }: { label: string; value: string; tone
   )
 }
 
-function TradeTableCell({ column, trade, tagCount, trustState }: { column: ColumnKey; trade: Trade; tagCount: number; trustState: ReturnType<typeof getTradeTrustState> }) {
-  const trustMeta = getTradeTrustMeta(trade)
+function TradeTableCell({ column, trade, tagCount }: { column: ColumnKey; trade: Trade; tagCount: number }) {
+  const locale = useJournalLocale()
+  const text = journalText(locale)
+  const trustMeta = getTradeTrustMeta(trade, locale)
   if (column === 'account') {
-    return <span className="whitespace-nowrap text-white/70">{getTradeAccountLabel(trade)}</span>
+    return <span className="whitespace-nowrap text-white/70">{getTradeAccountLabel(trade, locale)}</span>
   }
 
   if (column === 'asset') {
     return (
       <div className="min-w-[160px]">
         <p className="font-medium text-white">{trade.market}</p>
-        <p className="mt-1 text-xs text-white/45">{formatDirection(trade.direction)} · {tagCount > 0 ? `${tagCount} Tag${tagCount === 1 ? '' : 's'}` : 'ohne Tags'}</p>
+        <p className="mt-1 text-xs text-white/45">{formatDirection(trade.direction, locale)} · {tagCount > 0 ? `${tagCount} Tag${tagCount === 1 ? '' : 's'}` : text('ohne Tags', 'No tags')}</p>
       </div>
     )
   }
 
   if (column === 'date') {
-    return <span className="whitespace-nowrap text-white/70">{trade.date}</span>
+    return <span className="whitespace-nowrap text-white/70">{formatJournalTradeDate(trade, locale)}</span>
   }
 
   if (column === 'session') {
@@ -883,7 +903,7 @@ function TradeTableCell({ column, trade, tagCount, trustState }: { column: Colum
     return (
       <div className="min-w-[132px] space-y-2">
         <Pill tone={statusTone}>
-          {trade.captureResult === 'open' ? 'Offen' : trade.captureStatus === 'incomplete' ? 'Unvollständig' : 'Geschlossen'}
+          {trade.captureResult === 'open' ? text('Offen', 'Open') : trade.captureStatus === 'incomplete' ? text('Unvollständig', 'Incomplete') : text('Geschlossen', 'Closed')}
         </Pill>
         <p className={`text-xs ${trustMeta.tone === 'red' ? 'text-red-200/80' : trustMeta.tone === 'orange' ? 'text-orange-100/75' : trustMeta.tone === 'emerald' ? 'text-emerald-200/80' : 'text-white/45'}`}>{trustMeta.shortLabel}</p>
       </div>
@@ -894,7 +914,7 @@ function TradeTableCell({ column, trade, tagCount, trustState }: { column: Colum
     const count = trade.screenshotCount ?? 0
     return (
       <span className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs ${count > 0 ? 'border-white/10 bg-white/5 text-white/75' : 'border-white/10 bg-black/20 text-white/35'}`}>
-        {count > 0 ? `${count} Bild${count === 1 ? '' : 'er'}` : '—'}
+        {count > 0 ? text(`${count} Bild${count === 1 ? '' : 'er'}`, `${count} ${count === 1 ? 'image' : 'images'}`) : '—'}
       </span>
     )
   }
@@ -902,8 +922,8 @@ function TradeTableCell({ column, trade, tagCount, trustState }: { column: Colum
   if (column === 'ergebnis') {
     return (
       <div className="min-w-[110px] text-right">
-        <p className={`font-medium ${trade.netPnL === undefined || trade.netPnL === null ? 'text-white/55' : trade.netPnL >= 0 ? 'text-emerald-300' : 'text-red-300'}`}>{trade.result}</p>
-        <p className="mt-1 text-xs text-white/40">{trade.r}</p>
+        <p className={`font-medium ${trade.netPnL === undefined || trade.netPnL === null ? 'text-white/55' : trade.netPnL >= 0 ? 'text-emerald-300' : 'text-red-300'}`}>{formatJournalTradeResult(trade, locale)}</p>
+        <p className="mt-1 text-xs text-white/40">{formatJournalTradeR(trade, locale)}</p>
       </div>
     )
   }
@@ -928,12 +948,14 @@ function MobileTradeCard({
   isClosing: boolean
   onSelect: () => void
 }) {
-  const trustMeta = getTradeTrustMeta(trade)
+  const locale = useJournalLocale()
+  const text = journalText(locale)
+  const trustMeta = getTradeTrustMeta(trade, locale)
   const status = trade.captureResult === 'open'
-    ? 'Offen'
+    ? text('Offen', 'Open')
     : trade.captureStatus === 'incomplete'
-      ? 'Unvollständig'
-      : 'Geschlossen'
+      ? text('Unvollständig', 'Incomplete')
+      : text('Geschlossen', 'Closed')
   const statusTone = trade.captureResult === 'open'
     ? 'border-emerald-400/20 bg-emerald-400/10 text-emerald-100'
     : trade.captureStatus === 'incomplete'
@@ -950,26 +972,26 @@ function MobileTradeCard({
       >
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <p className="truncate text-base font-semibold text-white">{trade.market}</p>
-            <p className="mt-1 truncate text-xs text-white/45">{getTradeAccountLabel(trade)} · {trade.setup || 'Ohne Setup'}</p>
+            <p className="break-words text-base font-semibold text-white">{trade.market}</p>
+            <p className="mt-1 break-words text-xs text-white/45">{getTradeAccountLabel(trade, locale)} · {trade.setup || text('Ohne Setup', 'No setup')}</p>
           </div>
           <div className="text-right">
             <p className={`text-sm font-semibold ${trade.netPnL === undefined || trade.netPnL === null ? 'text-white/50' : trade.netPnL >= 0 ? 'text-emerald-300' : 'text-red-300'}`}>
-              {trade.result}
+              {formatJournalTradeResult(trade, locale)}
             </p>
-            <p className="mt-1 text-[11px] text-white/35">{trade.r}</p>
+            <p className="mt-1 text-[11px] text-white/35">{formatJournalTradeR(trade, locale)}</p>
           </div>
         </div>
 
         <div className="mt-4 flex flex-wrap items-center gap-2">
           <span className={`rounded-full border px-2.5 py-1 text-[11px] ${statusTone}`}>{status}</span>
-          <span className="rounded-full border border-white/10 bg-black/20 px-2.5 py-1 text-[11px] text-white/55">{formatDirection(trade.direction)}</span>
+          <span className="rounded-full border border-white/10 bg-black/20 px-2.5 py-1 text-[11px] text-white/55">{formatDirection(trade.direction, locale)}</span>
           {tags.length ? <span className="rounded-full border border-sky-300/15 bg-sky-300/8 px-2.5 py-1 text-[11px] text-sky-100/75">{tags.length} Tag{tags.length === 1 ? '' : 's'}</span> : null}
         </div>
 
         <div className="mt-4 grid grid-cols-2 gap-3 border-t border-white/8 pt-3 text-xs">
-          <span><span className="block text-[10px] uppercase tracking-[0.14em] text-white/30">Datum</span><span className="mt-1 block text-white/65">{trade.date}</span></span>
-          <span><span className="block text-[10px] uppercase tracking-[0.14em] text-white/30">Datenstatus</span><span className="mt-1 block text-white/65">{trustMeta.shortLabel}</span></span>
+          <span><span className="block text-[10px] uppercase tracking-[0.14em] text-white/30">{text('Datum', 'Date')}</span><span className="mt-1 block text-white/65">{formatJournalTradeDate(trade, locale)}</span></span>
+          <span><span className="block text-[10px] uppercase tracking-[0.14em] text-white/30">{text('Datenstatus', 'Data status')}</span><span className="mt-1 block text-white/65">{trustMeta.shortLabel}</span></span>
         </div>
       </button>
 
@@ -981,8 +1003,9 @@ function MobileTradeCard({
 }
 
 function RowActions({ detailHref, trade, isSelected, isEditing, isClosing }: { detailHref: string; trade: Trade; isSelected: boolean; isEditing: boolean; isClosing: boolean }) {
+  const text = journalText(useJournalLocale())
   const isOpenTrade = trade.captureResult === 'open'
-  const actionLabel = isOpenTrade ? 'Schließen' : trade.captureStatus === 'incomplete' ? 'Vervollständigen' : 'Bearbeiten'
+  const actionLabel = isOpenTrade ? text('Schließen', 'Close trade') : trade.captureStatus === 'incomplete' ? text('Vervollständigen', 'Complete') : text('Bearbeiten', 'Edit')
   const actionHref = isOpenTrade
     ? `${detailHref}&closeTradeId=${encodeURIComponent(trade.id)}#trade-editor`
     : `${detailHref}&editTradeId=${encodeURIComponent(trade.id)}#trade-editor`
@@ -1005,7 +1028,7 @@ function RowActions({ detailHref, trade, isSelected, isEditing, isClosing }: { d
           prefetch={false}
           className={`rounded-full border px-2.5 py-1 text-xs transition ${isEditing ? 'border-white/20 bg-white/10 text-white' : 'border-white/10 bg-black/25 text-white/72 hover:border-white/20 hover:text-white'}`}
         >
-          Ergänzen
+          {text('Ergänzen', 'Add details')}
         </Link>
       ) : null}
       <Link
@@ -1013,7 +1036,7 @@ function RowActions({ detailHref, trade, isSelected, isEditing, isClosing }: { d
         prefetch={false}
         className={`rounded-full border px-2.5 py-1 text-xs transition ${active ? 'border-emerald-300/35 bg-emerald-400/10 text-emerald-100' : 'border-emerald-400/20 bg-emerald-400/10 text-emerald-100/90 hover:border-emerald-300/35 hover:bg-emerald-400/15'}`}
       >
-        {active ? 'Im Editor' : actionLabel}
+        {active ? text('Im Editor', 'Editing') : actionLabel}
       </Link>
     </div>
   )
@@ -1092,8 +1115,8 @@ function WorkspaceIcon({ icon }: { icon: IconName }) {
   )
 }
 
-function formatDirection(direction?: Trade['direction']) {
+function formatDirection(direction: Trade['direction'], locale: JournalLocale) {
   if (direction === 'long') return 'Long'
   if (direction === 'short') return 'Short'
-  return 'Neutral'
+  return journalText(locale)('Neutral', 'No direction')
 }

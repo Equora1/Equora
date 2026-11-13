@@ -1,3 +1,4 @@
+import { journalText, type JournalLocale } from '@/lib/i18n/journal'
 import type { Trade } from '@/lib/types/trade'
 import type { TradeTag } from '@/lib/types/tag'
 import { formatCurrency, formatRMultiple } from '@/lib/utils/calculations'
@@ -5,17 +6,18 @@ import { buildTagPairStats, buildTradesHref, clampNumber, getToneFromPnL, parseT
 import type { ReviewTagCombinationItem } from '@/lib/utils/review-types'
 import { getCoreMetrics } from '@/lib/utils/analytics'
 
-export function buildTagCombinations(tradesCurrent: Trade[], tradeTags: TradeTag[]): ReviewTagCombinationItem[] {
+export function buildTagCombinations(tradesCurrent: Trade[], tradeTags: TradeTag[], locale: JournalLocale = 'de'): ReviewTagCombinationItem[] {
+  const text = journalText(locale)
   const currency = getCoreMetrics(tradesCurrent).currency
-  const money = (value: number) => formatCurrency(value, 0, currency)
+  const money = (value: number) => formatCurrency(value, 0, currency, locale)
   const pairs = buildTagPairStats(tradesCurrent, tradeTags).filter((pair) => pair.metrics.totalTrades > 0)
 
   if (!pairs.length) {
     return [
       {
         label: 'Tag-Kombis',
-        value: 'Noch zu wenig Daten',
-        detail: 'Sobald Trades mit mehreren Tags im Review-Zeitraum liegen, verdichtet Equora hier die stärksten und gefährlichsten Kombinationen.',
+        value: text('Noch zu wenig Daten', 'Too few tagged trades'),
+        detail: text('Sobald Trades mit mehreren Tags im Review-Zeitraum liegen, verdichtet Equora hier die stärksten und gefährlichsten Kombinationen.', 'Apply multiple tags to your trades to compare how combinations performed.'),
         tone: 'orange',
       },
     ]
@@ -46,7 +48,7 @@ export function buildTagCombinations(tradesCurrent: Trade[], tradeTags: TradeTag
       ? {
           label: 'Beste Kombi',
           value: bestPair.pair,
-          detail: `${money(bestPair.metrics.netPnL)} · ${clampNumber(bestPair.metrics.winRate)}% Trefferquote in ${bestPair.metrics.totalTrades} Trades.`,
+          detail: text(`${money(bestPair.metrics.netPnL)} · ${clampNumber(bestPair.metrics.winRate)}% Trefferquote in ${bestPair.metrics.totalTrades} Trades.`, `${money(bestPair.metrics.netPnL)} · ${clampNumber(bestPair.metrics.winRate)}% win rate across ${bestPair.metrics.totalTrades} trades.`),
           tone: getToneFromPnL(bestPair.metrics.netPnL),
           href: buildTradesHref({ tags: parseTagPair(bestPair.pair), reviewFocus: `Review Drilldown · Beste Kombi: ${bestPair.pair}` }),
         }
@@ -55,7 +57,7 @@ export function buildTagCombinations(tradesCurrent: Trade[], tradeTags: TradeTag
       ? {
           label: 'Warn-Kombi',
           value: worstPair.pair,
-          detail: `${money(worstPair.metrics.netPnL)} bei ${worstPair.metrics.totalTrades} Trades. Diese Paarung kippt aktuell zuverlässig rot.`,
+          detail: text(`${money(worstPair.metrics.netPnL)} bei ${worstPair.metrics.totalTrades} Trades. Diese Paarung kippt aktuell zuverlässig rot.`, `${money(worstPair.metrics.netPnL)} across ${worstPair.metrics.totalTrades} trades in this period.`),
           tone: 'red',
           href: buildTradesHref({ tags: parseTagPair(worstPair.pair), outcome: 'Verlierer', reviewFocus: `Review Drilldown · Warn-Kombi: ${worstPair.pair}` }),
         }
@@ -64,7 +66,7 @@ export function buildTagCombinations(tradesCurrent: Trade[], tradeTags: TradeTag
       ? {
           label: 'Wiederkehrende Kombi',
           value: mostRepeatedPair.pair,
-          detail: `${mostRepeatedPair.metrics.totalTrades} Trades · PF ${mostRepeatedPair.metrics.profitFactor === Infinity ? '∞' : clampNumber(mostRepeatedPair.metrics.profitFactor, 2)}.`,
+          detail: text(`${mostRepeatedPair.metrics.totalTrades} Trades · PF ${mostRepeatedPair.metrics.profitFactor === Infinity ? '∞' : clampNumber(mostRepeatedPair.metrics.profitFactor, 2)}.`, `${mostRepeatedPair.metrics.totalTrades} trades · profit factor ${mostRepeatedPair.metrics.profitFactor === Infinity ? '∞' : clampNumber(mostRepeatedPair.metrics.profitFactor, 2)}.`),
           tone: getToneFromPnL(mostRepeatedPair.metrics.netPnL),
           href: buildTradesHref({ tags: parseTagPair(mostRepeatedPair.pair), reviewFocus: `Review Drilldown · Wiederkehrende Kombi: ${mostRepeatedPair.pair}` }),
         }
@@ -73,7 +75,7 @@ export function buildTagCombinations(tradesCurrent: Trade[], tradeTags: TradeTag
       ? {
           label: 'Volatile Kombi',
           value: unstablePair.pair,
-          detail: `${clampNumber(unstablePair.metrics.winRate)}% Trefferquote bei ${formatRMultiple(unstablePair.metrics.averageR)} im Schnitt. Gute Kandidatin für einen Vor-Entry-Check.`,
+          detail: text(`${clampNumber(unstablePair.metrics.winRate)}% Trefferquote bei ${formatRMultiple(unstablePair.metrics.averageR, 2, locale)} im Schnitt. Gute Kandidatin für einen Vor-Entry-Check.`, `${clampNumber(unstablePair.metrics.winRate)}% win rate and ${formatRMultiple(unstablePair.metrics.averageR, 2, locale)} on average. Review the trades behind this combination.`),
           tone: unstablePair.metrics.netPnL < 0 ? 'orange' : getToneFromPnL(unstablePair.metrics.netPnL),
           href: buildTradesHref({ tags: parseTagPair(unstablePair.pair), reviewFocus: `Review Drilldown · Volatile Kombi: ${unstablePair.pair}` }),
         }

@@ -1,5 +1,7 @@
 'use client'
 
+import { useJournalLocale } from '@/components/layout/journal-locale-provider'
+import { journalText, type JournalLocale } from '@/lib/i18n/journal'
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { SectionHeader } from '@/components/layout/section-header'
@@ -8,7 +10,7 @@ import { SetupDetailCard } from '@/components/setups/setup-detail-card'
 import type { SavedSetup, SetupDetail, SetupLibraryItem } from '@/lib/types/setup'
 import { formatCurrency } from '@/lib/utils/calculations'
 import { getTradesForSetupTitle, type SetupPerformanceRow } from '@/lib/utils/setup-analytics'
-import { getSetupPerformanceDisplay } from '@/lib/utils/setup-performance-display'
+import { getSetupPerformanceDisplay, getSetupPerformanceStatus } from '@/lib/utils/setup-performance-display'
 import type { Trade } from '@/lib/types/trade'
 
 type LibraryView = 'all' | 'master' | 'own'
@@ -16,6 +18,8 @@ type LibraryView = 'all' | 'master' | 'own'
 export function SetupExplorer({
   setupLibrary,
   setupDetails,
+  templateDetails = {},
+  templateDescriptions = {},
   trades,
   savedSetups,
   setupPerformanceRows,
@@ -23,11 +27,15 @@ export function SetupExplorer({
 }: {
   setupLibrary: SetupLibraryItem[]
   setupDetails: Record<string, SetupDetail | undefined>
+  templateDetails?: Record<string, SetupDetail | undefined>
+  templateDescriptions?: Record<string, string | undefined>
   trades: Trade[]
   savedSetups: SavedSetup[]
   setupPerformanceRows: SetupPerformanceRow[]
   canManageMaster?: boolean
 }) {
+  const locale = useJournalLocale()
+  const text = journalText(locale)
   const hasMasterSetups = setupLibrary.some((setup) => setup.isMaster)
   const hasPersonalSetups = setupLibrary.some((setup) => setup.isPersonal)
   const [libraryView, setLibraryView] = useState<LibraryView>(hasMasterSetups ? 'master' : 'all')
@@ -50,9 +58,20 @@ export function SetupExplorer({
   const selectedLibraryItem = setupLibrary.find((setup) => setup.title === selectedSetup)
   const selectedDetail = setupDetails[selectedSetup]
   const selectedPerformance = setupPerformanceRows.find((row) => row.title === selectedSetup)
-  const display = getSetupPerformanceDisplay(selectedPerformance)
-  const strongestSetups = setupPerformanceRows.filter((row) => row.trades > 0).slice(0, 4)
-  const weakestSetup = [...setupPerformanceRows].filter((row) => row.trades > 0).sort((left, right) => left.netPnL - right.netPnL || right.trades - left.trades)[0]
+  const display = getSetupPerformanceDisplay(selectedPerformance, locale)
+  const resultRows = setupPerformanceRows.filter((row) => row.trades > 0)
+  const comparableRows = resultRows.filter((row) => row.monetaryScopeKind === 'single' && row.currency)
+  const currency = comparableRows[0]?.currency
+  const comparableResults = Boolean(currency && resultRows.every((row) =>
+    row.monetaryScopeKind === 'empty' || (row.monetaryScopeKind === 'single' && row.currency === currency),
+  ))
+  const visibleResults = (comparableResults
+    ? resultRows
+    : [...resultRows].sort((left, right) => left.title.localeCompare(right.title))).slice(0, 4)
+  const weakestSetup = comparableResults && comparableRows.length > 1
+    ? [...comparableRows].sort((left, right) => left.netPnL - right.netPnL || right.trades - left.trades)[0]
+    : undefined
+  const selectedStatus = selectedPerformance ? getSetupPerformanceStatus(selectedPerformance, locale) : null
   const activeStatusTone = selectedPerformance?.status === 'pause'
     ? 'border-red-300/18 bg-red-400/[0.06] text-red-100/82'
     : selectedPerformance?.status === 'active'
@@ -64,6 +83,7 @@ export function SetupExplorer({
 
   function handleMediaEdit(copyAsOwn: boolean) {
     const detail = setupDetails[selectedSetup]
+    const sourceRules = templateDetails[selectedSetup]
     const media = (detail?.exampleImageItems?.length ? detail.exampleImageItems : (detail?.exampleImages ?? []).map((url, index) => ({ url, isCover: index === 0, mediaRole: 'example' as const })))
     const event = new CustomEvent('equora:setup-media-edit', {
       detail: {
@@ -71,13 +91,13 @@ export function SetupExplorer({
         copyAsOwn,
         title: selectedSetup,
         category: detail?.category ?? selectedLibraryItem?.category ?? 'Custom',
-        description: selectedLibraryItem?.description ?? '',
-        entry: detail?.entry ?? '',
-        exit: detail?.exit ?? '',
-        invalidation: detail?.invalidation ?? '',
-        playbook: detail?.playbook ?? selectedLibraryItem?.description ?? '',
-        checklist: detail?.checklist ?? [],
-        mistakes: detail?.mistakes ?? [],
+        description: selectedSavedSetup?.description ?? templateDescriptions[selectedSetup] ?? '',
+        entry: selectedSavedSetup?.entry ?? sourceRules?.entry ?? '',
+        exit: selectedSavedSetup?.exit ?? sourceRules?.exit ?? '',
+        invalidation: selectedSavedSetup?.invalidation ?? sourceRules?.invalidation ?? '',
+        playbook: selectedSavedSetup?.playbook ?? sourceRules?.playbook ?? '',
+        checklist: selectedSavedSetup?.checklist ?? sourceRules?.checklist ?? [],
+        mistakes: selectedSavedSetup?.mistakes ?? sourceRules?.mistakes ?? [],
         media,
       },
     })
@@ -88,70 +108,76 @@ export function SetupExplorer({
     <div className="space-y-6">
       <section className="rounded-3xl border border-[#221e1a] bg-[#0d0d0d]/95 p-5 shadow-[0_20px_60px_rgba(0,0,0,0.42)] xl:p-6">
         <SectionHeader
-          eyebrow="Setup-Bibliothek"
-          title="Deine Setups im Überblick"
+          eyebrow={text('Setup-Bibliothek', 'Setup library')}
+          title={text('Deine Setups im Überblick', 'Your setups at a glance')}
           copy=""
-          badge={`${visibleSetups.length} sichtbar`}
+          badge={text(`${visibleSetups.length} sichtbar`, `${visibleSetups.length} shown`)}
         />
 
         {(hasMasterSetups || hasPersonalSetups) ? (
           <div className="mt-5 flex flex-wrap gap-2">
-            <LibraryTab label="Alle" active={libraryView === 'all'} onClick={() => setLibraryView('all')} />
-            {hasMasterSetups ? <LibraryTab label="Master" active={libraryView === 'master'} onClick={() => setLibraryView('master')} /> : null}
-            {hasPersonalSetups ? <LibraryTab label="Eigene" active={libraryView === 'own'} onClick={() => setLibraryView('own')} /> : null}
+            <LibraryTab label={text('Alle', 'All')} active={libraryView === 'all'} onClick={() => setLibraryView('all')} />
+            {hasMasterSetups ? <LibraryTab label={text('Master', 'Shared')} active={libraryView === 'master'} onClick={() => setLibraryView('master')} /> : null}
+            {hasPersonalSetups ? <LibraryTab label={text('Eigene', 'Personal')} active={libraryView === 'own'} onClick={() => setLibraryView('own')} /> : null}
           </div>
         ) : null}
 
         <div className="mt-5 rounded-3xl border border-orange-400/15 bg-orange-400/[0.05] p-5 xl:p-6">
           <div className="flex flex-col gap-5">
             <div className="space-y-3">
-              <p className="text-[10px] uppercase tracking-[0.24em] text-orange-100/55">Aktive Regel</p>
+              <p className="text-[10px] uppercase tracking-[0.24em] text-orange-100/55">{text('Aktive Regel', 'Selected setup')}</p>
               <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                 <div className="max-w-3xl">
                   <h3 className="text-2xl font-semibold text-white xl:text-[2rem]">{selectedSetup}</h3>
                   <p className="mt-3 text-sm leading-6 text-white/60">
-                    {selectedLibraryItem?.description || 'Regel prüfen.'}
+                    {selectedLibraryItem?.description || text('Regel prüfen.', 'Review the setup rules.')}
                   </p>
                 </div>
                 <div className="flex flex-wrap gap-2">
-                  {selectedLibraryItem?.isMaster ? <Badge label="Master" /> : null}
-                  {selectedLibraryItem?.isPersonal ? <Badge label="Eigen" /> : null}
+                  {selectedLibraryItem?.isMaster ? <Badge label={text('Master', 'Shared')} /> : null}
+                  {selectedLibraryItem?.isPersonal ? <Badge label={text('Eigen', 'Personal')} /> : null}
                   <Badge label={selectedDetail?.category ?? selectedLibraryItem?.category ?? 'Setup'} />
                 </div>
               </div>
             </div>
 
             <div className="grid gap-3 lg:grid-cols-4">
-              <Metric label="Trades" value={String(linkedTrades.length)} note={selectedPerformance ? `${selectedPerformance.resolvedTrades} erledigt · ${selectedPerformance.openTrades} offen` : 'Historie'} />
+              <Metric label="Trades" value={String(linkedTrades.length)} note={selectedPerformance ? text(`${selectedPerformance.resolvedTrades} erledigt · ${selectedPerformance.openTrades} offen`, `${selectedPerformance.resolvedTrades} closed · ${selectedPerformance.openTrades} open`) : text('Historie', 'History')} />
               <Metric label="P&L" value={display.pnl} note={display.moneyNote} />
-              <Metric label="Trefferquote" value={display.winRate} note={display.hasResults && selectedPerformance ? `${selectedPerformance.wins} Gewinne · ${selectedPerformance.losses} Verluste · ${selectedPerformance.breakeven} Break-even` : display.moneyNote} />
-              <Metric label="PF / Ø R" value={display.hasTrades ? `${display.profitFactor} · ${display.averageR}` : '—'} note={display.hasTrades ? `${display.riskCoverage} Risiko dokumentiert` : 'Noch keine Trades'} />
+              <Metric label={text('Winrate', 'Win rate')} value={display.winRate} note={display.hasResults && selectedPerformance ? text(`${selectedPerformance.wins} ${selectedPerformance.wins === 1 ? 'Gewinn' : 'Gewinne'} · ${selectedPerformance.losses} ${selectedPerformance.losses === 1 ? 'Verlust' : 'Verluste'} · ${selectedPerformance.breakeven} Break-even`, `${selectedPerformance.wins} ${selectedPerformance.wins === 1 ? 'win' : 'wins'} · ${selectedPerformance.losses} ${selectedPerformance.losses === 1 ? 'loss' : 'losses'} · ${selectedPerformance.breakeven} break-even`) : display.moneyNote} />
+              <Metric label={text('PF / Ø R', 'PF / Avg R')} value={display.hasTrades ? `${display.profitFactor} · ${display.averageR}` : '—'} note={display.hasTrades ? text(`${display.riskCoverage} Risiko dokumentiert`, `${display.riskCoverage} risk recorded`) : text('Noch keine Trades', 'No trades yet')} />
             </div>
 
             {selectedPerformance ? (
               <div className={`rounded-2xl border px-4 py-3 text-sm leading-6 ${activeStatusTone}`}>
-                <span className="font-semibold">{selectedPerformance.statusLabel}.</span> {selectedPerformance.statusHint}
-                {selectedPerformance.lastTradeDate ? ` Letzter Trade: ${selectedPerformance.lastTradeDate}${selectedPerformance.lastTradePnL !== null ? ` · ${formatCurrency(selectedPerformance.lastTradePnL, 0, selectedPerformance.currency)}` : ''}.` : ''}
+                <span className="font-semibold">{selectedStatus?.label}.</span> {selectedStatus?.hint}
+                {selectedPerformance.lastTradeDate ? (
+                  <> {text('Letzter Trade', 'Last trade')} · {selectedPerformance.lastTradeDate}
+                    {selectedPerformance.lastTradePnL !== null && selectedPerformance.currency
+                      ? ` · ${formatCurrency(selectedPerformance.lastTradePnL, 0, selectedPerformance.currency, locale)}`
+                      : ''}
+                  </>
+                ) : null}
               </div>
             ) : null}
 
             {selectedPerformance && selectedPerformance.trades > 0 ? (
               <details className="rounded-2xl border border-white/10 bg-black/20 p-4">
-                <summary className="cursor-pointer text-sm font-medium text-white">Weitere Setup-Auswertungen</summary>
+                <summary className="cursor-pointer text-sm font-medium text-white">{text('Weitere Setup-Auswertungen', 'More setup statistics')}</summary>
                 <div className="mt-4 grid gap-3 md:grid-cols-3">
-                    <MiniSignal label="Stark" value={selectedPerformance.bestSession} note={selectedPerformance.bestMarket} />
-                    <MiniSignal label="Prüfen" value={selectedPerformance.weakestSession} note={selectedPerformance.weakestMarket} />
-                    <MiniSignal label="Kosten" value={selectedPerformance.costScopeKind === 'single' ? formatCurrency(selectedPerformance.totalCosts, 0, selectedPerformance.costCurrency) : 'Gesperrt'} note={selectedPerformance.costScopeKind === 'single' ? `${formatCurrency(selectedPerformance.averageCost, 0, selectedPerformance.costCurrency)} je Trade` : 'Währungen fehlen oder sind gemischt'} />
+                    <MiniSignal label={text('Stark', 'What worked')} value={selectedPerformance.bestSession} note={selectedPerformance.bestMarket} />
+                    <MiniSignal label={text('Prüfen', 'What to review')} value={selectedPerformance.weakestSession} note={selectedPerformance.weakestMarket} />
+                    <MiniSignal label={text('Kosten', 'Costs')} value={selectedPerformance.costScopeKind === 'single' ? formatCurrency(selectedPerformance.totalCosts, 0, selectedPerformance.costCurrency, locale) : text('Gesperrt', 'Unavailable')} note={selectedPerformance.costScopeKind === 'single' ? text(`${formatCurrency(selectedPerformance.averageCost, 0, selectedPerformance.costCurrency, locale)} je Trade`, `${formatCurrency(selectedPerformance.averageCost, 0, selectedPerformance.costCurrency, locale)} per trade`) : text('Währungen fehlen oder sind gemischt', 'Missing or mixed currencies')} />
                 </div>
               </details>
             ) : null}
 
             <div className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm leading-6 text-white/58">
               {isAdminEditingMaster
-                ? 'Admin-Modus aktiv. Du bearbeitest die Master-Bilder direkt. Änderungen ersetzen die Dummy-Bilder dauerhaft für alle.'
+                ? text('Admin-Modus aktiv. Du bearbeitest die Master-Bilder direkt. Änderungen ersetzen die Dummy-Bilder dauerhaft für alle.', 'You are editing the shared setup images. Changes are visible to all users.')
                 : canEditSelectedMedia
-                  ? 'Dieses Setup gehört dir. Bilder kannst du direkt bearbeiten.'
-                  : 'Vorlage bleibt geschützt. Mit „Kopie bearbeiten“ übernimmst du Regel und Dummy-Bilder in deine eigene Version.'}
+                  ? text('Dieses Setup gehört dir. Bilder kannst du direkt bearbeiten.', 'You can edit images for your own setup.')
+                  : text('Vorlage bleibt geschützt. Mit „Kopie bearbeiten“ übernimmst du Regel und Dummy-Bilder in deine eigene Version.', 'Choose Edit a copy to use the rules and example images in your own setup.')}
             </div>
 
             <div className="flex flex-wrap gap-2">
@@ -159,13 +185,13 @@ export function SetupExplorer({
                 href={`/trades?setup=${encodeURIComponent(selectedSetup)}`}
                 className="rounded-full border border-orange-300/25 bg-orange-400/10 px-4 py-2 text-xs font-medium text-orange-100 transition hover:border-orange-200/45"
               >
-                Trades anzeigen
+                {text('Trades anzeigen', 'View trades')}
               </Link>
               <Link
                 href={`/statistik?layer=setups&setup=${encodeURIComponent(selectedSetup)}`}
                 className="rounded-full border border-white/10 bg-black/20 px-4 py-2 text-xs font-medium text-white/65 transition hover:border-white/20 hover:text-white"
               >
-                Setup auswerten
+                {text('Setup auswerten', 'View setup statistics')}
               </Link>
               {canEditSelectedMedia ? (
                 <button
@@ -173,7 +199,7 @@ export function SetupExplorer({
                   onClick={() => handleMediaEdit(false)}
                   className="rounded-full border border-emerald-300/20 bg-emerald-400/10 px-4 py-2 text-xs font-medium text-emerald-100 transition hover:border-emerald-200/40"
                 >
-                  {isAdminEditingMaster ? 'Master-Bilder bearbeiten' : 'Bilder bearbeiten'}
+                  {isAdminEditingMaster ? text('Master-Bilder bearbeiten', 'Edit shared images') : text('Bilder bearbeiten', 'Edit images')}
                 </button>
               ) : (
                 <button
@@ -181,7 +207,7 @@ export function SetupExplorer({
                   onClick={() => handleMediaEdit(true)}
                   className="rounded-full border border-emerald-300/20 bg-emerald-400/10 px-4 py-2 text-xs font-medium text-emerald-100 transition hover:border-emerald-200/40"
                 >
-                  Kopie bearbeiten
+                  {text('Kopie bearbeiten', 'Edit a copy')}
                 </button>
               )}
             </div>
@@ -192,20 +218,20 @@ export function SetupExplorer({
       <section className="rounded-3xl border border-[#221e1a] bg-[#0d0d0d]/95 p-5 shadow-[0_20px_60px_rgba(0,0,0,0.42)] xl:p-6">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
           <div>
-            <p className="text-[10px] uppercase tracking-[0.24em] text-[#998a72]">Setup-Ergebnisse</p>
-            <h3 className="mt-2 text-xl font-semibold text-white">Ergebnisse nach Setup</h3>
+            <p className="text-[10px] uppercase tracking-[0.24em] text-[#998a72]">{text('Setup-Ergebnisse', 'Setup results')}</p>
+            <h3 className="mt-2 text-xl font-semibold text-white">{text('Ergebnisse nach Setup', 'Results by setup')}</h3>
           </div>
-          {weakestSetup ? <div className="min-w-0 break-words rounded-full border border-red-300/15 bg-red-400/[0.06] px-3 py-1 text-xs text-red-100/80">Prüfen: {weakestSetup.title}</div> : null}
+          {weakestSetup ? <div className="min-w-0 break-words rounded-full border border-red-300/15 bg-red-400/[0.06] px-3 py-1 text-xs text-red-100/80">{text('Prüfen:', 'Review:')} {weakestSetup.title}</div> : null}
         </div>
 
-        {strongestSetups.length ? (
+        {visibleResults.length ? (
           <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-            {strongestSetups.map((row) => (
-              <SetupPerformanceTile key={row.title} row={row} active={selectedSetup === row.title} onClick={() => setSelectedSetup(row.title)} />
+            {visibleResults.map((row) => (
+              <SetupPerformanceTile locale={locale} key={row.title} row={row} active={selectedSetup === row.title} onClick={() => setSelectedSetup(row.title)} />
             ))}
           </div>
         ) : (
-          <div className="mt-5 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-[#998a72]">Noch keine Setup-Historie.</div>
+          <div className="mt-5 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-[#998a72]">{text('Noch keine Setup-Historie.', 'No setup history yet.')}</div>
         )}
       </section>
 
@@ -214,8 +240,8 @@ export function SetupExplorer({
       <section className="rounded-3xl border border-[#221e1a] bg-[#0d0d0d]/95 p-5 shadow-[0_20px_60px_rgba(0,0,0,0.42)] xl:p-6">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
           <div>
-            <p className="text-[10px] uppercase tracking-[0.24em] text-[#998a72]">Auswahl</p>
-            <h3 className="mt-2 text-xl font-semibold text-white">Master, eigene Muster, Vorlagen</h3>
+            <p className="text-[10px] uppercase tracking-[0.24em] text-[#998a72]">{text('Auswahl', 'Browse')}</p>
+            <h3 className="mt-2 text-xl font-semibold text-white">{text('Master, eigene Muster, Vorlagen', 'Shared and personal setups')}</h3>
           </div>
           <div className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-[#998a72]">
             {visibleSetups.length} Setups
@@ -240,8 +266,9 @@ export function SetupExplorer({
 }
 
 
-function SetupPerformanceTile({ row, active, onClick }: { row: SetupPerformanceRow; active: boolean; onClick: () => void }) {
-  const display = getSetupPerformanceDisplay(row)
+function SetupPerformanceTile({ row, active, onClick, locale }: { row: SetupPerformanceRow; active: boolean; onClick: () => void; locale: JournalLocale }) {
+  const text = journalText(locale)
+  const display = getSetupPerformanceDisplay(row, locale)
   const toneClass = row.tone === 'green'
     ? 'border-emerald-400/24 bg-emerald-400/[0.08]'
     : row.tone === 'red'
@@ -264,10 +291,10 @@ function SetupPerformanceTile({ row, active, onClick }: { row: SetupPerformanceR
       <p className="mt-4 break-words text-2xl font-semibold tabular-nums text-white">{display.pnl}</p>
       <div className="mt-3 grid grid-cols-3 gap-2 text-[11px] text-white/58">
         <span className="min-w-0 break-words">PF {display.profitFactor}</span>
-        <span className="min-w-0 break-words">ØR {display.averageR}</span>
-        <span className="min-w-0 break-words">{display.riskCoverage} Risiko</span>
+        <span className="min-w-0 break-words">{text('Ø R', 'Avg R')} {display.averageR}</span>
+        <span className="min-w-0 break-words">{display.riskCoverage} {text('Risiko', 'risk recorded')}</span>
       </div>
-      <p className="mt-2 text-xs leading-5 text-white/55">{row.statusHint}</p>
+      <p className="mt-2 text-xs leading-5 text-white/55">{getSetupPerformanceStatus(row, locale).hint}</p>
     </button>
   )
 }

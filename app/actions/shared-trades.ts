@@ -1,5 +1,7 @@
 'use server'
 
+import { journalText, type JournalLocale } from '@/lib/i18n/journal'
+
 import { revalidatePath } from 'next/cache'
 import { createSupabaseAuthServerClient } from '@/lib/supabase/server-auth'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
@@ -41,20 +43,21 @@ export async function createTradeShareSubmission(input: {
   userNote: string
   vaultOptIn: boolean
   submittedByName?: string
-}) {
+}, locale: JournalLocale = 'de') {
+  const text = journalText(locale)
   if (!input.tradeId.trim()) {
     return {
       success: false,
       mode: hasSupabaseClientEnv() ? ('supabase' as const) : ('demo' as const),
-      message: 'Bitte zuerst einen Trade auswählen.',
+      message: text('Bitte zuerst einen Trade auswählen.', 'Select a trade first.'),
     }
   }
 
   if (!hasSupabaseClientEnv()) {
-    return { success: true, mode: 'demo' as const, message: 'Demo-Modus: Vault Submission wurde nur lokal simuliert.' }
+    return { success: true, mode: 'demo' as const, message: text('Demo: Das Teilen wurde simuliert.', 'Demo: sharing simulated.') }
   }
   if (!hasSupabaseServerEnv()) {
-    return { success: false, mode: 'supabase' as const, message: 'Der sichere serverseitige Vault-Speicher ist nicht konfiguriert.' }
+    return { success: false, mode: 'supabase' as const, message: text('Teilen ist derzeit nicht verfügbar.', 'Sharing is currently unavailable.') }
   }
 
   try {
@@ -63,7 +66,7 @@ export async function createTradeShareSubmission(input: {
       data: { user },
     } = await supabase.auth.getUser()
 
-    if (!user) return { success: false, mode: 'supabase' as const, message: 'Bitte zuerst einloggen.' }
+    if (!user) return { success: false, mode: 'supabase' as const, message: text('Bitte zuerst einloggen.', 'Sign in to manage shared trades.') }
 
     const { data: trade, error: tradeError } = await supabase
       .from('trades')
@@ -73,7 +76,7 @@ export async function createTradeShareSubmission(input: {
       .maybeSingle()
 
     if (tradeError || !trade) {
-      return { success: false, mode: 'supabase' as const, message: 'Trade nicht gefunden oder kein Zugriff.' }
+      return { success: false, mode: 'supabase' as const, message: text('Trade nicht gefunden oder kein Zugriff.', 'The trade is missing or you do not have access.') }
     }
 
     const { data: tagRows } = await supabase.from('trade_tags').select('tag').eq('trade_id', input.tradeId).order('created_at', { ascending: true })
@@ -165,7 +168,7 @@ export async function createTradeShareSubmission(input: {
         .eq('user_id', user.id)
 
       if (updateError) {
-        return { success: false, mode: 'supabase' as const, message: 'Trade konnte nicht erneut in die Equora Vault gesendet werden.' }
+        return { success: false, mode: 'supabase' as const, message: text('Der Trade konnte nicht erneut gesendet werden.', 'Could not resend the trade.') }
       }
     } else {
       const { error: insertError } = await mutationClient.from('shared_trade_submissions').insert({
@@ -175,31 +178,32 @@ export async function createTradeShareSubmission(input: {
       })
 
       if (insertError) {
-        return { success: false, mode: 'supabase' as const, message: 'Trade konnte nicht in die Equora Vault gesendet werden.' }
+        return { success: false, mode: 'supabase' as const, message: text('Der Trade konnte nicht gesendet werden.', 'Could not submit the trade.') }
       }
     }
 
     revalidateShareSurfaces()
-    return { success: true, mode: 'supabase' as const, message: 'Trade wurde an Equora Vault / Review übergeben.' }
+    return { success: true, mode: 'supabase' as const, message: text('Der Trade wurde eingereicht.', 'Trade submitted.') }
   } catch {
-    return { success: false, mode: 'supabase' as const, message: 'Trade konnte nicht in die Equora Vault gesendet werden.' }
+    return { success: false, mode: 'supabase' as const, message: text('Der Trade konnte nicht gesendet werden.', 'Could not submit the trade.') }
   }
 }
 
-export async function revokeTradeShareSubmission(submissionId: string) {
+export async function revokeTradeShareSubmission(submissionId: string, locale: JournalLocale = 'de') {
+  const text = journalText(locale)
   if (!submissionId.trim()) {
     return {
       success: false,
       mode: hasSupabaseClientEnv() ? ('supabase' as const) : ('demo' as const),
-      message: 'Submission-ID fehlt.',
+      message: text('Wähle zuerst einen Beitrag.', 'Select a submission first.'),
     }
   }
 
   if (!hasSupabaseClientEnv()) {
-    return { success: true, mode: 'demo' as const, message: 'Demo-Modus: Vault Submission wurde als zurückgezogen markiert.' }
+    return { success: true, mode: 'demo' as const, message: text('Demo: Das Zurückziehen wurde simuliert.', 'Demo: withdrawal simulated.') }
   }
   if (!hasSupabaseServerEnv()) {
-    return { success: false, mode: 'supabase' as const, message: 'Der sichere serverseitige Vault-Speicher ist nicht konfiguriert.' }
+    return { success: false, mode: 'supabase' as const, message: text('Teilen ist derzeit nicht verfügbar.', 'Sharing is currently unavailable.') }
   }
 
   try {
@@ -208,7 +212,7 @@ export async function revokeTradeShareSubmission(submissionId: string) {
       data: { user },
     } = await supabase.auth.getUser()
 
-    if (!user) return { success: false, mode: 'supabase' as const, message: 'Bitte zuerst einloggen.' }
+    if (!user) return { success: false, mode: 'supabase' as const, message: text('Bitte zuerst einloggen.', 'Sign in to manage shared trades.') }
 
     const { error } = await createSupabaseServerClient()
       .from('shared_trade_submissions')
@@ -217,13 +221,13 @@ export async function revokeTradeShareSubmission(submissionId: string) {
       .eq('user_id', user.id)
 
     if (error) {
-      return { success: false, mode: 'supabase' as const, message: 'Submission konnte nicht zurückgezogen werden.' }
+      return { success: false, mode: 'supabase' as const, message: text('Der Beitrag konnte nicht zurückgezogen werden.', 'Could not withdraw the submission.') }
     }
 
     revalidateShareSurfaces()
-    return { success: true, mode: 'supabase' as const, message: 'Submission wurde zurückgezogen.' }
+    return { success: true, mode: 'supabase' as const, message: text('Der Beitrag wurde zurückgezogen.', 'Submission withdrawn.') }
   } catch {
-    return { success: false, mode: 'supabase' as const, message: 'Submission konnte nicht zurückgezogen werden.' }
+    return { success: false, mode: 'supabase' as const, message: text('Der Beitrag konnte nicht zurückgezogen werden.', 'Could not withdraw the submission.') }
   }
 }
 
@@ -238,12 +242,13 @@ export async function updateSharedTradeSubmissionByAdmin(input: {
   coachMistakes: string
   coachAction: string
   vaultBlurb: string
-}) {
+}, locale: JournalLocale = 'de') {
+  const text = journalText(locale)
   if (!input.submissionId.trim()) {
     return {
       success: false,
       mode: hasSupabaseClientEnv() ? ('supabase' as const) : ('demo' as const),
-      message: 'Submission-ID fehlt.',
+      message: text('Wähle zuerst einen Beitrag.', 'Select a submission first.'),
     }
   }
 
@@ -251,11 +256,11 @@ export async function updateSharedTradeSubmissionByAdmin(input: {
     return {
       success: false,
       mode: 'demo' as const,
-      message: 'Admin-Zugriff ist noch nicht mit Supabase verbunden.',
+      message: text('In der Demo lassen sich Beiträge nicht prüfen.', 'Admin review is unavailable in demo mode.'),
     }
   }
   if (!hasSupabaseServerEnv()) {
-    return { success: false, mode: 'supabase' as const, message: 'Der sichere serverseitige Vault-Speicher ist nicht konfiguriert.' }
+    return { success: false, mode: 'supabase' as const, message: text('Teilen ist derzeit nicht verfügbar.', 'Sharing is currently unavailable.') }
   }
 
   try {
@@ -265,7 +270,7 @@ export async function updateSharedTradeSubmissionByAdmin(input: {
     } = await supabase.auth.getUser()
 
     if (!(await isEquoraAdminUser(user))) {
-      return { success: false, mode: 'supabase' as const, message: 'Nur Equora Admins können diesen Status ändern.' }
+      return { success: false, mode: 'supabase' as const, message: text('Nur Equora Admins können diesen Status ändern.', 'Only Equora admins can change this status.') }
     }
 
     const timestamp = new Date().toISOString()
@@ -290,12 +295,12 @@ export async function updateSharedTradeSubmissionByAdmin(input: {
       .eq('id', input.submissionId)
 
     if (error) {
-      return { success: false, mode: 'supabase' as const, message: 'Admin-Review konnte nicht gespeichert werden.' }
+      return { success: false, mode: 'supabase' as const, message: text('Das Feedback konnte nicht gespeichert werden.', 'Could not save the review.') }
     }
 
     revalidateShareSurfaces()
-    return { success: true, mode: 'supabase' as const, message: 'Admin-Review gespeichert.' }
+    return { success: true, mode: 'supabase' as const, message: text('Feedback gespeichert.', 'Review saved.') }
   } catch {
-    return { success: false, mode: 'supabase' as const, message: 'Admin-Update konnte nicht gespeichert werden.' }
+    return { success: false, mode: 'supabase' as const, message: text('Die Änderungen konnten nicht gespeichert werden.', 'Could not save the review changes.') }
   }
 }

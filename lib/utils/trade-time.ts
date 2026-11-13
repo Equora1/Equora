@@ -1,3 +1,4 @@
+import type { JournalLocale } from '@/lib/i18n/journal'
 import type { Trade } from '@/lib/types/trade'
 
 const TRADE_TIME_INPUT_PATTERN = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/
@@ -134,7 +135,8 @@ export function formatTradeTimeInputValue(value?: string | null) {
   return `${pad(p.year, 4)}-${pad(p.month)}-${pad(p.day)}T${pad(p.hour)}:${pad(p.minute)}`
 }
 
-export function resolveTradeTimeInputToIso(value: string | null | undefined, fallbackIso: string, originalIso?: string | null) {
+export function resolveTradeTimeInputToIso(value: string | null | undefined, fallbackIso: string, originalIso?: string | null, locale: JournalLocale = 'de') {
+  const text = (de: string, en: string) => locale === 'en' ? en : de
   const trimmed = value?.trim() ?? ''
   if (!trimmed) return fallbackIso
 
@@ -142,11 +144,11 @@ export function resolveTradeTimeInputToIso(value: string | null | undefined, fal
   if (!match) {
     const milliseconds = zonedInstantMilliseconds(trimmed)
     if (milliseconds !== null) return new Date(milliseconds).toISOString()
-    throw new Error('Bitte ein gültiges Datum mit Uhrzeit angeben.')
+    throw new Error(text('Bitte ein gültiges Datum mit Uhrzeit angeben.', 'Enter a valid date and time.'))
   }
 
   const wallMilliseconds = calendarMilliseconds(+match[1], +match[2], +match[3], +match[4], +match[5])
-  if (wallMilliseconds === null) throw new Error('Bitte ein gültiges Datum mit Uhrzeit angeben.')
+  if (wallMilliseconds === null) throw new Error(text('Bitte ein gültiges Datum mit Uhrzeit angeben.', 'Enter a valid date and time.'))
 
   // The owned stored instant is the only disambiguation for an unchanged edit.
   // Preserve its seconds too: datetime-local displays only minute precision.
@@ -163,17 +165,17 @@ export function resolveTradeTimeInputToIso(value: string | null | undefined, fal
   }
   const candidates = [...offsets].map((offset) => new Date(wallMilliseconds - offset).toISOString())
     .filter((iso) => formatTradeTimeInputValue(iso) === trimmed)
-  if (candidates.length === 0) throw new Error('Diese Uhrzeit gibt es wegen der Zeitumstellung in Berlin nicht. Bitte eine andere Uhrzeit wählen.')
-  if (candidates.length !== 1) throw new Error('Diese Uhrzeit kommt bei der Zeitumstellung in Berlin zweimal vor. Bitte eine eindeutige Uhrzeit wählen.')
+  if (candidates.length === 0) throw new Error(text('Diese Uhrzeit gibt es wegen der Zeitumstellung in Berlin nicht. Bitte eine andere Uhrzeit wählen.', 'This time does not exist because the clocks change in Berlin. Choose another time.'))
+  if (candidates.length !== 1) throw new Error(text('Diese Uhrzeit kommt bei der Zeitumstellung in Berlin zweimal vor. Bitte eine eindeutige Uhrzeit wählen.', 'This time occurs twice because the clocks change in Berlin. Choose a different time.'))
   return candidates[0]
 }
 
-export function getTradeTimeInputError(value: string | null | undefined, originalIso?: string | null) {
+export function getTradeTimeInputError(value: string | null | undefined, originalIso?: string | null, locale: JournalLocale = 'de') {
   try {
-    resolveTradeTimeInputToIso(value, '', originalIso)
+    resolveTradeTimeInputToIso(value, '', originalIso, locale)
     return undefined
   } catch (error) {
-    return error instanceof Error ? error.message : 'Bitte die Trade-Zeit prüfen.'
+    return error instanceof Error ? error.message : (locale === 'en' ? 'Check the trade time.' : 'Bitte die Trade-Zeit prüfen.')
   }
 }
 

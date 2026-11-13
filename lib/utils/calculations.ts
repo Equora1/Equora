@@ -1,3 +1,4 @@
+import { journalNumberLocale, journalText, type JournalLocale } from '@/lib/i18n/journal'
 import type {
   TradeAccountTemplate,
   TradeBrokerProfile,
@@ -168,10 +169,10 @@ export function deriveEffectiveExitFromPartialExitLegs({
   return Number.isFinite(effectiveExit) ? effectiveExit : null
 }
 
-export function formatPartialExitSummary(partialExits: Array<{ percent?: string | number | null; price?: string | number | null } | null | undefined>) {
+export function formatPartialExitSummary(partialExits: Array<{ percent?: string | number | null; price?: string | number | null } | null | undefined>, locale: JournalLocale = 'de') {
   const normalized = normalizePartialExitLegs(partialExits)
   if (!normalized.length) return ''
-  return normalized.map((leg, index) => `TP${index + 1}: ${formatPlainNumber(leg.percent, 0)}% @ ${formatPlainNumber(leg.price, 4)}`).join(' · ')
+  return normalized.map((leg, index) => `TP${index + 1}: ${formatPlainNumber(leg.percent, 0, locale)}% @ ${formatPlainNumber(leg.price, 4, locale)}`).join(' · ')
 }
 
 export function getPartialExitPlanInfo({
@@ -199,11 +200,16 @@ export function getPartialExitPlanInfo({
   }
 }
 
-export function formatPartialExitCoverageLabel(coveredPercent: number, remainderPercent?: number | null, hasOpenRemainder = true) {
+export function formatPartialExitCoverageLabel(coveredPercent: number, remainderPercent?: number | null, hasOpenRemainder = true, locale: JournalLocale = 'de') {
+  const text = journalText(locale)
   if (!Number.isFinite(coveredPercent) || coveredPercent <= 0) return ''
-  if ((remainderPercent ?? 0) > 0.0001 && !hasOpenRemainder) return `${formatPlainNumber(coveredPercent, 0)}% in Teilverkäufen · Rest geschlossen`
-  if ((remainderPercent ?? 0) > 0.0001) return `${formatPlainNumber(coveredPercent, 0)}% gestaffelt · ${formatPlainNumber(remainderPercent ?? 0, 0)}% Rest offen`
-  return `${formatPlainNumber(coveredPercent, 0)}% gestaffelt geschlossen`
+  const covered = formatPlainNumber(coveredPercent, 0, locale)
+  if ((remainderPercent ?? 0) > 0.0001 && !hasOpenRemainder) return text(`${covered}% in Teilverkäufen · Rest geschlossen`, `${covered}% closed in partial exits · remaining position closed`)
+  if ((remainderPercent ?? 0) > 0.0001) {
+    const remaining = formatPlainNumber(remainderPercent ?? 0, 0, locale)
+    return text(`${covered}% gestaffelt · ${remaining}% Rest offen`, `${covered}% closed in partial exits · ${remaining}% still open`)
+  }
+  return text(`${covered}% gestaffelt geschlossen`, `${covered}% closed in partial exits`)
 }
 
 export function getPartialExitSizePlan({
@@ -247,16 +253,20 @@ export function restoreRemainderExitFromStoredAverage({ exit, partialExits }: {
   return Number.isFinite(finalExit) ? finalExit : null
 }
 
-export function formatPartialExitRealizedLabel(coveredPercent: number, realizedSize?: number | null) {
+export function formatPartialExitRealizedLabel(coveredPercent: number, realizedSize?: number | null, locale: JournalLocale = 'de') {
   if (!Number.isFinite(coveredPercent) || coveredPercent <= 0) return ''
-  if (realizedSize === null || realizedSize === undefined) return `${formatPlainNumber(coveredPercent, 0)}% bereits realisiert`
-  return `${formatPlainNumber(coveredPercent, 0)}% realisiert · ${formatPlainNumber(realizedSize, 4)} Size`
+  const text = journalText(locale)
+  const covered = formatPlainNumber(coveredPercent, 0, locale)
+  if (realizedSize === null || realizedSize === undefined) return text(`${covered}% bereits realisiert`, `${covered}% realised so far`)
+  return `${text(`${covered}% realisiert`, `${covered}% realised`)} · ${formatPlainNumber(realizedSize, 4, locale)} ${text('Size', 'size')}`
 }
 
-export function formatPartialExitRemainingLabel(remainderPercent: number, remainingSize?: number | null) {
+export function formatPartialExitRemainingLabel(remainderPercent: number, remainingSize?: number | null, locale: JournalLocale = 'de') {
   if (!Number.isFinite(remainderPercent) || remainderPercent <= 0.0001) return ''
-  if (remainingSize === null || remainingSize === undefined) return `${formatPlainNumber(remainderPercent, 0)}% Rest noch offen`
-  return `${formatPlainNumber(remainderPercent, 0)}% Rest offen · ${formatPlainNumber(remainingSize, 4)} Size`
+  const text = journalText(locale)
+  const remaining = formatPlainNumber(remainderPercent, 0, locale)
+  if (remainingSize === null || remainingSize === undefined) return text(`${remaining}% Rest noch offen`, `${remaining}% still open`)
+  return `${text(`${remaining}% Rest offen`, `${remaining}% open`)} · ${formatPlainNumber(remainingSize, 4, locale)} ${text('Size', 'size')}`
 }
 
 export function derivePartialExitPnL({
@@ -355,13 +365,13 @@ export function derivePartialExitPnL({
   }
 }
 
-export function formatCurrency(value: number, fractionDigits = 0, currency?: string | null): string {
-  return formatMoney(value, currency, fractionDigits)
+export function formatCurrency(value: number, fractionDigits = 0, currency?: string | null, locale: JournalLocale = 'de'): string {
+  return formatMoney(value, currency, fractionDigits, locale)
 }
 
-export function formatRMultiple(value: number | null | undefined, fractionDigits = 2): string {
-  if (value === null || value === undefined || !Number.isFinite(value)) return 'R offen'
-  const formatter = new Intl.NumberFormat('de-DE', {
+export function formatRMultiple(value: number | null | undefined, fractionDigits = 2, locale: JournalLocale = 'de'): string {
+  if (value === null || value === undefined || !Number.isFinite(value)) return journalText(locale)('R offen', 'R unavailable')
+  const formatter = new Intl.NumberFormat(journalNumberLocale[locale], {
     minimumFractionDigits: fractionDigits,
     maximumFractionDigits: fractionDigits,
   })
@@ -369,8 +379,8 @@ export function formatRMultiple(value: number | null | undefined, fractionDigits
   return `${value >= 0 ? '+' : '-'}${formatter.format(Math.abs(value))}R`
 }
 
-export function formatPlainNumber(value: number, fractionDigits = 2): string {
-  return new Intl.NumberFormat('de-DE', {
+export function formatPlainNumber(value: number, fractionDigits = 2, locale: JournalLocale = 'de'): string {
+  return new Intl.NumberFormat(journalNumberLocale[locale], {
     minimumFractionDigits: fractionDigits,
     maximumFractionDigits: fractionDigits,
   }).format(value)
@@ -509,7 +519,8 @@ export function buildQuickPnLPreview({
   bias?: string | null
   instrumentType?: string | null
   totalCosts?: string | number | null
-}): QuickPnLPreview {
+}, locale: JournalLocale = 'de'): QuickPnLPreview {
+  const text = journalText(locale)
   const normalizedInstrument = normalizeInstrumentType(instrumentType)
   const instrumentPreset = getTradeInstrumentPreset(normalizedInstrument)
   const direction = getTradeDirection(bias)
@@ -520,12 +531,12 @@ export function buildQuickPnLPreview({
   const costValue = parseTradingNumber(totalCosts) ?? 0
   const missing: string[] = []
 
-  if (direction === 'neutral') missing.push('Richtung')
+  if (direction === 'neutral') missing.push(text('Richtung', 'Direction'))
   if (entryValue === null) missing.push('Entry')
   if (exitValue === null) missing.push('Exit')
-  if (sizeValue === null || sizeValue <= 0) missing.push('Size')
+  if (sizeValue === null || sizeValue <= 0) missing.push(text('Size', 'Position size'))
   if ((normalizedInstrument === 'futures' || normalizedInstrument === 'forex' || normalizedInstrument === 'cfd') && (!pointValueNumber || pointValueNumber <= 0)) {
-    missing.push('Punktwert')
+    missing.push(text('Punktwert', 'Point value'))
   }
 
   const gross = deriveGrossPnL({

@@ -9,12 +9,38 @@ vi.mock('@/app/actions/user-cost-profiles', () => ({ deleteUserCostProfile: vi.f
 vi.mock('@/components/trades/snipping-assist-dynamic', () => ({ SnippingAssistCard: () => null }))
 import { TradeCurrencyCorrection, SaveTradeCurrencyOnly } from '@/components/trades/trade-currency-correction'
 import { TradeForm } from '@/components/trades/trade-form'
+import { JournalLocaleProvider } from '@/components/layout/journal-locale-provider'
+import type { JournalLocale } from '@/lib/i18n/journal'
 
 const props = { markets: ['BTCUSDT.P'], setups: ['Test'], emotions: [], biases: ['Long', 'Short'], ruleFlags: [], tagOptions: [], mode: 'edit' as const, tradeId: '00000000-0000-0000-0000-000000000001' }
-function renderForm(pnlMode: 'manual' | 'auto' = 'manual', accountCurrency = '') {
-  return renderToStaticMarkup(<TradeForm {...props} initialValues={{ market: 'BTCUSDT.P', setup: 'Test', netPnL: '0', accountCurrency, pnlMode, bias: 'Long', entry: '', exit: '', notes: 'Vorhandene Notiz', tradeOccurredAt: '2026-10-18T12:00' }} />)
+function renderForm(pnlMode: 'manual' | 'auto' = 'manual', accountCurrency = '', locale: JournalLocale = 'de') {
+  return renderToStaticMarkup(
+    <JournalLocaleProvider locale={locale}>
+      <TradeForm {...props} initialValues={{ market: 'BTCUSDT.P', setup: 'Test', netPnL: '0', accountCurrency, pnlMode, bias: 'Long', entry: '', exit: '', notes: 'Vorhandene Notiz', tradeOccurredAt: '2026-10-18T12:00' }} />
+    </JournalLocaleProvider>,
+  )
 }
 describe('currency correction and progressive trade form', () => {
+  it('localizes the basic editor while preserving its Berlin time and currency input values', () => {
+    const html = renderForm('manual', 'USDT', 'en')
+    expect(html).toContain('Edit trade')
+    expect(html).toContain('Trade time (Berlin)')
+    expect(html).toContain('Save currency only')
+    expect(html).toMatch(/name="trade_occurred_at"[^>]*value="2026-10-18T12:00"/)
+    const currencySelect = html.match(/<select[^>]*name="account_currency"[\s\S]*?<\/select>/)?.[0]
+    expect(currencySelect).toMatch(/<option(?=[^>]*\bvalue="USDT")(?=[^>]*\bselected="")[^>]*>USDT<\/option>/)
+    expect(html).toContain('name="notes" value="Vorhandene Notiz"')
+  })
+  it('localizes the advanced editor without changing the selected P&L mode', () => {
+    const html = renderForm('auto', 'USDT', 'en')
+    expect(html).toContain('Point or pip value')
+    expect(html).toContain('Partial exits')
+    expect(html).toContain('Risk overview')
+    expect(html).toContain('P&amp;L preview')
+    const pnlSelect = html.match(/<select[^>]*name="pnl_mode"[\s\S]*?<\/select>/)?.[0]
+    expect(pnlSelect).toMatch(/<option(?=[^>]*\bvalue="auto")(?=[^>]*\bselected="")/)
+  })
+
   it.each(['', '   ', 'JPY'])('renders an unconfirmed selection instead of EUR for %j', accountCurrency => {
     const html = renderForm('manual', accountCurrency)
     const select = html.match(/<select name="account_currency"[\s\S]*?<\/select>/)![0]

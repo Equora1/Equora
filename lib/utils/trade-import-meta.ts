@@ -1,3 +1,4 @@
+import { journalText, type JournalLocale } from '@/lib/i18n/journal'
 import {
   normalizeCsvImportSourceIdentity,
   type CsvImportSourceIdentity,
@@ -196,36 +197,38 @@ export function appendTradeImportMeta(note: string | null | undefined, meta: Tra
   return [cleanNotes, `${IMPORT_META_MARKER}${JSON.stringify(compactMeta)}`].filter(Boolean).join('\n\n')
 }
 
-const fieldLabels: Array<{ key: TradeImportFieldKey; label: string }> = [
-  { key: 'date', label: 'Zeit' },
-  { key: 'market', label: 'Markt' },
+const fieldLabels: Array<{ key: TradeImportFieldKey; label: string; en?: string }> = [
+  { key: 'date', label: 'Zeit', en: 'Time' },
+  { key: 'market', label: 'Markt', en: 'Market' },
   { key: 'netPnL', label: 'P&L' },
   { key: 'entry', label: 'Entry' },
   { key: 'exit', label: 'Exit' },
   { key: 'stopLoss', label: 'Stop' },
   { key: 'takeProfit', label: 'TP' },
-  { key: 'direction', label: 'Richtung' },
+  { key: 'direction', label: 'Richtung', en: 'Direction' },
   { key: 'setup', label: 'Setup' },
   { key: 'session', label: 'Session' },
-  { key: 'fees', label: 'Gebühren' },
-  { key: 'positionSize', label: 'Size' },
-  { key: 'instrumentType', label: 'Typ' },
-  { key: 'leverage', label: 'Hebel' },
+  { key: 'fees', label: 'Gebühren', en: 'Fees' },
+  { key: 'positionSize', label: 'Size', en: 'Position size' },
+  { key: 'instrumentType', label: 'Typ', en: 'Instrument type' },
+  { key: 'leverage', label: 'Hebel', en: 'Leverage' },
 ]
 
-export function getTradeImportSourceLabel(source: TradeImportValueSource | null | undefined) {
-  if (source === 'csv') return 'Aus Datei übernommen'
-  if (source === 'preset') return 'Vom Preset ergänzt'
-  if (source === 'manual') return 'Manuell korrigiert'
-  return 'Nicht befüllt'
+export function getTradeImportSourceLabel(source: TradeImportValueSource | null | undefined, locale: JournalLocale = 'de') {
+  const text = journalText(locale)
+  if (source === 'csv') return text('Aus Datei übernommen', 'From file')
+  if (source === 'preset') return text('Vom Preset ergänzt', 'Filled in by preset')
+  if (source === 'manual') return text('Manuell korrigiert', 'Corrected manually')
+  return text('Nicht befüllt', 'Not filled in')
 }
 
-export function buildTradeImportSourceFacts(meta: TradeImportMeta | null | undefined) {
+export function buildTradeImportSourceFacts(meta: TradeImportMeta | null | undefined, locale: JournalLocale = 'de') {
+  const text = journalText(locale)
   const facts: Array<{ label: string; value: string }> = []
 
   if (meta?.trustLabel || typeof meta?.trustScore === 'number') {
     facts.push({
-      label: 'Import-Plausibilität',
+      label: text('Import-Plausibilität', 'Import plausibility'),
       value: [meta.trustLabel, typeof meta.trustScore === 'number' ? `${meta.trustScore}%` : null]
         .filter(Boolean)
         .join(' · '),
@@ -234,17 +237,17 @@ export function buildTradeImportSourceFacts(meta: TradeImportMeta | null | undef
 
   if (meta?.provenance) {
     facts.push({
-      label: 'Provenienzgrenze',
+      label: text('Provenienzgrenze', 'What was verified'),
       value:
         meta.provenance === 'server_reconstructed'
-          ? 'Serverseitig aus den übermittelten Importwerten rekonstruiert; Originaldatei nicht kryptografisch verifiziert.'
-          : 'Ältere Importmetadaten; Originaldatei und Clientvorschau nicht serverseitig verifiziert.',
+          ? text('Serverseitig aus den übermittelten Importwerten rekonstruiert; Originaldatei nicht kryptografisch verifiziert.', 'Reconstructed on the server from the submitted import values. The original file was not cryptographically verified.')
+          : text('Ältere Importmetadaten; Originaldatei und Clientvorschau nicht serverseitig verifiziert.', 'Older import metadata. The original file and preview were not verified on the server.'),
     })
   }
 
   if (meta?.sourceIdentity) {
     facts.push({
-      label: 'Quellidentität',
+      label: text('Quellidentität', 'Source identity'),
       value: `${meta.sourceIdentity.header}: ${meta.sourceIdentity.value}`,
     })
   }
@@ -255,9 +258,9 @@ export function buildTradeImportSourceFacts(meta: TradeImportMeta | null | undef
         .filter((field) => meta.fieldSources?.[field.key] && meta.fieldSources?.[field.key] !== 'empty')
         .map((field) => {
           const header = meta.fieldHeaders?.[field.key]
-          const sourceLabel = getTradeImportSourceLabel(meta.fieldSources?.[field.key])
+          const sourceLabel = getTradeImportSourceLabel(meta.fieldSources?.[field.key], locale)
           return {
-            label: field.label,
+            label: text(field.label, field.en ?? field.label),
             value: header ? `${sourceLabel}: ${header}` : sourceLabel,
           }
         }),
@@ -267,7 +270,7 @@ export function buildTradeImportSourceFacts(meta: TradeImportMeta | null | undef
   if (meta?.warnings?.length) {
     facts.push(
       ...meta.warnings.slice(0, 6).map((warning, index) => ({
-        label: index === 0 ? 'Warnung' : `Warnung ${index + 1}`,
+        label: index === 0 ? text('Warnung', 'Warning') : text(`Warnung ${index + 1}`, `Warning ${index + 1}`),
         value: warning,
       })),
     )
