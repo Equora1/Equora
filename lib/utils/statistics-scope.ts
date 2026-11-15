@@ -1,3 +1,4 @@
+import { journalText, type JournalLocale } from '@/lib/i18n/journal'
 import type { FilterState } from '@/lib/types/trade'
 
 export const MIN_ANALYTICS_SAMPLE_SIZE = 5
@@ -14,10 +15,11 @@ export function getAnalyticsBucketTone(trades: number, tone: AnalyticsBucketTone
   return hasSufficientAnalyticsBucketEvidence(trades) ? tone : 'neutral'
 }
 
-export function getAnalyticsBucketEvidenceLabel(trades: number) {
+export function getAnalyticsBucketEvidenceLabel(trades: number, locale: JournalLocale = 'de') {
+  const text = journalText(locale)
   return hasSufficientAnalyticsBucketEvidence(trades)
-    ? 'Deskriptiv'
-    : `Zu wenig Daten: ${trades}/${MIN_ANALYTICS_BUCKET_SIZE}`
+    ? text('Deskriptiv', 'Historical results')
+    : text(`Zu wenig Daten: ${trades}/${MIN_ANALYTICS_BUCKET_SIZE}`, `Too few trades: ${trades}/${MIN_ANALYTICS_BUCKET_SIZE}`)
 }
 
 export function getAnalyticsEvidenceState(matchedTrades: number, trustedTrades: number): AnalyticsEvidenceState {
@@ -27,24 +29,26 @@ export function getAnalyticsEvidenceState(matchedTrades: number, trustedTrades: 
   return 'descriptive'
 }
 
-export function getAnalyticsScopeLabels(filters: FilterState) {
+export function getAnalyticsScopeLabels(filters: FilterState, locale: JournalLocale = 'de', accountLabel = filters.account) {
+  const text = journalText(locale)
   const labels: string[] = []
 
   if (filters.setup !== 'Alle') labels.push(`Setup: ${filters.setup}`)
-  if (filters.dateFrom) labels.push(`Von: ${filters.dateFrom}`)
-  if (filters.dateTo) labels.push(`Bis: ${filters.dateTo}`)
-  if (filters.account !== 'Alle') labels.push(`Konto: ${filters.account}`)
+  if (filters.dateFrom) labels.push(text(`Von: ${filters.dateFrom}`, `From: ${filters.dateFrom}`))
+  if (filters.dateTo) labels.push(text(`Bis: ${filters.dateTo}`, `To: ${filters.dateTo}`))
+  if (filters.account !== 'Alle') labels.push(text(`Konto: ${accountLabel}`, `Account: ${accountLabel}`))
   if (filters.session !== 'Alle') labels.push(`Session: ${filters.session}`)
-  if (filters.concept !== 'Alle') labels.push(`Konzept: ${filters.concept}`)
-  if (filters.quality !== 'Alle') labels.push(`Qualität: ${filters.quality}`)
+  if (filters.concept !== 'Alle') labels.push(text(`Konzept: ${filters.concept}`, `Concept: ${filters.concept}`))
+  if (filters.quality !== 'Alle') labels.push(text(`Qualität: ${filters.quality}`, `Quality: ${filters.quality}`))
   if (filters.emotion !== 'Alle') labels.push(`Emotion: ${filters.emotion}`)
 
   return labels
 }
 
-export function getAnalyticsPeriodLabel(filters: Pick<FilterState, 'dateFrom' | 'dateTo'>) {
-  if (filters.dateFrom && filters.dateTo) return `${filters.dateFrom} bis ${filters.dateTo}`
-  if (filters.dateFrom) return `ab ${filters.dateFrom}`
-  if (filters.dateTo) return `bis ${filters.dateTo}`
-  return 'Gesamter Journalzeitraum'
+export function getAnalyticsPeriodLabel(filters: Pick<FilterState, 'dateFrom' | 'dateTo'>, locale: JournalLocale = 'de') {
+  const text = journalText(locale)
+  if (filters.dateFrom && filters.dateTo) return text(`${filters.dateFrom} bis ${filters.dateTo}`, `${filters.dateFrom} to ${filters.dateTo}`)
+  if (filters.dateFrom) return text(`ab ${filters.dateFrom}`, `from ${filters.dateFrom}`)
+  if (filters.dateTo) return text(`bis ${filters.dateTo}`, `through ${filters.dateTo}`)
+  return text('Gesamter Journalzeitraum', 'Entire journal period')
 }

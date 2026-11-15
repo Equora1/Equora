@@ -1,3 +1,4 @@
+import { journalText, type JournalLocale } from '@/lib/i18n/journal'
 import type { Trade } from '@/lib/types/trade'
 import { normalizeTradeCurrency, resolveTradeMonetaryScope } from '@/lib/utils/currency'
 import { inferTradeCaptureResultFromPnL, normalizeTradeCaptureStatus } from '@/lib/utils/trade-capture'
@@ -44,15 +45,16 @@ export function getTradeTrustState(trade: Trade): TradeTrustState {
   return trade.netPnL !== undefined && trade.netPnL !== null ? 'trusted' : 'missing-pnl'
 }
 
-export function getTradeTrustMeta(trade: Trade): TradeTrustMeta {
+export function getTradeTrustMeta(trade: Trade, locale: JournalLocale = 'de'): TradeTrustMeta {
+  const text = journalText(locale)
   const state = getTradeTrustState(trade)
 
   if (state === 'conflict') {
     return {
       state,
-      label: 'Status passt nicht zur P&L',
-      shortLabel: 'Konflikt',
-      description: 'Status und P&L zeigen in unterschiedliche Richtungen. Bitte diesen Trade prüfen.',
+      label: text('Status passt nicht zur P&L', 'Status conflicts with P&L'),
+      shortLabel: text('Konflikt', 'Conflict'),
+      description: text('Status und P&L zeigen in unterschiedliche Richtungen. Bitte diesen Trade prüfen.', 'The status and P&L do not match. Please check this trade.'),
       tone: 'red',
       reliable: false,
       needsAttention: true,
@@ -62,9 +64,9 @@ export function getTradeTrustMeta(trade: Trade): TradeTrustMeta {
   if (state === 'open') {
     return {
       state,
-      label: 'Offener Trade',
-      shortLabel: 'Offen',
-      description: 'Der Trade ist bewusst noch offen. Für belastbare P&L und Kalender-/Statistik-Summen erst später schließen.',
+      label: text('Offener Trade', 'Open trade'),
+      shortLabel: text('Offen', 'Open'),
+      description: text('Der Trade ist bewusst noch offen. Für belastbare P&L und Kalender-/Statistik-Summen erst später schließen.', 'This trade is still open. It counts towards P&L, calendar and statistics totals once closed.'),
       tone: 'emerald',
       reliable: false,
       needsAttention: true,
@@ -75,11 +77,11 @@ export function getTradeTrustMeta(trade: Trade): TradeTrustMeta {
     const screenshotOnly = (trade.screenshotCount ?? 0) > 0 && (!trade.market || trade.market === 'Screenshot Capture') && (!trade.setup || trade.setup === 'Später ergänzen')
     return {
       state,
-      label: screenshotOnly ? 'Screenshot zuerst gesichert' : 'Schnellerfassung gespeichert',
-      shortLabel: screenshotOnly ? 'Screenshot' : 'Quick',
+      label: screenshotOnly ? text('Screenshot zuerst gesichert', 'Screenshot saved') : text('Schnellerfassung gespeichert', 'Quick entry saved'),
+      shortLabel: screenshotOnly ? 'Screenshot' : text('Quick', 'Quick entry'),
       description: screenshotOnly
-        ? 'Der Screenshot ist sicher gespeichert. Zahlen und Struktur können später ergänzt werden.'
-        : 'Der Trade ist angelegt, aber noch nicht vollständig genug für belastbare Auswertungen.',
+        ? text('Der Screenshot ist sicher gespeichert. Zahlen und Struktur können später ergänzt werden.', 'The screenshot is saved. You can add trade details later.')
+        : text('Der Trade ist angelegt, aber noch nicht vollständig genug für belastbare Auswertungen.', 'This trade is saved. It needs more details before it can count towards the metrics.'),
       tone: 'orange',
       reliable: false,
       needsAttention: true,
@@ -89,9 +91,9 @@ export function getTradeTrustMeta(trade: Trade): TradeTrustMeta {
   if (state === 'missing-pnl') {
     return {
       state,
-      label: 'Geschlossen, aber ohne P&L',
-      shortLabel: 'Ohne P&L',
-      description: 'Der Trade ist als vollständig markiert, aber noch ohne belastbare P&L-Grundlage.',
+      label: text('Geschlossen, aber ohne P&L', 'Closed trade without P&L'),
+      shortLabel: text('Ohne P&L', 'No P&L'),
+      description: text('Der Trade ist als vollständig markiert, aber noch ohne belastbare P&L-Grundlage.', 'This trade is marked complete but has no reliable P&L yet.'),
       tone: 'neutral',
       reliable: false,
       needsAttention: true,
@@ -101,9 +103,9 @@ export function getTradeTrustMeta(trade: Trade): TradeTrustMeta {
   if (state === 'missing-currency') {
     return {
       state,
-      label: 'P&L ohne bestätigte Währung',
-      shortLabel: 'Währung fehlt',
-      description: 'Eine Zahl ohne verlässliche Geldeinheit darf nicht in P&L-, Equity- oder Kosten-Auswertungen einfließen.',
+      label: text('P&L ohne bestätigte Währung', 'P&L currency unconfirmed'),
+      shortLabel: text('Währung fehlt', 'Currency missing'),
+      description: text('Eine Zahl ohne verlässliche Geldeinheit darf nicht in P&L-, Equity- oder Kosten-Auswertungen einfließen.', 'P&L, equity and cost totals require a confirmed currency.'),
       tone: 'red',
       reliable: false,
       needsAttention: true,
@@ -112,14 +114,14 @@ export function getTradeTrustMeta(trade: Trade): TradeTrustMeta {
 
   return {
     state,
-    label: trade.pnlSource === 'manual' || trade.pnlSource === 'override' ? 'Belastbar, aber manuell gepflegt' : 'Belastbare Trade-Mathe',
-    shortLabel: trade.pnlSource === 'manual' || trade.pnlSource === 'override' ? 'Manuell' : 'Belastbar',
+    label: trade.pnlSource === 'manual' || trade.pnlSource === 'override' ? text('Belastbar, aber manuell gepflegt', 'Reliable, with manual P&L') : text('Belastbare Trade-Mathe', 'Reliable trade data'),
+    shortLabel: trade.pnlSource === 'manual' || trade.pnlSource === 'override' ? text('Manuell', 'Manual') : text('Belastbar', 'Reliable'),
     description:
       trade.pnlSource === 'derived'
-        ? 'P&L wird aus Entry, Exit und Kosten berechnet und fließt belastbar in Statistiken ein.'
+        ? text('P&L wird aus Entry, Exit und Kosten berechnet und fließt belastbar in Statistiken ein.', 'P&L is calculated from the entry, exit and costs and included in statistics.')
         : trade.pnlSource === 'manual' || trade.pnlSource === 'override'
-          ? 'Der Trade ist belastbar genug für Auswertungen, basiert aber auf manuell gesetzter P&L.'
-          : 'Dieser Trade trägt belastbar zu P&L, Equity und Review-Auswertungen bei.',
+          ? text('Der Trade ist belastbar genug für Auswertungen, basiert aber auf manuell gesetzter P&L.', 'This trade is included in the metrics with manually entered P&L.')
+          : text('Dieser Trade trägt belastbar zu P&L, Equity und Review-Auswertungen bei.', 'This trade is included in P&L, equity and review metrics.'),
     tone: 'emerald',
     reliable: true,
     needsAttention: false,

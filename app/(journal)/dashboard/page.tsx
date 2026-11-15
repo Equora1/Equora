@@ -3,13 +3,14 @@ import { AppShell } from '@/components/layout/app-shell'
 import { DashboardOverview } from '@/components/dashboard/dashboard-overview'
 import { FuturisticCard } from '@/components/ui/futuristic-card'
 import { getJournalAccess } from '@/lib/server/auth'
+import { getJournalLocale } from '@/lib/server/journal-locale'
 import { getDashboardSnapshotServer } from '@/lib/server/journal'
 import { mapTradeRowToTrade } from '@/lib/server/transformers'
 
 export const dynamic = 'force-dynamic'
 
 async function DashboardContent() {
-  const access = await getJournalAccess()
+  const [access, locale] = await Promise.all([getJournalAccess(), getJournalLocale()])
   const snapshot = await getDashboardSnapshotServer(access.user?.id)
   const trades = snapshot.tradeRows.map((row) => mapTradeRowToTrade(row))
 
@@ -19,6 +20,7 @@ async function DashboardContent() {
       dailyNotes={snapshot.dailyNotes}
       source={snapshot.source}
       availability={snapshot.availability}
+      locale={locale}
     />
   )
 }

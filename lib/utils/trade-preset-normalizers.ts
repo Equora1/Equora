@@ -1,3 +1,4 @@
+import { journalText, type JournalLocale } from '@/lib/i18n/journal'
 import type {
   TradeAccountTemplate,
   TradeBrokerProfile,
@@ -160,32 +161,36 @@ export function normalizeTradeMarketTemplate(value?: string | null): TradeMarket
   return 'manual'
 }
 
-export function getExecutionTypeLabel(value?: string | null): string {
+export function getExecutionTypeLabel(value?: string | null, locale: JournalLocale = 'de'): string {
+  const text = journalText(locale)
   const normalized = normalizeTradeExecutionType(value)
   if (normalized === 'maker') return 'Maker'
   if (normalized === 'taker') return 'Taker'
-  if (normalized === 'mixed') return 'Gemischt'
-  return 'Manuell'
+  if (normalized === 'mixed') return text('Gemischt', 'Mixed')
+  return text('Manuell', 'Manual')
 }
 
-export function getFundingDirectionLabel(value?: string | null): string {
+export function getFundingDirectionLabel(value?: string | null, locale: JournalLocale = 'de'): string {
+  const text = journalText(locale)
   const normalized = normalizeTradeFundingDirection(value)
-  if (normalized === 'paid') return 'Funding bezahlt'
-  if (normalized === 'received') return 'Funding erhalten'
-  if (normalized === 'flat') return 'Kein Funding'
-  return 'Funding manuell'
+  if (normalized === 'paid') return text('Funding bezahlt', 'Funding paid')
+  if (normalized === 'received') return text('Funding erhalten', 'Funding received')
+  if (normalized === 'flat') return text('Kein Funding', 'No funding')
+  return text('Funding manuell', 'Manual funding')
 }
 
-export function getPnLModeLabel(mode?: string | null): string {
+export function getPnLModeLabel(mode?: string | null, locale: JournalLocale = 'de'): string {
+  const text = journalText(locale)
   const normalized = normalizeTradePnLMode(mode)
-  if (normalized === 'override') return 'Automatik aktiv · manuell überschrieben'
-  return normalized === 'auto' ? 'P&L Automatik aktiv' : 'P&L manuell'
+  if (normalized === 'override') return text('Automatik aktiv · manuell überschrieben', 'Automatic · manually overridden')
+  return normalized === 'auto' ? text('P&L Automatik aktiv', 'Automatic P&L') : text('P&L manuell', 'Manual P&L')
 }
 
-export function getCryptoMarketTypeLabel(type?: string | null): string {
+export function getCryptoMarketTypeLabel(type?: string | null, locale: JournalLocale = 'de'): string {
+  const text = journalText(locale)
   const normalized = normalizeTradeCryptoMarketType(type)
   if (normalized === 'spot') return 'Spot'
   if (normalized === 'perps') return 'Perps'
   if (normalized === 'margin') return 'Margin'
-  return 'Manuell'
+  return text('Manuell', 'Manual')
 }

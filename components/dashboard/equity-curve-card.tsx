@@ -1,3 +1,4 @@
+import { journalText, type JournalLocale } from '@/lib/i18n/journal'
 import type { Trade } from '@/lib/types/trade'
 import { FuturisticCard } from '@/components/ui/futuristic-card'
 import { buildEquitySeries, chartFrame } from '@/lib/utils/chart-series'
@@ -6,7 +7,8 @@ import { getTradeTrustSummary } from '@/lib/utils/trade-trust'
 import { formatMoney, getMonetaryScopeMessage } from '@/lib/utils/currency'
 import { DASHBOARD_TRADE_WINDOW_LIMIT } from '@/lib/utils/dashboard'
 
-export function EquityCurveCard({ trades }: { trades: Trade[] }) {
+export function EquityCurveCard({ trades, locale = 'de' }: { trades: Trade[]; locale?: JournalLocale }) {
+  const text = journalText(locale)
   const series = buildEquitySeries(trades)
   const trust = getTradeTrustSummary(trades)
   const positive = series.latestValue >= 0
@@ -21,17 +23,20 @@ export function EquityCurveCard({ trades }: { trades: Trade[] }) {
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <p className="eq-eyebrow">Performance</p>
-          <h2 className="mt-2 text-xl font-semibold tracking-tight text-white">Kumuliertes Netto-P&amp;L</h2>
+          <h2 className="mt-2 text-xl font-semibold tracking-tight text-white">{text('Kumuliertes Netto-P&L', 'Cumulative net P&L')}</h2>
           <p className="mt-2 text-xs leading-5 text-white/60">
-            Maximal {DASHBOARD_TRADE_WINDOW_LIMIT} zuletzt geladene Trades · {trust.trustedTrades} belastbar · {formatPlainNumber(trust.trustedCoverage, 0)}% berücksichtigt
+            {text(
+              `Maximal ${DASHBOARD_TRADE_WINDOW_LIMIT} zuletzt geladene Trades · ${trust.trustedTrades} belastbar · ${formatPlainNumber(trust.trustedCoverage, 0, locale)}% berücksichtigt`,
+              `Up to ${DASHBOARD_TRADE_WINDOW_LIMIT} recent trades · ${trust.trustedTrades} reliable · ${formatPlainNumber(trust.trustedCoverage, 0, locale)}% included`,
+            )}
           </p>
         </div>
         <div className="sm:text-right">
-          <p className="text-[10px] uppercase tracking-[0.18em] text-white/60">Fenster-Summe</p>
+          <p className="text-[10px] uppercase tracking-[0.18em] text-white/60">{text('Fenster-Summe', 'Total for this period')}</p>
           <p className={`mt-1 text-2xl font-semibold tracking-[-0.04em] tabular-nums ${valueTone}`}>
             {series.monetaryScope.isComparable
-              ? formatMoney(series.latestValue, series.monetaryScope.currency)
-              : 'Gesperrt'}
+              ? formatMoney(series.latestValue, series.monetaryScope.currency, 0, locale)
+              : text('Gesperrt', 'Unavailable')}
           </p>
         </div>
       </div>
@@ -43,7 +48,10 @@ export function EquityCurveCard({ trades }: { trades: Trade[] }) {
             viewBox={`0 0 ${chartFrame.width} ${chartFrame.height}`}
             className="relative h-full w-full"
             role="img"
-            aria-label={`Kumuliertes realisiertes Netto-P&L im geladenen Fenster aus ${series.totalPoints} belastbaren Trades`}
+            aria-label={text(
+              `Kumuliertes realisiertes Netto-P&L im geladenen Fenster aus ${series.totalPoints} belastbaren Trades`,
+              `Cumulative realised net P&L from ${series.totalPoints} reliable ${series.totalPoints === 1 ? 'trade' : 'trades'}`,
+            )}
           >
             <defs>
               <linearGradient id="dashboard-equity-area" x1="0" y1="0" x2="0" y2="1">
@@ -72,7 +80,7 @@ export function EquityCurveCard({ trades }: { trades: Trade[] }) {
           </svg>
         ) : (
           <div className="relative flex h-full items-center justify-center px-6 text-center text-sm leading-6 text-white/60">
-            {getMonetaryScopeMessage(series.monetaryScope)}
+            {getMonetaryScopeMessage(series.monetaryScope, locale)}
           </div>
         )}
       </div>

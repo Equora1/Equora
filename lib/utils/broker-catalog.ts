@@ -323,7 +323,7 @@ export const brokerCatalog: readonly BrokerCatalogEntry[] = Object.freeze([
     brokerCode: "generic_csv",
     displayName: "Weitere Broker",
     platformFamilyKey: "generic_csv",
-    aliases: ["anderer broker", "generic", "csv", "manuelles mapping"],
+    aliases: ["anderer broker", "other brokers", "generic", "csv", "manuelles mapping", "stocks", "options"],
     markets: ["Aktien", "Optionen", "Futures", "Forex", "Crypto"],
     methods: [
       {

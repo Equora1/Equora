@@ -391,6 +391,7 @@ export const TRADE_DETAIL_SELECT_COLUMNS = [
   "account_currency",
   "broker_profile",
   "account_template",
+  "account_label",
   "market_template",
   "crypto_market_type",
   "execution_type",
@@ -410,11 +411,23 @@ export const TRADE_DETAIL_SELECT_COLUMNS = [
   "concept",
 ].join(",");
 
-const TRADE_DETAIL_SELECT_COLUMNS_LEGACY = TRADE_DETAIL_SELECT_COLUMNS.split(
-  ",",
-)
-  .filter((column) => column !== "import_batch_id")
-  .join(",");
+export async function readTradeColumns<T extends { error: { code?: string; message?: string } | null }>(
+  read: (columns: string) => PromiseLike<T>,
+): Promise<T> {
+  let columns = TRADE_DETAIL_SELECT_COLUMNS.split(",");
+  let response = await read(columns.join(","));
+  for (let attempt = 0; attempt < 2 && response.error; attempt += 1) {
+    const { code, message } = response.error;
+    if (code ? code !== "42703" && code !== "PGRST204" : !/missing|does not exist|could not find/i.test(message ?? "")) break;
+    const missing = ["import_batch_id", "account_label"].filter(
+      (column) => columns.includes(column) && isMissingColumnError(message, column),
+    );
+    if (!missing.length) break;
+    columns = columns.filter((column) => !missing.includes(column));
+    response = await read(columns.join(","));
+  }
+  return response;
+}
 
 const SETUP_SELECT_COLUMNS = [
   "id",
@@ -556,23 +569,7 @@ async function fetchTradeRows(
   scopedUserId: string,
   options: SnapshotFetchOptions,
 ) {
-  let response = await buildTradeQuery(
-    supabase,
-    scopedUserId,
-    TRADE_DETAIL_SELECT_COLUMNS,
-    options,
-  );
-
-  if (isMissingColumnError(response.error?.message, "import_batch_id")) {
-    response = await buildTradeQuery(
-      supabase,
-      scopedUserId,
-      TRADE_DETAIL_SELECT_COLUMNS_LEGACY,
-      options,
-    );
-  }
-
-  return response;
+  return readTradeColumns((columns) => buildTradeQuery(supabase, scopedUserId, columns, options));
 }
 
 function buildDailyNotesQuery(
@@ -930,8 +927,7 @@ async function loadCompleteJournalSnapshotServer(userId: string | null | undefin
     const owner = userId;
     const tradeRows = await collectJournalRows<TradeRow>(async (from, to) => {
       const query = (columns: string) => supabase.from('trades').select(columns, { count: 'exact' }).eq('user_id', owner).order('id').range(from, to);
-      let response = await query(TRADE_DETAIL_SELECT_COLUMNS);
-      if (isMissingColumnError(response.error?.message, 'import_batch_id')) response = await query(TRADE_DETAIL_SELECT_COLUMNS_LEGACY);
+      const response = await readTradeColumns(query);
       return response as unknown as JournalRowPage<TradeRow>;
     }, 10_000);
     const readRelated = <T extends { id: string }>(table: string, columns: string) => collectJournalRows<T>(async (from, to) => (

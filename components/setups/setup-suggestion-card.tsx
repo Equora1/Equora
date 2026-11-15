@@ -1,17 +1,21 @@
 'use client'
 
+import { useJournalLocale } from '@/components/layout/journal-locale-provider'
+import { journalText, type JournalLocale } from '@/lib/i18n/journal'
 import { useMemo, useState, useTransition } from 'react'
 import { createSetupSuggestion, promoteSetupSuggestionToMaster, updateSetupSuggestionByAdmin } from '@/app/actions/setup-suggestions'
 import type { SavedSetupSuggestion, SetupSuggestionStatus } from '@/lib/types/setup-suggestion'
 
-const statusLabels: Record<SetupSuggestionStatus, string> = {
-  pending: 'Offen',
-  accepted: 'Übernommen',
-  rejected: 'Abgelehnt',
-  archived: 'Archiviert',
+const statusLabels: Record<SetupSuggestionStatus, [de: string, en: string]> = {
+  pending: ['Offen', 'Pending'],
+  accepted: ['Übernommen', 'Accepted'],
+  rejected: ['Abgelehnt', 'Rejected'],
+  archived: ['Archiviert', 'Archived'],
 }
 
 export function SetupSuggestionCard({ suggestions, canManageMaster }: { suggestions: SavedSetupSuggestion[]; canManageMaster: boolean }) {
+  const locale = useJournalLocale()
+  const text = journalText(locale)
   const [isOpen, setIsOpen] = useState(false)
   const [status, setStatus] = useState('')
   const [isPending, startTransition] = useTransition()
@@ -31,7 +35,7 @@ export function SetupSuggestionCard({ suggestions, canManageMaster }: { suggesti
         invalidation: String(formData.get('invalidation') ?? ''),
         checklist: String(formData.get('checklist') ?? ''),
         mistakes: String(formData.get('mistakes') ?? ''),
-      })
+      }, locale)
       setStatus(result.message)
       if (result.success) setIsOpen(false)
     })
@@ -40,7 +44,7 @@ export function SetupSuggestionCard({ suggestions, canManageMaster }: { suggesti
   function handleAdminUpdate(suggestionId: string, nextStatus: SetupSuggestionStatus, adminNote?: string) {
     setStatus('')
     startTransition(async () => {
-      const result = await updateSetupSuggestionByAdmin({ suggestionId, status: nextStatus, adminNote })
+      const result = await updateSetupSuggestionByAdmin({ suggestionId, status: nextStatus, adminNote }, locale)
       setStatus(result.message)
     })
   }
@@ -48,7 +52,7 @@ export function SetupSuggestionCard({ suggestions, canManageMaster }: { suggesti
   function handlePromote(suggestionId: string, adminNote?: string) {
     setStatus('')
     startTransition(async () => {
-      const result = await promoteSetupSuggestionToMaster({ suggestionId, adminNote })
+      const result = await promoteSetupSuggestionToMaster({ suggestionId, adminNote }, locale)
       setStatus(result.message)
     })
   }
@@ -57,10 +61,10 @@ export function SetupSuggestionCard({ suggestions, canManageMaster }: { suggesti
     <section className="rounded-[32px] border border-white/10 bg-black/20 p-6 shadow-[0_18px_55px_rgba(0,0,0,0.34)] xl:p-7">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div className="max-w-2xl">
-          <p className="text-[10px] uppercase tracking-[0.26em] text-orange-100/55">Setup-Vorschläge</p>
-          <h2 className="eq-display mt-2 text-2xl text-white">Vorschläge</h2>
+          <p className="text-[10px] uppercase tracking-[0.26em] text-orange-100/55">{text('Setup-Vorschläge', 'Setup suggestions')}</p>
+          <h2 className="eq-display mt-2 text-2xl text-white">{text('Vorschläge', 'Suggestions')}</h2>
           <p className="mt-3 text-sm leading-6 text-white/58">
-            Reiche ein Muster ein. Offene Vorschläge bleiben Eingang. Übernommene Muster landen in der Master-Bibliothek.
+            {text('Reiche ein Muster ein. Offene Vorschläge bleiben Eingang. Übernommene Muster landen in der Master-Bibliothek.', 'Suggest a setup for review. Approved setups can be added to the shared library.')}
           </p>
         </div>
         <button
@@ -68,7 +72,7 @@ export function SetupSuggestionCard({ suggestions, canManageMaster }: { suggesti
           onClick={() => setIsOpen((current) => !current)}
           className="inline-flex w-fit items-center justify-center rounded-full border border-orange-300/30 bg-orange-400/12 px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-orange-100 transition hover:border-orange-300/50 hover:bg-orange-400/18"
         >
-          {isOpen ? 'Schließen' : 'Vorschlagen'}
+          {isOpen ? text('Schließen', 'Close') : text('Vorschlagen', 'Suggest a setup')}
         </button>
       </div>
 
@@ -77,25 +81,25 @@ export function SetupSuggestionCard({ suggestions, canManageMaster }: { suggesti
       {isOpen ? (
         <form action={handleSubmit} className="mt-6 grid gap-4">
           <div className="grid gap-4 lg:grid-cols-2">
-            <Field name="title" label="Name" required placeholder="z. B. London Sweep Reclaim" />
-            <Field name="category" label="Kategorie" placeholder="z. B. Liquidity, Breakout, Reversal" />
+            <Field name="title" label={text('Name', 'Name')} required placeholder={text('z. B. London Sweep Reclaim', 'e.g. London Sweep Reclaim')} />
+            <Field name="category" label={text('Kategorie', 'Category')} placeholder={text('z. B. Liquidity, Breakout, Reversal', 'e.g. Liquidity, Breakout, Reversal')} />
           </div>
-          <TextArea name="description" label="Idee" placeholder="Marktphase, Signal, Kontext" />
+          <TextArea name="description" label={text('Idee', 'Idea')} placeholder={text('Marktphase, Signal, Kontext', 'Market phase, signal, context')} />
           <div className="grid gap-4 lg:grid-cols-3">
-            <TextArea name="entry" label="Entry" placeholder="Was muss vor dem Entry passieren?" />
-            <TextArea name="exit" label="Exit" placeholder="Teilverkauf, Ziel, Management" />
-            <TextArea name="invalidation" label="Stop" placeholder="Wann ist das Setup ungültig?" />
+            <TextArea name="entry" label="Entry" placeholder={text('Was muss vor dem Entry passieren?', 'What needs to happen before entry?')} />
+            <TextArea name="exit" label="Exit" placeholder={text('Teilverkauf, Ziel, Management', 'Partial exits, targets, trade management')} />
+            <TextArea name="invalidation" label="Stop" placeholder={text('Wann ist das Setup ungültig?', 'What invalidates this setup?')} />
           </div>
           <div className="grid gap-4 lg:grid-cols-2">
-            <TextArea name="checklist" label="Checkliste" placeholder="Eine Zeile pro Punkt" />
-            <TextArea name="mistakes" label="Fehler" placeholder="Wann lasse ich es bleiben?" />
+            <TextArea name="checklist" label={text('Checkliste', 'Checklist')} placeholder={text('Eine Zeile pro Punkt', 'One item per line')} />
+            <TextArea name="mistakes" label={text('Fehler', 'Mistakes')} placeholder={text('Wann lasse ich es bleiben?', 'When should I skip the trade?')} />
           </div>
           <button
             type="submit"
             disabled={isPending}
             className="inline-flex w-fit items-center justify-center rounded-2xl border border-emerald-300/25 bg-emerald-400/12 px-5 py-3 text-sm font-semibold text-emerald-100 transition hover:border-emerald-300/45 disabled:cursor-not-allowed disabled:opacity-55"
           >
-            {isPending ? 'Senden …' : 'Vorschlag senden'}
+            {isPending ? text('Senden …', 'Sending…') : text('Vorschlag senden', 'Send suggestion')}
           </button>
         </form>
       ) : null}
@@ -104,10 +108,10 @@ export function SetupSuggestionCard({ suggestions, canManageMaster }: { suggesti
         <div className="mt-6 rounded-[26px] border border-orange-400/16 bg-orange-400/[0.05] p-5">
           <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
             <div>
-              <p className="text-[10px] uppercase tracking-[0.24em] text-orange-100/55">Eingang</p>
-              <h3 className="mt-2 text-lg font-semibold text-white">Offene Vorschläge</h3>
+              <p className="text-[10px] uppercase tracking-[0.24em] text-orange-100/55">{text('Eingang', 'Inbox')}</p>
+              <h3 className="mt-2 text-lg font-semibold text-white">{text('Offene Vorschläge', 'Pending suggestions')}</h3>
             </div>
-            <span className="rounded-full border border-white/10 bg-black/20 px-3 py-1 text-xs text-white/60">{pendingSuggestions.length} offen</span>
+            <span className="rounded-full border border-white/10 bg-black/20 px-3 py-1 text-xs text-white/60">{text(`${pendingSuggestions.length} offen`, `${pendingSuggestions.length} pending`)}</span>
           </div>
           <div className="mt-5 grid gap-4 xl:grid-cols-2">
             {pendingSuggestions.slice(0, 6).map((suggestion) => (
@@ -178,6 +182,8 @@ function SuggestionTile({
   onUpdate?: (id: string, status: SetupSuggestionStatus, adminNote?: string) => void
   onPromote?: (id: string, adminNote?: string) => void
 }) {
+  const locale = useJournalLocale()
+  const text = journalText(locale)
   const [note, setNote] = useState(suggestion.adminNote ?? '')
   const checklistPreview = [...suggestion.checklist, ...suggestion.mistakes].slice(0, 3)
 
@@ -185,7 +191,7 @@ function SuggestionTile({
     <article className="rounded-[24px] border border-white/10 bg-black/25 p-4">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <p className="text-[10px] uppercase tracking-[0.22em] text-white/35">{statusLabels[suggestion.status]}</p>
+          <p className="text-[10px] uppercase tracking-[0.22em] text-white/35">{text(...statusLabels[suggestion.status])}</p>
           <h4 className="mt-2 text-base font-semibold text-white">{suggestion.title}</h4>
         </div>
         {suggestion.category ? <span className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-xs text-white/55">{suggestion.category}</span> : null}
@@ -207,14 +213,14 @@ function SuggestionTile({
             value={note}
             onChange={(event) => setNote(event.target.value)}
             rows={2}
-            placeholder="Kommentar für Nutzer"
+            placeholder={text('Kommentar für Nutzer', 'Note to the user')}
             className="w-full resize-y rounded-2xl border border-white/10 bg-black/35 px-3 py-2 text-xs leading-5 text-white outline-none transition placeholder:text-white/25 focus:border-orange-300/45"
           />
           <div className="flex flex-wrap gap-2">
-            <button type="button" disabled={isPending} onClick={() => onPromote?.(suggestion.id, note)} className="rounded-full border border-emerald-300/20 bg-emerald-400/10 px-3 py-1.5 text-xs text-emerald-100 disabled:opacity-50">Als Master übernehmen</button>
-            <button type="button" disabled={isPending} onClick={() => onUpdate?.(suggestion.id, 'accepted', note)} className="rounded-full border border-sky-300/20 bg-sky-400/10 px-3 py-1.5 text-xs text-sky-100 disabled:opacity-50">Markieren</button>
-            <button type="button" disabled={isPending} onClick={() => onUpdate?.(suggestion.id, 'rejected', note)} className="rounded-full border border-red-300/20 bg-red-400/10 px-3 py-1.5 text-xs text-red-100 disabled:opacity-50">Ablehnen</button>
-            <button type="button" disabled={isPending} onClick={() => onUpdate?.(suggestion.id, 'archived', note)} className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5 text-xs text-white/62 disabled:opacity-50">Archivieren</button>
+            <button type="button" disabled={isPending} onClick={() => onPromote?.(suggestion.id, note)} className="rounded-full border border-emerald-300/20 bg-emerald-400/10 px-3 py-1.5 text-xs text-emerald-100 disabled:opacity-50">{text('Als Master übernehmen', 'Add to shared library')}</button>
+            <button type="button" disabled={isPending} onClick={() => onUpdate?.(suggestion.id, 'accepted', note)} className="rounded-full border border-sky-300/20 bg-sky-400/10 px-3 py-1.5 text-xs text-sky-100 disabled:opacity-50">{text('Markieren', 'Mark accepted')}</button>
+            <button type="button" disabled={isPending} onClick={() => onUpdate?.(suggestion.id, 'rejected', note)} className="rounded-full border border-red-300/20 bg-red-400/10 px-3 py-1.5 text-xs text-red-100 disabled:opacity-50">{text('Ablehnen', 'Reject')}</button>
+            <button type="button" disabled={isPending} onClick={() => onUpdate?.(suggestion.id, 'archived', note)} className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5 text-xs text-white/62 disabled:opacity-50">{text('Archivieren', 'Archive')}</button>
           </div>
         </div>
       ) : null}

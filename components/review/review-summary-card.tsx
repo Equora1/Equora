@@ -2,6 +2,8 @@
 import { getSavedReviewRState } from '@/lib/utils/review-snapshot-summary'
 
 import Link from 'next/link'
+import { useJournalLocale } from '@/components/layout/journal-locale-provider'
+import { journalText } from '@/lib/i18n/journal'
 import { useEffect, useMemo, useState, useTransition } from 'react'
 import { saveReviewSession as persistReviewSession } from '@/app/actions/review-sessions'
 import { PatternFinderCard } from '@/components/analytics/pattern-finder-card'
@@ -19,7 +21,7 @@ import { formatCurrency } from '@/lib/utils/calculations'
 import { getReviewPeriodPresetLabel, REVIEW_PERIOD_OPTIONS } from '@/lib/utils/review'
 import { buildReviewActionPlan } from '@/lib/utils/review-to-action'
 import type { ReviewPeriodPreset, ReviewSnapshotCollection } from '@/lib/utils/review'
-import { buildReviewTitle } from '@/lib/utils/review-display'
+import { buildReviewTitle, formatReviewSavedDate, getReviewPeriodOptionLabel } from '@/lib/utils/review-display'
 
 const REVIEW_SESSION_STORAGE_KEY = 'equora-review-sessions'
 
@@ -79,23 +81,26 @@ export function ReviewSummaryCard({
   initialPreset?: ReviewPeriodPreset
   referenceDateKey: string
 }) {
+  const locale = useJournalLocale()
+  const text = journalText(locale)
   const [activePreset, setActivePreset] = useState<ReviewPeriodPreset>(initialPreset)
   const [activeDeepSection, setActiveDeepSection] = useState<DeepSection>('result')
   const [activePerformanceView, setActivePerformanceView] = useState<PerformanceView>('top')
   const [activeTagView, setActiveTagView] = useState<TagView>('radar')
   const [activeActionView, setActiveActionView] = useState<ActionView>('engine')
-  const [sessionTitle, setSessionTitle] = useState(() => buildReviewTitle(getReviewPeriodPresetLabel(snapshots[initialPreset] ?? snapshots['7d']), referenceDateKey))
+  const [sessionTitle, setSessionTitle] = useState<string | null>(null)
   const [sessionNote, setSessionNote] = useState('')
   const [saveStatus, setSaveStatus] = useState('')
   const [localSessions, setLocalSessions] = useState<SavedReviewSession[]>(savedSessions)
   const [isSaving, startSaving] = useTransition()
   const snapshot = useMemo(() => snapshots[activePreset] ?? snapshots['7d'], [activePreset, snapshots])
-  const actionPlan = useMemo(() => buildReviewActionPlan(snapshot), [snapshot])
+  const actionPlan = useMemo(() => buildReviewActionPlan(snapshot, locale), [snapshot, locale])
   const snapshotPresetLabel = getReviewPeriodPresetLabel(snapshot)
-  const bestSignal = pickSignal(snapshot.topPerformers, 'Noch kein klares Stärke-Signal', 'Sobald genug Material da ist, markiert Equora hier den verlässlichsten Wiederholer.')
-  const warningSignal = pickSignal(snapshot.weakSpots, 'Noch kein Warnsignal', '')
-  const repeatSignal = pickSignal(snapshot.patterns, 'Noch kein klares Wiederholungsmuster', 'Sobald sich Verhalten öfter zeigt, verdichtet Equora es hier zu einem lesbaren Signal.')
-  const warningLabel = snapshot.weakSpots.length ? 'Bremst' : 'Stabil'
+  const suggestedTitle = buildReviewTitle(getReviewPeriodOptionLabel(snapshot.periodPreset, locale), referenceDateKey, locale)
+  const bestSignal = pickSignal(snapshot.topPerformers, text('Noch kein klares Stärke-Signal', 'No clear strength yet'), text('Sobald genug Material da ist, markiert Equora hier den verlässlichsten Wiederholer.', 'Recurring strengths will appear here as you add trades.'))
+  const warningSignal = pickSignal(snapshot.weakSpots, text('Noch kein Warnsignal', 'No warning signs yet'), '')
+  const repeatSignal = pickSignal(snapshot.patterns, text('Noch kein klares Wiederholungsmuster', 'No recurring pattern yet'), text('Sobald sich Verhalten öfter zeigt, verdichtet Equora es hier zu einem lesbaren Signal.', 'Repeated behaviour will appear here as patterns emerge.'))
+  const warningLabel = snapshot.weakSpots.length ? text('Bremst', 'Needs attention') : text('Stabil', 'Stable')
   const warningTone = snapshot.weakSpots.length ? 'red' : 'emerald'
 
   const deepSectionMeta: Record<DeepSection, { eyebrow: string; title: string; copy: string }> = {
@@ -105,13 +110,13 @@ export function ReviewSummaryCard({
       copy: '',
     },
     pattern: {
-      eyebrow: 'Muster',
-      title: 'Muster',
+      eyebrow: text('Muster', 'Patterns'),
+      title: text('Muster', 'Patterns'),
       copy: '',
     },
     action: {
-      eyebrow: 'Aktion',
-      title: 'Nächster Schritt',
+      eyebrow: text('Aktion', 'Actions'),
+      title: text('Nächster Schritt', 'Next step'),
       copy: '',
     },
   }
@@ -126,8 +131,8 @@ export function ReviewSummaryCard({
   }, [initialPreset])
 
   useEffect(() => {
-    setSessionTitle(buildReviewTitle(snapshotPresetLabel, referenceDateKey))
-  }, [snapshotPresetLabel, referenceDateKey])
+    setSessionTitle(null)
+  }, [activePreset, referenceDateKey])
 
   useEffect(() => {
     if (source !== 'mock' || typeof window === 'undefined') return
@@ -158,13 +163,13 @@ export function ReviewSummaryCard({
 
   function handleSaveReviewSession() {
     if (!snapshot.sessionDraft.tradeIds.length) {
-      setSaveStatus('Im aktuellen Zeitraum liegen keine Trades zum Speichern.')
+      setSaveStatus(text('Im aktuellen Zeitraum liegen keine Trades zum Speichern.', 'There are no trades to save for this period.'))
       return
     }
 
     startSaving(async () => {
       const result = await persistReviewSession({
-        title: sessionTitle.trim() || buildReviewTitle(snapshotPresetLabel, referenceDateKey),
+        title: sessionTitle?.trim() || suggestedTitle,
         note: sessionNote,
         focusTitle: actionPlan.headline,
         focusDescription: actionPlan.dailyFocusSuggestion,
@@ -189,7 +194,7 @@ export function ReviewSummaryCard({
         periodLabel: snapshot.periodLabel,
         periodStart: snapshot.periodStart,
         periodEnd: snapshot.periodEnd,
-      })
+      }, locale)
 
       setSaveStatus(result.message)
 
@@ -209,19 +214,19 @@ export function ReviewSummaryCard({
       <div className="overflow-hidden rounded-[28px] border border-orange-400/20 bg-black/40 p-7">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div className="max-w-3xl">
-            <p className="text-[10px] uppercase tracking-[0.32em] text-white/40">{snapshot.sourceLabel}</p>
-            <h1 className="mt-3 text-3xl font-semibold tracking-tight text-orange-300">Review lesen</h1>
+            <p className="text-[10px] uppercase tracking-[0.32em] text-white/40">{source === 'supabase' ? text('Live-Review', 'Live review') : text('Demo-Review', 'Demo review')}</p>
+            <h1 className="mt-3 text-3xl font-semibold tracking-tight text-orange-300">{text('Review lesen', 'Review overview')}</h1>
             <p className="mt-3 max-w-2xl text-sm leading-6 text-white/60">{snapshot.headline}</p>
             
           </div>
           <div className="grid gap-3 sm:grid-cols-2 lg:w-[320px]">
             <div className="rounded-[22px] border border-white/10 bg-white/5 px-4 py-4">
-              <p className="text-[10px] uppercase tracking-[0.24em] text-white/35">Zeitraum</p>
-              <p className="mt-2 text-sm text-white">{snapshot.periodLabel}</p>
+              <p className="text-[10px] uppercase tracking-[0.24em] text-white/35">{text('Zeitraum', 'Period')}</p>
+              <p className="mt-2 text-sm text-white">{snapshot.displayPeriod?.current ?? snapshot.periodLabel}</p>
             </div>
             <div className="rounded-[22px] border border-white/10 bg-white/5 px-4 py-4">
-              <p className="text-[10px] uppercase tracking-[0.24em] text-white/35">Vorperiode</p>
-              <p className="mt-2 text-sm text-white/75">{snapshot.previousPeriodLabel}</p>
+              <p className="text-[10px] uppercase tracking-[0.24em] text-white/35">{text('Vorperiode', 'Previous period')}</p>
+              <p className="mt-2 text-sm text-white/75">{snapshot.displayPeriod?.previous ?? snapshot.previousPeriodLabel}</p>
             </div>
           </div>
         </div>
@@ -240,7 +245,7 @@ export function ReviewSummaryCard({
                     : 'border-white/10 bg-white/5 text-white/75 hover:border-white/20 hover:bg-white/[0.07] hover:text-white'
                 }`}
               >
-                {option.label}
+                {getReviewPeriodOptionLabel(option.key, locale)}
               </button>
             )
           })}
@@ -259,26 +264,26 @@ export function ReviewSummaryCard({
       </div>
 
       <details className="rounded-3xl border border-white/10 bg-black/20 p-5">
-        <summary className="cursor-pointer text-sm font-medium text-white">Empfehlungen und Muster</summary>
+        <summary className="cursor-pointer text-sm font-medium text-white">{text('Empfehlungen und Muster', 'Recommendations and patterns')}</summary>
         <div className="mt-5 space-y-5">
           <section className="grid gap-4 xl:grid-cols-3">
-            <SignalTile label="Was lief" title={bestSignal.title} detail={bestSignal.detail} tone="emerald" />
-            <SignalTile label="Was bremst" title={warningSignal.title} detail={warningSignal.detail} tone={warningTone} />
-            <SignalTile label="Nächster Schritt" title={actionPlan.dailyFocusSuggestion} detail={repeatSignal.detail} tone="orange" />
+            <SignalTile label={text('Was lief', 'What worked')} title={bestSignal.title} detail={bestSignal.detail} tone="emerald" />
+            <SignalTile label={text('Was bremst', 'What held you back')} title={warningSignal.title} detail={warningSignal.detail} tone={warningTone} />
+            <SignalTile label={text('Nächster Schritt', 'Next step')} title={actionPlan.dailyFocusSuggestion} detail={repeatSignal.detail} tone="orange" />
           </section>
 
           <section className="rounded-3xl border border-white/10 bg-black/30 p-5">
-            <p className="text-[10px] uppercase tracking-[0.24em] text-white/35">Heute / Woche / Verhalten</p>
+            <p className="text-[10px] uppercase tracking-[0.24em] text-white/35">{text('Heute / Woche / Verhalten', 'Today, this week and behaviour')}</p>
             <div className="mt-4 grid gap-3 md:grid-cols-3">
-              <BulletCard title="Heute" body={actionPlan.checklist[0] ?? `P&L: ${snapshot.sessionDraft.monetaryScopeKind === 'single' ? formatCurrency(snapshot.sessionDraft.netPnL, 0, snapshot.sessionDraft.currency) : 'Gesperrt'}`} />
-              <BulletCard title="Woche" body={actionPlan.checklist[1] ?? warningSignal.title} />
-              <BulletCard title="Verhalten" body={actionPlan.checklist[2] ?? actionPlan.dailyFocusSuggestion} />
+              <BulletCard title={text('Heute', 'Today')} body={actionPlan.checklist[0] ?? `P&L: ${snapshot.sessionDraft.monetaryScopeKind === 'single' ? formatCurrency(snapshot.sessionDraft.netPnL, 0, snapshot.sessionDraft.currency, locale) : text('Gesperrt', 'Unavailable')}`} />
+              <BulletCard title={text('Woche', 'Week')} body={actionPlan.checklist[1] ?? warningSignal.title} />
+              <BulletCard title={text('Verhalten', 'Behaviour')} body={actionPlan.checklist[2] ?? actionPlan.dailyFocusSuggestion} />
             </div>
           </section>
 
           <section className="grid gap-4 xl:grid-cols-2">
-            <InsightGroup title="Setup-Ergebnisse" items={snapshot.setupInsights} />
-            <InsightGroup title="Daten aus Importen" items={snapshot.importInsights} />
+            <InsightGroup title={text('Setup-Ergebnisse', 'Setup results')} items={snapshot.setupInsights} />
+            <InsightGroup title={text('Daten aus Importen', 'Imported trades')} items={snapshot.importInsights} />
           </section>
 
         </div>
@@ -288,35 +293,35 @@ export function ReviewSummaryCard({
         <summary className="flex cursor-pointer list-none items-center justify-between gap-4">
           <div>
             <p className="text-[10px] uppercase tracking-[0.24em] text-white/35">Review</p>
-            <h2 className="mt-2 text-xl font-semibold text-white">Review sichern</h2>
+            <h2 className="mt-2 text-xl font-semibold text-white">{text('Review sichern', 'Save review')}</h2>
           </div>
-          <span className="rounded-full border border-white/10 bg-white/[0.03] px-4 py-2 text-xs uppercase tracking-[0.22em] text-white/55 transition group-open/session:border-orange-400/20 group-open/session:text-orange-100"><span className="group-open/session:hidden">Anzeigen</span><span className="hidden group-open/session:inline">Ausblenden</span></span>
+          <span className="rounded-full border border-white/10 bg-white/[0.03] px-4 py-2 text-xs uppercase tracking-[0.22em] text-white/55 transition group-open/session:border-orange-400/20 group-open/session:text-orange-100"><span className="group-open/session:hidden">{text('Anzeigen', 'Show')}</span><span className="hidden group-open/session:inline">{text('Ausblenden', 'Hide')}</span></span>
         </summary>
 
         <div className="mt-5 grid gap-6 xl:grid-cols-[1.05fr_0.95fr]">
           <div className="rounded-3xl border border-orange-400/15 bg-black/40 p-4">
             <div className="flex items-center justify-between gap-3">
               <div>
-                <p className="text-xs uppercase tracking-[0.22em] text-white/40">Speichern</p>
-                <h3 className="mt-2 text-lg font-semibold text-white">Review sichern</h3>
+                <p className="text-xs uppercase tracking-[0.22em] text-white/40">{text('Speichern', 'Save')}</p>
+                <h3 className="mt-2 text-lg font-semibold text-white">{text('Review sichern', 'Save review')}</h3>
               </div>
               <Link href={`/review-sessions?type=review&periodPreset=${snapshot.periodPreset}`} className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-white/70 transition hover:border-white/20 hover:text-white">
-                Review-Sammlung
+              {text('Review-Sammlung', 'Review collections')}
               </Link>
             </div>
             <div className="mt-4 grid gap-3">
               <label className="min-w-0 rounded-2xl border border-white/10 bg-black/25 p-3">
-                <span className="text-[10px] uppercase tracking-[0.2em] text-white/35">Titel</span>
-                <input value={sessionTitle} onChange={(event) => setSessionTitle(event.target.value)} className="mt-2 w-full rounded-2xl border border-orange-400/15 bg-orange-400/5 px-4 py-3 text-sm text-white outline-none placeholder:text-white/30" />
+                <span className="text-[10px] uppercase tracking-[0.2em] text-white/35">{text('Titel', 'Title')}</span>
+                <input value={sessionTitle ?? suggestedTitle} onChange={(event) => setSessionTitle(event.target.value)} className="mt-2 w-full rounded-2xl border border-orange-400/15 bg-orange-400/5 px-4 py-3 text-sm text-white outline-none placeholder:text-white/30" />
               </label>
               <label className="min-w-0 rounded-2xl border border-white/10 bg-black/25 p-3">
-                <span className="text-[10px] uppercase tracking-[0.2em] text-white/35">Notiz</span>
-                <textarea value={sessionNote} onChange={(event) => setSessionNote(event.target.value)} rows={3} className="mt-2 w-full rounded-2xl border border-orange-400/15 bg-orange-400/5 px-4 py-3 text-sm text-white outline-none placeholder:text-white/30" placeholder="Ein Satz reicht." />
+                <span className="text-[10px] uppercase tracking-[0.2em] text-white/35">{text('Notiz', 'Note')}</span>
+                <textarea value={sessionNote} onChange={(event) => setSessionNote(event.target.value)} rows={3} className="mt-2 w-full rounded-2xl border border-orange-400/15 bg-orange-400/5 px-4 py-3 text-sm text-white outline-none placeholder:text-white/30" placeholder={text('Ein Satz reicht.', 'One sentence is enough.')} />
               </label>
             </div>
             <div className="mt-4 flex flex-wrap items-center gap-3">
               <button type="button" onClick={handleSaveReviewSession} disabled={isSaving || snapshot.sessionDraft.tradeCount === 0} className="rounded-full border border-orange-400/25 bg-orange-400/10 px-4 py-2 text-sm text-orange-100 transition hover:border-orange-300/40 hover:text-white disabled:cursor-not-allowed disabled:opacity-50">
-                {isSaving ? 'Speichert...' : 'Speichern'}
+                {isSaving ? text('Speichert...', 'Saving…') : text('Speichern', 'Save')}
               </button>
               {saveStatus ? <span className="text-xs text-white/50">{saveStatus}</span> : null}
             </div>
@@ -325,10 +330,10 @@ export function ReviewSummaryCard({
           <div className="rounded-3xl border border-white/10 bg-black/40 p-4">
             <div className="flex items-center justify-between gap-3">
               <div>
-                <p className="text-xs uppercase tracking-[0.22em] text-white/40">Gespeicherte Reviews</p>
-                <h3 className="mt-2 text-lg font-semibold text-white">Archiv</h3>
+                <p className="text-xs uppercase tracking-[0.22em] text-white/40">{text('Gespeicherte Reviews', 'Saved reviews')}</p>
+                <h3 className="mt-2 text-lg font-semibold text-white">{text('Archiv', 'Archive')}</h3>
               </div>
-              <span className="rounded-full border border-emerald-400/20 bg-emerald-400/10 px-2.5 py-1 text-[11px] text-emerald-300">{relatedSessions.length} aktiv</span>
+              <span className="rounded-full border border-emerald-400/20 bg-emerald-400/10 px-2.5 py-1 text-[11px] text-emerald-300">{text(`${relatedSessions.length} aktiv`, `${relatedSessions.length} saved`)}</span>
             </div>
             <div className="mt-4 space-y-3">
               {relatedSessions.length ? (
@@ -337,13 +342,13 @@ export function ReviewSummaryCard({
                     <div className="flex items-start justify-between gap-3">
                       <div>
                         <p className="text-sm font-medium text-white">{session.title}</p>
-                        <p className="mt-1 text-xs text-white/45">{session.periodLabel ?? session.createdAt} · {session.tradeCount} Trades</p>
+                        <p className="mt-1 text-xs text-white/45">{session.periodLabel ?? formatReviewSavedDate(session.createdAt, locale)} · {session.tradeCount} Trades</p>
                       </div>
                       <span className={`rounded-full px-2.5 py-1 text-[11px] ${session.monetaryScopeKind !== 'single' ? 'border border-orange-400/20 bg-orange-400/10 text-orange-100' : session.netPnL >= 0 ? 'border border-emerald-400/20 bg-emerald-400/10 text-emerald-200' : 'border border-red-400/20 bg-red-400/10 text-red-200'}`}>
-                        {session.monetaryScopeKind === 'single' && session.currency ? formatCurrency(session.netPnL, 0, session.currency) : 'Gesperrt'}
+                        {session.monetaryScopeKind === 'single' && session.currency ? formatCurrency(session.netPnL, 0, session.currency, locale) : text('Gesperrt', 'Unavailable')}
                       </span>
                     </div>
-                    <p className="mt-3 line-clamp-2 text-xs leading-5 text-white/55">{session.note || session.focusDescription || 'Ohne Notiz.'}</p>
+                    <p className="mt-3 line-clamp-2 text-xs leading-5 text-white/55">{session.note || session.focusDescription || text('Ohne Notiz.', 'No note.')}</p>
                   </div>
                 ))
               ) : (
@@ -359,18 +364,18 @@ export function ReviewSummaryCard({
       <details className="group/analysis rounded-3xl border border-white/10 bg-black/25 p-5">
         <summary className="flex cursor-pointer list-none items-center justify-between gap-4">
           <div>
-            <p className="text-[10px] uppercase tracking-[0.24em] text-white/35">Analyse</p>
-            <h2 className="mt-2 text-xl font-semibold text-white">Tiefer prüfen</h2>
+            <p className="text-[10px] uppercase tracking-[0.24em] text-white/35">{text('Analyse', 'Analysis')}</p>
+            <h2 className="mt-2 text-xl font-semibold text-white">{text('Tiefer prüfen', 'Explore the analysis')}</h2>
           </div>
-          <span className="rounded-full border border-white/10 bg-white/[0.03] px-4 py-2 text-xs uppercase tracking-[0.22em] text-white/55 transition group-open/analysis:border-orange-400/20 group-open/analysis:text-orange-100"><span className="group-open/analysis:hidden">Anzeigen</span><span className="hidden group-open/analysis:inline">Ausblenden</span></span>
+          <span className="rounded-full border border-white/10 bg-white/[0.03] px-4 py-2 text-xs uppercase tracking-[0.22em] text-white/55 transition group-open/analysis:border-orange-400/20 group-open/analysis:text-orange-100"><span className="group-open/analysis:hidden">{text('Anzeigen', 'Show')}</span><span className="hidden group-open/analysis:inline">{text('Ausblenden', 'Hide')}</span></span>
         </summary>
 
         <div className="mt-5 space-y-5">
           <div className="grid gap-3 lg:grid-cols-3">
             {[
               { key: 'result' as const, label: 'P&L' },
-              { key: 'pattern' as const, label: 'Muster' },
-              { key: 'action' as const, label: 'Aktion' },
+              { key: 'pattern' as const, label: text('Muster', 'Patterns') },
+              { key: 'action' as const, label: text('Aktion', 'Actions') },
             ].map((option) => {
               const isActive = option.key === activeDeepSection
               return (
@@ -399,9 +404,9 @@ export function ReviewSummaryCard({
               <div className="mt-7 space-y-5">
                 <div className="flex flex-wrap gap-3">
                   {[
-                    { key: 'top' as const, label: 'Läuft' },
-                    { key: 'weak' as const, label: 'Bremst' },
-                    { key: 'pattern' as const, label: 'Muster' },
+                    { key: 'top' as const, label: text('Läuft', 'What worked') },
+                    { key: 'weak' as const, label: text('Bremst', 'Needs attention') },
+                    { key: 'pattern' as const, label: text('Muster', 'Patterns') },
                   ].map((option) => {
                     const isActive = option.key === activePerformanceView
                     return (
@@ -421,9 +426,9 @@ export function ReviewSummaryCard({
                   })}
                 </div>
 
-                {activePerformanceView === 'top' ? <TopPerformerCard items={snapshot.topPerformers} /> : null}
-                {activePerformanceView === 'weak' ? <WeakSpotsCard items={snapshot.weakSpots} /> : null}
-                {activePerformanceView === 'pattern' ? <PatternFinderCard items={snapshot.patterns} /> : null}
+                {activePerformanceView === 'top' ? <TopPerformerCard items={snapshot.topPerformers} locale={locale} /> : null}
+                {activePerformanceView === 'weak' ? <WeakSpotsCard items={snapshot.weakSpots} locale={locale} /> : null}
+                {activePerformanceView === 'pattern' ? <PatternFinderCard items={snapshot.patterns} locale={locale} /> : null}
               </div>
             ) : null}
 
@@ -434,7 +439,7 @@ export function ReviewSummaryCard({
                     { key: 'radar' as const, label: 'Radar' },
                     { key: 'drift' as const, label: 'Drift' },
                     { key: 'heatmap' as const, label: 'Heatmap' },
-                    { key: 'combos' as const, label: 'Kombos' },
+                    { key: 'combos' as const, label: text('Kombos', 'Combinations') },
                   ].map((option) => {
                     const isActive = option.key === activeTagView
                     return (
@@ -454,10 +459,10 @@ export function ReviewSummaryCard({
                   })}
                 </div>
 
-                {activeTagView === 'radar' ? <TagRadarCard items={snapshot.tagRadar} /> : null}
-                {activeTagView === 'drift' ? <TagDriftCard items={snapshot.tagDrift} /> : null}
-                {activeTagView === 'heatmap' ? <TagHeatmapCard data={snapshot.tagHeatmap} /> : null}
-                {activeTagView === 'combos' ? <TagCombinationsCard items={snapshot.tagCombinations} /> : null}
+                {activeTagView === 'radar' ? <TagRadarCard items={snapshot.tagRadar} locale={locale} /> : null}
+                {activeTagView === 'drift' ? <TagDriftCard items={snapshot.tagDrift} locale={locale} /> : null}
+                {activeTagView === 'heatmap' ? <TagHeatmapCard data={snapshot.tagHeatmap} locale={locale} /> : null}
+                {activeTagView === 'combos' ? <TagCombinationsCard items={snapshot.tagCombinations} locale={locale} /> : null}
               </div>
             ) : null}
 
@@ -465,9 +470,9 @@ export function ReviewSummaryCard({
               <div className="mt-7 space-y-5">
                 <div className="flex flex-wrap gap-3">
                   {[
-                    { key: 'engine' as const, label: 'Nächster Schritt' },
-                    { key: 'bridge' as const, label: 'Verlauf' },
-                    { key: 'errors' as const, label: 'Fehler' },
+                    { key: 'engine' as const, label: text('Nächster Schritt', 'Next step') },
+                    { key: 'bridge' as const, label: text('Verlauf', 'History') },
+                    { key: 'errors' as const, label: text('Fehler', 'Mistakes') },
                   ].map((option) => {
                     const isActive = option.key === activeActionView
                     return (
@@ -487,9 +492,9 @@ export function ReviewSummaryCard({
                   })}
                 </div>
 
-                {activeActionView === 'bridge' ? <ReviewLayerBridgeCard snapshot={snapshot} /> : null}
-                {activeActionView === 'engine' ? <ReviewActionEngineCard snapshot={snapshot} /> : null}
-                {activeActionView === 'errors' ? <ErrorClustersCard items={snapshot.errorClusters} /> : null}
+                {activeActionView === 'bridge' ? <ReviewLayerBridgeCard snapshot={snapshot} locale={locale} /> : null}
+                {activeActionView === 'engine' ? <ReviewActionEngineCard snapshot={snapshot} locale={locale} /> : null}
+                {activeActionView === 'errors' ? <ErrorClustersCard items={snapshot.errorClusters} locale={locale} /> : null}
               </div>
             ) : null}
           </div>
@@ -550,11 +555,12 @@ function InsightRow({
 }: {
   item: { label: string; value: string; detail: string; tone: 'emerald' | 'red' | 'orange'; href?: string }
 }) {
+  const text = journalText(useJournalLocale())
   const content = (
     <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4 transition hover:border-white/20 hover:bg-white/[0.05]">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-[10px] uppercase tracking-[0.22em] text-white/35">{item.label}</p>
-        <span className={`rounded-full border px-2.5 py-1 text-[11px] ${toneClasses(item.tone)}`}>{item.tone === 'emerald' ? 'Trägt' : item.tone === 'red' ? 'Prüfen' : 'Offen'}</span>
+        <span className={`rounded-full border px-2.5 py-1 text-[11px] ${toneClasses(item.tone)}`}>{item.tone === 'emerald' ? text('Trägt', 'Working') : item.tone === 'red' ? text('Prüfen', 'Review') : text('Offen', 'Open')}</span>
       </div>
       <p className="mt-3 text-base font-semibold text-white">{item.value}</p>
       <p className="mt-2 text-sm leading-6 text-white/60">{item.detail}</p>

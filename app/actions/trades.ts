@@ -26,9 +26,11 @@ import {
   validateQuickTradeCaptureInput,
   validateTradeCaptureInput,
 } from '@/lib/utils/trade-validation'
-import { inferTradeCaptureResultFromPnL } from '@/lib/utils/trade-capture'
+import { getTradeCaptureResultLabel, inferTradeCaptureResultFromPnL } from '@/lib/utils/trade-capture'
 import { deriveTradeSessionLabel, getTradeTimeInputError, resolveTradeTimeInputToIso } from '@/lib/utils/trade-time'
 import { appendTradeImportMeta, extractTradeImportMeta } from '@/lib/utils/trade-import-meta'
+import { journalText, type JournalLocale } from '@/lib/i18n/journal'
+import { getManualTradeNumberFormatHint, parseManualTradeNumber } from '@/lib/utils/manual-trade-number'
 import type { TradeMediaUploadInput } from '@/lib/types/media'
 import { assertOwnedTradeMediaPath } from '@/lib/utils/media-security'
 import { processMediaCleanupForPaths } from '@/lib/server/media-cleanup'
@@ -74,8 +76,9 @@ function resolveEffectiveExit(input: CreateTradeInput) {
 
 function resolveLegacyStoredRMultiple(args: {
   input: CreateTradeInput
-  normalizedInput: Omit<CreateTradeInput, 'market' | 'setup'> & { takeProfit: string; exit: string; accountSize: string; netPnL: string }
+  normalizedInput: Omit<CreateTradeInput, 'market' | 'setup'> & { takeProfit: string; exit: string; accountSize: string }
   normalizedPnLMode: 'manual' | 'auto' | 'override'
+  normalizedManualPnL: number | null
   normalizedInstrumentType: ReturnType<typeof normalizeInstrumentType>
   normalizedCostProfile: string
   normalizedBrokerProfile: ReturnType<typeof normalizeTradeBrokerProfile>
@@ -87,7 +90,7 @@ function resolveLegacyStoredRMultiple(args: {
   if (manualR === null) return null
 
   const metrics = computeTradeMetrics({
-    pnl: args.normalizedPnLMode === 'auto' ? null : toNumericField(args.normalizedInput.netPnL),
+    pnl: args.normalizedManualPnL,
     pnlMode: args.normalizedPnLMode,
     costProfile: args.normalizedCostProfile,
     brokerProfile: args.normalizedBrokerProfile,
@@ -151,15 +154,16 @@ function normalizeTradeMediaInput(media: TradeMediaUploadInput[]) {
     .map((item, index) => ({ ...item, sortOrder: index, isPrimary: index === 0 }))
 }
 
-function mapAtomicMutationError(message?: string | null) {
+function mapAtomicMutationError(message?: string | null, locale: JournalLocale = 'de') {
+  const text = journalText(locale)
   const normalized = message?.toUpperCase() ?? ''
-  if (normalized.includes('UNAUTHENTICATED')) return 'Bitte zuerst einloggen.'
-  if (normalized.includes('NOT_FOUND_OR_FORBIDDEN')) return 'Eintrag nicht gefunden oder kein Zugriff.'
-  if (normalized.includes('INVALID_SETUP')) return 'Das gewählte Setup gehört nicht zu diesem Konto.'
-  if (normalized.includes('INVALID_MEDIA_PATH')) return 'Ein Medienpfad ist ungültig oder gehört nicht zu diesem Eintrag.'
-  if (normalized.includes('INVALID_CURRENCY') || normalized.includes('CURRENCY_REQUIRED')) return 'Bitte eine unterstützte Kontowährung angeben, bevor Geldbeträge gespeichert werden.'
-  if (normalized.includes('PGRST202') || normalized.includes('SCHEMA CACHE')) return 'Die Datenbankmigration v57.60.1 fehlt. Die Änderung wurde nicht gespeichert.'
-  return 'Die Änderung konnte nicht atomar gespeichert werden.'
+  if (normalized.includes('UNAUTHENTICATED')) return text('Bitte zuerst einloggen.', 'Sign in first.')
+  if (normalized.includes('NOT_FOUND_OR_FORBIDDEN')) return text('Eintrag nicht gefunden oder kein Zugriff.', 'The entry was not found or you do not have access.')
+  if (normalized.includes('INVALID_SETUP')) return text('Das gewählte Setup gehört nicht zu diesem Konto.', 'The selected setup does not belong to this account.')
+  if (normalized.includes('INVALID_MEDIA_PATH')) return text('Ein Medienpfad ist ungültig oder gehört nicht zu diesem Eintrag.', 'An image is invalid or does not belong to this entry.')
+  if (normalized.includes('INVALID_CURRENCY') || normalized.includes('CURRENCY_REQUIRED')) return text('Bitte eine unterstützte Kontowährung angeben, bevor Geldbeträge gespeichert werden.', 'Set a supported account currency before saving amounts.')
+  if (normalized.includes('PGRST202') || normalized.includes('SCHEMA CACHE')) return text('Die Datenbankmigration v57.60.1 fehlt. Die Änderung wurde nicht gespeichert.', 'Saving is currently unavailable.')
+  return text('Die Änderung konnte nicht atomar gespeichert werden.', 'The change could not be saved.')
 }
 
 
@@ -197,11 +201,10 @@ async function resolveOwnedSetupSelection(
   return null
 }
 
-export async function createTradeEntry(input: CreateTradeInput) {
+export async function createTradeEntry(input: CreateTradeInput, locale: JournalLocale = 'de') {
+  const text = journalText(locale)
   const tradeId = crypto.randomUUID()
-  const normalizedInput = { ...input, exit: resolveEffectiveExit(input) }
-  const partialExits = resolvePartialExits(input)
-  const validation = validateTradeCaptureInput(normalizedInput)
+  const validation = validateTradeCaptureInput(input, undefined, locale)
 
   if (!validation.isValid) {
     return {
@@ -217,19 +220,21 @@ export async function createTradeEntry(input: CreateTradeInput) {
     return {
       success: false,
       mode: hasSupabaseClientEnv() ? ('supabase' as const) : ('demo' as const),
-      message: 'Kontowährung fehlt oder wird nicht unterstützt. Erlaubt: EUR, USD, GBP, USDT, USDC.',
-      fieldErrors: { accountCurrency: 'Unterstützte Kontowährung auswählen.' },
+      message: text('Kontowährung fehlt oder wird nicht unterstützt. Erlaubt: EUR, USD, GBP, USDT, USDC.', 'Choose a supported account currency: EUR, USD, GBP, USDT or USDC.'),
+      fieldErrors: { accountCurrency: text('Unterstützte Kontowährung auswählen.', 'Choose a supported account currency.') },
     }
   }
 
   input = { ...input, tags: validation.normalizedTags }
+  const normalizedInput = { ...input, exit: resolveEffectiveExit(input) }
+  const partialExits = resolvePartialExits(input)
 
   if (!hasSupabaseClientEnv()) {
     return {
       success: true,
       mode: 'demo' as const,
       tradeId,
-      message: `Demo-Flow aktiv. ${input.market} · ${input.setup} mit ${input.tags.length} Tags vorbereitet.`,
+      message: text(`Demo-Flow aktiv. ${input.market} · ${input.setup} mit ${input.tags.length} Tags vorbereitet.`, `Trade prepared in demo mode: ${input.market} · ${input.setup}.`),
     }
   }
 
@@ -238,12 +243,12 @@ export async function createTradeEntry(input: CreateTradeInput) {
     const {
       data: { user },
     } = await supabase.auth.getUser()
-    if (!user) return { success: false, mode: 'supabase' as const, message: 'Bitte zuerst einloggen.' }
+    if (!user) return { success: false, mode: 'supabase' as const, message: text('Bitte zuerst einloggen.', 'Sign in to save the trade.') }
 
     const selectedSetup = await resolveOwnedSetupSelection(supabase, user.id, input.setupId, input.setup)
     const resolvedSetupTitle = selectedSetup?.title ?? (input.setup.trim() || 'Später ergänzen')
     const timestamp = new Date().toISOString()
-    const resolvedTradeOccurredAt = resolveTradeTimeInputToIso(input.tradeOccurredAt, timestamp)
+    const resolvedTradeOccurredAt = resolveTradeTimeInputToIso(input.tradeOccurredAt, timestamp, undefined, locale)
     const normalizedBrokerProfile = normalizeTradeBrokerProfile(input.brokerProfile)
     const brokerPreset = getTradeBrokerProfilePreset(normalizedBrokerProfile)
     const normalizedInstrumentType = normalizeInstrumentType(input.instrumentType || brokerPreset.defaultInstrumentType)
@@ -252,7 +257,7 @@ export async function createTradeEntry(input: CreateTradeInput) {
       ? 'user-custom'
       : normalizeTradeCostProfile(input.costProfile || brokerPreset.defaultCostProfile || instrumentPreset.defaultCostProfile)
     const costPreset = getTradeCostProfilePreset(normalizedCostProfile)
-    const normalizedPnLMode = validation.normalizedPnLMode
+    const { normalizedPnLMode, normalizedManualPnL } = validation
     const normalizedCryptoMarketType = normalizeTradeCryptoMarketType(input.cryptoMarketType)
     const normalizedExecutionType = normalizeTradeExecutionType(input.executionType)
     const normalizedFundingDirection = normalizeTradeFundingDirection(input.fundingDirection)
@@ -261,6 +266,7 @@ export async function createTradeEntry(input: CreateTradeInput) {
       input,
       normalizedInput,
       normalizedPnLMode,
+      normalizedManualPnL,
       normalizedInstrumentType,
       normalizedCostProfile,
       normalizedBrokerProfile,
@@ -269,7 +275,7 @@ export async function createTradeEntry(input: CreateTradeInput) {
       partialExits,
     })
     const resolvedMetrics = computeTradeMetrics({
-      pnl: normalizedPnLMode === 'auto' ? null : toNumericField(normalizedInput.netPnL),
+      pnl: normalizedManualPnL,
       pnlMode: normalizedPnLMode,
       costProfile: normalizedCostProfile,
       brokerProfile: normalizedBrokerProfile,
@@ -321,7 +327,7 @@ export async function createTradeEntry(input: CreateTradeInput) {
       stop_loss: toNumericField(input.stopLoss),
       take_profit: toNumericField(normalizedInput.takeProfit),
       exit: toNumericField(normalizedInput.exit),
-      net_pnl: normalizedPnLMode === 'auto' ? null : toNumericField(normalizedInput.netPnL),
+      net_pnl: normalizedManualPnL,
       risk_percent: toNumericField(input.riskPercent),
       account_size: toNumericField(normalizedInput.accountSize),
       partial_exits: partialExits,
@@ -369,26 +375,25 @@ export async function createTradeEntry(input: CreateTradeInput) {
       p_tags: input.tags,
       p_setup_id: selectedSetup?.id ?? null,
     })
-    if (tradeInsertError) return { success: false, mode: 'supabase' as const, message: mapAtomicMutationError(tradeInsertError.message) }
+    if (tradeInsertError) return { success: false, mode: 'supabase' as const, message: mapAtomicMutationError(tradeInsertError.message, locale) }
 
     revalidateTradeSurfaces()
     return {
       success: true,
       mode: 'supabase' as const,
       tradeId,
-      message: `Trade gespeichert: ${input.market} · ${resolvedSetupTitle}.`,
+      message: text(`Trade gespeichert: ${input.market} · ${resolvedSetupTitle}.`, `Trade saved: ${input.market} · ${resolvedSetupTitle}.`),
     }
-  } catch (error) {
-    return { success: false, mode: 'supabase' as const, message: `Trade konnte nicht gespeichert werden. ${error instanceof Error ? error.message : 'Unbekannter Fehler.'}` }
+  } catch {
+    return { success: false, mode: 'supabase' as const, message: text('Das Speichern konnte nicht bestätigt werden. Prüfe den Trade, bevor du es erneut versuchst.', 'Saving the trade could not be confirmed. Check your trades before trying again.') }
   }
 }
 
 
-export async function updateTradeEntry(tradeId: string, input: CreateTradeInput) {
-  const normalizedInput = { ...input, exit: resolveEffectiveExit(input) }
-  const partialExits = resolvePartialExits(input)
+export async function updateTradeEntry(tradeId: string, input: CreateTradeInput, locale: JournalLocale = 'de') {
+  const text = journalText(locale)
   // Time validation needs the owned stored instant to preserve an unchanged DST fold.
-  const validation = validateTradeCaptureInput({ ...normalizedInput, tradeOccurredAt: '' })
+  const validation = validateTradeCaptureInput({ ...input, tradeOccurredAt: '' }, undefined, locale)
 
   if (!validation.isValid) {
     return {
@@ -406,29 +411,31 @@ export async function updateTradeEntry(tradeId: string, input: CreateTradeInput)
       success: false,
       mode: hasSupabaseClientEnv() ? ('supabase' as const) : ('demo' as const),
       tradeId,
-      message: 'Kontowährung fehlt oder wird nicht unterstützt. Erlaubt: EUR, USD, GBP, USDT, USDC.',
-      fieldErrors: { accountCurrency: 'Unterstützte Kontowährung auswählen.' },
+      message: text('Kontowährung fehlt oder wird nicht unterstützt. Erlaubt: EUR, USD, GBP, USDT, USDC.', 'Choose a supported account currency: EUR, USD, GBP, USDT or USDC.'),
+      fieldErrors: { accountCurrency: text('Unterstützte Kontowährung auswählen.', 'Choose a supported account currency.') },
     }
   }
 
   input = { ...input, tags: validation.normalizedTags }
+  const normalizedInput = { ...input, exit: resolveEffectiveExit(input) }
+  const partialExits = resolvePartialExits(input)
 
   if (!tradeId.trim()) {
     return {
       success: false,
       mode: hasSupabaseClientEnv() ? ('supabase' as const) : ('demo' as const),
-      message: 'Trade-ID fehlt.',
+      message: text('Trade-ID fehlt.', 'Trade ID is missing.'),
     }
   }
 
   if (!hasSupabaseClientEnv()) {
-    const timeError = getTradeTimeInputError(input.tradeOccurredAt)
+    const timeError = getTradeTimeInputError(input.tradeOccurredAt, undefined, locale)
     if (timeError) return { success: false, mode: 'demo' as const, tradeId, message: timeError, fieldErrors: { tradeOccurredAt: timeError } }
     return {
       success: true,
       mode: 'demo' as const,
       tradeId,
-      message: `Demo-Edit-Flow aktiv. ${input.market} · ${input.setup} als vollständiger Trade vorbereitet.`,
+      message: text(`Demo-Edit-Flow aktiv. ${input.market} · ${input.setup} als vollständiger Trade vorbereitet.`, `Trade changes prepared in demo mode: ${input.market} · ${input.setup}.`),
     }
   }
 
@@ -437,7 +444,7 @@ export async function updateTradeEntry(tradeId: string, input: CreateTradeInput)
     const {
       data: { user },
     } = await supabase.auth.getUser()
-    if (!user) return { success: false, mode: 'supabase' as const, message: 'Bitte zuerst einloggen.' }
+    if (!user) return { success: false, mode: 'supabase' as const, message: text('Bitte zuerst einloggen.', 'Sign in to save the trade.') }
 
     const selectedSetup = await resolveOwnedSetupSelection(supabase, user.id, input.setupId, input.setup)
     const resolvedSetupTitle = selectedSetup?.title ?? (input.setup.trim() || 'Später ergänzen')
@@ -450,14 +457,14 @@ export async function updateTradeEntry(tradeId: string, input: CreateTradeInput)
       .maybeSingle()
 
     if (existingTradeError || !existingTrade) {
-      return { success: false, mode: 'supabase' as const, message: 'Trade nicht gefunden oder kein Zugriff.' }
+      return { success: false, mode: 'supabase' as const, message: text('Trade nicht gefunden oder kein Zugriff.', 'The trade could not be found or you do not have access.') }
     }
 
     const timestamp = new Date().toISOString()
     const originalTradeTimeIso = existingTrade.captured_at ?? existingTrade.created_at ?? timestamp
-    const timeError = getTradeTimeInputError(input.tradeOccurredAt, originalTradeTimeIso)
+    const timeError = getTradeTimeInputError(input.tradeOccurredAt, originalTradeTimeIso, locale)
     if (timeError) return { success: false, mode: 'supabase' as const, tradeId, message: timeError, fieldErrors: { tradeOccurredAt: timeError } }
-    const resolvedTradeOccurredAt = resolveTradeTimeInputToIso(input.tradeOccurredAt, originalTradeTimeIso, originalTradeTimeIso)
+    const resolvedTradeOccurredAt = resolveTradeTimeInputToIso(input.tradeOccurredAt, originalTradeTimeIso, originalTradeTimeIso, locale)
     const normalizedBrokerProfile = normalizeTradeBrokerProfile(input.brokerProfile)
     const brokerPreset = getTradeBrokerProfilePreset(normalizedBrokerProfile)
     const normalizedInstrumentType = normalizeInstrumentType(input.instrumentType || brokerPreset.defaultInstrumentType)
@@ -466,7 +473,7 @@ export async function updateTradeEntry(tradeId: string, input: CreateTradeInput)
       ? 'user-custom'
       : normalizeTradeCostProfile(input.costProfile || brokerPreset.defaultCostProfile || instrumentPreset.defaultCostProfile)
     const costPreset = getTradeCostProfilePreset(normalizedCostProfile)
-    const normalizedPnLMode = validation.normalizedPnLMode
+    const { normalizedPnLMode, normalizedManualPnL } = validation
     const normalizedCryptoMarketType = normalizeTradeCryptoMarketType(input.cryptoMarketType)
     const normalizedExecutionType = normalizeTradeExecutionType(input.executionType)
     const normalizedFundingDirection = normalizeTradeFundingDirection(input.fundingDirection)
@@ -475,6 +482,7 @@ export async function updateTradeEntry(tradeId: string, input: CreateTradeInput)
       input,
       normalizedInput,
       normalizedPnLMode,
+      normalizedManualPnL,
       normalizedInstrumentType,
       normalizedCostProfile,
       normalizedBrokerProfile,
@@ -483,7 +491,7 @@ export async function updateTradeEntry(tradeId: string, input: CreateTradeInput)
       partialExits,
     })
     const resolvedMetrics = computeTradeMetrics({
-      pnl: normalizedPnLMode === 'auto' ? null : toNumericField(normalizedInput.netPnL),
+      pnl: normalizedManualPnL,
       pnlMode: normalizedPnLMode,
       costProfile: normalizedCostProfile,
       brokerProfile: normalizedBrokerProfile,
@@ -528,7 +536,7 @@ export async function updateTradeEntry(tradeId: string, input: CreateTradeInput)
       stop_loss: toNumericField(input.stopLoss),
       take_profit: toNumericField(normalizedInput.takeProfit),
       exit: toNumericField(normalizedInput.exit),
-      net_pnl: normalizedPnLMode === 'auto' ? null : toNumericField(normalizedInput.netPnL),
+      net_pnl: normalizedManualPnL,
       risk_percent: toNumericField(input.riskPercent),
       account_size: toNumericField(normalizedInput.accountSize),
       partial_exits: partialExits,
@@ -576,24 +584,25 @@ export async function updateTradeEntry(tradeId: string, input: CreateTradeInput)
       p_tags: input.tags,
       p_setup_id: selectedSetup?.id ?? null,
     })
-    if (tradeUpdateError) return { success: false, mode: 'supabase' as const, message: mapAtomicMutationError(tradeUpdateError.message) }
+    if (tradeUpdateError) return { success: false, mode: 'supabase' as const, message: mapAtomicMutationError(tradeUpdateError.message, locale) }
 
     revalidateTradeSurfaces()
     return {
       success: true,
       mode: 'supabase' as const,
       tradeId,
-      message: `Trade aktualisiert: ${input.market} · ${resolvedSetupTitle}.`,
+      message: text(`Trade aktualisiert: ${input.market} · ${resolvedSetupTitle}.`, `Trade updated: ${input.market} · ${resolvedSetupTitle}.`),
     }
-  } catch (error) {
-    return { success: false, mode: 'supabase' as const, message: `Trade konnte nicht aktualisiert werden. ${error instanceof Error ? error.message : 'Unbekannter Fehler.'}` }
+  } catch {
+    return { success: false, mode: 'supabase' as const, message: text('Die Änderung konnte nicht bestätigt werden. Prüfe den Trade, bevor du es erneut versuchst.', 'Updating the trade could not be confirmed. Check the trade before trying again.') }
   }
 }
 
 
-export async function createQuickTradeEntry(input: QuickTradeCaptureInput) {
+export async function createQuickTradeEntry(input: QuickTradeCaptureInput, locale: JournalLocale = 'de') {
+  const text = journalText(locale)
   const tradeId = crypto.randomUUID()
-  const validation = validateQuickTradeCaptureInput(input)
+  const validation = validateQuickTradeCaptureInput(input, locale)
 
   if (!validation.isValid) {
     return {
@@ -611,7 +620,7 @@ export async function createQuickTradeEntry(input: QuickTradeCaptureInput) {
       success: true,
       mode: 'demo' as const,
       tradeId,
-      message: `Demo-Schnellerfassung aktiv. ${input.market} · ${input.setup} als ${input.captureResult} vorgemerkt.`,
+      message: text(`Demo-Schnellerfassung aktiv. ${input.market} · ${input.setup} als ${input.captureResult} vorgemerkt.`, 'Quick entry prepared in demo mode.'),
     }
   }
 
@@ -620,7 +629,7 @@ export async function createQuickTradeEntry(input: QuickTradeCaptureInput) {
     const {
       data: { user },
     } = await supabase.auth.getUser()
-    if (!user) return { success: false, mode: 'supabase' as const, message: 'Bitte zuerst einloggen.' }
+    if (!user) return { success: false, mode: 'supabase' as const, message: text('Bitte zuerst einloggen.', 'Sign in to save a trade.') }
 
     const timestamp = new Date().toISOString()
     const capturedAt = input.capturedAt?.trim() || timestamp
@@ -679,18 +688,18 @@ export async function createQuickTradeEntry(input: QuickTradeCaptureInput) {
       p_tags: input.tags,
       p_setup_id: null,
     })
-    if (tradeError) return { success: false, mode: 'supabase' as const, message: mapAtomicMutationError(tradeError.message) }
+    if (tradeError) return { success: false, mode: 'supabase' as const, message: mapAtomicMutationError(tradeError.message, locale) }
 
-    const quickLabel = validation.normalizedCaptureResult === 'open' ? 'Offener Trade gesichert' : 'Schnellerfassung gespeichert'
+    const quickLabel = validation.normalizedCaptureResult === 'open' ? text('Offener Trade gesichert', 'Open trade saved') : text('Schnellerfassung gespeichert', 'Quick entry saved')
     revalidateTradeSurfaces()
     return {
       success: true,
       mode: 'supabase' as const,
       tradeId,
-      message: `${quickLabel}: ${(input.market.trim() || 'Screenshot Capture')} · ${(input.setup.trim() || 'Später ergänzen')}.`,
+      message: `${quickLabel}: ${(input.market.trim() || 'Screenshot Capture')} · ${input.setup.trim() || text('Später ergänzen', 'Add later')}.`,
     }
-  } catch (error) {
-    return { success: false, mode: 'supabase' as const, message: `Schnellerfassung konnte nicht gespeichert werden. ${error instanceof Error ? error.message : 'Unbekannter Fehler.'}` }
+  } catch {
+    return { success: false, mode: 'supabase' as const, message: text('Das Speichern konnte nicht bestätigt werden. Prüfe deine Trades vor einem neuen Versuch.', 'Quick entry could not be confirmed. Check your trades before trying again.') }
   }
 }
 
@@ -704,12 +713,24 @@ type CloseTradeInput = {
   notes?: string
 }
 
-export async function closeTradeEntry(input: CloseTradeInput) {
+export async function closeTradeEntry(input: CloseTradeInput, locale: JournalLocale = 'de') {
+  const text = journalText(locale)
   if (!input.tradeId.trim()) {
     return {
       success: false,
       mode: hasSupabaseClientEnv() ? ('supabase' as const) : ('demo' as const),
-      message: 'Trade-ID fehlt.',
+      message: text('Trade-ID fehlt.', 'Trade ID is missing.'),
+    }
+  }
+
+  const submittedPnL = input.netPnL ?? ''
+  const resolvedNetPnL = parseManualTradeNumber(submittedPnL, locale)
+  const resolvedExit = parseManualTradeNumber(input.exit, locale)
+  if ((submittedPnL.trim() && resolvedNetPnL === null) || (input.exit?.trim() && resolvedExit === null)) {
+    return {
+      success: false,
+      mode: hasSupabaseClientEnv() ? ('supabase' as const) : ('demo' as const),
+      message: getManualTradeNumberFormatHint(locale),
     }
   }
 
@@ -718,7 +739,7 @@ export async function closeTradeEntry(input: CloseTradeInput) {
       success: true,
       mode: 'demo' as const,
       tradeId: input.tradeId,
-      message: 'Demo-Flow aktiv. Trade als geschlossen vorgemerkt.',
+      message: text('Demo-Flow aktiv. Trade als geschlossen vorgemerkt.', 'Demo mode. The close was prepared without saving a trade.'),
     }
   }
 
@@ -727,7 +748,7 @@ export async function closeTradeEntry(input: CloseTradeInput) {
     const {
       data: { user },
     } = await supabase.auth.getUser()
-    if (!user) return { success: false, mode: 'supabase' as const, message: 'Bitte zuerst einloggen.' }
+    if (!user) return { success: false, mode: 'supabase' as const, message: text('Bitte zuerst einloggen.', 'Sign in to close the trade.') }
 
     const { data: trade, error: tradeError } = await supabase
       .from('trades')
@@ -737,25 +758,24 @@ export async function closeTradeEntry(input: CloseTradeInput) {
       .maybeSingle()
 
     if (tradeError || !trade) {
-      return { success: false, mode: 'supabase' as const, message: 'Trade nicht gefunden oder kein Zugriff.' }
+      return { success: false, mode: 'supabase' as const, message: text('Trade nicht gefunden oder kein Zugriff.', 'The trade was not found or you do not have access.') }
     }
 
     if (Array.isArray(trade.partial_exits) && trade.partial_exits.length > 0) {
-      return { success: false, mode: 'supabase' as const, message: 'Dieser Trade enthält Teilverkäufe. Bitte über „Bearbeiten“ die Ausstiegspreise prüfen und die Position vollständig schließen.' }
+      return { success: false, mode: 'supabase' as const, message: text('Dieser Trade enthält Teilverkäufe. Bitte über „Bearbeiten“ die Ausstiegspreise prüfen und die Position vollständig schließen.', 'This trade has partial exits. Check the exit prices in the full editor before closing the position.') }
     }
 
     const timestamp = new Date().toISOString()
     const tradeImport = extractTradeImportMeta(trade.notes)
     const mergedNotes = appendTradeImportMeta([tradeImport.cleanNotes.trim(), input.notes?.trim()].filter(Boolean).join('\n\n') || null, tradeImport.meta)
-    const resolvedNetPnL = toNumericField(input.netPnL ?? '')
     if (resolvedNetPnL !== null && !normalizeTradeCurrency(trade.account_currency)) {
-      return { success: false, mode: 'supabase' as const, message: 'Der Trade hat keine unterstützte Kontowährung. Bitte zuerst im vollständigen Edit-Flow eine Währung setzen.' }
+      return { success: false, mode: 'supabase' as const, message: text('Der Trade hat keine unterstützte Kontowährung. Bitte zuerst im vollständigen Edit-Flow eine Währung setzen.', 'This trade needs a supported account currency. Set it in the full editor before saving P&L.') }
     }
     const resolvedPnLMode = normalizeTradePnLMode(undefined, resolvedNetPnL)
     const inferredResult = inferTradeCaptureResultFromPnL(resolvedNetPnL)
     const resolvedCaptureResult = inferredResult && inferredResult !== 'open' ? inferredResult : input.captureResult
     const updatePayload = {
-      exit: toNumericField(input.exit ?? ''),
+      exit: resolvedExit,
       net_pnl: resolvedNetPnL,
       capture_status: 'complete',
       capture_result: resolvedCaptureResult,
@@ -772,22 +792,22 @@ export async function closeTradeEntry(input: CloseTradeInput) {
       .eq('user_id', user.id)
 
     if (updateError) {
-      return { success: false, mode: 'supabase' as const, message: `Trade konnte nicht geschlossen werden. ${updateError.message}` }
+      return { success: false, mode: 'supabase' as const, message: text('Der Trade konnte nicht geschlossen werden. Lade ihn neu und prüfe den aktuellen Stand.', 'The trade could not be closed. Reload and check the trade before trying again.') }
     }
 
     revalidateTradeSurfaces()
     const autoResultHint = resolvedCaptureResult !== input.captureResult
-      ? ` Status wurde aus P&L als ${resolvedCaptureResult} übernommen.`
+      ? text(` Status wurde aus P&L als ${resolvedCaptureResult} übernommen.`, ` Outcome based on P&L: ${getTradeCaptureResultLabel(resolvedCaptureResult, 'en')}.`)
       : ''
 
     return {
       success: true,
       mode: 'supabase' as const,
       tradeId: input.tradeId,
-      message: `Trade geschlossen: ${trade.market} · ${trade.setup}.${autoResultHint}`,
+      message: text(`Trade geschlossen: ${trade.market} · ${trade.setup}.`, `Trade closed: ${trade.market} · ${trade.setup}.`) + autoResultHint,
     }
-  } catch (error) {
-    return { success: false, mode: 'supabase' as const, message: `Trade konnte nicht geschlossen werden. ${error instanceof Error ? error.message : 'Unbekannter Fehler.'}` }
+  } catch {
+    return { success: false, mode: 'supabase' as const, message: text('Der Abschluss konnte nicht bestätigt werden. Lade den Trade neu und prüfe den aktuellen Stand.', 'The close could not be confirmed. Reload and check the trade before trying again.') }
   }
 }
 

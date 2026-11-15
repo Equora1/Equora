@@ -5,9 +5,10 @@ type FuturisticCardProps = {
   className?: string
   glow?: 'orange' | 'emerald' | 'red' | 'none'
   role?: AriaRole
+  lang?: string
 }
 
-export function FuturisticCard({ children, className = '', glow = 'none', role }: FuturisticCardProps) {
+export function FuturisticCard({ children, className = '', glow = 'none', role, lang }: FuturisticCardProps) {
   const glowClass =
     glow === 'orange'
       ? 'before:bg-[radial-gradient(circle_at_top_right,rgba(240,168,85,0.13),transparent_48%)] shadow-[0_18px_55px_rgba(0,0,0,0.42),0_0_26px_rgba(200,130,58,0.10)]'
@@ -20,6 +21,7 @@ export function FuturisticCard({ children, className = '', glow = 'none', role }
   return (
     <div
       role={role}
+      lang={lang}
       className={`relative overflow-hidden rounded-[1rem] border border-white/[0.07] bg-[#0d0d0e]/95 backdrop-blur-xl before:absolute before:inset-0 before:pointer-events-none ${glowClass} ${className}`}
     >
       <div className="absolute inset-x-0 top-0 h-px bg-[linear-gradient(90deg,transparent,rgba(240,168,85,0.25),transparent)]" />

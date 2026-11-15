@@ -1,5 +1,7 @@
 'use server'
 
+import { journalText, type JournalLocale } from '@/lib/i18n/journal'
+
 import { revalidatePath } from 'next/cache'
 import { createSupabaseAuthServerClient } from '@/lib/supabase/server-auth'
 import { hasSupabaseClientEnv, hasSupabaseServerEnv } from '@/lib/supabase/config'
@@ -63,38 +65,40 @@ function buildMockSession(input: SaveReviewSessionInput): SavedReviewSession {
 
 export async function saveReviewSession(
   input: SaveReviewSessionInput,
+  locale: JournalLocale = 'de',
 ): Promise<{ success: boolean; message: string; session?: SavedReviewSession }> {
+  const text = journalText(locale)
   const title = typeof input?.title === 'string' ? input.title.trim() : ''
   if (!Array.isArray(input?.tradeIds) || input.tradeIds.some((id) => typeof id !== 'string')
     || (input.labels !== undefined && (!Array.isArray(input.labels) || input.labels.some((label) => typeof label !== 'string')))) {
-    return { success: false, message: 'Die Auswahl konnte nicht gelesen werden. Bitte lade die Ansicht neu.' }
+    return { success: false, message: text('Die Auswahl konnte nicht gelesen werden. Bitte lade die Ansicht neu.', 'The selection could not be read. Reload the page.') }
   }
   const tradeIds = Array.from(new Set(input.tradeIds.map((tradeId) => tradeId.trim()).filter(Boolean)))
   const labels = normalizeLabels(input.labels)
   const currency = input.monetaryScopeKind === 'single' ? normalizeTradeCurrency(input.currency) : null
 
   if (!hasSupabaseClientEnv() && input.monetaryScopeKind === 'single' && !currency) {
-    return { success: false, message: 'Die Review-Session hat keine unterstützte Währung und wurde nicht gespeichert.' }
+    return { success: false, message: text('Die Review-Session hat keine unterstützte Währung und wurde nicht gespeichert.', 'Choose a supported currency before saving this review.') }
   }
 
   if (!title) {
-    return { success: false, message: 'Bitte einen Titel für das Review vergeben.' }
+    return { success: false, message: text('Bitte einen Titel für das Review vergeben.', 'Enter a title for the review.') }
   }
 
   if (tradeIds.length === 0) {
-    return { success: false, message: 'Es gibt keine ausgewählten Trades zum Speichern.' }
+    return { success: false, message: text('Es gibt keine ausgewählten Trades zum Speichern.', 'Select trades before saving a review.') }
   }
 
   if (!hasSupabaseClientEnv()) {
     return {
       success: true,
-      message: `Demo-Modus: Review „${title}“ lokal bereit zum Sichern.`,
+      message: text(`Demo-Modus: Review „${title}“ lokal bereit zum Sichern.`, `Demo review “${title}” is ready to save locally.`),
       session: buildMockSession({ ...input, title, tradeIds, labels }),
     }
   }
 
   try {
-    if (!hasSupabaseServerEnv()) return { success: false, message: 'Reviews können derzeit nicht gespeichert werden. Bitte später erneut versuchen.' }
+    if (!hasSupabaseServerEnv()) return { success: false, message: text('Reviews können derzeit nicht gespeichert werden. Bitte später erneut versuchen.', 'Reviews cannot be saved right now. Try again later.') }
     const selectedIds = normalizeReviewTradeIds(tradeIds)
     const supabase = await createSupabaseAuthServerClient()
     const {
@@ -103,7 +107,7 @@ export async function saveReviewSession(
     } = await supabase.auth.getUser()
 
     if (authError || !user) {
-      return { success: false, message: 'Bitte zuerst einloggen.' }
+      return { success: false, message: text('Bitte zuerst einloggen.', 'Sign in to manage your reviews.') }
     }
 
     const sessionId = crypto.randomUUID()
@@ -131,31 +135,33 @@ export async function saveReviewSession(
 
     return {
       success: true,
-      message: `Review „${title}“ gespeichert.`,
+      message: text(`Review „${title}“ gespeichert.`, `Review “${title}” saved.`),
       session: mapReviewSessionRow(data as ReviewSessionRow, 'supabase'),
     }
   } catch (error) {
     if (error instanceof Error && error.message === 'INVALID_REVIEW_SCOPE') return { success: false,
-      message: 'Bitte wähle höchstens 2.000 Trades für ein Review aus. Lade die Ansicht neu, falls die Auswahl nicht mehr verfügbar ist.' }
+      message: text('Bitte wähle höchstens 2.000 Trades für ein Review aus. Lade die Ansicht neu, falls die Auswahl nicht mehr verfügbar ist.', 'Select up to 2,000 trades for a review. Reload the page if the selection is no longer available.') }
     if (error instanceof ReviewSnapshotCommitError) return { success: false, message: error.sourceChanged
-      ? 'Die Trade-Daten wurden inzwischen geändert. Bitte lade das Review neu.'
-      : 'Das Speicherergebnis konnte nicht bestätigt werden. Bitte prüfe zuerst die Review-Sammlung.' }
-    return { success: false, message: 'Review konnte nicht gespeichert werden. Bitte lade die Ansicht neu und versuche es erneut.' }
+      ? text('Die Trade-Daten wurden inzwischen geändert. Bitte lade das Review neu.', 'The trades have changed. Reload the review.')
+      : text('Das Speicherergebnis konnte nicht bestätigt werden. Bitte prüfe zuerst die Review-Sammlung.', 'Saving could not be confirmed. Check your review collections first.') }
+    return { success: false, message: text('Review konnte nicht gespeichert werden. Bitte lade die Ansicht neu und versuche es erneut.', 'The review could not be saved. Reload the page and try again.') }
   }
 }
 
 export async function updateReviewSession(
   sessionId: string,
   input: UpdateReviewSessionInput,
+  locale: JournalLocale = 'de',
 ): Promise<{ success: boolean; message: string; session?: SavedReviewSession }> {
+  const text = journalText(locale)
   const title = input.title.trim()
 
   if (!title) {
-    return { success: false, message: 'Bitte einen Titel für das Review vergeben.' }
+    return { success: false, message: text('Bitte einen Titel für das Review vergeben.', 'Enter a title for the review.') }
   }
 
   if (!hasSupabaseClientEnv()) {
-    return { success: false, message: 'Demo-Modus: Lokale Reviews werden direkt im Browser aktualisiert.' }
+    return { success: false, message: text('Demo-Modus: Lokale Reviews werden direkt im Browser aktualisiert.', 'Demo reviews are updated in your browser.') }
   }
 
   try {
@@ -165,7 +171,7 @@ export async function updateReviewSession(
     } = await supabase.auth.getUser()
 
     if (!user) {
-      return { success: false, message: 'Bitte zuerst einloggen.' }
+      return { success: false, message: text('Bitte zuerst einloggen.', 'Sign in to manage your reviews.') }
     }
 
     const { data, error } = await supabase
@@ -183,7 +189,7 @@ export async function updateReviewSession(
       .single()
 
     if (error || !data) {
-      return { success: false, message: 'Review konnte nicht aktualisiert werden.' }
+      return { success: false, message: text('Review konnte nicht aktualisiert werden.', 'The review could not be updated.') }
     }
 
     revalidatePath('/trades')
@@ -192,23 +198,25 @@ export async function updateReviewSession(
 
     return {
       success: true,
-      message: `Review „${title}“ aktualisiert.`,
+      message: text(`Review „${title}“ aktualisiert.`, `Review “${title}” updated.`),
       session: mapReviewSessionRow(data as ReviewSessionRow, 'supabase'),
     }
   } catch {
-    return { success: false, message: 'Review konnte nicht aktualisiert werden.' }
+    return { success: false, message: text('Review konnte nicht aktualisiert werden.', 'The review could not be updated.') }
   }
 }
 
 export async function deleteReviewSession(
   sessionId: string,
+  locale: JournalLocale = 'de',
 ): Promise<{ success: boolean; message: string; deletedId?: string }> {
+  const text = journalText(locale)
   if (!sessionId.trim()) {
-    return { success: false, message: 'Es wurde keine Session zum Löschen übergeben.' }
+    return { success: false, message: text('Es wurde keine Session zum Löschen übergeben.', 'Select a review to delete.') }
   }
 
   if (!hasSupabaseClientEnv()) {
-    return { success: false, message: 'Demo-Modus: Lokale Reviews werden direkt im Browser entfernt.' }
+    return { success: false, message: text('Demo-Modus: Lokale Reviews werden direkt im Browser entfernt.', 'Demo reviews are deleted in your browser.') }
   }
 
   try {
@@ -218,13 +226,13 @@ export async function deleteReviewSession(
     } = await supabase.auth.getUser()
 
     if (!user) {
-      return { success: false, message: 'Bitte zuerst einloggen.' }
+      return { success: false, message: text('Bitte zuerst einloggen.', 'Sign in to manage your reviews.') }
     }
 
     const { error } = await supabase.from('review_sessions').delete().eq('id', sessionId).eq('user_id', user.id)
 
     if (error) {
-      return { success: false, message: 'Review konnte nicht gelöscht werden.' }
+      return { success: false, message: text('Review konnte nicht gelöscht werden.', 'The review could not be deleted.') }
     }
 
     revalidatePath('/trades')
@@ -233,10 +241,10 @@ export async function deleteReviewSession(
 
     return {
       success: true,
-      message: 'Review gelöscht.',
+      message: text('Review gelöscht.', 'Review deleted.'),
       deletedId: sessionId,
     }
   } catch {
-    return { success: false, message: 'Review konnte nicht gelöscht werden.' }
+    return { success: false, message: text('Review konnte nicht gelöscht werden.', 'The review could not be deleted.') }
   }
 }

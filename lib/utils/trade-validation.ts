@@ -1,3 +1,5 @@
+import { journalText, type JournalLocale } from '@/lib/i18n/journal'
+import { getManualTradeNumberFormatHint, parseManualTradeNumber } from '@/lib/utils/manual-trade-number'
 import {
   computeNetPnLFromExecution,
   getTradeBrokerProfilePreset,
@@ -6,7 +8,6 @@ import {
   normalizeTradeBrokerProfile,
   normalizeTradeCryptoMarketType,
   normalizeTradePnLMode,
-  parseTradingNumber,
   derivePositionSizeFromMargin,
   deriveEffectiveExitFromPartialExitLegs,
   normalizePartialExitLegs,
@@ -88,12 +89,19 @@ export type TradeValidationField =
   | 'leverage'
   | 'fundingRateBps'
   | 'fundingIntervals'
+  | 'rMultiple'
+  | 'fees'
+  | 'exchangeFees'
+  | 'fundingFees'
+  | 'spreadCost'
+  | 'slippage'
 
 export type TradeValidationResult = {
   isValid: boolean
   errors: Partial<Record<TradeValidationField, string>>
   normalizedTags: string[]
   normalizedPnLMode: 'manual' | 'auto' | 'override'
+  normalizedManualPnL: number | null
   summary: string
 }
 
@@ -109,23 +117,14 @@ function isBlank(value: string | null | undefined) {
   return !value || !value.trim()
 }
 
-function isPositive(value: string | number | null | undefined) {
-  const numeric = parseTradingNumber(value)
-  return numeric !== null && numeric > 0
-}
-
-function isNonNegative(value: string | number | null | undefined) {
-  const numeric = parseTradingNumber(value)
-  return numeric !== null && numeric >= 0
-}
-
 function normalizeTags(tags: string[]) {
   return Array.from(new Set(tags.map((tag) => tag.trim()).filter(Boolean)))
 }
 
-export function validateTradeCaptureInput(input: TradeCaptureInput, originalTradeTimeIso?: string | null): TradeValidationResult {
+export function validateTradeCaptureInput(input: TradeCaptureInput, originalTradeTimeIso?: string | null, locale: JournalLocale = 'de'): TradeValidationResult {
+  const text = journalText(locale)
   const errors: Partial<Record<TradeValidationField, string>> = {}
-  const tradeTimeError = getTradeTimeInputError(input.tradeOccurredAt, originalTradeTimeIso)
+  const tradeTimeError = getTradeTimeInputError(input.tradeOccurredAt, originalTradeTimeIso, locale)
   if (tradeTimeError) addError(errors, 'tradeOccurredAt', tradeTimeError)
   const normalizedTags = normalizeTags(input.tags)
   const normalizedBroker = normalizeTradeBrokerProfile(input.brokerProfile)
@@ -135,31 +134,43 @@ export function validateTradeCaptureInput(input: TradeCaptureInput, originalTrad
   const basePnLMode = normalizeTradePnLMode(input.pnlMode, input.netPnL)
   const normalizedCryptoMarketType = normalizeTradeCryptoMarketType(input.cryptoMarketType)
 
-  const entry = parseTradingNumber(input.entry)
-  const stopLoss = parseTradingNumber(input.stopLoss)
-  const takeProfit = parseTradingNumber(input.takeProfit)
+  function readNumber(field: TradeValidationField, value: string | undefined = input[field]) {
+    const amount = parseManualTradeNumber(value, locale)
+    if (!isBlank(value) && amount === null) addError(errors, field, getManualTradeNumberFormatHint(locale))
+    return amount
+  }
+
+  const entry = readNumber('entry')
+  const stopLoss = readNumber('stopLoss')
+  const takeProfit = readNumber('takeProfit')
   const partialExitRows = [
     { percent: input.partialExit1Percent, price: input.partialExit1Price },
     { percent: input.partialExit2Percent, price: input.partialExit2Price },
     { percent: input.partialExit3Percent, price: input.partialExit3Price },
   ]
   const normalizedPartialExits = normalizePartialExitLegs(partialExitRows)
+  for (const { percent, price } of partialExitRows) {
+    readNumber('exit', percent ?? '')
+    readNumber('exit', price ?? '')
+  }
   const partialCoverage = normalizedPartialExits.reduce((sum, leg) => sum + leg.percent, 0)
   const hasIncompletePartialExitRow = partialExitRows.some((row) => (isBlank(row.percent) && !isBlank(row.price)) || (!isBlank(row.percent) && isBlank(row.price)))
   const effectiveExitValue = deriveEffectiveExitFromPartialExitLegs({
-    exit: input.exit,
+    exit: readNumber('exit'),
     partialExits: partialExitRows,
   })
   const exit = effectiveExitValue
-  const netPnL = parseTradingNumber(input.netPnL)
-  const positionSize = parseTradingNumber(input.positionSize)
-  const pointValue = parseTradingNumber(input.pointValue) ?? brokerPreset.defaultPointValue ?? instrumentPreset.defaultPointValue
-  const leverage = parseTradingNumber(input.leverage)
-  const riskPercent = parseTradingNumber(input.riskPercent)
-  const accountSize = parseTradingNumber(input.accountSize)
-  const marginUsed = parseTradingNumber(input.marginUsed)
-  const fundingRateBps = parseTradingNumber(input.fundingRateBps)
-  const fundingIntervals = parseTradingNumber(input.fundingIntervals)
+  const isExplicitAuto = input.pnlMode?.trim().toLowerCase() === 'auto'
+  const netPnL = isExplicitAuto ? null : readNumber('netPnL')
+  const positionSize = readNumber('positionSize')
+  const pointValue = readNumber('pointValue') ?? brokerPreset.defaultPointValue ?? instrumentPreset.defaultPointValue
+  const leverage = readNumber('leverage')
+  const riskPercent = readNumber('riskPercent')
+  const accountSize = readNumber('accountSize')
+  const marginUsed = readNumber('marginUsed')
+  const fundingRateBps = readNumber('fundingRateBps')
+  const fundingIntervals = readNumber('fundingIntervals')
+  for (const field of ['rMultiple', 'fees', 'exchangeFees', 'fundingFees', 'spreadCost', 'slippage'] as const) readNumber(field)
   const direction = (input.bias ?? '').toLowerCase()
   const isDirectional = direction.includes('long') || direction.includes('short')
   const effectivePositionSize = positionSize ?? derivePositionSizeFromMargin({
@@ -200,37 +211,37 @@ export function validateTradeCaptureInput(input: TradeCaptureInput, originalTrad
     : false
   const normalizedPnLMode = netPnL === null && canAutoDerivePnL ? 'auto' : basePnLMode
 
-  if (isBlank(input.market)) addError(errors, 'market', 'Bitte einen Markt für den Trade angeben.')
-  if (isBlank(input.setup)) addError(errors, 'setup', 'Bitte ein Setup für den Trade wählen.')
+  if (isBlank(input.market)) addError(errors, 'market', text('Bitte einen Markt für den Trade angeben.', 'Enter a market for this trade.'))
+  if (isBlank(input.setup)) addError(errors, 'setup', text('Bitte ein Setup für den Trade wählen.', 'Choose a setup for this trade.'))
 
   if (hasIncompletePartialExitRow) {
-    addError(errors, 'exit', 'Jeder Teilprofit braucht Prozent und Exit-Preis gemeinsam.')
+    addError(errors, 'exit', text('Jeder Teilprofit braucht Prozent und Exit-Preis gemeinsam.', 'Enter both the percentage and the price for each partial exit.'))
   }
 
   if (partialCoverage > 100.0001) {
-    addError(errors, 'exit', 'Teilprofite dürfen zusammen maximal 100% ergeben.')
+    addError(errors, 'exit', text('Teilprofite dürfen zusammen maximal 100% ergeben.', 'Partial exits cannot add up to more than 100%.'))
   }
   if (normalizedPnLMode === 'auto' || normalizedPnLMode === 'override') {
-    if (!isDirectional) addError(errors, 'bias', 'Für automatische Berechnung muss die Richtung Long oder Short sein.')
-    if (entry === null) addError(errors, 'entry', 'Für automatische Berechnung wird ein Entry benötigt.')
-    if (exit === null) addError(errors, 'exit', 'Für automatische Berechnung wird ein Exit oder ein vollständiger Teilprofit-Plan benötigt.')
+    if (!isDirectional) addError(errors, 'bias', text('Für automatische Berechnung muss die Richtung Long oder Short sein.', 'Choose Long or Short for automatic calculation.'))
+    if (entry === null) addError(errors, 'entry', text('Für automatische Berechnung wird ein Entry benötigt.', 'Enter an entry price for automatic calculation.'))
+    if (exit === null) addError(errors, 'exit', text('Für automatische Berechnung wird ein Exit oder ein vollständiger Teilprofit-Plan benötigt.', 'Enter an exit price or partial exits that cover the full position.'))
     if (effectivePositionSize === null || effectivePositionSize <= 0) {
-      addError(errors, 'positionSize', 'Für automatische Berechnung braucht der Trade eine Positionsgröße oder Margin + Hebel.')
+      addError(errors, 'positionSize', text('Für automatische Berechnung braucht der Trade eine Positionsgröße oder Margin + Hebel.', 'Enter a position size, or enter both margin and leverage.'))
       if (!isBlank(input.marginUsed) && (marginUsed === null || marginUsed <= 0)) {
-        addError(errors, 'marginUsed', 'Margin bitte als Zahl größer als 0 angeben.')
+        addError(errors, 'marginUsed', text('Margin bitte als Zahl größer als 0 angeben.', 'Enter a margin greater than 0.'))
       }
       if (isBlank(input.positionSize) && !isBlank(input.marginUsed) && (isBlank(input.leverage) || leverage === null || leverage <= 0)) {
-        addError(errors, 'leverage', 'Für Margin-Logik bitte einen Hebel größer als 0 angeben.')
+        addError(errors, 'leverage', text('Für Margin-Logik bitte einen Hebel größer als 0 angeben.', 'Enter leverage greater than 0 when using margin.'))
       }
     }
 
     if ((normalizedInstrumentType === 'futures' || normalizedInstrumentType === 'forex' || normalizedInstrumentType === 'cfd') && (!pointValue || pointValue <= 0)) {
-      addError(errors, 'pointValue', 'Für Futures, Forex und CFDs wird ein positiver Punkt- oder Pip-Wert benötigt.')
+      addError(errors, 'pointValue', text('Für Futures, Forex und CFDs wird ein positiver Punkt- oder Pip-Wert benötigt.', 'Enter a point or pip value greater than 0 for futures, forex and CFDs.'))
     }
 
     if (Object.keys(errors).length === 0) {
       const pnlCheck = computeNetPnLFromExecution({
-        explicitPnL: input.netPnL,
+        explicitPnL: netPnL,
         pnlMode: normalizedPnLMode,
         entry: input.entry,
         exit: effectiveExitValue,
@@ -255,68 +266,68 @@ export function validateTradeCaptureInput(input: TradeCaptureInput, originalTrad
       })
 
       if (pnlCheck.autoNetPnL === null && pnlCheck.netPnL === null) {
-        addError(errors, 'exit', 'Die automatische P&L-Berechnung hat keine belastbare Grundlage. Prüfe Entry, Exit, Richtung, Size und Punktwert.')
+        addError(errors, 'exit', text('Die automatische P&L-Berechnung hat keine belastbare Grundlage. Prüfe Entry, Exit, Richtung, Size und Punktwert.', 'P&L cannot be calculated from these inputs. Check the entry, exit, direction, position size and point value.'))
       }
     }
   }
 
   if (stopLoss !== null && entry !== null && isDirectional) {
     if (direction.includes('long') && stopLoss >= entry) {
-      addError(errors, 'stopLoss', 'Bei Long muss der Stop-Loss unter dem Entry liegen.')
+      addError(errors, 'stopLoss', text('Bei Long muss der Stop-Loss unter dem Entry liegen.', 'The stop loss for a long trade must be below the entry price.'))
     }
     if (direction.includes('short') && stopLoss <= entry) {
-      addError(errors, 'stopLoss', 'Bei Short muss der Stop-Loss über dem Entry liegen.')
+      addError(errors, 'stopLoss', text('Bei Short muss der Stop-Loss über dem Entry liegen.', 'The stop loss for a short trade must be above the entry price.'))
     }
   }
 
   if (takeProfit !== null && entry !== null && isDirectional) {
     if (direction.includes('long') && takeProfit <= entry) {
-      addError(errors, 'takeProfit', 'Bei Long sollte das Take-Profit über dem Entry liegen.')
+      addError(errors, 'takeProfit', text('Bei Long sollte das Take-Profit über dem Entry liegen.', 'The take profit for a long trade should be above the entry price.'))
     }
     if (direction.includes('short') && takeProfit >= entry) {
-      addError(errors, 'takeProfit', 'Bei Short sollte das Take-Profit unter dem Entry liegen.')
+      addError(errors, 'takeProfit', text('Bei Short sollte das Take-Profit unter dem Entry liegen.', 'The take profit for a short trade should be below the entry price.'))
     }
   }
 
   if (riskPercent !== null && (riskPercent <= 0 || riskPercent > 100)) {
-    addError(errors, 'riskPercent', 'Das Risiko in Prozent muss zwischen 0 und 100 liegen.')
+    addError(errors, 'riskPercent', text('Das Risiko in Prozent muss zwischen 0 und 100 liegen.', 'Risk must be between 0% and 100%.'))
   }
 
   if (!isBlank(input.accountSize) && (accountSize === null || accountSize <= 0)) {
-    addError(errors, 'accountSize', 'Die Kontogröße ist optional, muss aber als Zahl größer als 0 vorliegen.')
+    addError(errors, 'accountSize', text('Die Kontogröße ist optional, muss aber als Zahl größer als 0 vorliegen.', 'Account size is optional. If entered, it must be greater than 0.'))
   }
 
   if (!isBlank(input.marginUsed) && (marginUsed === null || marginUsed <= 0)) {
-    addError(errors, 'marginUsed', 'Die Margin muss als Zahl größer als 0 vorliegen.')
+    addError(errors, 'marginUsed', text('Die Margin muss als Zahl größer als 0 vorliegen.', 'Margin must be greater than 0.'))
   }
 
   if (!isBlank(input.accountCurrency) && !/^[A-Za-z]{3,6}$/.test(input.accountCurrency.trim())) {
-    addError(errors, 'accountCurrency', 'Kontowährung bitte als Kürzel wie EUR, USD oder USDT angeben.')
+    addError(errors, 'accountCurrency', text('Kontowährung bitte als Kürzel wie EUR, USD oder USDT angeben.', 'Enter a currency code such as EUR, USD or USDT.'))
   }
 
   if (!isBlank(input.leverage) && (!leverage || leverage <= 0)) {
-    addError(errors, 'leverage', 'Der Hebel muss größer als 0 sein.')
+    addError(errors, 'leverage', text('Der Hebel muss größer als 0 sein.', 'Leverage must be greater than 0.'))
   }
 
   if (normalizedInstrumentType === 'crypto') {
     if (normalizedCryptoMarketType !== 'manual' && isBlank(input.quoteAsset)) {
-      addError(errors, 'quoteAsset', 'Für Krypto bitte ein Quote Asset wie USDT oder USD angeben.')
+      addError(errors, 'quoteAsset', text('Für Krypto bitte ein Quote Asset wie USDT oder USD angeben.', 'For crypto, enter a quote asset such as USDT or USD.'))
     }
 
     if (normalizedCryptoMarketType === 'perps') {
       if (!isBlank(input.fundingRateBps) && fundingRateBps === null) {
-        addError(errors, 'fundingRateBps', 'Funding-Rate bitte als Zahl in Bps angeben.')
+        addError(errors, 'fundingRateBps', text('Funding-Rate bitte als Zahl in Bps angeben.', 'Enter the funding rate in basis points.'))
       }
-      if (!isBlank(input.fundingIntervals) && (!isNonNegative(input.fundingIntervals) || !Number.isInteger(fundingIntervals ?? 0))) {
-        addError(errors, 'fundingIntervals', 'Funding-Intervalle bitte als ganze Zahl ab 0 angeben.')
+      if (!isBlank(input.fundingIntervals) && (fundingIntervals === null || fundingIntervals < 0 || !Number.isInteger(fundingIntervals))) {
+        addError(errors, 'fundingIntervals', text('Funding-Intervalle bitte als ganze Zahl ab 0 angeben.', 'Enter a whole number of funding intervals, 0 or greater.'))
       }
     }
   }
 
   const summary = Object.values(errors)[0] ?? (
     basePnLMode !== 'auto' && normalizedPnLMode === 'auto'
-      ? 'Trade-Check bereit. P&L bleibt optional und wird aus Entry, Exit sowie Size oder Margin/Hebel hergeleitet.'
-      : `Trade-Check bereit. ${normalizedTags.length} Tags sauber erkannt.`
+      ? text('Trade-Check bereit. P&L bleibt optional und wird aus Entry, Exit sowie Size oder Margin/Hebel hergeleitet.', 'Trade is ready. P&L is optional and can be calculated from prices and position size or margin and leverage.')
+      : text(`Trade-Check bereit. ${normalizedTags.length} Tags sauber erkannt.`, `Trade is ready. Tags: ${normalizedTags.length}.`)
   )
 
   return {
@@ -324,6 +335,7 @@ export function validateTradeCaptureInput(input: TradeCaptureInput, originalTrad
     errors,
     normalizedTags,
     normalizedPnLMode,
+    normalizedManualPnL: normalizedPnLMode === 'auto' ? null : netPnL,
     summary,
   }
 }
@@ -362,15 +374,16 @@ function normalizeQuickCaptureResult(value: string) {
   return 'open'
 }
 
-export function validateQuickTradeCaptureInput(input: QuickTradeCaptureInput): QuickTradeValidationResult {
+export function validateQuickTradeCaptureInput(input: QuickTradeCaptureInput, locale: JournalLocale = 'de'): QuickTradeValidationResult {
+  const text = journalText(locale)
   const errors: Partial<Record<QuickTradeValidationField, string>> = {}
   const normalizedTags = normalizeTags(input.tags)
   const normalizedCaptureResult = normalizeQuickCaptureResult(input.captureResult)
 
-  if (isBlank(input.captureResult)) addQuickError(errors, 'captureResult', 'Bitte einen Trade-Stand auswählen.')
-  if (normalizedTags.length > 2) addQuickError(errors, 'tags', 'Die Schnellerfassung erlaubt aktuell maximal zwei Tags.')
+  if (isBlank(input.captureResult)) addQuickError(errors, 'captureResult', text('Bitte einen Trade-Stand auswählen.', 'Select a trade status.'))
+  if (normalizedTags.length > 2) addQuickError(errors, 'tags', text('Die Schnellerfassung erlaubt aktuell maximal zwei Tags.', 'Quick entry allows up to two tags.'))
 
-  const summary = Object.values(errors)[0] ?? `Schnellerfassung bereit. ${normalizedTags.length} Tag${normalizedTags.length === 1 ? '' : 's'} im Schnellzugriff gesichert.`
+  const summary = Object.values(errors)[0] ?? text(`Schnellerfassung bereit. ${normalizedTags.length} Tag${normalizedTags.length === 1 ? '' : 's'} im Schnellzugriff gesichert.`, 'Quick entry is ready.')
 
   return {
     isValid: Object.keys(errors).length === 0,

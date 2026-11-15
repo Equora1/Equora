@@ -1,3 +1,4 @@
+import { journalText, type JournalLocale } from '@/lib/i18n/journal'
 import type { Trade } from '@/lib/types/trade'
 import type { TradeTag } from '@/lib/types/tag'
 import { formatCurrency } from '@/lib/utils/calculations'
@@ -6,16 +7,17 @@ import { buildTagPairStats, buildTradesHref, clampNumber, hasKeywordMatch, parse
 import type { ReviewTagRadarItem } from '@/lib/utils/review-types'
 import { getCoreMetrics } from '@/lib/utils/analytics'
 
-export function buildTagRadar(tradesCurrent: Trade[], tradeTags: TradeTag[]): ReviewTagRadarItem[] {
+export function buildTagRadar(tradesCurrent: Trade[], tradeTags: TradeTag[], locale: JournalLocale = 'de'): ReviewTagRadarItem[] {
+  const text = journalText(locale)
   const currency = getCoreMetrics(tradesCurrent).currency
-  const money = (value: number) => formatCurrency(value, 0, currency)
+  const money = (value: number) => formatCurrency(value, 0, currency, locale)
   const stats = buildTagStats(tradesCurrent, tradeTags).filter((tag) => tag.totalTrades > 0)
   if (!stats.length) {
     return [
       {
         label: 'Tag-Radar',
-        value: 'Noch keine Tag-Daten',
-        detail: 'Vergib Tags an deinen Trades. Hier siehst du dann, welche Merkmale im gewählten Zeitraum häufig mit Gewinnen oder Verlusten vorkamen.',
+        value: text('Noch keine Tag-Daten', 'No tagged trades yet'),
+        detail: text('Vergib Tags an deinen Trades. Hier siehst du dann, welche Merkmale im gewählten Zeitraum häufig mit Gewinnen oder Verlusten vorkamen.', 'Tag your trades to see which characteristics appeared in wins and losses.'),
         tone: 'orange',
       },
     ]
@@ -41,7 +43,7 @@ export function buildTagRadar(tradesCurrent: Trade[], tradeTags: TradeTag[]): Re
       ? {
           label: 'Stärkster Tag',
           value: bestTag.tag,
-          detail: `${money(bestTag.netPnL)} · ${clampNumber(bestTag.winRate)}% Trefferquote in ${bestTag.totalTrades} Trades.`,
+          detail: text(`${money(bestTag.netPnL)} · ${clampNumber(bestTag.winRate)}% Trefferquote in ${bestTag.totalTrades} Trades.`, `${money(bestTag.netPnL)} · ${clampNumber(bestTag.winRate)}% win rate across ${bestTag.totalTrades} trades.`),
           tone: 'emerald',
           href: buildTradesHref({ tag: bestTag.tag, reviewFocus: `Review Drilldown · Stärkster Tag: ${bestTag.tag}` }),
         }
@@ -50,7 +52,7 @@ export function buildTagRadar(tradesCurrent: Trade[], tradeTags: TradeTag[]): Re
       ? {
           label: 'Prozess-Anker',
           value: processAnchor.tag,
-          detail: `${money(processAnchor.netPnL)} und PF ${processAnchor.profitFactor === Infinity ? '∞' : clampNumber(processAnchor.profitFactor, 2)}. Prüfe, welcher Ablauf dahinterstand. Das Ergebnis allein belegt keine verlässliche Handelsregel.`,
+          detail: text(`${money(processAnchor.netPnL)} und PF ${processAnchor.profitFactor === Infinity ? '∞' : clampNumber(processAnchor.profitFactor, 2)}. Prüfe, welcher Ablauf dahinterstand. Das Ergebnis allein belegt keine verlässliche Handelsregel.`, `${money(processAnchor.netPnL)} and profit factor ${processAnchor.profitFactor === Infinity ? '∞' : clampNumber(processAnchor.profitFactor, 2)}. Review the process behind these trades before drawing a rule.`),
           tone: 'emerald',
           href: buildTradesHref({ tag: processAnchor.tag, reviewFocus: `Review Drilldown · Prozess-Anker: ${processAnchor.tag}` }),
         }
@@ -59,7 +61,7 @@ export function buildTagRadar(tradesCurrent: Trade[], tradeTags: TradeTag[]): Re
       ? {
           label: 'Warn-Tag',
           value: worstTag.tag,
-          detail: `${money(worstTag.netPnL)} über ${worstTag.totalTrades} markierte Trades.`,
+          detail: text(`${money(worstTag.netPnL)} über ${worstTag.totalTrades} markierte Trades.`, `${money(worstTag.netPnL)} across ${worstTag.totalTrades} tagged trades.`),
           tone: 'red',
           href: buildTradesHref({ tag: worstTag.tag, outcome: 'Verlierer', reviewFocus: `Review Drilldown · Warn-Tag: ${worstTag.tag}` }),
         }
@@ -68,7 +70,7 @@ export function buildTagRadar(tradesCurrent: Trade[], tradeTags: TradeTag[]): Re
       ? {
           label: 'Wiederholer bei Verlusten',
           value: repeatLossEntry[0],
-          detail: `Tauchte ${repeatLossEntry[1]}× in Verlusttrades auf und sollte vor dem nächsten Einstieg geprüft werden.`,
+          detail: text(`Tauchte ${repeatLossEntry[1]}× in Verlusttrades auf und sollte vor dem nächsten Einstieg geprüft werden.`, `Appeared in ${repeatLossEntry[1]} losing trades. Review those trades before your next entry.`),
           tone: repeatLossEntry[1] >= 2 ? 'red' : 'orange',
           href: buildTradesHref({ tag: repeatLossEntry[0], outcome: 'Verlierer', reviewFocus: `Review Drilldown · Wiederholer bei Verlusten: ${repeatLossEntry[0]}` }),
         }
@@ -77,7 +79,7 @@ export function buildTagRadar(tradesCurrent: Trade[], tradeTags: TradeTag[]): Re
       ? {
           label: 'Stärkste Tag-Kombi',
           value: tagPairs[0].pair,
-          detail: `${money(tagPairs[0].metrics.netPnL)} in ${tagPairs[0].metrics.totalTrades} Trades.`,
+          detail: text(`${money(tagPairs[0].metrics.netPnL)} in ${tagPairs[0].metrics.totalTrades} Trades.`, `${money(tagPairs[0].metrics.netPnL)} across ${tagPairs[0].metrics.totalTrades} trades.`),
           tone: tagPairs[0].metrics.netPnL >= 0 ? 'emerald' : 'orange',
           href: buildTradesHref({ tags: parseTagPair(tagPairs[0].pair), reviewFocus: `Review Drilldown · Stärkste Tag-Kombi: ${tagPairs[0].pair}` }),
         }

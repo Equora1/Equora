@@ -1,10 +1,12 @@
+import { journalText, type JournalLocale } from '@/lib/i18n/journal'
 import type { Trade, TradeCalculationSource } from '@/lib/types/trade'
 import { parseTradingNumber, formatRMultiple } from '@/lib/utils/calculations'
 
-export function formatTradeRValue(value: number | null, source: TradeCalculationSource): string {
-  if (source === 'missing') return 'R offen'
-  const label = formatRMultiple(value)
-  return source === 'planned' ? `${label} (geplant)` : source === 'realized_partial' ? `${label} (teilrealisiert)` : label
+export function formatTradeRValue(value: number | null, source: TradeCalculationSource, locale: JournalLocale = 'de'): string {
+  const text = journalText(locale)
+  if (source === 'missing') return text('R offen', 'R unavailable')
+  const label = formatRMultiple(value, 2, locale)
+  return source === 'planned' ? text(`${label} (geplant)`, `${label} (planned)`) : source === 'realized_partial' ? text(`${label} (teilrealisiert)`, `${label} (partially realised)`) : label
 }
 
 /** A missing source overrides stale numeric/display fallbacks, including zero. */

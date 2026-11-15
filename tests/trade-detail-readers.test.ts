@@ -6,7 +6,7 @@ vi.mock('@/lib/supabase/server-auth', () => ({ createSupabaseAuthServerClient: m
 vi.mock('@/lib/server/media-access', () => ({ signTradeMediaRows: mock.sign }))
 vi.mock('@/lib/server/performance', () => ({ measurePerformance: (_name: string, _kind: string, run: () => unknown) => run() }))
 vi.mock('@/lib/server/journal', async importOriginal => ({ ...await importOriginal<typeof import('@/lib/server/journal')>(), getJournalSnapshotServer: async () => ({ tradeRows: [], tradeTags: [{ id: 'demo-tag', trade_id: 'a', tag: 'Plan' }], tradeMediaRows: [{ id: 'demo-media', trade_id: 'a' }] }) }))
-import { getTradeMediaServer, getTradeTagsServer } from '@/lib/server/trades'
+import { getTradeByIdServer, getTradeMediaServer, getTradeTagsServer } from '@/lib/server/trades'
 
 let response: { data: unknown[] | null; count: number | null; error: { message: string } | null }
 let filters: Array<[string, string]>
@@ -21,6 +21,31 @@ beforeEach(() => {
 })
 
 describe('complete detail reads before editing', () => {
+  it('reads a saved account name and tolerates older schemas without optional columns', async () => {
+    const select = vi.fn()
+    const eq = vi.fn()
+    const maybeSingle = vi.fn()
+    const query = { select, eq, maybeSingle }
+    select.mockReturnValue(query)
+    eq.mockReturnValue(query)
+    mock.client.mockReturnValue({ from: () => query })
+    const row = { id: 'a', account_label: 'Mein Konto' }
+    maybeSingle.mockResolvedValueOnce({ data: row, error: null })
+    expect(await getTradeByIdServer('a', 'owner')).toEqual(row)
+    expect(select.mock.calls[0][0].split(',')).toContain('account_label')
+
+    select.mockClear()
+    eq.mockClear()
+    maybeSingle
+      .mockResolvedValueOnce({ data: null, error: { code: '42703', message: 'column trades.import_batch_id does not exist' } })
+      .mockResolvedValueOnce({ data: null, error: { code: '42703', message: 'column trades.account_label does not exist' } })
+      .mockResolvedValueOnce({ data: { id: 'a' }, error: null })
+    expect(await getTradeByIdServer('a', 'owner')).toEqual({ id: 'a' })
+    expect(select.mock.calls[1][0].split(',')).toContain('account_label')
+    expect(select.mock.calls[2][0].split(',')).not.toContain('account_label')
+    expect(eq.mock.calls).toEqual(Array.from({ length: 3 }, () => [['user_id', 'owner'], ['id', 'a']]).flat())
+  })
+
   it.each([['tags', getTradeTagsServer], ['media', getTradeMediaServer]] as const)('%s read binds owner and trade and requests an exact count', async (_label, reader) => {
     expect(await reader('a', 'owner', true)).toEqual([])
     expect(filters).toEqual([[_label === 'tags' ? 'trades.user_id' : 'user_id', 'owner'], ['trade_id', 'a']])

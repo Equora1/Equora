@@ -17,6 +17,7 @@ vi.mock('@/components/trades/trade-capture-deck', () => ({ TradeCaptureDeck: () 
 vi.mock('@/components/trades/close-trade-form', () => ({ CloseTradeForm: () => null }))
 vi.mock('@/components/trades/trade-import-panel', () => ({ TradeImportPanel: () => null }))
 vi.mock('@/components/trades/trades-workbench', () => ({ TradesWorkbench: () => null }))
+vi.mock('@/lib/server/journal-locale', () => ({ getJournalLocale: async () => 'de' }))
 import TradesPage from '@/app/(journal)/trades/page'
 import { validateTradeCaptureInput } from '@/lib/utils/trade-validation'
 

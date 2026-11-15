@@ -28,10 +28,45 @@ describe('quick close rejects partial positions before any write', () => {
     expect(await closeTradeEntry(input)).toMatchObject({ success: true })
     expect(query.update).toHaveBeenCalledWith(expect.objectContaining({ exit: 115, net_pnl: 35 }))
   })
+  it('uses English feedback without changing the result inferred from P&L', async () => {
+    const { query } = setup([])
+    expect(await closeTradeEntry({ ...input, netPnL: '-0.12' }, 'en')).toMatchObject({
+      success: true,
+      message: expect.stringContaining('Outcome based on P&L: Loss.'),
+    })
+    expect(query.update).toHaveBeenCalledWith(expect.objectContaining({
+      exit: 115,
+      net_pnl: -0.12,
+      capture_status: 'complete',
+      capture_result: 'loser',
+    }))
+  })
   it('does not query trades for an unauthenticated request', async () => {
     const { from } = setup([], '')
     expect(await closeTradeEntry(input)).toMatchObject({ success: false })
     expect(from).not.toHaveBeenCalled()
+  })
+
+  it('rejects an English P&L with a comma before querying or writing', async () => {
+    expect(await closeTradeEntry({ ...input, netPnL: '1,234' }, 'en')).toMatchObject({
+      success: false,
+      message: expect.stringContaining('no thousands separators'),
+    })
+    expect(mocks.client).not.toHaveBeenCalled()
+  })
+
+  it('rejects an ambiguous exit price before closing the trade', async () => {
+    expect(await closeTradeEntry({ ...input, exit: '1,234' }, 'en')).toMatchObject({
+      success: false,
+      message: expect.stringContaining('no thousands separators'),
+    })
+    expect(mocks.client).not.toHaveBeenCalled()
+  })
+
+  it.each([['', null], ['0', 0], ['0,004', 0.004]] as const)('preserves the German close amount %j', async (netPnL, expected) => {
+    const { query } = setup([])
+    expect((await closeTradeEntry({ ...input, netPnL })).success).toBe(true)
+    expect(query.update).toHaveBeenCalledWith(expect.objectContaining({ net_pnl: expected }))
   })
   it('does not write when the owned read fails', async () => {
     const { query } = setup([], 'owner', { message: 'read failed' })

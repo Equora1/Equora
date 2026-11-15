@@ -24,6 +24,7 @@ import {
 } from '../lib/types/broker-sync'
 import { getLocalMb4ReviewSnapshot } from '../lib/server/broker-sync-review-fixture'
 import { BrokerSyncHub } from '../components/broker-sync/broker-sync-hub'
+import { OkxCandidateStatus } from '../components/broker-sync/providers/okx-candidate-status'
 import type { BrokerSyncSnapshot } from '../lib/server/broker-sync'
 
 const BASE_ROW = {
@@ -293,7 +294,7 @@ describe('provider-neutral broker connection view', () => {
     expect(html).toContain('Der gespeicherte Verbindungsbestand bleibt unbekannt')
     expect(html).not.toContain('Grundlage fehlt')
     expect(html).not.toContain('Noch kein Broker verbunden')
-    expect(html).not.toContain('0 gelesen')
+    expect(html).not.toContain('0 geladen')
     expect(html).not.toContain('0 Einträge')
   })
 
@@ -319,7 +320,7 @@ describe('provider-neutral broker connection view', () => {
     expect(html).toContain('Verbindungsübersicht nicht verfügbar')
     expect(html).toContain('Der gespeicherte Verbindungsbestand bleibt unbekannt')
     expect(html).not.toContain('Noch kein Broker verbunden')
-    expect(html).not.toContain('0 gelesen')
+    expect(html).not.toContain('0 geladen')
     expect(html).not.toContain('0 Einträge')
   })
 
@@ -341,9 +342,49 @@ describe('provider-neutral broker connection view', () => {
 
     const html = renderToStaticMarkup(createElement(BrokerSyncHub, { snapshot }))
 
-    expect(html).toContain('0 gelesen')
+    expect(html).toContain('0 geladen')
     expect(html).toContain('In der geladenen Übersicht ist noch keine Verbindung vorhanden')
     expect(html).not.toContain('Verbindungsübersicht derzeit nicht lesbar')
     expect(html).not.toContain('Noch kein Broker verbunden')
+  })
+
+  it('renders broker availability, the catalog and an unavailable preview in English', () => {
+    const fixture = getLocalMb4ReviewSnapshot({ nodeEnv: 'development', fixtureFlag: 'local_only' })!
+    const snapshot = { ...fixture, readScope: 'connection_summary_only' as const, notice: null }
+    const html = renderToStaticMarkup(createElement(BrokerSyncHub, { snapshot, locale: 'en' }))
+
+    expect(html).toContain('Connect a broker')
+    expect(html).toContain('Broker data access off')
+    expect(html).toContain('Other brokers')
+    expect(html).toContain('Saving trades from a file is unavailable.')
+    expect(html).toContain('The preview is unavailable.')
+    expect(html).not.toContain('No preview data yet.')
+    expect(html).toContain('MEXC Reviewkonto')
+    expect(html).toMatch(/<fieldset disabled=""[^>]*>/)
+
+    const okx = renderToStaticMarkup(createElement(OkxCandidateStatus, { locale: 'en' }))
+    expect(okx).toContain('OKX connection unavailable')
+    expect(okx).not.toMatch(/<form|<input/)
+  })
+
+  it('localizes a preview amount without rounding it or changing the Berlin time', () => {
+    const fixture = getLocalMb4ReviewSnapshot({ nodeEnv: 'development', fixtureFlag: 'local_only' })!
+    const snapshot: BrokerSyncSnapshot = {
+      ...fixture,
+      notice: null,
+      preview: [{
+        id: 'sample', connectionId: 'sample-connection', kind: 'execution', symbol: 'TEST_USDT',
+        direction: 'Long eröffnet', status: 'completed', price: 0.00001234, quantity: null, fee: null,
+        profit: 0, occurredAt: '2026-01-01T23:30:00Z', externalId: null,
+      }],
+    }
+    const de = renderToStaticMarkup(createElement(BrokerSyncHub, { snapshot, locale: 'de' }))
+    const en = renderToStaticMarkup(createElement(BrokerSyncHub, { snapshot, locale: 'en' }))
+
+    expect(de).toContain('0,00001234')
+    expect(en).toContain('0.00001234')
+    expect(en).toContain('Opened long')
+    expect(de).toContain('02.01.26, 00:30')
+    expect(en).toContain('02/01/2026, 00:30')
   })
 })

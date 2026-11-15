@@ -1,3 +1,5 @@
+import { useJournalLocale } from '@/components/layout/journal-locale-provider'
+import { journalText, type JournalLocale } from '@/lib/i18n/journal'
 import type { SavedSetup } from '@/lib/types/setup'
 
 type SetupStudioSidebarProps = {
@@ -23,6 +25,8 @@ export function SetupStudioSidebar({
   onSelectSetup,
   onCreateSetup,
 }: SetupStudioSidebarProps) {
+  const locale = useJournalLocale()
+  const text = journalText(locale)
   return (
     <div className="space-y-4 rounded-3xl border border-white/10 bg-black/20 p-4">
       <div className="rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-4">
@@ -38,7 +42,7 @@ export function SetupStudioSidebar({
             className="w-full rounded-2xl border border-orange-400/30 bg-orange-400/10 px-4 py-3 text-left shadow-[0_0_18px_rgba(251,146,60,0.10)]"
           >
             <p className="font-medium text-orange-100">{draftTitle}</p>
-            <p className="mt-1 text-xs text-orange-100/55">Noch nicht gespeichert</p>
+            <p className="mt-1 text-xs text-orange-100/55">{text('Noch nicht gespeichert', 'Unsaved draft')}</p>
           </button>
         ) : null}
         {orderedSetups.length ? (
@@ -59,8 +63,8 @@ export function SetupStudioSidebar({
                   <p className="mt-1 text-xs text-white/45">{setup.category || 'Custom'} · {setup.media.length} Bild{setup.media.length === 1 ? '' : 'er'}</p>
                 </div>
                 <div className="flex flex-col items-end gap-1">
-                  {setup.isMaster ? <span className="rounded-full border border-orange-400/20 bg-orange-400/10 px-2 py-1 text-[10px] uppercase tracking-[0.18em] text-orange-100/85">Master</span> : null}
-                  {setup.isArchived ? <span className="rounded-full border border-red-400/15 bg-red-400/10 px-2 py-1 text-[10px] uppercase tracking-[0.18em] text-red-200/80">Archiv</span> : null}
+                  {setup.isMaster ? <span className="rounded-full border border-orange-400/20 bg-orange-400/10 px-2 py-1 text-[10px] uppercase tracking-[0.18em] text-orange-100/85">{text('Master', 'Shared')}</span> : null}
+                  {setup.isArchived ? <span className="rounded-full border border-red-400/15 bg-red-400/10 px-2 py-1 text-[10px] uppercase tracking-[0.18em] text-red-200/80">{text('Archiv', 'Archive')}</span> : null}
                 </div>
               </div>
               <p className="mt-2 line-clamp-2 text-sm leading-6 text-white/58">{setup.description || 'Noch keine Beschreibung hinterlegt.'}</p>
@@ -68,7 +72,7 @@ export function SetupStudioSidebar({
           ))
         ) : !isCreatingNew ? (
           <div className="space-y-3 rounded-2xl border border-dashed border-white/10 bg-white/[0.03] px-4 py-5 text-sm text-white/55">
-            <p>Keine Setups in dieser Ansicht.</p>
+            <p>{text('Keine Setups in dieser Ansicht.', 'No setups in this view.')}</p>
             <button type="button" onClick={() => onCreateSetup({ master: studioViewIsMaster })} className="rounded-full border border-orange-400/20 bg-orange-400/10 px-3 py-1.5 text-xs text-orange-100/85">
               {studioViewIsMaster ? '+ Master-Setup' : '+ Neues Setup'}
             </button>
