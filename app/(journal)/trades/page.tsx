@@ -3,6 +3,7 @@ import { journalText } from '@/lib/i18n/journal'
 import { AppShell } from '@/components/layout/app-shell'
 import { QuickTradeForm } from '@/components/trades/quick-trade-form'
 import { TradeLedgerCapture } from '@/components/trades/trade-ledger-capture'
+import { FuturesRiskCalculator } from '@/components/trades/futures-risk-calculator'
 import { TradeForm } from '@/components/trades/trade-form'
 import { TradesWorkbench } from '@/components/trades/trades-workbench'
 import { TradeCaptureDeck } from '@/components/trades/trade-capture-deck'
@@ -354,6 +355,7 @@ export default async function TradesPage({ searchParams }: { searchParams?: Prom
             initialTradeInstant={new Date().toISOString()}
           />
         ) : null}
+        <FuturesRiskCalculator />
         {closeTradeRow || (editTradeInitialValues && editTradeRow) || activeCaptureMode ? (
           <section id="trade-editor" className="rounded-3xl border border-orange-300/18 bg-white/[0.05] p-5 shadow-2xl">
             {closeTradeRow ? (
