@@ -1,5 +1,7 @@
 'use client'
 
+import { useJournalLocale } from '@/components/layout/journal-locale-provider'
+import { journalText } from '@/lib/i18n/journal'
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type DragEvent } from 'react'
 import { SetupImageLightbox } from '@/components/setups/setup-image-lightbox'
 import {
@@ -55,6 +57,8 @@ export function SnippingAssistCard({
   onApply,
   onFilesChange,
 }: SnippingAssistCardProps) {
+  const locale = useJournalLocale()
+  const text = journalText(locale)
   const settingsInputRef = useRef<HTMLInputElement | null>(null)
   const chartInputRef = useRef<HTMLInputElement | null>(null)
   const [settingsFile, setSettingsFile] = useState<File | null>(null)
@@ -63,7 +67,7 @@ export function SnippingAssistCard({
   const [activePasteRole, setActivePasteRole] = useState<SnippingFileRole>('settings')
   const [dragActive, setDragActive] = useState<SnippingFileRole | null>(null)
   const [isAnalyzing, setIsAnalyzing] = useState(false)
-  const [status, setStatus] = useState('1. Positions-Einstellungen einfügen. 2. Optional den Chart ergänzen. Equora hält Datenquelle und visuellen Kontext getrennt.')
+  const [status, setStatus] = useState('')
   const [parsed, setParsed] = useState<SnippingParseResult | null>(null)
   const [sourcePreset, setSourcePreset] = useState<SnippingSource>('tradingview-position')
   const [ocrProgress, setOcrProgress] = useState<SnippingOcrProgress>(defaultOcrProgress)
@@ -83,13 +87,6 @@ export function SnippingAssistCard({
   useEffect(() => {
     onFilesChange?.([settingsFile, chartFile].filter((file): file is File => Boolean(file)))
   }, [chartFile, onFilesChange, settingsFile])
-
-  useEffect(() => {
-    if (!isAnalyzing) return
-    if (ocrProgress.phase === 'preparing' || ocrProgress.phase === 'recognizing') {
-      setStatus(ocrProgress.status)
-    }
-  }, [isAnalyzing, ocrProgress])
 
   useEffect(() => {
     function handlePaste(event: ClipboardEvent) {
@@ -119,12 +116,12 @@ export function SnippingAssistCard({
         setChartFile(null)
       }
       setFingerprints((current) => ({ ...current, [role]: undefined }))
-      setStatus(role === 'settings' ? 'Einstellungen-Screenshot entfernt. OCR-Vorschläge wurden zurückgesetzt.' : 'Chart-Screenshot entfernt.')
+      setStatus(role === 'settings' ? text('Einstellungen-Screenshot entfernt. OCR-Vorschläge wurden zurückgesetzt.', 'Position screenshot removed. Suggestions cleared.') : text('Chart-Screenshot entfernt.', 'Chart screenshot removed.'))
       return
     }
 
     if (!nextFile.type.startsWith('image/')) {
-      setStatus('Bitte eine Bilddatei verwenden.')
+      setStatus(text('Bitte eine Bilddatei verwenden.', 'Choose an image file.'))
       return
     }
 
@@ -132,7 +129,7 @@ export function SnippingAssistCard({
       const fingerprint = await fingerprintSnippingFile(nextFile)
       const otherRole: SnippingFileRole = role === 'settings' ? 'chart' : 'settings'
       if (fingerprints[otherRole] && fingerprints[otherRole] === fingerprint) {
-        setStatus('Doppeltes Bild erkannt. Einstellungen und Chart müssen unterschiedliche Screenshots sein.')
+        setStatus(text('Doppeltes Bild erkannt. Einstellungen und Chart müssen unterschiedliche Screenshots sein.', 'Choose a different image for the chart and the position details.'))
         return
       }
 
@@ -141,15 +138,14 @@ export function SnippingAssistCard({
         setSettingsFile(renamed)
         setParsed(null)
         setActivePasteRole('chart')
-        setStatus('Einstellungen-Screenshot vorgemerkt. Du kannst jetzt OCR starten oder mit Strg + V den Chart ergänzen.')
+        setStatus(text('Einstellungen-Screenshot vorgemerkt. Du kannst jetzt OCR starten oder mit Strg + V den Chart ergänzen.', 'Position screenshot added. You can now read the values or paste a chart.'))
       } else {
         setChartFile(renamed)
-        setStatus('Chart-Kontext vorgemerkt. OCR liest weiterhin nur den Einstellungen-Screenshot.')
+        setStatus(text('Chart-Kontext vorgemerkt. OCR liest weiterhin nur den Einstellungen-Screenshot.', 'Chart added. Values are read from the position screenshot.'))
       }
       setFingerprints((current) => ({ ...current, [role]: fingerprint }))
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Bild konnte nicht vorbereitet werden.'
-      setStatus(`Screenshot konnte nicht übernommen werden: ${message}`)
+    } catch {
+      setStatus(text('Screenshot konnte nicht hinzugefügt werden.', 'The screenshot could not be added.'))
     }
   }
 
@@ -160,36 +156,31 @@ export function SnippingAssistCard({
 
   async function analyzeScreenshot() {
     if (!settingsFile) {
-      setStatus('Bitte zuerst den Einstellungen-Screenshot einfügen. Der Chart allein enthält nicht alle strukturierten Werte.')
+      setStatus(text('Bitte zuerst den Einstellungen-Screenshot einfügen. Der Chart allein enthält nicht alle strukturierten Werte.', 'Add the position screenshot first so Equora can read the trade fields.'))
       return
     }
 
     setIsAnalyzing(true)
-    setStatus(
-      ocrProgress.phase === 'idle'
-        ? 'OCR startet. Deutsch und Englisch werden beim ersten Mal einmalig geladen.'
-        : ocrProgress.status,
-    )
+    setStatus('')
 
     try {
-      const text = await recognizeSnippingImage(settingsFile)
-      const nextParsed = parseTradeFromSnipText(text, marketOptions, sourcePreset)
+      const recognizedText = await recognizeSnippingImage(settingsFile)
+      const nextParsed = parseTradeFromSnipText(recognizedText, marketOptions, sourcePreset, locale)
       setParsed(nextParsed)
 
       const found = [nextParsed.market, nextParsed.entry, nextParsed.stopLoss, nextParsed.takeProfit, nextParsed.positionSize, nextParsed.riskPercent, nextParsed.leverage, nextParsed.netPnL].filter(Boolean).length
       const ending = nextParsed.plausibility === 'critical'
-        ? ' Kritische Plausibilitätswarnung: Werte werden nicht automatisch übernommen.'
+        ? text(' Kritische Plausibilitätswarnung: Werte werden nicht automatisch übernommen.', ' Some values conflict. Review them before entering them manually.')
         : nextParsed.plausibility === 'review'
-          ? ' Einige Werte brauchen einen zweiten Blick.'
-          : ' Die Grundlogik wirkt plausibel.'
+          ? text(' Einige Werte brauchen einen zweiten Blick.', ' Check the marked values.')
+          : text(' Die Grundlogik wirkt plausibel.', ' Check the suggestions before saving.')
       setStatus(
         found > 0
-          ? `OCR fertig. ${found} Kernfelder als Vorschlag erkannt.${ending}`
-          : 'OCR fertig, aber nur schwache Vorschläge gefunden. Beide Screenshots können trotzdem am Trade gespeichert werden.',
+          ? text(`${found} Felder erkannt.${ending}`, `${found} ${found === 1 ? 'field' : 'fields'} detected.${ending}`)
+          : text('OCR fertig, aber nur schwache Vorschläge gefunden. Beide Screenshots können trotzdem am Trade gespeichert werden.', 'No reliable values were found. You can still save both screenshots.'),
       )
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'OCR konnte nicht gestartet werden.'
-      setStatus(`Snipping Assist konnte OCR nicht ausführen: ${message}. Die Screenshots können trotzdem gespeichert werden.`)
+    } catch {
+      setStatus(text('Die Bilderkennung war nicht verfügbar. Die Screenshots kannst du trotzdem speichern.', 'Image recognition was unavailable. You can still save the screenshots.'))
     } finally {
       setIsAnalyzing(false)
     }
@@ -213,7 +204,7 @@ export function SnippingAssistCard({
       riskRewardRatio: parsed.riskRewardRatio,
       captureResult: parsed.captureResult,
     })
-    setStatus(mode === 'quick' ? 'Geprüfte Vorschläge in die Schnellerfassung übernommen.' : 'Geprüfte Vorschläge in den Voll-Trade übernommen. Bitte vor dem Speichern noch einmal gegenlesen.')
+    setStatus(mode === 'quick' ? text('Geprüfte Vorschläge in die Schnellerfassung übernommen.', 'Suggestions applied to quick entry.') : text('Geprüfte Vorschläge in den Voll-Trade übernommen. Bitte vor dem Speichern noch einmal gegenlesen.', 'Suggestions applied to the full form. Check the values before saving.'))
   }
 
   function resetAll() {
@@ -222,15 +213,15 @@ export function SnippingAssistCard({
     setFingerprints({})
     setParsed(null)
     setActivePasteRole('settings')
-    setStatus('Beide Screenshots entfernt.')
+    setStatus(text('Beide Screenshots entfernt.', 'Both screenshots removed.'))
   }
 
   const fileCount = [settingsFile, chartFile].filter(Boolean).length
   const confidenceLabel = parsed
-    ? `${Math.round(parsed.confidence * 100)}% Vorschlags-Fit`
+    ? text(`${Math.round(parsed.confidence * 100)}% Erkennungssicherheit`, `${Math.round(parsed.confidence * 100)}% recognition confidence`)
     : fileCount
-      ? `${fileCount}/2 Bilder vorgemerkt`
-      : 'OCR Assist'
+      ? text(`${fileCount}/2 Bilder ausgewählt`, `${fileCount}/2 images selected`)
+      : text('OCR Assist', 'Image recognition')
   const detectedValueCount = parsed
     ? [parsed.market, parsed.entry, parsed.exit, parsed.stopLoss, parsed.takeProfit, parsed.netPnL, parsed.positionSize, parsed.riskPercent, parsed.leverage].filter(Boolean).length
     : 0
@@ -245,12 +236,12 @@ export function SnippingAssistCard({
           <div className="flex items-center gap-3">
             <TradingViewCaptureMark />
             <div>
-              <p className="text-xs uppercase tracking-[0.24em] text-emerald-300/70">TradingView Zwei-Bild-Import</p>
-              <h3 className="mt-1 text-lg font-semibold text-white">Daten aus Einstellungen, Kontext aus dem Chart</h3>
+              <p className="text-xs uppercase tracking-[0.24em] text-emerald-300/70">{text('TradingView Zwei-Bild-Import', 'Screenshot assistant')}</p>
+              <h3 className="mt-1 text-lg font-semibold text-white">{text('Daten aus Einstellungen, Kontext aus dem Chart', 'Read values from a position screenshot')}</h3>
             </div>
           </div>
           <p className="mt-3 max-w-2xl text-sm leading-6 text-white/60">
-            Der Einstellungen-Screenshot liefert Entry, Stop, Ziel und Risiko. Der optionale Chart-Screenshot hält Marktstruktur und Setup visuell fest. Equora speichert beide getrennt und liest nur die strukturierte Datenquelle per OCR.
+            {text('Der Einstellungen-Screenshot liefert Entry, Stop, Ziel und Risiko. Der optionale Chart-Screenshot hält Marktstruktur und Setup visuell fest. Equora speichert beide getrennt und liest nur die strukturierte Datenquelle per OCR.', 'Equora reads entry, stop, target and risk from the position settings. Add a chart separately if you want it for review.')}
           </p>
         </div>
         <div className="rounded-full border border-emerald-400/20 bg-emerald-400/10 px-3 py-1 text-xs text-emerald-100/85">
@@ -260,8 +251,8 @@ export function SnippingAssistCard({
 
       <div className="mt-4 grid gap-2 rounded-2xl border border-white/10 bg-black/25 p-2 sm:grid-cols-2">
         {([
-          { value: 'tradingview-position' as const, title: 'TradingView Position', text: 'Optimiert für das Einstellungsfenster des Long-/Short-Tools.' },
-          { value: 'generic' as const, title: 'Allgemeiner Screenshot', text: 'Für Order-Zeilen und andere strukturierte Captures.' },
+          { value: 'tradingview-position' as const, title: 'TradingView Position', text: text('Optimiert für das Einstellungsfenster des Long-/Short-Tools.', 'For the settings window of TradingView’s long or short position tool.') },
+          { value: 'generic' as const, title: text('Allgemeiner Screenshot', 'General screenshot'), text: text('Für Order-Zeilen und andere strukturierte Captures.', 'For order rows and other images with labelled fields.') },
         ]).map((option) => (
           <button
             key={option.value}
@@ -269,7 +260,7 @@ export function SnippingAssistCard({
             onClick={() => {
               setSourcePreset(option.value)
               setParsed(null)
-              setStatus(option.value === 'tradingview-position' ? 'TradingView-Preset aktiv. Einstellungen links, Chart rechts ergänzen.' : 'Allgemeines OCR-Preset aktiv. Das erste Bild ist die Datenquelle, das zweite bleibt Kontext.')
+              setStatus(option.value === 'tradingview-position' ? text('TradingView-Preset aktiv. Einstellungen links, Chart rechts ergänzen.', 'TradingView selected. Add position details on the left and a chart on the right.') : text('Allgemeines OCR-Preset aktiv. Das erste Bild ist die Datenquelle, das zweite bleibt Kontext.', 'General screenshot selected. Equora reads values from the first image.'))
             }}
             className={`rounded-2xl border px-4 py-3 text-left transition ${sourcePreset === option.value ? 'border-emerald-400/35 bg-emerald-400/10' : 'border-white/8 bg-white/[0.02] hover:border-white/15'}`}
           >
@@ -283,18 +274,18 @@ export function SnippingAssistCard({
       <input ref={chartInputRef} type="file" accept="image/*" className="hidden" onChange={(event: ChangeEvent<HTMLInputElement>) => handleFileSelection('chart', event.target.files)} />
 
       <div className="mt-4 rounded-2xl border border-emerald-400/15 bg-emerald-400/5 p-4 text-sm text-emerald-100/85">
-        <p className="text-[11px] uppercase tracking-[0.22em] text-emerald-300/80">Sicherer Ablauf</p>
+        <p className="text-[11px] uppercase tracking-[0.22em] text-emerald-300/80">{text('Sicherer Ablauf', 'How it works')}</p>
         <p className="mt-2 leading-6">
-          Einstellungen sichern → optional Chart ergänzen → OCR prüfen → Plausibilität lesen → Vorschläge übernehmen → Trade speichern.
+          {text('Einstellungen sichern → optional Chart ergänzen → OCR prüfen → Plausibilität lesen → Vorschläge übernehmen → Trade speichern.', 'Add the position image, check the suggested values and apply them to the trade.')}
         </p>
       </div>
 
       <div className="mt-4 grid gap-4 lg:grid-cols-2">
         <ScreenshotSlot
           role="settings"
-          title="1. Positions-Einstellungen"
-          copy="Datenquelle für OCR. Bitte das vollständige Panel inklusive Feldnamen ausschneiden."
-          badge="OCR-Daten"
+          title={text('1. Positions-Einstellungen', '1. Position details')}
+          copy={text('Datenquelle für OCR. Bitte das vollständige Panel inklusive Feldnamen ausschneiden.', 'Include the full settings panel and all field names.')}
+          badge={text('OCR-Daten', 'Source image')}
           file={settingsFile}
           previewUrl={settingsPreviewUrl}
           dragActive={dragActive === 'settings'}
@@ -306,9 +297,9 @@ export function SnippingAssistCard({
         />
         <ScreenshotSlot
           role="chart"
-          title="2. Chart-Kontext"
-          copy="Optionales Review-Bild mit Marktstruktur, Indikatoren und sichtbarer Position."
-          badge="Kontext"
+          title={text('2. Chart-Kontext', '2. Chart (optional)')}
+          copy={text('Optionales Review-Bild mit Marktstruktur, Indikatoren und sichtbarer Position.', 'Add a chart to review the market context later.')}
+          badge={text('Kontext', 'Context')}
           file={chartFile}
           previewUrl={chartPreviewUrl}
           dragActive={dragActive === 'chart'}
@@ -327,7 +318,7 @@ export function SnippingAssistCard({
           disabled={!settingsFile || isAnalyzing}
           className="rounded-2xl border border-emerald-400/25 bg-emerald-400 px-4 py-2 text-sm font-medium text-black transition hover:scale-[1.01] disabled:cursor-not-allowed disabled:opacity-60"
         >
-          {isAnalyzing ? (ocrProgress.phase === 'preparing' ? 'Modell lädt...' : 'OCR läuft...') : 'Einstellungen analysieren'}
+          {isAnalyzing ? (ocrProgress.phase === 'preparing' ? text('Modell lädt...', 'Preparing…') : text('OCR läuft...', 'Reading text…')) : text('Einstellungen analysieren', 'Read position details')}
         </button>
         <button
           type="button"
@@ -335,7 +326,7 @@ export function SnippingAssistCard({
           disabled={applyDisabled || isAnalyzing}
           className="rounded-2xl border border-emerald-400/20 bg-emerald-400/10 px-4 py-2 text-sm text-emerald-100 transition hover:border-emerald-300/40 disabled:cursor-not-allowed disabled:opacity-40"
         >
-          {parsed?.plausibility === 'critical' ? 'Kritische Werte nicht übernehmen' : 'Vorschläge übernehmen'}
+          {parsed?.plausibility === 'critical' ? text('Kritische Werte nicht übernehmen', 'Review conflicting values') : text('Vorschläge übernehmen', 'Apply suggestions')}
         </button>
         <button
           type="button"
@@ -343,14 +334,14 @@ export function SnippingAssistCard({
           disabled={!fileCount || isAnalyzing}
           className="rounded-2xl border border-white/10 bg-white/5 px-4 py-2 text-sm text-white/70 transition hover:border-white/20 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
         >
-          Alles zurücksetzen
+          {text('Alles zurücksetzen', 'Clear images')}
         </button>
       </div>
 
       {showProgress ? (
         <div className="mt-3 rounded-2xl border border-emerald-400/15 bg-emerald-400/5 p-3">
           <div className="flex items-center justify-between gap-3 text-xs text-emerald-100/80">
-            <span>{ocrProgress.status}</span>
+            <span>{ocrProgress.phase === 'recognizing' ? text('Text wird erkannt …', 'Reading text…') : text('Bilderkennung wird vorbereitet …', 'Preparing image recognition…')}</span>
             <span>{Math.round(ocrProgress.progress)}%</span>
           </div>
           <div className="mt-2 h-2 overflow-hidden rounded-full bg-white/10">
@@ -358,25 +349,25 @@ export function SnippingAssistCard({
           </div>
         </div>
       ) : (
-        <p className="mt-3 text-xs text-white/40">Strg + V landet im zuletzt aktivierten Bildfeld. Nach dem ersten Einstellungen-Bild wechselt Equora automatisch zum Chartfeld.</p>
+        <p className="mt-3 text-xs text-white/40">{text('Strg + V landet im zuletzt aktivierten Bildfeld. Nach dem ersten Einstellungen-Bild wechselt Equora automatisch zum Chartfeld.', 'Pasted images go to the last selected field. After adding the position screenshot, the chart field is selected.')}</p>
       )}
 
-      <p className="mt-3 text-sm text-white/55">{status}</p>
+      <p className="mt-3 text-sm text-white/55">{status || text('Füge zuerst die Positionsdaten hinzu. Ein Chart ist optional.', 'Add the position details first. A chart is optional.')}</p>
 
       <div className="mt-4 rounded-3xl border border-white/10 bg-black/35 p-4">
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-          <DetectedField label="Markt" value={parsed?.market} confidence={getFieldConfidence(parsed, 'market')} />
-          <DetectedField label="Richtung" value={parsed?.bias} confidence={getFieldConfidence(parsed, 'bias')} />
+          <DetectedField label={text('Markt', 'Market')} value={parsed?.market} confidence={getFieldConfidence(parsed, 'market')} />
+          <DetectedField label={text('Richtung', 'Direction')} value={parsed?.bias} confidence={getFieldConfidence(parsed, 'bias')} />
           <DetectedField label="Entry" value={parsed?.entry} confidence={getFieldConfidence(parsed, 'entry')} />
           <DetectedField label="Exit" value={parsed?.exit} confidence={getFieldConfidence(parsed, 'exit')} />
           <DetectedField label="Stop" value={parsed?.stopLoss} confidence={getFieldConfidence(parsed, 'stopLoss')} />
           <DetectedField label="Take Profit" value={parsed?.takeProfit} confidence={getFieldConfidence(parsed, 'takeProfit')} />
-          <DetectedField label="Positionsgröße" value={parsed?.positionSize} confidence={getFieldConfidence(parsed, 'positionSize')} />
-          <DetectedField label="Kontogröße" value={parsed?.accountSize} confidence={getFieldConfidence(parsed, 'accountSize')} />
-          <DetectedField label="Risiko %" value={parsed?.riskPercent ? `${parsed.riskPercent}%` : undefined} confidence={getFieldConfidence(parsed, 'riskPercent')} />
-          <DetectedField label="Risikobetrag" value={parsed?.riskAmount} confidence={getFieldConfidence(parsed, 'riskAmount')} />
-          <DetectedField label="Hebel" value={parsed?.leverage ? `${parsed.leverage}x` : undefined} confidence={getFieldConfidence(parsed, 'leverage')} />
-          <DetectedField label="CRV" value={parsed?.riskRewardRatio ? `${parsed.riskRewardRatio} : 1` : undefined} confidence={getFieldConfidence(parsed, 'riskRewardRatio')} />
+          <DetectedField label={text('Positionsgröße', 'Position size')} value={parsed?.positionSize} confidence={getFieldConfidence(parsed, 'positionSize')} />
+          <DetectedField label={text('Kontogröße', 'Account size')} value={parsed?.accountSize} confidence={getFieldConfidence(parsed, 'accountSize')} />
+          <DetectedField label={text('Risiko %', 'Risk %')} value={parsed?.riskPercent ? `${parsed.riskPercent}%` : undefined} confidence={getFieldConfidence(parsed, 'riskPercent')} />
+          <DetectedField label={text('Risikobetrag', 'Risk amount')} value={parsed?.riskAmount} confidence={getFieldConfidence(parsed, 'riskAmount')} />
+          <DetectedField label={text('Hebel', 'Leverage')} value={parsed?.leverage ? `${parsed.leverage}x` : undefined} confidence={getFieldConfidence(parsed, 'leverage')} />
+          <DetectedField label={text('CRV', 'Risk/reward')} value={parsed?.riskRewardRatio ? `${parsed.riskRewardRatio} : 1` : undefined} confidence={getFieldConfidence(parsed, 'riskRewardRatio')} />
           <DetectedField label="P&L" value={parsed?.netPnL} confidence={getFieldConfidence(parsed, 'netPnL')} />
         </div>
 
@@ -384,7 +375,7 @@ export function SnippingAssistCard({
 
         {parsed?.hints?.length ? (
           <div className="mt-4 rounded-2xl border border-emerald-400/15 bg-emerald-400/5 p-4">
-            <p className="text-xs uppercase tracking-[0.22em] text-emerald-300/70">OCR Hinweise</p>
+            <p className="text-xs uppercase tracking-[0.22em] text-emerald-300/70">{text('OCR Hinweise', 'Recognition notes')}</p>
             <ul className="mt-3 space-y-1 text-sm text-white/65">
               {parsed.hints.map((hint) => <li key={hint}>• {hint}</li>)}
             </ul>
@@ -392,15 +383,15 @@ export function SnippingAssistCard({
         ) : null}
 
         <div className="mt-4 rounded-2xl border border-white/10 bg-white/[0.03] p-4 text-sm text-white/58">
-          <p className="text-[11px] uppercase tracking-[0.22em] text-white/42">Wie Equora das meint</p>
+          <p className="text-[11px] uppercase tracking-[0.22em] text-white/42">{text('Wie Equora das meint', 'Review before saving')}</p>
           <p className="mt-2 leading-6">
-            Leere Felder sind kein Fehler. Kritische Widersprüche blockieren nur die automatische Übernahme, nicht das Speichern der Bilder. So bleibt ein OCR-Ausrutscher ein Hinweis statt ein falscher Trade.
+            {text('Leere Felder sind kein Fehler. Kritische Widersprüche blockieren nur die automatische Übernahme, nicht das Speichern der Bilder. So bleibt ein OCR-Ausrutscher ein Hinweis statt ein falscher Trade.', 'You can fill in blank fields later. If values conflict, check and enter them manually. You can still save the images.')}
           </p>
         </div>
 
         {parsed?.rawText ? (
           <details className="mt-4 rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-            <summary className="cursor-pointer text-xs uppercase tracking-[0.22em] text-white/45">Erkannten Rohtext anzeigen</summary>
+            <summary className="cursor-pointer text-xs uppercase tracking-[0.22em] text-white/45">{text('Erkannten Rohtext anzeigen', 'Show detected text')}</summary>
             <pre className="mt-3 whitespace-pre-wrap text-xs leading-5 text-white/55">{parsed.rawText}</pre>
           </details>
         ) : null}
@@ -436,6 +427,8 @@ function ScreenshotSlot({
   onDragActive: (active: boolean) => void
   onRemove: () => void
 }) {
+  const locale = useJournalLocale()
+  const text = journalText(locale)
   return (
     <div
       className={`rounded-3xl border p-3 transition ${role === 'settings' ? 'border-emerald-400/20 bg-emerald-400/[0.045]' : 'border-sky-400/[0.15] bg-sky-400/[0.035]'}`}
@@ -474,19 +467,19 @@ function ScreenshotSlot({
               src={previewUrl}
               alt={file?.name ?? title}
               badge={badge}
-              hint="Klick für Großansicht"
+              hint={text('Klick für Großansicht', 'Click to enlarge')} locale={locale}
               stopPropagation
               className="rounded-2xl"
               imageClassName="max-h-56 w-full rounded-2xl bg-black/35 object-contain"
             />
             <div className="flex items-center justify-between gap-2 text-left">
               <p className="min-w-0 truncate text-xs text-white/45">{file?.name}</p>
-              <button type="button" onClick={onRemove} className="shrink-0 rounded-full border border-white/10 bg-black/30 px-3 py-1 text-[11px] text-white/60 hover:text-white">Entfernen</button>
+              <button type="button" onClick={onRemove} className="shrink-0 rounded-full border border-white/10 bg-black/30 px-3 py-1 text-[11px] text-white/60 hover:text-white">{text('Entfernen', 'Remove')}</button>
             </div>
           </div>
         ) : (
           <div>
-            <p>Bild ziehen, klicken oder Feld aktivieren und Strg + V</p>
+            <p>{text('Bild ziehen, klicken oder Feld aktivieren und Strg + V', 'Drop an image here, click to choose one, or paste it')}</p>
             <p className="mt-2 text-xs text-white/35">PNG, JPG oder WebP</p>
           </div>
         )}
@@ -496,15 +489,16 @@ function ScreenshotSlot({
 }
 
 function PlausibilityPanel({ plausibility, checks }: { plausibility: SnippingParseResult['plausibility']; checks: SnippingPlausibilityCheck[] }) {
+  const text = journalText(useJournalLocale())
   const config = plausibility === 'critical'
-    ? { title: 'Kritischer Widerspruch', copy: 'Automatische Übernahme ist blockiert. Werte oder Dezimalstellen manuell prüfen.', className: 'border-rose-400/25 bg-rose-400/[0.08] text-rose-100' }
+    ? { title: text('Kritischer Widerspruch', 'Conflicting values'), copy: text('Automatische Übernahme ist blockiert. Werte oder Dezimalstellen manuell prüfen.', 'Check the values and decimal places before entering them manually.'), className: 'border-rose-400/25 bg-rose-400/[0.08] text-rose-100' }
     : plausibility === 'review'
-      ? { title: 'Prüfung nötig', copy: 'Die Daten sind nutzbar, einzelne Werte verdienen einen zweiten Blick.', className: 'border-amber-400/25 bg-amber-400/[0.08] text-amber-100' }
-      : { title: 'Grundlogik plausibel', copy: 'Keine harten Widersprüche erkannt. Trotzdem bleiben alle Werte Vorschläge.', className: 'border-emerald-400/20 bg-emerald-400/[0.07] text-emerald-100' }
+      ? { title: text('Prüfung nötig', 'Review needed'), copy: text('Die Daten sind nutzbar, einzelne Werte verdienen einen zweiten Blick.', 'Check the marked values before using the suggestions.'), className: 'border-amber-400/25 bg-amber-400/[0.08] text-amber-100' }
+      : { title: text('Grundlogik plausibel', 'Values look plausible'), copy: text('Keine harten Widersprüche erkannt. Trotzdem bleiben alle Werte Vorschläge.', 'Review all suggested values before saving.'), className: 'border-emerald-400/20 bg-emerald-400/[0.07] text-emerald-100' }
 
   return (
     <div className={`mt-4 rounded-2xl border p-4 ${config.className}`}>
-      <p className="text-xs uppercase tracking-[0.22em] opacity-75">Plausibilitätsprüfung</p>
+      <p className="text-xs uppercase tracking-[0.22em] opacity-75">{text('Plausibilitätsprüfung', 'Value checks')}</p>
       <p className="mt-2 text-sm font-medium">{config.title}</p>
       <p className="mt-1 text-sm opacity-70">{config.copy}</p>
       {checks.length ? (
@@ -514,7 +508,7 @@ function PlausibilityPanel({ plausibility, checks }: { plausibility: SnippingPar
               <div className="flex items-center justify-between gap-2">
                 <p className="text-xs font-medium text-white/85">{check.label}</p>
                 <span className={`text-[10px] uppercase tracking-[0.14em] ${check.level === 'critical' ? 'text-rose-200' : check.level === 'review' ? 'text-amber-200' : 'text-emerald-200'}`}>
-                  {check.level === 'critical' ? 'Kritisch' : check.level === 'review' ? 'Prüfen' : 'Okay'}
+                  {check.level === 'critical' ? text('Kritisch', 'Conflict') : check.level === 'review' ? text('Prüfen', 'Review') : text('Okay', 'OK')}
                 </span>
               </div>
               <p className="mt-1 text-xs leading-5 text-white/55">{check.message}</p>

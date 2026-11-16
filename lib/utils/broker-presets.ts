@@ -1,3 +1,4 @@
+import type { JournalLocale } from '@/lib/i18n/journal'
 import type {
   TradeBrokerProfile,
   TradeCostProfile,
@@ -315,8 +316,11 @@ export function getTradeBrokerProfilePreset(profile?: string | null): TradeBroke
   return brokerProfiles[normalizeTradeBrokerProfile(profile)]
 }
 
-export function getBrokerProfileLabel(profile?: string | null): string {
-  return getTradeBrokerProfilePreset(profile).label
+const englishLabels: Partial<Record<TradeBrokerProfile, string>> = { manual: 'No broker profile' }
+
+export function getBrokerProfileLabel(profile?: string | null, locale: JournalLocale = 'de'): string {
+  const preset = getTradeBrokerProfilePreset(profile)
+  return (locale === 'en' ? englishLabels[preset.value] : undefined) ?? preset.label
 }
 
 export const brokerProfileOptions: Array<{ value: TradeBrokerProfile; label: string }> = [

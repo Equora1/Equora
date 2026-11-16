@@ -1,48 +1,52 @@
+import { journalText, type JournalLocale } from '@/lib/i18n/journal'
+
 export type SharedTradeShareMode = 'review' | 'vault' | 'both'
 export type SharedTradeVisibility = 'anonymous' | 'named'
 export type SharedTradeStatus = 'pending' | 'reviewed' | 'featured' | 'rejected' | 'revoked'
 
-export function getTradeShareModeLabel(mode: SharedTradeShareMode | string | null | undefined) {
+export function getTradeShareModeLabel(mode: SharedTradeShareMode | string | null | undefined, locale: JournalLocale = 'de') {
+  const text = journalText(locale)
   switch (mode) {
     case 'review':
-      return 'Review only'
+      return text('Nur Feedback', 'Feedback only')
     case 'vault':
-      return 'Vault only'
+      return text('Nur Sammlung', 'Collection only')
     case 'both':
-      return 'Review + Vault'
+      return text('Feedback und Sammlung', 'Feedback and collection')
     default:
-      return 'Nicht gesetzt'
+      return text('Nicht gesetzt', 'Not set')
   }
 }
 
-export function getTradeShareVisibilityLabel(visibility: SharedTradeVisibility | string | null | undefined) {
+export function getTradeShareVisibilityLabel(visibility: SharedTradeVisibility | string | null | undefined, locale: JournalLocale = 'de') {
+  const text = journalText(locale)
   switch (visibility) {
     case 'anonymous':
-      return 'Anonym'
+      return text('Anonym', 'Anonymous')
     case 'named':
-      return 'Mit Namen'
+      return text('Mit Namen', 'With name')
     default:
-      return 'Unbekannt'
+      return text('Unbekannt', 'Unknown')
   }
 }
 
-export function getTradeShareStatusLabel(status: SharedTradeStatus | string | null | undefined) {
+export function getTradeShareStatusLabel(status: SharedTradeStatus | string | null | undefined, locale: JournalLocale = 'de') {
+  const text = journalText(locale)
   switch (status) {
     case 'pending':
-      return 'Wartet auf Review'
+      return text('Wartet auf Review', 'Awaiting review')
     case 'reviewed':
-      return 'Gesehen'
+      return text('Gesehen', 'Reviewed')
     case 'featured':
-      return 'Featured'
+      return text('Hervorgehoben', 'Featured')
     case 'rejected':
-      return 'Nicht freigegeben'
+      return text('Nicht freigegeben', 'Not approved')
     case 'revoked':
-      return 'Vom User zurückgezogen'
+      return text('Zurückgezogen', 'Withdrawn')
     default:
-      return 'Offen'
+      return text('Offen', 'Open')
   }
 }
-
 
 export const coachLearningCategories = [
   'Entry Timing',
@@ -54,8 +58,33 @@ export const coachLearningCategories = [
   'Process Discipline',
 ] as const
 
-export function getTradeShareCategoryLabel(category: string | null | undefined) {
-  return category?.trim() || 'Noch nicht kategorisiert'
+const germanCategories = new Map<string, string>([
+  ['Entry Timing', 'Einstiegszeitpunkt'],
+  ['Risk Management', 'Risikomanagement'],
+  ['Trade Management', 'Trade-Management'],
+  ['Psychology', 'Psychologie'],
+  ['Context Read', 'Marktkontext'],
+  ['A-Setup Execution', 'A-Setup ausgeführt'],
+  ['Process Discipline', 'Regeltreue'],
+])
+
+export function getTradeShareResultLabel(result: string | null, locale: JournalLocale) {
+  if (!result) return '—'
+  if (locale === 'de') return result
+  switch (result) {
+    case 'Gewinner': return 'Win'
+    case 'Verlierer': return 'Loss'
+    case 'Breakeven': return 'Break-even'
+    case 'Offen': return 'Open'
+    default: return result
+  }
+}
+
+export function getTradeShareCategoryLabel(category: string | null | undefined, locale: JournalLocale = 'de') {
+  const text = journalText(locale)
+  const value = category?.trim()
+  if (!value) return text('Noch nicht kategorisiert', 'Uncategorised')
+  return locale === 'de' ? (germanCategories.get(value) ?? value) : value
 }
 
 export function splitDraftItems(rawValue: string) {

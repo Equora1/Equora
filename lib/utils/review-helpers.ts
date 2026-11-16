@@ -1,3 +1,4 @@
+import { journalText, type JournalLocale } from '@/lib/i18n/journal'
 import type { Trade } from '@/lib/types/trade'
 import type { TradeTag } from '@/lib/types/tag'
 import { getCoreMetrics } from '@/lib/utils/analytics'
@@ -61,8 +62,9 @@ export function isTradeInRange(trade: Trade, start: Date, end: Date) {
   return tradeTime >= start.getTime() && tradeTime <= end.getTime()
 }
 
-export function buildWindowLabel(start: Date, end: Date) {
-  return `${formatTradeDateLabel(start)} bis ${formatTradeDateLabel(end)}`
+export function buildWindowLabel(start: Date, end: Date, locale: JournalLocale = 'de') {
+  const text = journalText(locale)
+  return `${formatTradeDateLabel(start, locale)} ${text('bis', 'to')} ${formatTradeDateLabel(end, locale)}`
 }
 
 export function clampNumber(value: number, fractionDigits = 1) {

@@ -2,6 +2,8 @@
 import { getSavedReviewRState, getSavedReviewRValue, haveComparableReviewCalculations, isCurrentReviewCalculation, hasVerifiedReviewCalculation } from '@/lib/utils/review-snapshot-summary'
 
 import Link from 'next/link'
+import { useJournalLocale } from '@/components/layout/journal-locale-provider'
+import { journalText, type JournalLocale } from '@/lib/i18n/journal'
 import { useEffect, useMemo, useState, useTransition, type ChangeEvent, type ReactNode } from 'react'
 import {
   deleteReviewSession as persistDeleteReviewSession,
@@ -15,8 +17,7 @@ import type {
   SavedReviewSession,
 } from '@/lib/types/review-session'
 import { formatCurrency, formatPlainNumber, formatRMultiple } from '@/lib/utils/calculations'
-import { REVIEW_PERIOD_OPTIONS } from '@/lib/utils/review-types'
-import { formatReviewSavedDate, formatReviewSavedDay } from '@/lib/utils/review-display'
+import { formatReviewSavedDate, formatReviewTimelineDay, getReviewPeriodOptionLabel } from '@/lib/utils/review-display'
 
 type ReviewSessionsHubProps = {
   initialSessions: SavedReviewSession[]
@@ -47,10 +48,11 @@ function normalizeSavedSession(session: SavedReviewSession): SavedReviewSession 
   }
 }
 
-function formatSessionPnL(session: SavedReviewSession) {
+function formatSessionPnL(session: SavedReviewSession, locale: JournalLocale) {
+  const text = journalText(locale)
   return session.monetaryScopeKind === 'single' && session.currency
-    ? formatCurrency(session.netPnL, 0, session.currency)
-    : 'Gesperrt'
+    ? formatCurrency(session.netPnL, 0, session.currency, locale)
+    : text('Gesperrt', 'Unavailable')
 }
 
 function mergeSavedSessions(...groups: SavedReviewSession[][]) {
@@ -77,18 +79,20 @@ function buildTradesHref(session: SavedReviewSession, source: 'supabase' | 'mock
   return `/trades?${params.toString()}`
 }
 
-function getTypeLabel(type: ReviewSessionType) {
-  return type === 'review' ? 'Review' : 'Trade-Auswahl'
+function getTypeLabel(type: ReviewSessionType, locale: JournalLocale) {
+  const text = journalText(locale)
+  return type === 'review' ? 'Review' : text('Trade-Auswahl', 'Trade selection')
 }
 
-function getStatusLabel(status: ReviewSessionStatus) {
-  if (status === 'watch') return 'Beobachten'
-  if (status === 'closed') return 'Geschlossen'
-  return 'Offen'
+function getStatusLabel(status: ReviewSessionStatus, locale: JournalLocale) {
+  const text = journalText(locale)
+  if (status === 'watch') return text('Beobachten', 'Watching')
+  if (status === 'closed') return text('Geschlossen', 'Closed')
+  return text('Offen', 'Open')
 }
 
-function getPeriodLabel(period: ReviewSessionPeriodPreset | null) {
-  return REVIEW_PERIOD_OPTIONS.find((option) => option.key === period)?.label ?? 'Freier Zeitraum'
+function getPeriodLabel(period: ReviewSessionPeriodPreset | null, locale: JournalLocale) {
+  return period ? getReviewPeriodOptionLabel(period, locale) : journalText(locale)('Freier Zeitraum', 'Custom period')
 }
 
 function getStatusClass(status: ReviewSessionStatus) {
@@ -111,6 +115,8 @@ export function ReviewSessionsHub({
   initialPinnedOnly = false,
   pagination,
 }: ReviewSessionsHubProps) {
+  const locale = useJournalLocale()
+  const text = journalText(locale)
   const [sessions, setSessions] = useState<SavedReviewSession[]>(initialSessions)
   const [selectedSessionId, setSelectedSessionId] = useState<string | undefined>(initialSessions[0]?.id)
   const [compareIds, setCompareIds] = useState<string[]>([])
@@ -244,7 +250,7 @@ export function ReviewSessionsHub({
   const timelineEntries = useMemo(() => {
     return visibleSessions.slice(0, 8).map((session) => ({
       id: session.id,
-      day: formatReviewSavedDay(session.createdAt),
+      day: formatReviewTimelineDay(session.createdAt, locale),
       title: session.title,
       status: session.sessionStatus,
       pinned: session.isPinned,
@@ -253,7 +259,7 @@ export function ReviewSessionsHub({
       currency: session.currency,
       monetaryScopeKind: session.monetaryScopeKind,
     }))
-  }, [visibleSessions])
+  }, [visibleSessions, locale])
 
   function persistMockSessions(nextSessions: SavedReviewSession[]) {
     const merged = mergeSavedSessions(nextSessions)
@@ -276,7 +282,7 @@ export function ReviewSessionsHub({
     const trimmedTitle = title.trim()
     const labels = parseLabels(labelsInput)
     if (!trimmedTitle) {
-      setStatus('Bitte einen Titel für die Session vergeben.')
+      setStatus(text('Bitte einen Titel für die Session vergeben.', 'Enter a title for the review.'))
       return
     }
 
@@ -287,7 +293,7 @@ export function ReviewSessionsHub({
           : session,
       )
       persistMockSessions(nextSessions)
-      setStatus(`Review „${trimmedTitle}“ lokal aktualisiert.`)
+      setStatus(text(`Review „${trimmedTitle}“ lokal aktualisiert.`, `Local review “${trimmedTitle}” updated.`))
       return
     }
 
@@ -298,7 +304,7 @@ export function ReviewSessionsHub({
         labels,
         sessionStatus,
         isPinned,
-      })
+      }, locale)
       setStatus(result.message)
       if (result.success && result.session) {
         setSessions((current) => mergeSavedSessions(current.map((session) => (session.id === result.session?.id ? result.session : session))))
@@ -314,12 +320,12 @@ export function ReviewSessionsHub({
       const nextSessions = sessions.filter((session) => session.id !== deletedId)
       persistMockSessions(nextSessions)
       setCompareIds((current) => current.filter((id) => id !== deletedId))
-      setStatus('Review lokal gelöscht.')
+      setStatus(text('Review lokal gelöscht.', 'Local review deleted.'))
       return
     }
 
     startTransition(async () => {
-      const result = await persistDeleteReviewSession(deletedId)
+      const result = await persistDeleteReviewSession(deletedId, locale)
       setStatus(result.message)
       if (result.success) {
         setSessions((current) => current.filter((session) => session.id !== deletedId))
@@ -345,53 +351,52 @@ export function ReviewSessionsHub({
       <div className="rounded-3xl border border-orange-400/15 bg-white/5 p-5 shadow-2xl">
         <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
           <div>
-            <p className="text-xs uppercase tracking-[0.25em] text-white/45">Review-Sammlungen</p>
-            <h2 className="mt-2 text-2xl font-semibold text-orange-300">Review-Sammlungen</h2>
-            <p className="mt-3 max-w-2xl text-sm leading-6 text-white/60">Öffne gespeicherte Reviews, ergänze deine Notizen und vergleiche ausgewählte Sammlungen.</p>
+            <h2 className="mt-2 text-2xl font-semibold text-orange-300">{text('Review-Sammlungen', 'Review collections')}</h2>
+            <p className="mt-3 max-w-2xl text-sm leading-6 text-white/60">{text('Öffne gespeicherte Reviews, ergänze deine Notizen und vergleiche ausgewählte Sammlungen.', 'Open saved reviews, add notes and compare two collections.')}</p>
           </div>
           <div className="flex flex-wrap items-center gap-3">
-            <span className="rounded-full border border-orange-400/20 bg-orange-400/10 px-3 py-1 text-xs text-orange-100/80">{visibleSessions.length} sichtbar · {totalSessions} Treffer</span>
-            <span className={`rounded-full px-3 py-1 text-xs ${source === 'supabase' ? 'border border-emerald-400/20 bg-emerald-400/10 text-emerald-200' : 'border border-white/10 bg-white/5 text-white/70'}`}>{source === 'supabase' ? 'Live' : 'Lokal'}</span>
+            <span className="rounded-full border border-orange-400/20 bg-orange-400/10 px-3 py-1 text-xs text-orange-100/80">{text(`${visibleSessions.length} sichtbar · ${totalSessions} Treffer`, `${visibleSessions.length} shown · ${totalSessions} results`)}</span>
+            <span className={`rounded-full px-3 py-1 text-xs ${source === 'supabase' ? 'border border-emerald-400/20 bg-emerald-400/10 text-emerald-200' : 'border border-white/10 bg-white/5 text-white/70'}`}>{source === 'supabase' ? 'Live' : text('Lokal', 'Local')}</span>
           </div>
         </div>
 
         <details className="group mt-5 rounded-3xl border border-white/10 bg-black/25 p-4">
           <summary className="flex cursor-pointer list-none items-center justify-between gap-3">
             <span className="text-sm font-medium text-white">Filter</span>
-            <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] uppercase tracking-[0.18em] text-white/65"><span className="group-open:hidden">Öffnen</span><span className="hidden group-open:inline">Schließen</span></span>
+            <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] uppercase tracking-[0.18em] text-white/65"><span className="group-open:hidden">{text('Öffnen', 'Show')}</span><span className="hidden group-open:inline">{text('Schließen', 'Hide')}</span></span>
           </summary>
           <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-            <FilterField label="Suche">
-              <input value={search} onChange={(event: ChangeEvent<HTMLInputElement>) => setSearch(event.target.value)} placeholder="Titel und Stichwörter" className="mt-2 w-full rounded-2xl border border-orange-400/15 bg-orange-400/5 px-4 py-3 text-sm text-white outline-none placeholder:text-white/30" />
+            <FilterField label={text('Suche', 'Search')}>
+              <input value={search} onChange={(event: ChangeEvent<HTMLInputElement>) => setSearch(event.target.value)} placeholder={text('Titel und Stichwörter', 'Title and keywords')} className="mt-2 w-full rounded-2xl border border-orange-400/15 bg-orange-400/5 px-4 py-3 text-sm text-white outline-none placeholder:text-white/30" />
             </FilterField>
-            <FilterField label="Typ">
+            <FilterField label={text('Typ', 'Type')}>
               <select value={sessionTypeFilter} onChange={(event: ChangeEvent<HTMLSelectElement>) => setSessionTypeFilter(event.target.value as 'all' | ReviewSessionType)} className="mt-2 w-full rounded-2xl border border-orange-400/15 bg-orange-400/5 px-4 py-3 text-sm text-white outline-none">
-                <option value="all">Alle</option>
-                <option value="spotlight">Trade-Auswahl</option>
+                <option value="all">{text('Alle', 'All')}</option>
+                <option value="spotlight">{text('Trade-Auswahl', 'Trade selection')}</option>
                 <option value="review">Review</option>
               </select>
             </FilterField>
-            <FilterField label="Zeitraum">
+            <FilterField label={text('Zeitraum', 'Period')}>
               <select value={periodPresetFilter} onChange={(event: ChangeEvent<HTMLSelectElement>) => setPeriodPresetFilter(event.target.value as 'all' | ReviewSessionPeriodPreset)} className="mt-2 w-full rounded-2xl border border-orange-400/15 bg-orange-400/5 px-4 py-3 text-sm text-white outline-none">
-                <option value="all">Alle</option>
-                <option value="7d">7 Tage</option>
-                <option value="14d">14 Tage</option>
-                <option value="30d">30 Tage</option>
-                <option value="90d">90 Tage</option>
+                <option value="all">{text('Alle', 'All')}</option>
+                <option value="7d">{text('7 Tage', '7 days')}</option>
+                <option value="14d">{text('14 Tage', '14 days')}</option>
+                <option value="30d">{text('30 Tage', '30 days')}</option>
+                <option value="90d">{text('90 Tage', '90 days')}</option>
               </select>
             </FilterField>
             <FilterField label="Status">
               <select value={statusFilter} onChange={(event: ChangeEvent<HTMLSelectElement>) => setStatusFilter(event.target.value as 'all' | ReviewSessionStatus)} className="mt-2 w-full rounded-2xl border border-orange-400/15 bg-orange-400/5 px-4 py-3 text-sm text-white outline-none">
-                <option value="all">Alle</option>
-                <option value="open">Offen</option>
-                <option value="watch">Beobachten</option>
-                <option value="closed">Geschlossen</option>
+                <option value="all">{text('Alle', 'All')}</option>
+                <option value="open">{text('Offen', 'Open')}</option>
+                <option value="watch">{text('Beobachten', 'Watching')}</option>
+                <option value="closed">{text('Geschlossen', 'Closed')}</option>
               </select>
             </FilterField>
             <div className="min-w-0 rounded-2xl border border-white/10 bg-black/25 p-3 text-sm text-white/70">
-              <span className="text-[10px] uppercase tracking-[0.2em] text-white/35">Angeheftete Reviews</span>
+              <span className="text-[10px] uppercase tracking-[0.2em] text-white/35">{text('Angeheftete Reviews', 'Pinned reviews')}</span>
               <button type="button" aria-pressed={pinnedOnly} onClick={() => setPinnedOnly((current) => !current)} className={`mt-2 flex w-full items-center justify-center rounded-2xl border px-4 py-3 text-sm transition ${pinnedOnly ? 'border-emerald-300/35 bg-emerald-400/15 text-emerald-100' : 'border-orange-400/15 bg-orange-400/5 text-white/70 hover:border-orange-300/30 hover:text-white'}`}>
-                {pinnedOnly ? 'Nur angeheftete' : 'Alle Reviews'}
+                {pinnedOnly ? text('Nur angeheftete', 'Pinned only') : text('Alle Reviews', 'All reviews')}
               </button>
             </div>
           </div>
@@ -403,7 +408,7 @@ export function ReviewSessionsHub({
           <div className="rounded-3xl border border-orange-400/15 bg-white/5 p-5 shadow-2xl">
             <div className="flex items-center justify-between gap-3">
               <div>
-                <h3 className="text-lg font-semibold text-white">Review-Sammlungen</h3>
+                <h3 className="text-lg font-semibold text-white">{text('Review-Sammlungen', 'Review collections')}</h3>
               </div>
               <Link href="/trades" className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-white/70 transition hover:border-white/20 hover:text-white">Trades</Link>
             </div>
@@ -417,15 +422,15 @@ export function ReviewSessionsHub({
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">
                           <div className="flex flex-wrap items-center gap-2">
-                            {session.isPinned ? <span className="rounded-full border border-emerald-400/20 bg-emerald-400/10 px-2 py-0.5 text-[10px] uppercase tracking-[0.16em] text-emerald-200">Angeheftet</span> : null}
-                            <span className={`rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-[0.16em] ${session.sessionType === 'review' ? 'border-orange-400/20 bg-orange-400/10 text-orange-200' : 'border-emerald-400/20 bg-emerald-400/10 text-emerald-200'}`}>{getTypeLabel(session.sessionType)}</span>
-                            <span className={`rounded-full border px-2 py-0.5 text-[10px] ${getStatusClass(session.sessionStatus)}`}>{getStatusLabel(session.sessionStatus)}</span>
-                            {session.periodPreset ? <span className="rounded-full border border-white/10 bg-black/30 px-2 py-0.5 text-[10px] text-white/60">{getPeriodLabel(session.periodPreset)}</span> : null}
+                            {session.isPinned ? <span className="rounded-full border border-emerald-400/20 bg-emerald-400/10 px-2 py-0.5 text-[10px] uppercase tracking-[0.16em] text-emerald-200">{text('Angeheftet', 'Pinned')}</span> : null}
+                            <span className={`rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-[0.16em] ${session.sessionType === 'review' ? 'border-orange-400/20 bg-orange-400/10 text-orange-200' : 'border-emerald-400/20 bg-emerald-400/10 text-emerald-200'}`}>{getTypeLabel(session.sessionType, locale)}</span>
+                            <span className={`rounded-full border px-2 py-0.5 text-[10px] ${getStatusClass(session.sessionStatus)}`}>{getStatusLabel(session.sessionStatus, locale)}</span>
+                            {session.periodPreset ? <span className="rounded-full border border-white/10 bg-black/30 px-2 py-0.5 text-[10px] text-white/60">{getPeriodLabel(session.periodPreset, locale)}</span> : null}
                           </div>
                           <p className="mt-2 break-words text-sm font-medium text-white">{session.title}</p>
-                          <p className="mt-1 text-xs text-white/45">{session.periodLabel ?? formatReviewSavedDate(session.createdAt)} · {session.tradeCount} Trades</p>
+                          <p className="mt-1 text-xs text-white/45">{session.periodLabel ?? formatReviewSavedDate(session.createdAt, locale)} · {session.tradeCount} Trades</p>
                         </div>
-                        <span className={`rounded-full px-2.5 py-1 text-[11px] ${session.monetaryScopeKind !== 'single' ? 'border border-orange-400/20 bg-orange-400/10 text-orange-100' : session.netPnL >= 0 ? 'border border-emerald-400/20 bg-emerald-400/10 text-emerald-200' : 'border border-red-400/20 bg-red-400/10 text-red-200'}`}>{formatSessionPnL(session)}</span>
+                        <span className={`rounded-full px-2.5 py-1 text-[11px] ${session.monetaryScopeKind !== 'single' ? 'border border-orange-400/20 bg-orange-400/10 text-orange-100' : session.netPnL >= 0 ? 'border border-emerald-400/20 bg-emerald-400/10 text-emerald-200' : 'border border-red-400/20 bg-red-400/10 text-red-200'}`}>{formatSessionPnL(session, locale)}</span>
                       </div>
                       <p className="mt-3 line-clamp-2 text-xs leading-5 text-white/55">{session.note || session.focusDescription || '—'}</p>
                       {session.labels.length ? (
@@ -439,24 +444,24 @@ export function ReviewSessionsHub({
                     <div className="mt-3 flex flex-wrap gap-2">
                       <Link href={buildTradesHref(session, source)} className="rounded-full border border-white/10 bg-black/30 px-3 py-1.5 text-xs text-white/70 transition hover:border-white/20 hover:text-white">Trades</Link>
                       {session.sessionType === 'review' && session.periodPreset ? <Link href={`/review?periodPreset=${session.periodPreset}`} className="rounded-full border border-white/10 bg-black/30 px-3 py-1.5 text-xs text-white/70 transition hover:border-white/20 hover:text-white">Review</Link> : null}
-                      <button type="button" onClick={() => toggleCompare(session.id)} className={`rounded-full border px-3 py-1.5 text-xs transition ${isCompared ? 'border-emerald-300/35 bg-emerald-400/15 text-emerald-100' : 'border-white/10 bg-black/30 text-white/70 hover:border-white/20 hover:text-white'}`}>{isCompared ? 'Vergleich an' : 'Vergleich'}</button>
+                      <button type="button" onClick={() => toggleCompare(session.id)} className={`rounded-full border px-3 py-1.5 text-xs transition ${isCompared ? 'border-emerald-300/35 bg-emerald-400/15 text-emerald-100' : 'border-white/10 bg-black/30 text-white/70 hover:border-white/20 hover:text-white'}`}>{isCompared ? text('Vergleich an', 'Selected to compare') : text('Vergleich', 'Compare')}</button>
                     </div>
                   </div>
                 )
-              }) : <div className="rounded-2xl border border-dashed border-white/10 bg-white/[0.02] p-4 text-sm text-white/45">Keine Reviews für diese Auswahl. Prüfe deine Filter oder speichere einen neuen Review.</div>}
+              }) : <div className="rounded-2xl border border-dashed border-white/10 bg-white/[0.02] p-4 text-sm text-white/45">{text('Keine Reviews für diese Auswahl. Prüfe deine Filter oder speichere einen neuen Review.', 'No reviews match. Change the filters or save a new review.')}</div>}
             </div>
             <div className="mt-4 flex items-center justify-between gap-3 rounded-2xl border border-white/10 bg-black/25 p-3 text-xs text-white/60">
-              <span>Seite {Math.min(effectivePage, totalPages)} von {totalPages}</span>
+              <span>{text(`Seite ${Math.min(effectivePage, totalPages)} von ${totalPages}`, `Page ${Math.min(effectivePage, totalPages)} of ${totalPages}`)}</span>
               <div className="flex items-center gap-2">
                 {effectivePage > 1 ? (
-                  <Link href={buildPageHref(effectivePage - 1)} className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-white/70 transition hover:border-white/20 hover:text-white">Zurück</Link>
+                  <Link href={buildPageHref(effectivePage - 1)} className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-white/70 transition hover:border-white/20 hover:text-white">{text('Zurück', 'Previous')}</Link>
                 ) : (
-                  <span className="rounded-full border border-white/10 bg-white/[0.03] px-3 py-1.5 text-xs text-white/35">Zurück</span>
+                  <span className="rounded-full border border-white/10 bg-white/[0.03] px-3 py-1.5 text-xs text-white/35">{text('Zurück', 'Previous')}</span>
                 )}
                 {effectivePage < totalPages ? (
-                  <Link href={buildPageHref(effectivePage + 1)} className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-white/70 transition hover:border-white/20 hover:text-white">Weiter</Link>
+                  <Link href={buildPageHref(effectivePage + 1)} className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-white/70 transition hover:border-white/20 hover:text-white">{text('Weiter', 'Next')}</Link>
                 ) : (
-                  <span className="rounded-full border border-white/10 bg-white/[0.03] px-3 py-1.5 text-xs text-white/35">Weiter</span>
+                  <span className="rounded-full border border-white/10 bg-white/[0.03] px-3 py-1.5 text-xs text-white/35">{text('Weiter', 'Next')}</span>
                 )}
               </div>
             </div>
@@ -465,28 +470,28 @@ export function ReviewSessionsHub({
           <div className="rounded-3xl border border-white/10 bg-black/40 p-5 shadow-2xl">
             <div className="flex items-center justify-between gap-3">
               <div>
-                <p className="text-xs uppercase tracking-[0.22em] text-white/40">Verlauf</p>
-                <h3 className="mt-2 text-lg font-semibold text-white">Zuletzt</h3>
+                <p className="text-xs uppercase tracking-[0.22em] text-white/40">{text('Verlauf', 'History')}</p>
+                <h3 className="mt-2 text-lg font-semibold text-white">{text('Zuletzt', 'Recent')}</h3>
               </div>
-              <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-white/70">{timelineEntries.length} Einträge</span>
+              <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-white/70">{text(`${timelineEntries.length} ${timelineEntries.length === 1 ? 'Eintrag' : 'Einträge'}`, `${timelineEntries.length} ${timelineEntries.length === 1 ? 'entry' : 'entries'}`)}</span>
             </div>
             <div className="mt-4 space-y-3">
               {timelineEntries.length ? timelineEntries.map((entry) => (
                 <button key={entry.id} type="button" onClick={() => setSelectedSessionId(entry.id)} className="flex w-full items-center gap-4 rounded-2xl border border-white/10 bg-black/25 px-4 py-3 text-left transition hover:border-white/20 hover:bg-white/[0.03]">
                   <div className="flex h-12 w-12 shrink-0 flex-col items-center justify-center rounded-2xl border border-white/10 bg-white/5 text-[11px] text-white/65">
-                    <span>{entry.day.split(',')[0]}</span>
-                    <span>{entry.day.split(',')[1] ?? ''}</span>
+                    <span>{entry.day.weekday}</span>
+                    <span>{entry.day.day}</span>
                   </div>
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
                       <p className="truncate text-sm font-medium text-white">{entry.title}</p>
-                      {entry.pinned ? <span className="rounded-full border border-emerald-400/20 bg-emerald-400/10 px-2 py-0.5 text-[10px] text-emerald-200">Angeheftet</span> : null}
-                      <span className={`rounded-full border px-2 py-0.5 text-[10px] ${getStatusClass(entry.status)}`}>{getStatusLabel(entry.status)}</span>
+                      {entry.pinned ? <span className="rounded-full border border-emerald-400/20 bg-emerald-400/10 px-2 py-0.5 text-[10px] text-emerald-200">{text('Angeheftet', 'Pinned')}</span> : null}
+                      <span className={`rounded-full border px-2 py-0.5 text-[10px] ${getStatusClass(entry.status)}`}>{getStatusLabel(entry.status, locale)}</span>
                     </div>
-                    <p className="mt-1 text-xs text-white/45">{entry.count} Trades · {entry.monetaryScopeKind === 'single' && entry.currency ? formatCurrency(entry.pnl, 0, entry.currency) : 'Gesperrt'}</p>
+                    <p className="mt-1 text-xs text-white/45">{entry.count} Trades · {entry.monetaryScopeKind === 'single' && entry.currency ? formatCurrency(entry.pnl, 0, entry.currency, locale) : text('Gesperrt', 'Unavailable')}</p>
                   </div>
                 </button>
-              )) : <div className="rounded-2xl border border-dashed border-white/10 bg-white/[0.02] p-4 text-sm text-white/45">Für diese Auswahl gibt es keine Verlaufseinträge.</div>}
+              )) : <div className="rounded-2xl border border-dashed border-white/10 bg-white/[0.02] p-4 text-sm text-white/45">{text('Für diese Auswahl gibt es keine Verlaufseinträge.', 'No recent reviews match these filters.')}</div>}
             </div>
           </div>
         </div>
@@ -494,109 +499,109 @@ export function ReviewSessionsHub({
         <div className="min-w-0 space-y-6">
           <details open className="group rounded-3xl border border-orange-400/15 bg-white/5 p-5 shadow-2xl">
             <summary className="flex cursor-pointer list-none items-center justify-between gap-3">
-              <span className="text-lg font-semibold text-white">Detail</span>
-              <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] uppercase tracking-[0.18em] text-white/65"><span className="group-open:hidden">Öffnen</span><span className="hidden group-open:inline">Schließen</span></span>
+              <span className="text-lg font-semibold text-white">{text('Detail', 'Details')}</span>
+              <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] uppercase tracking-[0.18em] text-white/65"><span className="group-open:hidden">{text('Öffnen', 'Show')}</span><span className="hidden group-open:inline">{text('Schließen', 'Hide')}</span></span>
             </summary>
             <div className="mt-4">
             {selectedSession ? (
               <>
                 <div className="flex flex-col gap-4">
                   <div className="min-w-0">
-                    <p className="text-xs uppercase tracking-[0.22em] text-white/40">Detail</p>
+                    <p className="text-xs uppercase tracking-[0.22em] text-white/40">{text('Detail', 'Details')}</p>
                     <h3 className="mt-2 break-words text-lg font-semibold text-white">{selectedSession.title}</h3>
                     <p className="mt-2 text-sm text-white/55">{selectedSession.focusDescription || '—'}</p>
                   </div>
                   <div className="flex flex-wrap gap-2">
                     <Link href={buildTradesHref(selectedSession, source)} className="rounded-full border border-emerald-400/20 bg-emerald-400/10 px-3 py-1.5 text-xs text-emerald-200 transition hover:border-emerald-300/35 hover:text-white">Trades</Link>
-                    <button type="button" onClick={handleDelete} disabled={isPending} className="rounded-full border border-red-400/20 bg-red-400/10 px-3 py-1.5 text-xs text-red-200 transition hover:border-red-300/35 hover:text-white disabled:cursor-not-allowed disabled:opacity-60">Löschen</button>
+                    <button type="button" onClick={handleDelete} disabled={isPending} className="rounded-full border border-red-400/20 bg-red-400/10 px-3 py-1.5 text-xs text-red-200 transition hover:border-red-300/35 hover:text-white disabled:cursor-not-allowed disabled:opacity-60">{text('Löschen', 'Delete')}</button>
                   </div>
                 </div>
 
                 <div className="mt-4 grid gap-3">
-                  <FilterField label="Titel">
+                  <FilterField label={text('Titel', 'Title')}>
                     <input value={title} onChange={(event: ChangeEvent<HTMLInputElement>) => setTitle(event.target.value)} className="mt-2 w-full rounded-2xl border border-orange-400/15 bg-orange-400/5 px-4 py-3 text-sm text-white outline-none placeholder:text-white/30" />
                   </FilterField>
-                  <FilterField label="Stichwörter">
-                    <input value={labelsInput} onChange={(event: ChangeEvent<HTMLInputElement>) => setLabelsInput(event.target.value)} placeholder="z. B. Wochenrückblick, FOMO" className="mt-2 w-full rounded-2xl border border-orange-400/15 bg-orange-400/5 px-4 py-3 text-sm text-white outline-none placeholder:text-white/30" />
+                  <FilterField label={text('Stichwörter', 'Keywords')}>
+                    <input value={labelsInput} onChange={(event: ChangeEvent<HTMLInputElement>) => setLabelsInput(event.target.value)} placeholder={text('z. B. Wochenrückblick, FOMO', 'e.g. weekly review, FOMO')} className="mt-2 w-full rounded-2xl border border-orange-400/15 bg-orange-400/5 px-4 py-3 text-sm text-white outline-none placeholder:text-white/30" />
                   </FilterField>
                   <label className="min-w-0 rounded-2xl border border-white/10 bg-black/25 p-3">
-                    <span className="text-[10px] uppercase tracking-[0.2em] text-white/35">Notiz</span>
+                    <span className="text-[10px] uppercase tracking-[0.2em] text-white/35">{text('Notiz', 'Note')}</span>
                     <textarea value={note} onChange={(event: ChangeEvent<HTMLTextAreaElement>) => setNote(event.target.value)} rows={4} className="mt-2 w-full rounded-2xl border border-orange-400/15 bg-orange-400/5 px-4 py-3 text-sm text-white outline-none placeholder:text-white/30" />
                   </label>
                   <div className="grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(min(100%,12rem),1fr))]">
-                    <FilterField label="Reviewstatus">
+                    <FilterField label={text('Reviewstatus', 'Review status')}>
                       <select value={sessionStatus} onChange={(event: ChangeEvent<HTMLSelectElement>) => setSessionStatus(event.target.value as ReviewSessionStatus)} className="mt-2 w-full rounded-2xl border border-orange-400/15 bg-orange-400/5 px-4 py-3 text-sm text-white outline-none">
-                        <option value="open">Offen</option>
-                        <option value="watch">Beobachten</option>
-                        <option value="closed">Geschlossen</option>
+                        <option value="open">{text('Offen', 'Open')}</option>
+                        <option value="watch">{text('Beobachten', 'Watching')}</option>
+                        <option value="closed">{text('Geschlossen', 'Closed')}</option>
                       </select>
                     </FilterField>
                     <div className="min-w-0 rounded-2xl border border-white/10 bg-black/25 p-3 text-sm text-white/70">
-                      <span className="text-[10px] uppercase tracking-[0.2em] text-white/35">Oben in der Sammlung</span>
-                      <button type="button" aria-pressed={isPinned} onClick={() => setIsPinned((current) => !current)} className={`mt-2 flex w-full items-center justify-center rounded-2xl border px-4 py-3 text-sm transition ${isPinned ? 'border-emerald-300/35 bg-emerald-400/15 text-emerald-100' : 'border-orange-400/15 bg-orange-400/5 text-white/70 hover:border-orange-300/30 hover:text-white'}`}>{isPinned ? 'Angeheftet' : 'Anheften'}</button>
+                      <span className="text-[10px] uppercase tracking-[0.2em] text-white/35">{text('Oben in der Sammlung', 'At the top of the collection')}</span>
+                      <button type="button" aria-pressed={isPinned} onClick={() => setIsPinned((current) => !current)} className={`mt-2 flex w-full items-center justify-center rounded-2xl border px-4 py-3 text-sm transition ${isPinned ? 'border-emerald-300/35 bg-emerald-400/15 text-emerald-100' : 'border-orange-400/15 bg-orange-400/5 text-white/70 hover:border-orange-300/30 hover:text-white'}`}>{isPinned ? text('Angeheftet', 'Pinned') : text('Anheften', 'Pin')}</button>
                     </div>
                   </div>
                 </div>
-                <p className="mt-3 text-xs leading-5 text-white/55">Der Reviewstatus beschreibt deine Nachbereitung, nicht den Abschluss der enthaltenen Trades.</p>
+                <p className="mt-3 text-xs leading-5 text-white/55">{text('Der Reviewstatus beschreibt deine Nachbereitung, nicht den Abschluss der enthaltenen Trades.', 'This status tracks your review progress. Trades have their own status.')}</p>
                 <div className="mt-4 flex flex-wrap items-center gap-3">
-                  <button type="button" onClick={handleSaveMeta} disabled={isPending} className="rounded-full border border-orange-400/25 bg-orange-400/10 px-4 py-2 text-sm text-orange-100 transition hover:border-orange-300/40 hover:text-white disabled:cursor-not-allowed disabled:opacity-50">Änderungen speichern</button>
-                  <span className="text-xs text-white/50">{status || 'Änderungen für diesen Review.'}</span>
+                  <button type="button" onClick={handleSaveMeta} disabled={isPending} className="rounded-full border border-orange-400/25 bg-orange-400/10 px-4 py-2 text-sm text-orange-100 transition hover:border-orange-300/40 hover:text-white disabled:cursor-not-allowed disabled:opacity-50">{text('Änderungen speichern', 'Save changes')}</button>
+                  <span className="text-xs text-white/50">{status || text('Änderungen für diesen Review.', 'Edit the details of this review.')}</span>
                 </div>
 
                 <div className="mt-5 grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(min(100%,8rem),1fr))]">
-                  <MetricTile label="Typ" value={getTypeLabel(selectedSession.sessionType)} tone="text-orange-200" />
-                  <MetricTile label="Reviewstatus" value={getStatusLabel(selectedSession.sessionStatus)} tone="text-white" />
-                  <MetricTile label="Zeitraum" value={getPeriodLabel(selectedSession.periodPreset)} tone="text-white" />
-                  <MetricTile label="Angeheftet" value={selectedSession.isPinned ? 'Ja' : 'Nein'} tone={selectedSession.isPinned ? 'text-emerald-300' : 'text-white/80'} />
-                  <MetricTile label="P&L" value={formatSessionPnL(selectedSession)} tone={selectedSession.monetaryScopeKind !== 'single' ? 'text-orange-100' : selectedSession.netPnL >= 0 ? 'text-emerald-300' : 'text-red-300'} />
-                  <MetricTile label="Ø R" value={formatRMultiple(getSavedReviewRValue(selectedSession))} tone="text-white/80" />
-                  <MetricTile label="Trefferquote" value={`${formatPlainNumber(selectedSession.winRate, 1)}%`} tone={selectedSession.winRate >= 50 ? 'text-emerald-300' : 'text-orange-200'} />
+                  <MetricTile label={text('Typ', 'Type')} value={getTypeLabel(selectedSession.sessionType, locale)} tone="text-orange-200" />
+                  <MetricTile label={text('Reviewstatus', 'Review status')} value={getStatusLabel(selectedSession.sessionStatus, locale)} tone="text-white" />
+                  <MetricTile label={text('Zeitraum', 'Period')} value={getPeriodLabel(selectedSession.periodPreset, locale)} tone="text-white" />
+                  <MetricTile label={text('Angeheftet', 'Pinned')} value={selectedSession.isPinned ? text('Ja', 'Yes') : text('Nein', 'No')} tone={selectedSession.isPinned ? 'text-emerald-300' : 'text-white/80'} />
+                  <MetricTile label="P&L" value={formatSessionPnL(selectedSession, locale)} tone={selectedSession.monetaryScopeKind !== 'single' ? 'text-orange-100' : selectedSession.netPnL >= 0 ? 'text-emerald-300' : 'text-red-300'} />
+                  <MetricTile label="Ø R" value={formatRMultiple(getSavedReviewRValue(selectedSession), 2, locale)} tone="text-white/80" />
+                  <MetricTile label={text('Trefferquote', 'Win rate')} value={`${formatPlainNumber(selectedSession.winRate, 1, locale)}%`} tone={selectedSession.winRate >= 50 ? 'text-emerald-300' : 'text-orange-200'} />
                   <MetricTile label="Trades" value={String(selectedSession.tradeCount)} tone="text-white" />
                 </div>
 
                 <div className="mt-4 rounded-2xl border border-white/10 bg-black/25 p-4">
-                  {hasVerifiedReviewCalculation(selectedSession) && !isCurrentReviewCalculation(selectedSession) ? <p className="text-sm text-orange-100">Früher gespeicherte Auswertung. Neue Reviews berücksichtigen nur abgeschlossene Trades; die bisherigen Werte bleiben erhalten.</p> : null}
+                  {hasVerifiedReviewCalculation(selectedSession) && !isCurrentReviewCalculation(selectedSession) ? <p className="text-sm text-orange-100">{text('Früher gespeicherte Auswertung. Neue Reviews berücksichtigen nur abgeschlossene Trades; die bisherigen Werte bleiben erhalten.', 'This review uses an earlier calculation. New reviews include only closed trades.')}</p> : null}
                   <p className="text-sm text-white/65">{hasVerifiedReviewCalculation(selectedSession)
-                    ? `${selectedSession.rCount} von ${selectedSession.tradeCount} Trades mit dokumentiertem R-Ergebnis.`
-                    : 'Die Berechnungsgrundlage dieses Reviews ist nicht vollständig dokumentiert. Aktuelle Kennzahlenvergleiche sind deshalb nicht verfügbar.'}</p>
+                    ? text(`${selectedSession.rCount} von ${selectedSession.tradeCount} Trades mit dokumentiertem R-Ergebnis.`, `R is recorded for ${selectedSession.rCount} of ${selectedSession.tradeCount} trades.`)
+                    : text('Die Berechnungsgrundlage dieses Reviews ist nicht vollständig dokumentiert. Aktuelle Kennzahlenvergleiche sind deshalb nicht verfügbar.', 'The calculation behind this saved review is incomplete. Its metrics are unavailable for comparison.')}</p>
                   {!hasVerifiedReviewCalculation(selectedSession) && selectedSession.legacyAverageR !== null && selectedSession.legacyAverageR !== undefined
-                    ? <p className="mt-2 text-xs text-white/50">Gespeicherter R-Wert: {formatRMultiple(selectedSession.legacyAverageR)}. Dieser Wert wird nicht als aktuelles dokumentiertes Ergebnis eingeordnet.</p> : null}
-                  <p className="mt-3 text-xs uppercase tracking-[0.22em] text-white/35">Stichwörter</p>
+                    ? <p className="mt-2 text-xs text-white/50">{text(`Gespeicherter R-Wert: ${formatRMultiple(selectedSession.legacyAverageR, 2, locale)}. Dieser Wert wird nicht als aktuelles dokumentiertes Ergebnis eingeordnet.`, `Previously saved R: ${formatRMultiple(selectedSession.legacyAverageR, 2, locale)}. It is excluded from current verified results.`)}</p> : null}
+                  <p className="mt-3 text-xs uppercase tracking-[0.22em] text-white/35">{text('Stichwörter', 'Keywords')}</p>
                   <div className="mt-3 flex flex-wrap gap-2">
-                    {selectedSession.labels.length ? selectedSession.labels.map((label) => <span key={`${selectedSession.id}-${label}`} className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-white/70">{label}</span>) : <span className="text-sm text-white/40">Keine Stichwörter.</span>}
+                    {selectedSession.labels.length ? selectedSession.labels.map((label) => <span key={`${selectedSession.id}-${label}`} className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-white/70">{label}</span>) : <span className="text-sm text-white/40">{text('Keine Stichwörter.', 'No keywords.')}</span>}
                   </div>
                 </div>
               </>
-            ) : <div className="rounded-2xl border border-dashed border-white/10 bg-white/[0.02] p-4 text-sm text-white/45">Wähle einen Review.</div>}
+            ) : <div className="rounded-2xl border border-dashed border-white/10 bg-white/[0.02] p-4 text-sm text-white/45">{text('Wähle einen Review.', 'Select a review.')}</div>}
             </div>
           </details>
 
           <details className="group rounded-3xl border border-white/10 bg-black/40 p-5 shadow-2xl">
             <summary className="flex cursor-pointer list-none items-center justify-between gap-3">
-              <span className="text-lg font-semibold text-white">Vergleich</span>
+              <span className="text-lg font-semibold text-white">{text('Vergleich', 'Compare')}</span>
               <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-white/70">{compareSessions.length}/2</span>
             </summary>
             <div className="mt-4">
             {comparison ? (
               <div className="mt-4 space-y-4">
                 <div className="grid gap-3 md:grid-cols-2">
-                  <CompareCard title={comparison.left.title} subtitle={`${getTypeLabel(comparison.left.sessionType)} · ${getStatusLabel(comparison.left.sessionStatus)}`} />
-                  <CompareCard title={comparison.right.title} subtitle={`${getTypeLabel(comparison.right.sessionType)} · ${getStatusLabel(comparison.right.sessionStatus)}`} />
+                  <CompareCard title={comparison.left.title} subtitle={`${getTypeLabel(comparison.left.sessionType, locale)} · ${getStatusLabel(comparison.left.sessionStatus, locale)}`} />
+                  <CompareCard title={comparison.right.title} subtitle={`${getTypeLabel(comparison.right.sessionType, locale)} · ${getStatusLabel(comparison.right.sessionStatus, locale)}`} />
                 </div>
                 <div className="grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(min(100%,8rem),1fr))]">
-                  <MetricTile label="Δ P&L" value={comparison.isMonetaryComparable ? formatCurrency(comparison.netPnLDelta, 0, comparison.left.currency) : 'Gesperrt'} tone={!comparison.isMonetaryComparable ? 'text-orange-100' : comparison.netPnLDelta >= 0 ? 'text-emerald-300' : 'text-red-300'} />
-                  <MetricTile label="Δ Ø R" value={formatRMultiple(comparison.averageRDelta)} tone={comparison.averageRDelta === null ? 'text-white/55' : comparison.averageRDelta >= 0 ? 'text-emerald-300' : 'text-red-300'} />
-                  <MetricTile label="Δ Trefferquote" value={comparison.winRateDelta === null ? 'Nicht vergleichbar' : `${formatPlainNumber(comparison.winRateDelta, 1)} pp`} tone={comparison.winRateDelta === null ? 'text-white/55' : comparison.winRateDelta >= 0 ? 'text-emerald-300' : 'text-red-300'} />
-                  <MetricTile label="Δ Trades" value={String(comparison.tradeCountDelta)} tone={comparison.tradeCountDelta >= 0 ? 'text-emerald-300' : 'text-red-300'} />
+                  <MetricTile label="Δ P&L" value={comparison.isMonetaryComparable ? formatCurrency(comparison.netPnLDelta, 0, comparison.left.currency, locale) : text('Gesperrt', 'Unavailable')} tone={!comparison.isMonetaryComparable ? 'text-orange-100' : comparison.netPnLDelta >= 0 ? 'text-emerald-300' : 'text-red-300'} />
+                  <MetricTile label="Δ Ø R" value={formatRMultiple(comparison.averageRDelta, 2, locale)} tone={comparison.averageRDelta === null ? 'text-white/55' : comparison.averageRDelta >= 0 ? 'text-emerald-300' : 'text-red-300'} />
+                  <MetricTile label={text('Δ Trefferquote', 'Change in win rate')} value={comparison.winRateDelta === null ? text('Nicht vergleichbar', 'Not comparable') : text(`${formatPlainNumber(comparison.winRateDelta, 1, locale)} Prozentpunkte`, `${formatPlainNumber(comparison.winRateDelta, 1, locale)} percentage points`)} tone={comparison.winRateDelta === null ? 'text-white/55' : comparison.winRateDelta >= 0 ? 'text-emerald-300' : 'text-red-300'} />
+                  <MetricTile label={text('Δ Trades', 'Change in trade count')} value={String(comparison.tradeCountDelta)} tone={comparison.tradeCountDelta >= 0 ? 'text-emerald-300' : 'text-red-300'} />
                 </div>
                 <div className="grid gap-3 md:grid-cols-3">
-                  <TagBucket title="Gemeinsame Tags" items={comparison.sharedTags} emptyLabel="Keine Überschneidung" />
-                  <TagBucket title={`Nur ${comparison.left.title}`} items={comparison.uniqueLeftTags} emptyLabel="Keine exklusiven Tags" />
-                  <TagBucket title={`Nur ${comparison.right.title}`} items={comparison.uniqueRightTags} emptyLabel="Keine exklusiven Tags" />
+                  <TagBucket title={text('Gemeinsame Tags', 'Shared tags')} items={comparison.sharedTags} emptyLabel={text('Keine Überschneidung', 'No shared tags')} />
+                  <TagBucket title={text(`Nur ${comparison.left.title}`, `Only in ${comparison.left.title}`)} items={comparison.uniqueLeftTags} emptyLabel={text('Keine exklusiven Tags', 'No unique tags')} />
+                  <TagBucket title={text(`Nur ${comparison.right.title}`, `Only in ${comparison.right.title}`)} items={comparison.uniqueRightTags} emptyLabel={text('Keine exklusiven Tags', 'No unique tags')} />
                 </div>
                 <div className="rounded-2xl border border-white/10 bg-black/25 p-4 text-sm text-white/65">Gemeinsame Trades: <span className="text-white">{comparison.sharedTrades.length}</span> · Nur links: <span className="text-white">{comparison.onlyLeftTrades}</span> · Nur rechts: <span className="text-white">{comparison.onlyRightTrades}</span></div>
               </div>
-            ) : <div className="mt-4 rounded-2xl border border-dashed border-white/10 bg-white/[0.02] p-4 text-sm text-white/45">Wähle zwei Reviews für den Vergleich.</div>}
+            ) : <div className="mt-4 rounded-2xl border border-dashed border-white/10 bg-white/[0.02] p-4 text-sm text-white/45">{text('Wähle zwei Reviews für den Vergleich.', 'Select two reviews to compare.')}</div>}
             </div>
           </details>
         </div>

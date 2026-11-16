@@ -1,32 +1,27 @@
 'use client'
 
+import { useJournalLocale } from '@/components/layout/journal-locale-provider'
+import { journalText, type JournalLocale } from '@/lib/i18n/journal'
 import { getTradeRValue, formatTradeRValue } from '@/lib/utils/trade-r'
 import { useMemo, type ReactNode } from 'react'
 import { SetupImageLightbox } from '@/components/setups/setup-image-lightbox'
 import type { SetupDetail } from '@/lib/types/setup'
 import type { Trade } from '@/lib/types/trade'
 import type { SetupPerformanceRow } from '@/lib/utils/setup-analytics'
+import { getSetupImageRoleLabel } from '@/components/setups/setup-studio-types'
 import { getSetupPerformanceDisplay } from '@/lib/utils/setup-performance-display'
 import { formatMoney } from '@/lib/utils/currency'
 
-function getMediaRoleLabel(role?: string | null) {
-  switch (role) {
-    case 'best-practice':
-      return 'Sauber'
-    case 'mistake':
-      return 'Fehler'
-    default:
-      return 'Beispiel'
-  }
-}
-
-function formatPnL(trade: Trade) {
-  if (trade.netPnL === undefined || trade.netPnL === null) return 'Offen'
-  if (trade.accountCurrencyStatus === 'unsupported') return 'Währung nicht unterstützt'
-  return formatMoney(trade.netPnL, trade.accountCurrency)
+function formatPnL(trade: Trade, locale: JournalLocale) {
+  const text = journalText(locale)
+  if (trade.netPnL === undefined || trade.netPnL === null) return text('Offen', 'Open')
+  if (trade.accountCurrencyStatus === 'unsupported') return text('Währung nicht unterstützt', 'Unsupported currency')
+  return formatMoney(trade.netPnL, trade.accountCurrency, 0, locale)
 }
 export function SetupDetailCard({ title, data, linkedTrades, performance }: { title: string; data?: SetupDetail; linkedTrades: Trade[]; performance?: SetupPerformanceRow }) {
-  const display = getSetupPerformanceDisplay(performance)
+  const locale = useJournalLocale()
+  const text = journalText(locale)
+  const display = getSetupPerformanceDisplay(performance, locale)
   const imageItems = useMemo(
     () =>
       data?.exampleImageItems?.length
@@ -47,46 +42,46 @@ export function SetupDetailCard({ title, data, linkedTrades, performance }: { ti
     <section className="rounded-3xl border border-[#221e1a] bg-[#0d0d0d]/95 p-5 shadow-[0_20px_60px_rgba(0,0,0,0.42)] xl:p-6">
       <div className="mb-5 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
         <div className="max-w-3xl">
-          <p className="text-xs uppercase tracking-[0.25em] text-[#998a72]">Setup-Regel</p>
+          <p className="text-xs uppercase tracking-[0.25em] text-[#998a72]">{text('Setup-Regel', 'Setup rules')}</p>
           <h2 className="eq-display eq-text-gradient mt-3 text-[1.9rem] leading-none">{title}</h2>
-          <p className="mt-3 text-sm leading-6 text-white/55">{data?.playbook || 'Noch keine klare Setup-Idee hinterlegt.'}</p>
+          <p className="mt-3 text-sm leading-6 text-white/55">{data?.playbook || text('Noch keine klare Setup-Idee hinterlegt.', 'No setup idea recorded yet.')}</p>
         </div>
         <div className="flex flex-wrap gap-2">
           <Pill>{data?.category ?? 'Setup'}</Pill>
-          <Pill>{linkedTrades.length} Trades</Pill>
+          <Pill>{linkedTrades.length} {linkedTrades.length === 1 ? 'Trade' : 'Trades'}</Pill>
         </div>
       </div>
 
       <div className="grid gap-4 xl:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]">
         <div className="space-y-4">
-          <RuleSection eyebrow="Chart" title="Bild">
+          <RuleSection eyebrow="Chart" title={text('Bild', 'Image')}>
             <div className="overflow-hidden rounded-2xl border border-[#c8823a]/20 bg-gradient-to-br from-[#c8823a]/10 to-transparent p-3">
               {data?.coverImage ? (
-                <SetupImageLightbox
+                <SetupImageLightbox locale={locale}
                   src={data.coverImage}
-                  alt={`${title} Hauptbeispiel`}
+                  alt={text(`${title} Hauptbeispiel`, `${title} cover image`)}
                   badge="Cover"
                   caption={data.playbook ?? null}
-                  hint="Großansicht"
+                  hint={text('Großansicht', 'Enlarge')}
                   imageClassName="rounded-lg"
                 />
               ) : (
                 <div className="flex aspect-video w-full items-center justify-center rounded-lg bg-black/30 text-sm text-[#998a72]">
-                  Kein Beispielbild hinterlegt
+                  {text('Kein Beispielbild hinterlegt', 'No example image yet')}
                 </div>
               )}
             </div>
           </RuleSection>
 
-          <RuleSection eyebrow="Leistung" title="Stand">
+          <RuleSection eyebrow={text('Leistung', 'Performance')} title={text('Stand', 'Overview')}>
             <div className="grid gap-3 sm:grid-cols-3">
               <SignalMetric label="Trades" value={String(linkedTrades.length)} />
               <SignalMetric label="PF" value={display.profitFactor} />
-              <SignalMetric label="Risiko" value={display.riskCoverage} />
+              <SignalMetric label={text('Risiko', 'Risk')} value={display.riskCoverage} />
             </div>
             <div className="mt-3 grid gap-3 md:grid-cols-2">
-              <InfoBlock title="Trägt">{performance?.bestSession && performance.bestSession !== '—' ? `${performance.bestSession} · ${performance.bestMarket}` : 'Mehr Daten nötig.'}</InfoBlock>
-              <InfoBlock title="Prüfen" tone={performance?.status === 'pause' || performance?.tone === 'red' ? 'danger' : 'neutral'}>{performance?.weakestSession && performance.weakestSession !== '—' ? `${performance.weakestSession} · ${performance.weakestMarket}` : 'Für einen Vergleich fehlen noch auswertbare Daten.'}</InfoBlock>
+              <InfoBlock title={text('Trägt', 'What worked')}>{performance?.bestSession && performance.bestSession !== '—' ? `${performance.bestSession} · ${performance.bestMarket}` : text('Mehr Daten nötig.', 'More trades needed.')}</InfoBlock>
+              <InfoBlock title={text('Prüfen', 'What to review')} tone={performance?.status === 'pause' || performance?.tone === 'red' ? 'danger' : 'neutral'}>{performance?.weakestSession && performance.weakestSession !== '—' ? `${performance.weakestSession} · ${performance.weakestMarket}` : text('Für einen Vergleich fehlen noch auswertbare Daten.', 'More usable trade results are needed to compare.')}</InfoBlock>
             </div>
             <p className="mt-3 rounded-2xl border border-[#c8823a]/18 bg-[#c8823a]/8 px-4 py-3 text-sm leading-6 text-[#f0a855]">
               {display.summary}
@@ -95,50 +90,51 @@ export function SetupDetailCard({ title, data, linkedTrades, performance }: { ti
         </div>
 
         <div className="space-y-4">
-          <RuleSection eyebrow="Regel" title="Handeln">
+          <RuleSection eyebrow={text('Regel', 'Rules')} title={text('Handeln', 'Trading rules')}>
             <div className="grid gap-3 md:grid-cols-2">
-              <InfoBlock title="Entry">{data?.entry || 'Entry-Regel fehlt.'}</InfoBlock>
-              <InfoBlock title="Management">{data?.exit || 'Management-Regel fehlt.'}</InfoBlock>
-              <InfoBlock title="Invalidierung" tone="danger">{data?.invalidation || 'Stop-Regel fehlt.'}</InfoBlock>
-              <InfoBlock title="Finger weg" tone="danger">{mistakes[0] || 'Fehlerquelle fehlt.'}</InfoBlock>
+              <InfoBlock title="Entry">{data?.entry || text('Entry-Regel fehlt.', 'No entry rule yet.')}</InfoBlock>
+              <InfoBlock title="Management">{data?.exit || text('Management-Regel fehlt.', 'No exit or management rule yet.')}</InfoBlock>
+              <InfoBlock title={text('Invalidierung', 'Invalidation')} tone="danger">{data?.invalidation || text('Stop-Regel fehlt.', 'No invalidation rule yet.')}</InfoBlock>
+              <InfoBlock title={text('Finger weg', 'When to skip')} tone="danger">{mistakes[0] || text('Fehlerquelle fehlt.', 'No common mistake recorded.')}</InfoBlock>
             </div>
           </RuleSection>
 
-          <RuleSection eyebrow="Ausführung" title="Check">
+          <RuleSection eyebrow={text('Ausführung', 'Execution')} title={text('Check', 'Checklist')}>
             <div className="grid gap-3 md:grid-cols-2">
-              <ListBlock title="Muss sitzen" items={checklist} empty="Keine Checkliste." />
-              <ListBlock title="Fehlerquelle" items={mistakes} empty="Keine Fehler gesammelt." danger />
+              <ListBlock title={text('Muss sitzen', 'Before entering')} items={checklist} empty={text('Keine Checkliste.', 'No checklist yet.')} />
+              <ListBlock title={text('Fehlerquelle', 'Common mistakes')} items={mistakes} empty={text('Keine Fehler gesammelt.', 'No mistakes recorded yet.')} danger />
             </div>
           </RuleSection>
         </div>
       </div>
 
       <div className="mt-4 grid gap-4 xl:grid-cols-2">
-        <RuleSection eyebrow="Beispiele" title="Charts">
+        <RuleSection eyebrow={text('Beispiele', 'Examples')} title="Charts">
           {imageItems.length ? (
             <div className="grid gap-3 md:grid-cols-2">
               {imageItems.slice(0, 4).map((item, idx) => (
-                <div key={`${item.url}-${idx}`} className="overflow-hidden rounded-2xl border border-[#221e1a] bg-[#1f1c1a]/55">
-                  <SetupImageLightbox
+                <figure key={`${item.url}-${idx}`} className="overflow-hidden rounded-2xl border border-[#221e1a] bg-[#1f1c1a]/55">
+                  <SetupImageLightbox locale={locale}
                     src={item.url}
-                    alt={`${title} Beispiel ${idx + 1}`}
-                    badge={getMediaRoleLabel(item.mediaRole)}
+                    alt={text(`${title} Beispiel ${idx + 1}`, `${title} example ${idx + 1}`)}
+                    badge={getSetupImageRoleLabel(item.mediaRole, locale)}
                     caption={item.caption ?? null}
-                    hint="Großansicht"
+                    hint={text('Großansicht', 'Enlarge')}
                   />
                   <div className="flex items-center justify-between gap-2 p-3 text-[10px] uppercase tracking-[0.18em] text-[#998a72]">
-                    <span>{getMediaRoleLabel(item.mediaRole)}</span>
+                    <span>{getSetupImageRoleLabel(item.mediaRole, locale)}</span>
                     {item.isCover ? <span className="text-[#f0a855]">Cover</span> : null}
                   </div>
-                </div>
+                  {item.caption ? <figcaption className="break-words px-3 pb-3 text-xs text-white/70">{item.caption}</figcaption> : null}
+                </figure>
               ))}
             </div>
           ) : (
-            <EmptyState text="Keine Bilder." />
+            <EmptyState text={text('Keine Bilder.', 'No images yet.')} />
           )}
         </RuleSection>
 
-        <RuleSection eyebrow="Historie" title="Verknüpfte Trades">
+        <RuleSection eyebrow={text('Historie', 'History')} title={text('Verknüpfte Trades', 'Linked trades')}>
           <div className="space-y-2">
             {latestTrades.length ? (
               latestTrades.map((trade) => (
@@ -150,15 +146,15 @@ export function SetupDetailCard({ title, data, linkedTrades, performance }: { ti
                     </div>
                     <div className="text-right">
                       <span className={trade.netPnL === undefined || trade.netPnL === null ? 'text-[#998a72]' : trade.netPnL >= 0 ? 'text-[#f0a855]' : 'text-red-300'}>
-                        {formatPnL(trade)}
+                        {formatPnL(trade, locale)}
                       </span>
-                      <p className="mt-1 text-[11px] text-white/35">{formatTradeRValue(getTradeRValue(trade), trade.rSource ?? 'missing')}</p>
+                      <p className="mt-1 text-[11px] text-white/35">{formatTradeRValue(getTradeRValue(trade), trade.rSource ?? 'missing', locale)}</p>
                     </div>
                   </div>
                 </div>
               ))
             ) : (
-              <EmptyState text="Keine verknüpften Trades." />
+              <EmptyState text={text('Keine verknüpften Trades.', 'No linked trades.')} />
             )}
           </div>
         </RuleSection>

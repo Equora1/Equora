@@ -1,3 +1,4 @@
+import { journalNumberLocale, journalText, type JournalLocale } from '@/lib/i18n/journal'
 import type { DailyNoteRow, TradeMediaRow, TradeRow } from '@/lib/types/db'
 import type { LinkedSetupReference } from '@/lib/utils/trade-setup-links'
 import type { Trade, TradeDetail } from '@/lib/types/trade'
@@ -161,7 +162,7 @@ export function mapTradeRowToTrade(row: TradeRow, mediaRows: TradeMediaRow[] = [
     costProfile: metrics.costProfile,
     brokerProfile: metrics.brokerProfile,
     accountTemplate: (row.account_template ?? 'manual') as Trade['accountTemplate'],
-    accountLabel: getTradeAccountLabel({ accountLabel: row.account_label, accountTemplate: (row.account_template ?? 'manual') as Trade['accountTemplate'] }),
+    accountLabel: row.account_label ?? null,
     marketTemplate: (row.market_template ?? 'manual') as Trade['marketTemplate'],
     accountCurrency: metrics.accountCurrency,
     accountCurrencyStatus: getTradeCurrencyStatus(row.account_currency),
@@ -199,9 +200,17 @@ export function mapTradeRowToTrade(row: TradeRow, mediaRows: TradeMediaRow[] = [
   }
 }
 
-export function mapTradeRowToTradeDetail(row: TradeRow, mediaRows: TradeMediaRow[] = [], linkedSetup: LinkedSetupReference | null = null): TradeDetail {
+export function mapTradeRowToTradeDetail(
+  row: TradeRow,
+  mediaRows: TradeMediaRow[] = [],
+  linkedSetup: LinkedSetupReference | null = null,
+  locale: JournalLocale = 'de',
+): TradeDetail {
+  const text = journalText(locale)
   // Keep the stored unit for display: normalization must not hide unsupported currencies.
   const displayCurrency = row.account_currency
+  const money = (value: number, digits = 0) => formatCurrency(value, digits, displayCurrency, locale)
+  const number = (value: number, digits = 2) => formatPlainNumber(value, digits, locale)
   const partialExits = Array.isArray(row.partial_exits) ? row.partial_exits : []
   const metrics = computeTradeMetrics({
     pnl: row.net_pnl,
@@ -239,29 +248,31 @@ export function mapTradeRowToTradeDetail(row: TradeRow, mediaRows: TradeMediaRow
   const captureStatus = normalizeTradeCaptureStatus(row.capture_status)
   const captureResult = normalizeTradeCaptureResult(row.capture_result) ?? inferTradeCaptureResultFromPnL(metrics.netPnL)
 
+  const costProfile = getCostProfileLabel(metrics.costProfile, locale)
+  const brokerProfile = getBrokerProfileLabel(metrics.brokerProfile, locale)
   const costParts = [
-    `${getCostProfileLabel(metrics.costProfile)} Profil`,
-    `Broker ${getBrokerProfileLabel(metrics.brokerProfile)}`,
-    metrics.fees !== null ? `Kommission ${formatCurrency(metrics.fees, 0, displayCurrency)}` : null,
-    metrics.exchangeFees !== null ? `Börse ${formatCurrency(metrics.exchangeFees, 0, displayCurrency)}` : null,
-    metrics.fundingFees !== null ? `Funding ${formatCurrency(metrics.fundingFees, 0, displayCurrency)}` : null,
-    metrics.fundingRateBps !== null ? `Funding-Rate ${formatPlainNumber(metrics.fundingRateBps, 2)} bps` : null,
-    metrics.spreadCost !== null ? `Spread ${formatCurrency(metrics.spreadCost, 0, displayCurrency)}` : null,
-    metrics.slippage !== null ? `Slippage ${formatCurrency(metrics.slippage, 0, displayCurrency)}` : null,
-    metrics.totalCosts ? `Gesamt ${formatCurrency(metrics.totalCosts, 0, displayCurrency)}` : `Gesamt ${formatCurrency(0, 0, displayCurrency)}`,
+    `${costProfile} ${text('Profil', 'profile')}`,
+    `Broker ${brokerProfile}`,
+    metrics.fees !== null ? `${text('Kommission', 'Commission')} ${money(metrics.fees)}` : null,
+    metrics.exchangeFees !== null ? `${text('Börse', 'Exchange fees')} ${money(metrics.exchangeFees)}` : null,
+    metrics.fundingFees !== null ? `Funding ${money(metrics.fundingFees)}` : null,
+    metrics.fundingRateBps !== null ? `${text('Funding-Rate', 'Funding rate')} ${number(metrics.fundingRateBps, 2)} bps` : null,
+    metrics.spreadCost !== null ? `Spread ${money(metrics.spreadCost)}` : null,
+    metrics.slippage !== null ? `Slippage ${money(metrics.slippage)}` : null,
+    `${text('Gesamt', 'Total')} ${money(metrics.totalCosts || 0)}`,
   ].filter(Boolean)
 
   const sizeParts = [
-    metrics.positionSize !== null ? `Menge ${formatPlainNumber(metrics.positionSize, 2)}` : null,
-    metrics.pointValue !== null ? `Punktwert ${formatPlainNumber(metrics.pointValue, 2)}` : null,
+    metrics.positionSize !== null ? `${text('Menge', 'Quantity')} ${number(metrics.positionSize, 2)}` : null,
+    metrics.pointValue !== null ? `${text('Punktwert', 'Point value')} ${number(metrics.pointValue, 2)}` : null,
     metrics.quoteAsset ? `Quote ${metrics.quoteAsset}` : null,
   ].filter(Boolean)
 
   const marginParts = [
-    metrics.marginUsed !== null ? `Margin ${formatCurrency(metrics.marginUsed, 2, displayCurrency)}` : null,
-    metrics.leverage !== null ? `Hebel ${formatPlainNumber(metrics.leverage, 2)}x` : null,
-    metrics.exposure !== null ? `Positionswert ${formatCurrency(metrics.exposure, 2, displayCurrency)}` : null,
-    metrics.accountSize !== null ? `Konto ${formatCurrency(metrics.accountSize, 2, displayCurrency)}` : null,
+    metrics.marginUsed !== null ? `Margin ${money(metrics.marginUsed, 2)}` : null,
+    metrics.leverage !== null ? `${text('Hebel', 'Leverage')} ${number(metrics.leverage, 2)}x` : null,
+    metrics.exposure !== null ? `${text('Positionswert', 'Position value')} ${money(metrics.exposure, 2)}` : null,
+    metrics.accountSize !== null ? `${text('Konto', 'Account')} ${money(metrics.accountSize, 2)}` : null,
   ].filter(Boolean)
 
   const screenshotUrls = getTradeScreenshotUrls(row, mediaRows)
@@ -271,26 +282,25 @@ export function mapTradeRowToTradeDetail(row: TradeRow, mediaRows: TradeMediaRow
   const resolvedSession = row.session?.trim() || deriveTradeSessionLabel(tradeOccurredAt)
   const resolvedKillZone = deriveTradeKillZoneLabel(tradeOccurredAt)
   const partialSizePlan = getPartialExitSizePlan({ positionSize: metrics.positionSize, partialExits, exit: row.exit })
-  const partialExitsLabel = partialPlan.count ? formatPartialExitSummary(partialExits) : null
+  const partialExitsLabel = partialPlan.count ? formatPartialExitSummary(partialExits, locale) : null
   const hasOpenRemainder = partialPlan.hasOpenRemainder
+  const recordedExit = parseTradingNumber(row.exit)
 
   return {
     title: `${row.market} ${linkedSetup?.title ?? row.setup}`,
-    date: `${formatTradeDateLabel(tradeOccurredAt)}${resolvedSession ? ` · ${resolvedSession}` : ''}`,
-    result: ambiguousPartialExit ? 'R-Zuordnung prüfen' : formatTradeRValue(metrics.rValue, metrics.rSource),
+    date: `${formatTradeDateLabel(tradeOccurredAt, locale)}${resolvedSession ? ` · ${resolvedSession}` : ''}`,
+    result: ambiguousPartialExit ? text('R-Zuordnung prüfen', 'Check how R was determined') : formatTradeRValue(metrics.rValue, metrics.rSource, locale),
     pnl:
       metrics.netPnL !== null
-        ? `${formatCurrency(metrics.netPnL, 0, displayCurrency)}${hasOpenRemainder ? ' bisher realisiert · Restposition offen' : ''}`
+        ? `${money(metrics.netPnL)}${hasOpenRemainder ? text(' bisher realisiert · Restposition offen', ' realised so far · remaining position open') : ''}`
         : ambiguousPartialExit
-          ? 'Ergebniszuordnung prüfen'
-          : captureResult
-          ? `${getTradeCaptureResultLabel(captureResult)} · Schnellerfassung`
-          : 'Kein P&L hinterlegt',
+          ? text('Ergebniszuordnung prüfen', 'Check how the result was determined')
+          : text('Kein P&L hinterlegt', 'No P&L recorded'),
     emotion: row.emotion ?? '—',
     setup: linkedSetup?.title ?? row.setup,
     quality: (row.quality ?? 'B-Setup') as TradeDetail['quality'],
     ruleCheck: row.rule_check ?? '—',
-    lesson: importMeta.cleanNotes || (captureStatus === 'incomplete' ? 'Schnellerfassung gespeichert. Ergänze später Entry, Exit, Größe und belastbare P&L.' : 'Noch keine Notiz hinterlegt.'),
+    lesson: importMeta.cleanNotes || (captureStatus === 'incomplete' ? text('Schnellerfassung gespeichert. Ergänze später Entry, Exit, Größe und belastbare P&L.', 'Quick entry saved. Add the entry, exit, size and P&L later.') : text('Noch keine Notiz hinterlegt.', 'No note recorded yet.')),
     reviewRepeatability: row.review_repeatability ?? '—',
     reviewState: row.review_state ?? '—',
     reviewLesson: row.review_lesson ?? '—',
@@ -307,74 +317,81 @@ export function mapTradeRowToTradeDetail(row: TradeRow, mediaRows: TradeMediaRow
           ? 'Short'
           : 'Neutral',
     riskReward:
-      metrics.riskRewardRatio !== null ? `${formatPlainNumber(metrics.riskRewardRatio)} : 1 geplant` : 'Kein sauberes CRV ableitbar',
+      metrics.riskRewardRatio !== null ? `${number(metrics.riskRewardRatio)} : 1 ${text('geplant', 'planned')}` : text('Kein sauberes CRV ableitbar', 'Risk/reward ratio unavailable'),
     riskAmount:
-      metrics.riskAmount !== null ? formatCurrency(metrics.riskAmount, 0, displayCurrency) : 'Nicht sicher berechenbar',
+      metrics.riskAmount !== null ? money(metrics.riskAmount) : text('Nicht sicher berechenbar', 'Cannot be calculated reliably'),
     riskPlanLabel:
       metrics.riskPercent !== null
-        ? `${formatPlainNumber(metrics.riskPercent, 2)}% geplant${metrics.plannedRiskAmount !== null ? ` · ${formatCurrency(metrics.plannedRiskAmount, 0, displayCurrency)}` : ''}`
+        ? `${number(metrics.riskPercent, 2)}% ${text('geplant', 'planned')}${metrics.plannedRiskAmount !== null ? ` · ${money(metrics.plannedRiskAmount)}` : ''}`
         : metrics.accountSize !== null
-          ? 'Kontogröße da, aber noch kein geplantes Risiko gesetzt'
-          : 'Kontogröße optional. Mit Konto + Risiko % wird der Plan sichtbar',
+          ? text('Kontogröße da, aber noch kein geplantes Risiko gesetzt', 'Account size is available. Planned risk is missing.')
+          : text('Kontogröße optional. Mit Konto + Risiko % wird der Plan sichtbar', 'Add account size and risk percentage to see the planned risk.'),
     accountRiskLabel:
       metrics.actualRiskPercent !== null
-        ? `${formatPlainNumber(metrics.actualRiskPercent, 2)}% vom Konto`
+        ? `${number(metrics.actualRiskPercent, 2)}% ${text('vom Konto', 'of account value')}`
         : metrics.accountSize !== null
-          ? 'Kontogröße da, aber Stop-Risiko noch nicht sauber ableitbar'
-          : 'Ohne Kontogröße bleibt nur das absolute Stop-Risiko sichtbar',
+          ? text('Kontogröße da, aber Stop-Risiko noch nicht sauber ableitbar', 'Account size is available. Stop risk cannot be calculated yet.')
+          : text('Ohne Kontogröße bleibt nur das absolute Stop-Risiko sichtbar', 'Add account size to see stop risk as a percentage.'),
     priceRisk:
-      metrics.priceRisk !== null ? formatPlainNumber(metrics.priceRisk, 4) : 'Nicht ableitbar',
+      metrics.priceRisk !== null ? number(metrics.priceRisk, 4) : text('Nicht ableitbar', 'Unavailable'),
     rSourceLabel:
       metrics.rSource === 'manual'
-        ? 'R manuell hinterlegt'
+        ? text('R manuell hinterlegt', 'R entered manually')
         : metrics.rSource === 'realized_partial'
-          ? 'R aus bereits realisiertem P&L und initialem Stop-Risiko abgeleitet'
+          ? text('R aus bereits realisiertem P&L und initialem Stop-Risiko abgeleitet', 'R calculated from P&L realised so far and initial stop risk')
           : metrics.rSource === 'realized'
-            ? 'R aus realisiertem P&L und initialem Stop-Risiko abgeleitet'
+            ? text('R aus realisiertem P&L und initialem Stop-Risiko abgeleitet', 'R calculated from realised P&L and initial stop risk')
             : metrics.rSource === 'planned'
-              ? 'R aus TP grob abgeleitet'
-              : 'Kein R-Wert vorhanden',
+              ? text('R aus TP grob abgeleitet', 'Estimated R based on take profit')
+              : text('Kein R-Wert vorhanden', 'No R value available'),
     pnlSourceLabel:
       ambiguousPartialExit
-        ? 'Bei diesen Teilverkäufen ist die Art des gespeicherten Ausstiegspreises nicht nachweisbar. Automatische Abschlusswerte und R werden deshalb nicht ausgewertet. Ein manuell hinterlegtes Ergebnis bleibt sichtbar. Prüfe die Preise über „Bearbeiten“ anhand deiner Unterlagen.'
+        ? text('Bei diesen Teilverkäufen ist die Art des gespeicherten Ausstiegspreises nicht nachweisbar. Automatische Abschlusswerte und R werden deshalb nicht ausgewertet. Ein manuell hinterlegtes Ergebnis bleibt sichtbar. Prüfe die Preise über „Bearbeiten“ anhand deiner Unterlagen.', 'The recorded exit price type for these partial exits is unclear. Automatic closing P&L and R are unavailable. Manually entered P&L is still shown. Use Edit to check the prices against your records.')
         : captureStatus === 'incomplete'
-        ? 'Schnellerfassung ohne belastbare P&L. Öffne „Bearbeiten“, um die Angaben zu ergänzen.'
+        ? text('Schnellerfassung ohne belastbare P&L. Öffne „Bearbeiten“, um die Angaben zu ergänzen.', 'Quick entry without reliable P&L. Use Edit to complete the trade.')
         : metrics.pnlSource === 'manual'
-          ? 'P&L manuell hinterlegt'
+          ? text('P&L manuell hinterlegt', 'P&L entered manually')
           : metrics.pnlSource === 'override'
-            ? `Auto-Netto ${metrics.autoNetPnL !== null ? formatCurrency(metrics.autoNetPnL, 0, displayCurrency) : '—'} wurde manuell überschrieben`
+            ? text(
+              `Auto-Netto ${metrics.autoNetPnL !== null ? money(metrics.autoNetPnL) : '—'} wurde manuell überschrieben`,
+              `Automatic net P&L (${metrics.autoNetPnL !== null ? money(metrics.autoNetPnL) : '—'}) was overridden manually.`,
+            )
             : metrics.pnlSource === 'derived'
               ? hasOpenRemainder
-                ? 'P&L bisher aus erfassten Teilverkäufen, Positionsgröße und Kosten berechnet'
-                : 'P&L aus Einstieg, Ausstieg, Positionsgröße und Kosten berechnet'
-              : 'P&L noch nicht belastbar berechenbar',
-    pnlModeLabel: getPnLModeLabel(metrics.pnlMode),
-    instrumentLabel: getInstrumentLabel(metrics.instrumentType),
+                ? text('P&L bisher aus erfassten Teilverkäufen, Positionsgröße und Kosten berechnet', 'P&L so far is calculated from recorded partial exits, position size and costs')
+                : text('P&L aus Einstieg, Ausstieg, Positionsgröße und Kosten berechnet', 'P&L calculated from entry, exit, position size and costs')
+              : text('P&L noch nicht belastbar berechenbar', 'P&L cannot be calculated reliably yet'),
+    pnlModeLabel: getPnLModeLabel(metrics.pnlMode, locale),
+    instrumentLabel: getInstrumentLabel(metrics.instrumentType, locale),
     costLabel: costParts.join(' · '),
-    costProfileLabel: `Kostenprofil: ${getCostProfileLabel(metrics.costProfile)}`,
-    brokerProfileLabel: `Brokerprofil: ${getBrokerProfileLabel(metrics.brokerProfile)}`,
-    accountTemplateLabel: `Kontovorlage: ${getAccountTemplateLabel(row.account_template)}`,
-    accountLabel: getTradeAccountLabel({ accountLabel: row.account_label, accountTemplate: (row.account_template ?? 'manual') as Trade['accountTemplate'] }),
-    marketTemplateLabel: `Marktvorlage: ${getMarketTemplateLabel(row.market_template)}`,
-    userCostProfileLabel: row.user_cost_profile_id ? 'Eigenes Nutzer-Kostenprofil aktiv' : undefined,
-    sizeLabel: sizeParts.length ? sizeParts.join(' · ') : 'Keine Positionsgröße oder Punktwertangabe hinterlegt',
-    marginLabel: marginParts.length ? marginParts.join(' · ') : 'Noch keine Margin-/Hebelbasis hinterlegt',
+    costProfileLabel: `${text('Kostenprofil', 'Cost profile')}: ${costProfile}`,
+    brokerProfileLabel: `${text('Brokerprofil', 'Broker profile')}: ${brokerProfile}`,
+    accountTemplateLabel: `${text('Kontovorlage', 'Account template')}: ${getAccountTemplateLabel(row.account_template, locale)}`,
+    accountLabel: getTradeAccountLabel({ accountLabel: row.account_label, accountTemplate: (row.account_template ?? 'manual') as Trade['accountTemplate'] }, locale),
+    marketTemplateLabel: `${text('Marktvorlage', 'Market template')}: ${getMarketTemplateLabel(row.market_template, locale)}`,
+    userCostProfileLabel: row.user_cost_profile_id ? text('Eigenes Nutzer-Kostenprofil aktiv', 'Custom cost profile in use') : undefined,
+    sizeLabel: sizeParts.length ? sizeParts.join(' · ') : text('Keine Positionsgröße oder Punktwertangabe hinterlegt', 'Position size and point value are missing'),
+    marginLabel: marginParts.length ? marginParts.join(' · ') : text('Noch keine Margin-/Hebelbasis hinterlegt', 'Margin and leverage are missing'),
     partialExitsLabel: partialExitsLabel ?? undefined,
-    partialExitCoverageLabel: partialPlan.count ? formatPartialExitCoverageLabel(partialPlan.coveredPercent, partialPlan.remainderPercent, hasOpenRemainder) : undefined,
-    partialExitRealizedLabel: partialPlan.count ? formatPartialExitRealizedLabel(partialPlan.coveredPercent, partialSizePlan.realizedSize) : undefined,
-    partialExitRemainingLabel: partialPlan.count ? (hasOpenRemainder ? formatPartialExitRemainingLabel(partialPlan.remainderPercent, partialSizePlan.remainingSize) : 'Keine offene Restposition') : undefined,
-    partialExitStateLabel: partialPlan.count ? (hasOpenRemainder ? 'Teilverkäufe erfasst · Restposition offen' : 'Position vollständig geschlossen') : undefined,
-    effectiveExitLabel: (parseTradingNumber(row.exit) ?? partialPlan.effectiveExit) !== null ? `${formatPlainNumber((parseTradingNumber(row.exit) ?? partialPlan.effectiveExit)!, 4)} gespeicherter Exit` : undefined,
-    executionLabel: metrics.grossPnL !== null ? `Brutto ${formatCurrency(metrics.grossPnL, 0, displayCurrency)} → Netto ${metrics.netPnL !== null ? formatCurrency(metrics.netPnL, 0, displayCurrency) : '—'}${metrics.pnlSource === 'override' && metrics.autoNetPnL !== null ? ` (Auto ${formatCurrency(metrics.autoNetPnL, 0, displayCurrency)})` : ''} · ${getExecutionTypeLabel(metrics.executionType)} · ${getFundingDirectionLabel(metrics.fundingDirection)}` : 'Keine belastbare Ausführungsrechnung möglich',
-    cryptoLabel: metrics.instrumentType === 'crypto' ? `Krypto-Modus: ${getCryptoMarketTypeLabel(metrics.cryptoMarketType)}${metrics.quoteAsset ? ` · Quote ${metrics.quoteAsset}` : ''}${metrics.leverage !== null ? ` · Hebel ${formatPlainNumber(metrics.leverage, 2)}x` : ''}${metrics.executionType ? ` · ${getExecutionTypeLabel(metrics.executionType)}` : ''}${metrics.fundingDirection ? ` · ${getFundingDirectionLabel(metrics.fundingDirection)}` : ''}` : undefined,
-    captureStatusLabel: getTradeCaptureStatusLabel(captureStatus),
+    partialExitCoverageLabel: partialPlan.count ? formatPartialExitCoverageLabel(partialPlan.coveredPercent, partialPlan.remainderPercent, hasOpenRemainder, locale) : undefined,
+    partialExitRealizedLabel: partialPlan.count ? formatPartialExitRealizedLabel(partialPlan.coveredPercent, partialSizePlan.realizedSize, locale) : undefined,
+    partialExitRemainingLabel: partialPlan.count ? (hasOpenRemainder ? formatPartialExitRemainingLabel(partialPlan.remainderPercent, partialSizePlan.remainingSize, locale) : text('Keine offene Restposition', 'No remaining open position')) : undefined,
+    partialExitStateLabel: partialPlan.count ? (hasOpenRemainder ? text('Teilverkäufe erfasst · Restposition offen', 'Partial exits recorded · remaining position open') : text('Position vollständig geschlossen', 'Position fully closed')) : undefined,
+    effectiveExitLabel: recordedExit !== null
+      ? `${number(recordedExit, 4)} ${text('gespeicherter Exit', 'recorded exit price')}`
+      : partialPlan.effectiveExit !== null
+        ? `${number(partialPlan.effectiveExit, 4)} ${text('aus Teilverkäufen berechnet', 'calculated from partial exits')}`
+        : undefined,
+    executionLabel: metrics.grossPnL !== null ? `${text('Brutto', 'Gross')} ${money(metrics.grossPnL)} → ${text('Netto', 'Net')} ${metrics.netPnL !== null ? money(metrics.netPnL) : '—'}${metrics.pnlSource === 'override' && metrics.autoNetPnL !== null ? ` (Auto ${money(metrics.autoNetPnL)})` : ''} · ${getExecutionTypeLabel(metrics.executionType, locale)} · ${getFundingDirectionLabel(metrics.fundingDirection, locale)}` : text('Keine belastbare Ausführungsrechnung möglich', 'Execution P&L cannot be calculated reliably'),
+    cryptoLabel: metrics.instrumentType === 'crypto' ? `${text('Krypto-Modus', 'Crypto mode')}: ${getCryptoMarketTypeLabel(metrics.cryptoMarketType, locale)}${metrics.quoteAsset ? ` · Quote ${metrics.quoteAsset}` : ''}${metrics.leverage !== null ? ` · ${text('Hebel', 'Leverage')} ${number(metrics.leverage, 2)}x` : ''}${metrics.executionType ? ` · ${getExecutionTypeLabel(metrics.executionType, locale)}` : ''}${metrics.fundingDirection ? ` · ${getFundingDirectionLabel(metrics.fundingDirection, locale)}` : ''}` : undefined,
+    captureStatusLabel: getTradeCaptureStatusLabel(captureStatus, locale),
     sessionLabel: resolvedSession,
-    killZoneLabel: resolvedKillZone,
-    tradeTimeLabel: formatTradeTimeLabel(tradeOccurredAt),
-    captureTrustLabel: getTradeCaptureTrustLabel(captureStatus, metrics.netPnL !== null),
-    captureResultLabel: captureResult ? getTradeCaptureResultLabel(captureResult) : undefined,
+    killZoneLabel: resolvedKillZone === 'Kein Kernfenster' ? text('Kein Kernfenster', 'Outside key sessions') : resolvedKillZone,
+    tradeTimeLabel: formatTradeTimeLabel(tradeOccurredAt, journalNumberLocale[locale]),
+    captureTrustLabel: getTradeCaptureTrustLabel(captureStatus, metrics.netPnL !== null, locale),
+    captureResultLabel: captureResult ? getTradeCaptureResultLabel(captureResult, locale) : undefined,
     importPresetLabel: importMeta.meta?.presetLabel ?? undefined,
-    importFieldSourceFacts: buildTradeImportSourceFacts(importMeta.meta),
+    importFieldSourceFacts: buildTradeImportSourceFacts(importMeta.meta, locale),
   }
 }
 

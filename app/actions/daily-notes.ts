@@ -1,5 +1,7 @@
 'use server'
 
+import { journalText, type JournalLocale } from '@/lib/i18n/journal'
+
 import { revalidatePath } from 'next/cache'
 import { createSupabaseAuthServerClient } from '@/lib/supabase/server-auth'
 import { hasSupabaseClientEnv } from '@/lib/supabase/config'
@@ -16,7 +18,9 @@ export type SaveDailyNoteInput = {
 
 export async function saveDailyNote(
   input: SaveDailyNoteInput,
+  locale: JournalLocale = 'de',
 ): Promise<{ success: boolean; message: string; note?: DailyNoteRow | null }> {
+  const text = journalText(locale)
   const tradeDate = input.tradeDate.trim()
   const title = input.title?.trim() || null
   const visibleNote = input.note?.trim() || null
@@ -24,11 +28,11 @@ export async function saveDailyNote(
   const focus = input.focus?.trim() || null
 
   if (!tradeDate) {
-    return { success: false, message: 'Bitte zuerst ein Datum für die Review-Notiz wählen.' }
+    return { success: false, message: text('Bitte zuerst ein Datum für die Review-Notiz wählen.', 'Choose a date for the daily note.') }
   }
 
   if (!hasSupabaseClientEnv()) {
-    return { success: false, message: 'Review-Notizen werden im Live-Flow mit Supabase gespeichert. Im Demo-Modus bleibt dieser Schritt read-only.' }
+    return { success: false, message: text('Review-Notizen werden im Live-Flow mit Supabase gespeichert. Im Demo-Modus bleibt dieser Schritt read-only.', 'Daily notes are read-only in demo mode.') }
   }
 
   try {
@@ -38,7 +42,7 @@ export async function saveDailyNote(
     } = await supabase.auth.getUser()
 
     if (!user) {
-      return { success: false, message: 'Bitte zuerst einloggen.' }
+      return { success: false, message: text('Bitte zuerst einloggen.', 'Sign in to manage daily notes.') }
     }
 
     const { data: existingRow, error: existingError } = await supabase
@@ -49,7 +53,7 @@ export async function saveDailyNote(
       .maybeSingle()
 
     if (existingError) {
-      return { success: false, message: 'Bestehende Review-Notiz konnte nicht geprüft werden.' }
+      return { success: false, message: text('Bestehende Review-Notiz konnte nicht geprüft werden.', 'Could not check the existing note. Reload the page.') }
     }
 
     const existingMeta = parseDailyNoteStorage(existingRow?.note)
@@ -64,14 +68,14 @@ export async function saveDailyNote(
       if (existingRow?.id) {
         const { error: deleteError } = await supabase.from('daily_notes').delete().eq('id', existingRow.id).eq('user_id', user.id)
         if (deleteError) {
-          return { success: false, message: 'Leere Review-Notiz konnte nicht entfernt werden.' }
+          return { success: false, message: text('Leere Review-Notiz konnte nicht entfernt werden.', 'Could not remove the empty note.') }
         }
 
         revalidateDailyNotePaths()
-        return { success: true, message: `Review-Notiz für ${tradeDate} entfernt.`, note: null }
+        return { success: true, message: text(`Review-Notiz für ${tradeDate} entfernt.`, `Daily note for ${tradeDate} removed.`), note: null }
       }
 
-      return { success: false, message: 'Bitte mindestens Titel, Fokus, Stimmung oder Notiz eintragen.' }
+      return { success: false, message: text('Bitte mindestens Titel, Fokus, Stimmung oder Notiz eintragen.', 'Enter at least a title, focus, mood or note.') }
     }
 
     if (existingRow?.id) {
@@ -84,11 +88,11 @@ export async function saveDailyNote(
         .single()
 
       if (error || !data) {
-        return { success: false, message: 'Review-Notiz konnte nicht aktualisiert werden.' }
+        return { success: false, message: text('Review-Notiz konnte nicht aktualisiert werden.', 'Could not update the daily note.') }
       }
 
       revalidateDailyNotePaths()
-      return { success: true, message: `Review-Notiz für ${tradeDate} aktualisiert.`, note: data as DailyNoteRow }
+      return { success: true, message: text(`Review-Notiz für ${tradeDate} aktualisiert.`, `Daily note for ${tradeDate} updated.`), note: data as DailyNoteRow }
     }
 
     const { data, error } = await supabase
@@ -105,13 +109,13 @@ export async function saveDailyNote(
       .single()
 
     if (error || !data) {
-      return { success: false, message: 'Review-Notiz konnte nicht gespeichert werden.' }
+      return { success: false, message: text('Review-Notiz konnte nicht gespeichert werden.', 'Could not save the daily note.') }
     }
 
     revalidateDailyNotePaths()
-    return { success: true, message: `Review-Notiz für ${tradeDate} gespeichert.`, note: data as DailyNoteRow }
+    return { success: true, message: text(`Review-Notiz für ${tradeDate} gespeichert.`, `Daily note for ${tradeDate} saved.`), note: data as DailyNoteRow }
   } catch {
-    return { success: false, message: 'Review-Notiz konnte nicht gespeichert werden.' }
+    return { success: false, message: text('Review-Notiz konnte nicht gespeichert werden.', 'Could not save the daily note.') }
   }
 }
 
@@ -196,15 +200,17 @@ export async function setDailyFocusStatus(
 
 export async function deleteDailyNote(
   tradeDate: string,
+  locale: JournalLocale = 'de',
 ): Promise<{ success: boolean; message: string }> {
+  const text = journalText(locale)
   const normalizedDate = tradeDate.trim()
 
   if (!normalizedDate) {
-    return { success: false, message: 'Bitte zuerst ein Datum übergeben.' }
+    return { success: false, message: text('Bitte zuerst ein Datum übergeben.', 'Choose a date for the daily note.') }
   }
 
   if (!hasSupabaseClientEnv()) {
-    return { success: false, message: 'Review-Notizen sind im Demo-Modus read-only.' }
+    return { success: false, message: text('Review-Notizen sind im Demo-Modus read-only.', 'Daily notes are read-only in demo mode.') }
   }
 
   try {
@@ -214,19 +220,19 @@ export async function deleteDailyNote(
     } = await supabase.auth.getUser()
 
     if (!user) {
-      return { success: false, message: 'Bitte zuerst einloggen.' }
+      return { success: false, message: text('Bitte zuerst einloggen.', 'Sign in to manage daily notes.') }
     }
 
     const { error } = await supabase.from('daily_notes').delete().eq('user_id', user.id).eq('trade_date', normalizedDate)
 
     if (error) {
-      return { success: false, message: 'Review-Notiz konnte nicht gelöscht werden.' }
+      return { success: false, message: text('Review-Notiz konnte nicht gelöscht werden.', 'Could not delete the daily note.') }
     }
 
     revalidateDailyNotePaths()
-    return { success: true, message: `Review-Notiz für ${normalizedDate} gelöscht.` }
+    return { success: true, message: text(`Review-Notiz für ${normalizedDate} gelöscht.`, `Daily note for ${normalizedDate} deleted.`) }
   } catch {
-    return { success: false, message: 'Review-Notiz konnte nicht gelöscht werden.' }
+    return { success: false, message: text('Review-Notiz konnte nicht gelöscht werden.', 'Could not delete the daily note.') }
   }
 }
 

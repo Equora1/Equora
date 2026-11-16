@@ -1,3 +1,4 @@
+import { journalText, type JournalLocale } from '@/lib/i18n/journal'
 import type { TradeCaptureResult, TradeCaptureStatus } from '@/lib/types/trade'
 import { parseTradingNumber } from '@/lib/utils/calculations'
 
@@ -10,21 +11,23 @@ export function normalizeTradeCaptureResult(value: string | TradeCaptureResult |
   return null
 }
 
-export function getTradeCaptureStatusLabel(status: string | TradeCaptureStatus | null | undefined) {
-  return normalizeTradeCaptureStatus(status) === 'incomplete' ? 'Unvollständig' : 'Vollständig'
+export function getTradeCaptureStatusLabel(status: string | TradeCaptureStatus | null | undefined, locale: JournalLocale = 'de') {
+  const text = journalText(locale)
+  return normalizeTradeCaptureStatus(status) === 'incomplete' ? text('Unvollständig', 'Incomplete') : text('Vollständig', 'Complete')
 }
 
-export function getTradeCaptureResultLabel(result: string | TradeCaptureResult | null | undefined) {
+export function getTradeCaptureResultLabel(result: string | TradeCaptureResult | null | undefined, locale: JournalLocale = 'de') {
+  const text = journalText(locale)
   const normalized = normalizeTradeCaptureResult(result)
   switch (normalized) {
     case 'winner':
-      return 'Gewinner'
+      return text('Gewinner', 'Win')
     case 'loser':
-      return 'Verlierer'
+      return text('Verlierer', 'Loss')
     case 'breakeven':
       return 'Breakeven'
     case 'open':
-      return 'Offen'
+      return text('Offen', 'Open')
     default:
       return '—'
   }
@@ -41,13 +44,15 @@ export function inferTradeCaptureResultFromPnL(value: string | number | null | u
 export function getTradeCaptureTrustLabel(
   status: string | TradeCaptureStatus | null | undefined,
   hasReliablePnL: boolean,
+  locale: JournalLocale = 'de',
 ) {
+  const text = journalText(locale)
   const normalizedStatus = normalizeTradeCaptureStatus(status)
   if (normalizedStatus === 'incomplete') {
-    return 'Schnellerfassung gespeichert. Für Equity-Kurve, belastbare P&L und tiefe Analyse bitte später vervollständigen.'
+    return text('Schnellerfassung gespeichert. Für Equity-Kurve, belastbare P&L und tiefe Analyse bitte später vervollständigen.', 'Quick entry saved. Add the missing details to include this trade in P&L and other metrics.')
   }
 
   return hasReliablePnL
-    ? 'Dieser Trade trägt belastbar zu Equity, P&L und Auswertungen bei.'
-    : 'Trade vollständig markiert, aber noch ohne belastbare P&L-Grundlage.'
+    ? text('Dieser Trade trägt belastbar zu Equity, P&L und Auswertungen bei.', 'This trade has P&L available for analysis.')
+    : text('Trade vollständig markiert, aber noch ohne belastbare P&L-Grundlage.', 'This trade is marked complete but has no reliable P&L yet.')
 }

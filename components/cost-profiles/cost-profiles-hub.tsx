@@ -2,6 +2,9 @@
 
 import { useEffect, useMemo, useState, useTransition, type ChangeEvent } from 'react'
 import Link from 'next/link'
+import { useJournalLocale } from '@/components/layout/journal-locale-provider'
+import { journalNumberLocale, journalText, type JournalLocale } from '@/lib/i18n/journal'
+import { DEFAULT_TRADE_TIMEZONE } from '@/lib/utils/trade-time'
 import {
   deleteUserCostProfile as persistDeleteUserCostProfile,
   saveUserCostProfile as persistSaveUserCostProfile,
@@ -29,6 +32,14 @@ import {
   parseTradingNumber,
 } from '@/lib/utils/calculations'
 import {
+  getAccountTemplateLabel,
+  getMarketTemplateLabel,
+  getBrokerProfileLabel,
+  getInstrumentLabel,
+  getCostProfileLabel,
+  getFundingDirectionLabel,
+  getCryptoMarketTypeLabel,
+  getExecutionTypeLabel,
   accountTemplateOptions,
   brokerProfileOptions,
   costProfileOptions,
@@ -159,42 +170,12 @@ function mergeProfiles(...groups: SavedUserCostProfile[][]) {
   )
 }
 
-function formatDateLabel(value: string) {
-  return new Intl.DateTimeFormat('de-DE', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value))
-}
-
-function getAccountTemplateLabel(value: TradeAccountTemplate | null) {
-  if (!value || value === 'manual') return 'Kein Account-Default'
-  return accountTemplateOptions.find((option) => option.value === value)?.label ?? 'Kein Account-Default'
-}
-
-function getMarketTemplateLabel(value: TradeMarketTemplate | null) {
-  if (!value || value === 'manual') return 'Kein Markt-Default'
-  return marketTemplateOptions.find((option) => option.value === value)?.label ?? 'Kein Markt-Default'
-}
-
-function getBrokerLabel(value: TradeBrokerProfile) {
-  return brokerProfileOptions.find((option) => option.value === value)?.label ?? 'Manuell'
-}
-
-function getInstrumentLabel(value: TradeInstrumentType) {
-  return instrumentOptions.find((option) => option.value === value)?.label ?? 'Unbekannt'
-}
-
-function getCostProfileLabel(value: TradeCostProfile) {
-  return costProfileOptions.find((option) => option.value === value)?.label ?? 'Eigenes Profil'
-}
-
-function getFundingDirectionLabel(value: TradeFundingDirection) {
-  return fundingDirectionOptions.find((option) => option.value === value)?.label ?? 'Manuell'
-}
-
-function getCryptoModeLabel(value: TradeCryptoMarketType) {
-  return cryptoMarketTypeOptions.find((option) => option.value === value)?.label ?? 'Manuell'
-}
-
-function getExecutionLabel(value: TradeExecutionType) {
-  return executionTypeOptions.find((option) => option.value === value)?.label ?? 'Manuell'
+function formatDateLabel(value: string, locale: JournalLocale) {
+  const date = new Date(value)
+  if (!Number.isFinite(date.getTime())) return '—'
+  return new Intl.DateTimeFormat(journalNumberLocale[locale], {
+    dateStyle: 'medium', timeStyle: 'short', timeZone: DEFAULT_TRADE_TIMEZONE,
+  }).format(date)
 }
 
 function Row({ label, value }: { label: string; value: string }) {
@@ -207,6 +188,8 @@ function Row({ label, value }: { label: string; value: string }) {
 }
 
 export function CostProfilesHub({ initialProfiles, usageByProfileId, source }: CostProfilesHubProps) {
+  const locale = useJournalLocale()
+  const text = journalText(locale)
   const [profiles, setProfiles] = useState<SavedUserCostProfile[]>(initialProfiles)
   const [search, setSearch] = useState('')
   const [selectedId, setSelectedId] = useState<string | null>(initialProfiles[0]?.id ?? null)
@@ -227,7 +210,7 @@ export function CostProfilesHub({ initialProfiles, usageByProfileId, source }: C
       if (!Array.isArray(parsed)) return
       setProfiles((current) => mergeProfiles(current, parsed))
     } catch {
-      // ignore malformed local storage payloads
+      // Ignore malformed local storage payloads
     }
   }, [source])
 
@@ -239,29 +222,22 @@ export function CostProfilesHub({ initialProfiles, usageByProfileId, source }: C
         profile.title,
         profile.accountCurrency ?? '',
         profile.quoteAsset ?? '',
-        getBrokerLabel(profile.brokerProfile),
-        getInstrumentLabel(profile.instrumentType),
-        getCostProfileLabel(profile.costProfile),
-        getAccountTemplateLabel(profile.defaultAccountTemplate),
-        getMarketTemplateLabel(profile.defaultMarketTemplate),
+        getBrokerProfileLabel(profile.brokerProfile, locale),
+        profile.brokerProfile ?? '',
+        getInstrumentLabel(profile.instrumentType, locale),
+        profile.instrumentType ?? '',
+        getCostProfileLabel(profile.costProfile, locale),
+        profile.costProfile ?? '',
+        getAccountTemplateLabel(profile.defaultAccountTemplate, locale),
+        profile.defaultAccountTemplate ?? '',
+        getMarketTemplateLabel(profile.defaultMarketTemplate, locale),
+        profile.defaultMarketTemplate ?? '',
       ]
         .join(' ')
         .toLowerCase()
         .includes(query),
     )
-  }, [profiles, search])
-
-  useEffect(() => {
-    if (!filteredProfiles.length) {
-      setSelectedId(null)
-      setDraft({ ...emptyFormState })
-      return
-    }
-    if (!selectedId || !filteredProfiles.some((profile) => profile.id === selectedId)) {
-      setSelectedId(filteredProfiles[0].id)
-      setDraft(buildFormState(filteredProfiles[0]))
-    }
-  }, [filteredProfiles, selectedId])
+  }, [profiles, search, locale])
 
   const selectedProfile = useMemo(
     () => profiles.find((profile) => profile.id === selectedId) ?? null,
@@ -309,7 +285,7 @@ export function CostProfilesHub({ initialProfiles, usageByProfileId, source }: C
   function startNewProfile() {
     setSelectedId(null)
     setDraft({ ...emptyFormState })
-    setStatus('Neues Kostenprofil vorbereitet.')
+    setStatus(text('Neues Kostenprofil vorbereitet.', 'New cost profile ready to edit.'))
   }
 
   function updateDraft<K extends keyof ProfileFormState>(key: K, value: ProfileFormState[K]) {
@@ -319,7 +295,12 @@ export function CostProfilesHub({ initialProfiles, usageByProfileId, source }: C
   async function handleSave() {
     const payload = buildInputFromForm(draft)
     if (!payload.title) {
-      setStatus('Bitte einen Namen für das Kostenprofil vergeben.')
+      setStatus(text('Bitte einen Namen für das Kostenprofil vergeben.', 'Enter a name for the cost profile.'))
+      return
+    }
+
+    if (selectedId !== null && !selectedProfile) {
+      setStatus(text('Dieses Profil ist nicht mehr verfügbar. Wähle ein Profil oder lege ein neues an.', 'This profile is no longer available. Select a profile or create a new one.'))
       return
     }
 
@@ -354,18 +335,16 @@ export function CostProfilesHub({ initialProfiles, usageByProfileId, source }: C
         persistMockProfiles(nextProfiles)
         setSelectedId(mockProfile.id)
         setDraft(buildFormState(mockProfile))
-        setStatus(`Kostenprofil „${mockProfile.title}“ lokal gespeichert.`)
+        setStatus(text(`Kostenprofil „${mockProfile.title}“ lokal gespeichert.`, `Cost profile “${mockProfile.title}” saved in this browser.`))
         return
       }
 
-      startTransition(async () => {
-        const result = await persistSaveUserCostProfile(payload)
-        setStatus(result.message)
-        if (!result.success || !result.profile) return
-        setProfiles((current) => mergeProfiles(enforceTemplateDefaultUniqueness(result.profile!, [result.profile!, ...current])))
-        setSelectedId(result.profile.id)
-        setDraft(buildFormState(result.profile))
-      })
+      const result = await persistSaveUserCostProfile(payload, locale)
+      setStatus(result.message)
+      if (!result.success || !result.profile) return
+      setProfiles((current) => mergeProfiles(enforceTemplateDefaultUniqueness(result.profile!, [result.profile!, ...current])))
+      setSelectedId(result.profile.id)
+      setDraft(buildFormState(result.profile))
       return
     }
 
@@ -374,7 +353,7 @@ export function CostProfilesHub({ initialProfiles, usageByProfileId, source }: C
         profile.id === selectedProfile.id
           ? {
               ...profile,
-              ...buildInputFromForm(draft),
+              ...payload,
               defaultAccountTemplate: payload.defaultAccountTemplate ?? null,
               defaultMarketTemplate: payload.defaultMarketTemplate ?? null,
               costProfile: 'user-custom',
@@ -388,17 +367,16 @@ export function CostProfilesHub({ initialProfiles, usageByProfileId, source }: C
       ) as SavedUserCostProfile[]
       const updatedProfile = nextProfiles.find((profile) => profile.id === selectedProfile.id) ?? selectedProfile
       persistMockProfiles(enforceTemplateDefaultUniqueness(updatedProfile, nextProfiles))
-      setStatus(`Kostenprofil „${payload.title}“ lokal aktualisiert.`)
+      setStatus(text(`Kostenprofil „${payload.title}“ lokal aktualisiert.`, `Cost profile “${payload.title}” updated in this browser.`))
       return
     }
 
-    startTransition(async () => {
-      const result = await persistUpdateUserCostProfile(selectedProfile.id, payload)
-      setStatus(result.message)
-      if (!result.success || !result.profile) return
-      setProfiles((current) => enforceTemplateDefaultUniqueness(result.profile!, current.map((profile) => (profile.id === result.profile!.id ? result.profile! : profile))))
-      setDraft(buildFormState(result.profile))
-    })
+    const result = await persistUpdateUserCostProfile(selectedProfile.id, payload, locale)
+    setStatus(result.message)
+    if (!result.success || !result.profile) return
+    const updated = result.profile
+    setProfiles((current) => enforceTemplateDefaultUniqueness(updated, current.map((profile) => profile.id === updated.id ? updated : profile)))
+    setDraft(buildFormState(updated))
   }
 
   async function handleDelete() {
@@ -410,20 +388,18 @@ export function CostProfilesHub({ initialProfiles, usageByProfileId, source }: C
       const fallback = nextProfiles[0] ?? null
       setSelectedId(fallback?.id ?? null)
       setDraft(buildFormState(fallback))
-      setStatus('Kostenprofil lokal entfernt.')
+      setStatus(text('Kostenprofil lokal entfernt.', 'Local cost profile removed.'))
       return
     }
 
-    startTransition(async () => {
-      const result = await persistDeleteUserCostProfile(selectedProfile.id)
-      setStatus(result.message)
-      if (!result.success || !result.deletedId) return
-      const nextProfiles = profiles.filter((profile) => profile.id !== result.deletedId)
-      setProfiles(nextProfiles)
-      const fallback = nextProfiles[0] ?? null
-      setSelectedId(fallback?.id ?? null)
-      setDraft(buildFormState(fallback))
-    })
+    const result = await persistDeleteUserCostProfile(selectedProfile.id, locale)
+    setStatus(result.message)
+    if (!result.success || !result.deletedId) return
+    const nextProfiles = profiles.filter((profile) => profile.id !== result.deletedId)
+    setProfiles(nextProfiles)
+    const fallback = nextProfiles[0] ?? null
+    setSelectedId(fallback?.id ?? null)
+    setDraft(buildFormState(fallback))
   }
 
   const totalUsage = selectedProfile ? usageByProfileId[selectedProfile.id] ?? 0 : 0
@@ -434,41 +410,44 @@ export function CostProfilesHub({ initialProfiles, usageByProfileId, source }: C
     (parseTradingNumber(draft.spreadCost) ?? 0) +
     (parseTradingNumber(draft.slippage) ?? 0)
 
+  const baseFeesLabel = formatPlainNumber(totalBaseFees, 2, locale)
+
   return (
-    <div className="space-y-6">
+    <div lang={locale} className="space-y-6">
       <section className="rounded-[28px] border border-orange-400/15 bg-white/5 p-6 shadow-2xl">
         <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
           <div>
-            <p className="text-xs uppercase tracking-[0.25em] text-white/40">Gebühren und Kosten</p>
-            <h1 className="mt-2 text-3xl font-semibold tracking-tight text-orange-300">Eigene Kostenprofile</h1>
+            <p className="text-xs uppercase tracking-[0.25em] text-white/40">{text('Gebühren und Kosten', 'Fees and costs')}</p>
+            <h1 className="mt-2 text-3xl font-semibold tracking-tight text-orange-300">{text('Eigene Kostenprofile', 'Your cost profiles')}</h1>
             <p className="mt-3 max-w-3xl text-sm text-white/60">
-              Speichere wiederkehrende Gebühren und Kostenannahmen für deine Trades.
-              Ein Kostenprofil ersetzt keine Abrechnung der tatsächlich angefallenen Kosten.
+              {text('Speichere wiederkehrende Gebühren als Vorgabe für neue Trades. Die tatsächlichen Kosten stehen in deiner Brokerabrechnung.', 'Save recurring fees as defaults for new trades. Check your broker statement for actual costs.')}
             </p>
           </div>
           <div className="rounded-3xl border border-white/10 bg-black/25 px-4 py-3 text-sm text-white/70">
-            <p className="text-[11px] uppercase tracking-[0.22em] text-white/35">Aktive Profile</p>
+            <p className="text-[11px] uppercase tracking-[0.22em] text-white/35">{text('Aktive Profile', 'Profiles')}</p>
             <p className="mt-2 text-3xl font-semibold text-white">{profiles.length}</p>
-            <p className="mt-2 text-xs text-white/45">{source === 'supabase' ? 'in deinem Konto gespeichert' : 'lokal in diesem Browser gespeichert (Demo)'}</p>
+            <p className="mt-2 text-xs text-white/45">{source === 'supabase' ? text('in deinem Konto gespeichert', 'saved to your account') : text('lokal in diesem Browser gespeichert (Demo)', 'saved in this browser in demo mode')}</p>
           </div>
         </div>
       </section>
 
-      <div className="grid gap-6 xl:grid-cols-[0.85fr_1.15fr]">
-        <section className="rounded-[28px] border border-white/8 bg-white/5 p-5 shadow-2xl">
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)]">
+        <section className="min-w-0 rounded-[28px] border border-white/8 bg-white/5 p-5 shadow-2xl">
           <div className="flex items-center gap-3">
             <input
               value={search}
               onChange={(event) => setSearch(event.target.value)}
-              placeholder="Profile suchen…"
-              className="flex-1 rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-white outline-none placeholder:text-white/28"
+              aria-label={text('Profile suchen', 'Search profiles')}
+              placeholder={text('Profile suchen…', 'Search profiles…')}
+              className="min-w-0 flex-1 rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-white outline-none placeholder:text-white/28"
             />
             <button
               type="button"
               onClick={startNewProfile}
+              disabled={isPending}
               className="rounded-2xl border border-emerald-400/20 bg-emerald-400/10 px-4 py-3 text-sm text-emerald-200 transition hover:border-emerald-300/40"
             >
-              Neu
+              {text('Neu', 'New profile')}
             </button>
           </div>
 
@@ -482,173 +461,176 @@ export function CostProfilesHub({ initialProfiles, usageByProfileId, source }: C
                     key={profile.id}
                     type="button"
                     onClick={() => openProfile(profile)}
+                    disabled={isPending}
+                    aria-pressed={active}
                     className={`w-full rounded-3xl border px-4 py-4 text-left transition ${
                       active
                         ? 'border-orange-400/35 bg-orange-400/10 shadow-[0_0_30px_rgba(249,115,22,0.12)]'
                         : 'border-white/8 bg-black/20 hover:border-white/16 hover:bg-black/30'
                     }`}
                   >
-                    <div className="flex items-start justify-between gap-4">
-                      <div>
-                        <p className="text-sm font-semibold text-white">{profile.title}</p>
+                    <div className="flex flex-wrap items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="break-words text-sm font-semibold text-white">{profile.title}</p>
                         <p className="mt-1 text-xs text-white/45">
-                          {getBrokerLabel(profile.brokerProfile)} · {getInstrumentLabel(profile.instrumentType)}
+                          {getBrokerProfileLabel(profile.brokerProfile, locale)} · {getInstrumentLabel(profile.instrumentType, locale)}
                         </p>
                       </div>
                       <div className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] text-white/60">
-                        {usageCount} Trades
+                        {usageCount} {usageCount === 1 ? 'Trade' : 'Trades'}
                       </div>
                     </div>
                     <div className="mt-3 flex flex-wrap gap-2 text-[11px] text-white/55">
-                      <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1">{getCostProfileLabel(profile.costProfile)}</span>
+                      <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1">{getCostProfileLabel(profile.costProfile, locale)}</span>
                       {profile.accountCurrency ? <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1">{profile.accountCurrency}</span> : null}
-                      {profile.defaultAccountTemplate ? <span className="rounded-full border border-emerald-400/20 bg-emerald-400/10 px-2.5 py-1 text-emerald-100">Account · {getAccountTemplateLabel(profile.defaultAccountTemplate)}</span> : null}
-                      {profile.defaultMarketTemplate ? <span className="rounded-full border border-cyan-400/20 bg-cyan-400/10 px-2.5 py-1 text-cyan-100">Markt · {getMarketTemplateLabel(profile.defaultMarketTemplate)}</span> : null}
+                      {profile.defaultAccountTemplate ? <span className="rounded-full border border-emerald-400/20 bg-emerald-400/10 px-2.5 py-1 text-emerald-100">{text('Konto', 'Account')} · {getAccountTemplateLabel(profile.defaultAccountTemplate, locale)}</span> : null}
+                      {profile.defaultMarketTemplate ? <span className="rounded-full border border-cyan-400/20 bg-cyan-400/10 px-2.5 py-1 text-cyan-100">{text('Markt', 'Market')} · {getMarketTemplateLabel(profile.defaultMarketTemplate, locale)}</span> : null}
                       {profile.instrumentType === 'crypto' && profile.quoteAsset ? (
                         <span className="rounded-full border border-orange-400/20 bg-orange-400/10 px-2.5 py-1 text-orange-100">
-                          {getCryptoModeLabel(profile.cryptoMarketType)} · {profile.quoteAsset}
+                          {getCryptoMarketTypeLabel(profile.cryptoMarketType, locale)} · {profile.quoteAsset}
                         </span>
                       ) : null}
                     </div>
-                    <p className="mt-3 text-[11px] text-white/30">erstellt {formatDateLabel(profile.createdAt)}</p>
+                    <p className="mt-3 text-[11px] text-white/30">{text('Erstellt', 'Created')} {formatDateLabel(profile.createdAt, locale)}</p>
                   </button>
                 )
               })
             ) : (
               <div className="rounded-3xl border border-dashed border-white/10 bg-black/20 px-4 py-12 text-center text-sm text-white/45">
-                Noch keine Kostenprofile gefunden.
+                {text('Noch keine Kostenprofile gefunden.', 'No cost profiles found.')}
               </div>
             )}
           </div>
         </section>
 
-        <section className="space-y-6 rounded-[28px] border border-white/8 bg-white/5 p-5 shadow-2xl">
+        <section className="min-w-0 space-y-6 rounded-[28px] border border-white/8 bg-white/5 p-5 shadow-2xl">
           <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
             <div>
-              <p className="text-xs uppercase tracking-[0.2em] text-white/35">Profile Editor</p>
+              <p className="text-xs uppercase tracking-[0.2em] text-white/35">{text('Profile Editor', 'Profile editor')}</p>
               <h2 className="mt-2 text-2xl font-semibold text-white">
-                {selectedProfile ? selectedProfile.title : 'Neues Kostenprofil'}
+                {selectedProfile ? selectedProfile.title : text('Neues Kostenprofil', 'New cost profile')}
               </h2>
               <p className="mt-2 text-sm text-white/55">
                 {selectedProfile
-                  ? 'Ändere Kosten, Funding-Logik und Instrument-Kontext zentral für alle wiederkehrenden Trades.'
-                  : 'Lege ein Kostenprofil an, um Gebühren bei der Trade-Erfassung wiederzuverwenden.'}
+                  ? text('Ändere Kosten, Funding-Logik und Instrument-Kontext zentral für alle wiederkehrenden Trades.', 'Edit the fees and defaults that this profile provides when adding a trade.')
+                  : text('Lege ein Kostenprofil an, um Gebühren bei der Trade-Erfassung wiederzuverwenden.', 'Create a profile to reuse fees when adding trades.')}
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
               <button
                 type="button"
-                onClick={() => startTransition(() => { void handleSave() })}
+                onClick={() => startTransition(handleSave)}
+                disabled={isPending}
                 className="rounded-2xl border border-emerald-400/20 bg-emerald-400/10 px-4 py-3 text-sm text-emerald-200 transition hover:border-emerald-300/40"
               >
-                {selectedProfile ? 'Profil aktualisieren' : 'Profil speichern'}
+                {isPending ? text('Bitte warten …', 'Please wait…') : selectedProfile ? text('Profil aktualisieren', 'Update profile') : text('Profil speichern', 'Save profile')}
               </button>
               <button
                 type="button"
-                disabled={!selectedProfile}
-                onClick={() => startTransition(() => { void handleDelete() })}
+                disabled={!selectedProfile || isPending}
+                onClick={() => startTransition(handleDelete)}
                 className="rounded-2xl border border-red-400/20 bg-red-400/10 px-4 py-3 text-sm text-red-200 transition hover:border-red-300/40 disabled:cursor-not-allowed disabled:opacity-50"
               >
-                Löschen
+                {text('Löschen', 'Delete')}
               </button>
               <Link
                 href="/trades"
                 className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white/70 transition hover:border-white/20 hover:text-white"
               >
-                Zu Trades
+                {text('Zu Trades', 'View trades')}
               </Link>
             </div>
           </div>
 
           <div className="grid gap-4 md:grid-cols-2">
             <label className="space-y-2">
-              <span className="text-xs uppercase tracking-[0.2em] text-white/40">Profilname</span>
+              <span className="text-xs uppercase tracking-[0.2em] text-white/40">{text('Profilname', 'Profile name')}</span>
               <input
                 value={draft.title}
                 onChange={(event) => updateDraft('title', event.target.value)}
-                placeholder="z. B. Bybit BTC Perps"
+                placeholder={text('z. B. Bybit BTC Perps', 'e.g. Bybit BTC Perps')}
                 className="w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-white outline-none placeholder:text-white/28"
               />
             </label>
             <label className="space-y-2">
-              <span className="text-xs uppercase tracking-[0.2em] text-white/40">Default für Account-Template</span>
+              <span className="text-xs uppercase tracking-[0.2em] text-white/40">{text('Default für Account-Template', 'Default for account template')}</span>
               <select
                 value={draft.defaultAccountTemplate}
                 onChange={(event: ChangeEvent<HTMLSelectElement>) => updateDraft('defaultAccountTemplate', event.target.value as TradeAccountTemplate)}
                 className="w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-white outline-none"
               >
                 {accountTemplateOptions.map((option) => (
-                  <option key={option.value} value={option.value}>{option.label}</option>
+                  <option key={option.value} value={option.value}>{option.value === 'manual' ? text('Keine Vorgabe', 'No default') : getAccountTemplateLabel(option.value, locale)}</option>
                 ))}
               </select>
             </label>
             <label className="space-y-2">
-              <span className="text-xs uppercase tracking-[0.2em] text-white/40">Default für Markt-Template</span>
+              <span className="text-xs uppercase tracking-[0.2em] text-white/40">{text('Default für Markt-Template', 'Default for market template')}</span>
               <select
                 value={draft.defaultMarketTemplate}
                 onChange={(event: ChangeEvent<HTMLSelectElement>) => updateDraft('defaultMarketTemplate', event.target.value as TradeMarketTemplate)}
                 className="w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-white outline-none"
               >
                 {marketTemplateOptions.map((option) => (
-                  <option key={option.value} value={option.value}>{option.label}</option>
+                  <option key={option.value} value={option.value}>{option.value === 'manual' ? text('Keine Vorgabe', 'No default') : getMarketTemplateLabel(option.value, locale)}</option>
                 ))}
               </select>
             </label>
             <label className="space-y-2">
-              <span className="text-xs uppercase tracking-[0.2em] text-white/40">Brokerprofil</span>
+              <span className="text-xs uppercase tracking-[0.2em] text-white/40">{text('Brokerprofil', 'Broker profile')}</span>
               <select
                 value={draft.brokerProfile}
                 onChange={(event: ChangeEvent<HTMLSelectElement>) => updateDraft('brokerProfile', normalizeTradeBrokerProfile(event.target.value))}
                 className="w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-white outline-none"
               >
                 {brokerProfileOptions.map((option) => (
-                  <option key={option.value} value={option.value}>{option.label}</option>
+                  <option key={option.value} value={option.value}>{getBrokerProfileLabel(option.value, locale)}</option>
                 ))}
               </select>
             </label>
             <label className="space-y-2">
-              <span className="text-xs uppercase tracking-[0.2em] text-white/40">Instrumenttyp</span>
+              <span className="text-xs uppercase tracking-[0.2em] text-white/40">{text('Instrumenttyp', 'Instrument type')}</span>
               <select
                 value={draft.instrumentType}
                 onChange={(event: ChangeEvent<HTMLSelectElement>) => updateDraft('instrumentType', normalizeInstrumentType(event.target.value))}
                 className="w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-white outline-none"
               >
                 {instrumentOptions.map((option) => (
-                  <option key={option.value} value={option.value}>{option.label}</option>
+                  <option key={option.value} value={option.value}>{getInstrumentLabel(option.value, locale)}</option>
                 ))}
               </select>
             </label>
             <label className="space-y-2">
-              <span className="text-xs uppercase tracking-[0.2em] text-white/40">Kostenprofil</span>
+              <span className="text-xs uppercase tracking-[0.2em] text-white/40">{text('Kostenprofil', 'Cost preset')}</span>
               <select
                 value={draft.costProfile}
                 onChange={(event: ChangeEvent<HTMLSelectElement>) => updateDraft('costProfile', normalizeTradeCostProfile(event.target.value))}
                 className="w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-white outline-none"
               >
                 {costProfileOptions.map((option) => (
-                  <option key={option.value} value={option.value}>{option.label}</option>
+                  <option key={option.value} value={option.value}>{getCostProfileLabel(option.value, locale)}</option>
                 ))}
               </select>
             </label>
             <label className="space-y-2">
-              <span className="text-xs uppercase tracking-[0.2em] text-white/40">Kontowährung</span>
+              <span className="text-xs uppercase tracking-[0.2em] text-white/40">{text('Kontowährung', 'Account currency')}</span>
               <select
                 value={draft.accountCurrency}
                 onChange={(event: ChangeEvent<HTMLSelectElement>) => updateDraft('accountCurrency', event.target.value)}
                 className="w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-white outline-none"
               >
-                <option value="">Keine Vorgabe</option>
+                <option value="">{text('Keine Vorgabe', 'No default')}</option>
                 {currencyOptions.map((option) => (
                   <option key={option} value={option}>{option}</option>
                 ))}
               </select>
             </label>
             <label className="space-y-2">
-              <span className="text-xs uppercase tracking-[0.2em] text-white/40">Punkt-/Pip-Wert</span>
+              <span className="text-xs uppercase tracking-[0.2em] text-white/40">{text('Punkt-/Pip-Wert', 'Point or pip value')}</span>
               <input
                 value={draft.pointValue}
                 onChange={(event) => updateDraft('pointValue', event.target.value)}
-                placeholder="z. B. 5"
+                placeholder={text('z. B. 5', 'e.g. 5')}
                 className="w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-white outline-none placeholder:text-white/28"
               />
             </label>
@@ -657,38 +639,38 @@ export function CostProfilesHub({ initialProfiles, usageByProfileId, source }: C
           {draft.instrumentType === 'crypto' ? (
             <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
               <label className="space-y-2">
-                <span className="text-xs uppercase tracking-[0.2em] text-white/40">Krypto-Modus</span>
+                <span className="text-xs uppercase tracking-[0.2em] text-white/40">{text('Krypto-Modus', 'Crypto market type')}</span>
                 <select
                   value={draft.cryptoMarketType}
                   onChange={(event: ChangeEvent<HTMLSelectElement>) => updateDraft('cryptoMarketType', normalizeTradeCryptoMarketType(event.target.value))}
                   className="w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-white outline-none"
                 >
                   {cryptoMarketTypeOptions.map((option) => (
-                    <option key={option.value} value={option.value}>{option.label}</option>
+                    <option key={option.value} value={option.value}>{getCryptoMarketTypeLabel(option.value, locale)}</option>
                   ))}
                 </select>
               </label>
               <label className="space-y-2">
-                <span className="text-xs uppercase tracking-[0.2em] text-white/40">Ausführung</span>
+                <span className="text-xs uppercase tracking-[0.2em] text-white/40">{text('Ausführung', 'Execution')}</span>
                 <select
                   value={draft.executionType}
                   onChange={(event: ChangeEvent<HTMLSelectElement>) => updateDraft('executionType', normalizeTradeExecutionType(event.target.value))}
                   className="w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-white outline-none"
                 >
                   {executionTypeOptions.map((option) => (
-                    <option key={option.value} value={option.value}>{option.label}</option>
+                    <option key={option.value} value={option.value}>{getExecutionTypeLabel(option.value, locale)}</option>
                   ))}
                 </select>
               </label>
               <label className="space-y-2">
-                <span className="text-xs uppercase tracking-[0.2em] text-white/40">Funding-Richtung</span>
+                <span className="text-xs uppercase tracking-[0.2em] text-white/40">{text('Funding-Richtung', 'Funding direction')}</span>
                 <select
                   value={draft.fundingDirection}
                   onChange={(event: ChangeEvent<HTMLSelectElement>) => updateDraft('fundingDirection', normalizeTradeFundingDirection(event.target.value))}
                   className="w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-white outline-none"
                 >
                   {fundingDirectionOptions.map((option) => (
-                    <option key={option.value} value={option.value}>{option.label}</option>
+                    <option key={option.value} value={option.value}>{getFundingDirectionLabel(option.value, locale)}</option>
                   ))}
                 </select>
               </label>
@@ -702,29 +684,29 @@ export function CostProfilesHub({ initialProfiles, usageByProfileId, source }: C
                 />
               </label>
               <label className="space-y-2">
-                <span className="text-xs uppercase tracking-[0.2em] text-white/40">Hebel</span>
+                <span className="text-xs uppercase tracking-[0.2em] text-white/40">{text('Hebel', 'Leverage')}</span>
                 <input
                   value={draft.leverage}
                   onChange={(event) => updateDraft('leverage', event.target.value)}
-                  placeholder="z. B. 5"
+                  placeholder={text('z. B. 5', 'e.g. 5')}
                   className="w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-white outline-none placeholder:text-white/28"
                 />
               </label>
               <label className="space-y-2">
-                <span className="text-xs uppercase tracking-[0.2em] text-white/40">Funding Rate (Bps)</span>
+                <span className="text-xs uppercase tracking-[0.2em] text-white/40">{text('Funding Rate (Bps)', 'Funding rate (basis points)')}</span>
                 <input
                   value={draft.fundingRateBps}
                   onChange={(event) => updateDraft('fundingRateBps', event.target.value)}
-                  placeholder="z. B. 1.5"
+                  placeholder={text('z. B. 1.5', 'e.g. 1.5')}
                   className="w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-white outline-none placeholder:text-white/28"
                 />
               </label>
               <label className="space-y-2">
-                <span className="text-xs uppercase tracking-[0.2em] text-white/40">Funding Intervalle</span>
+                <span className="text-xs uppercase tracking-[0.2em] text-white/40">{text('Funding Intervalle', 'Funding intervals')}</span>
                 <input
                   value={draft.fundingIntervals}
                   onChange={(event) => updateDraft('fundingIntervals', event.target.value)}
-                  placeholder="z. B. 3"
+                  placeholder={text('z. B. 3', 'e.g. 3')}
                   className="w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-white outline-none placeholder:text-white/28"
                 />
               </label>
@@ -733,11 +715,11 @@ export function CostProfilesHub({ initialProfiles, usageByProfileId, source }: C
 
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
             <label className="space-y-2">
-              <span className="text-xs uppercase tracking-[0.2em] text-white/40">Kommission</span>
+              <span className="text-xs uppercase tracking-[0.2em] text-white/40">{text('Kommission', 'Commission')}</span>
               <input value={draft.fees} onChange={(event) => updateDraft('fees', event.target.value)} placeholder="0.75" className="w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-white outline-none placeholder:text-white/28" />
             </label>
             <label className="space-y-2">
-              <span className="text-xs uppercase tracking-[0.2em] text-white/40">Börse</span>
+              <span className="text-xs uppercase tracking-[0.2em] text-white/40">{text('Börse', 'Exchange fees')}</span>
               <input value={draft.exchangeFees} onChange={(event) => updateDraft('exchangeFees', event.target.value)} placeholder="0.15" className="w-full rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-white outline-none placeholder:text-white/28" />
             </label>
             <label className="space-y-2">
@@ -756,46 +738,28 @@ export function CostProfilesHub({ initialProfiles, usageByProfileId, source }: C
 
           <div className="grid gap-4 xl:grid-cols-[0.92fr_1.08fr]">
             <div className="space-y-3 rounded-3xl border border-orange-400/12 bg-orange-400/5 p-4">
-              <p className="text-xs uppercase tracking-[0.22em] text-orange-200/70">Profil-Kompass</p>
-              <Row label="Broker" value={getBrokerLabel(draft.brokerProfile)} />
-              <Row label="Instrument" value={getInstrumentLabel(draft.instrumentType)} />
-              <Row label="Kostenprofil" value={getCostProfileLabel(draft.costProfile)} />
-              <Row label="Basis-Kosten" value={`${formatPlainNumber(totalBaseFees, 2)} · Kontowährung je Trade`} />
-              <Row label="Verwendet in Trades" value={String(totalUsage)} />
+              <p className="text-xs uppercase tracking-[0.22em] text-orange-200/70">{text('Profil-Kompass', 'Profile summary')}</p>
+              <Row label="Broker" value={getBrokerProfileLabel(draft.brokerProfile, locale)} />
+              <Row label="Instrument" value={getInstrumentLabel(draft.instrumentType, locale)} />
+              <Row label={text('Kostenprofil', 'Cost preset')} value={getCostProfileLabel(draft.costProfile, locale)} />
+              <Row label={text('Basis-Kosten', 'Base costs')} value={text(`${baseFeesLabel} · Kontowährung je Trade`, `${baseFeesLabel} · account currency per trade`)} />
+              <Row label={text('Verwendet in Trades', 'Trades using this profile')} value={String(totalUsage)} />
               {draft.instrumentType === 'crypto' ? (
                 <>
-                  <Row label="Krypto-Modus" value={getCryptoModeLabel(draft.cryptoMarketType)} />
-                  <Row label="Execution" value={getExecutionLabel(draft.executionType)} />
-                  <Row label="Funding" value={getFundingDirectionLabel(draft.fundingDirection)} />
+                  <Row label={text('Krypto-Modus', 'Crypto market type')} value={getCryptoMarketTypeLabel(draft.cryptoMarketType, locale)} />
+                  <Row label={text('Ausführung', 'Execution')} value={getExecutionTypeLabel(draft.executionType, locale)} />
+                  <Row label="Funding" value={getFundingDirectionLabel(draft.fundingDirection, locale)} />
                 </>
               ) : null}
             </div>
 
-            <div className="space-y-3 rounded-3xl border border-white/8 bg-black/20 p-4">
-              <p className="text-xs uppercase tracking-[0.22em] text-white/35">Wofür dieses Profil taugt</p>
-              <div className="grid gap-3 md:grid-cols-2">
-                <div className="rounded-2xl border border-white/8 bg-black/30 p-4 text-sm text-white/65">
-                  <p className="font-medium text-white">Wiederkehrende Broker-Setups</p>
-                  <p className="mt-2">Lege einmal Binance Spot, MEXC Spot, Bybit oder Futures-Kosten an und ziehe sie später direkt in neue Trades.</p>
-                </div>
-                <div className="rounded-2xl border border-white/8 bg-black/30 p-4 text-sm text-white/65">
-                  <p className="font-medium text-white">Krypto mit eigenem Kostenapparat</p>
-                  <p className="mt-2">Maker/Taker, Funding, Quote Asset und Hebel bleiben zentral zusammen, statt bei jedem Trade neu zusammengeklaubt zu werden.</p>
-                </div>
-                <div className="rounded-2xl border border-white/8 bg-black/30 p-4 text-sm text-white/65">
-                  <p className="font-medium text-white">Schnellere Trade-Erfassung</p>
-                  <p className="mt-2">Im Trade-Form wählst du später nur das Profil aus und sparst dir das Gebühren-Trommeln pro Entry.</p>
-                </div>
-                <div className="rounded-2xl border border-white/8 bg-black/30 p-4 text-sm text-white/65">
-                  <p className="font-medium text-white">Sauberere P&amp;L-Basis</p>
-                  <p className="mt-2">Je konsistenter die Kostenprofile, desto glaubwürdiger wird später auch die automatische P&amp;L-Engine.</p>
-                </div>
-              </div>
-            </div>
+            <p className="self-start text-sm leading-6 text-white/55">
+              {text('Du kannst das Profil beim Erfassen eines Trades auswählen. Konto- und Marktvorgaben füllen die Gebühren für passende neue Trades vor.', 'Select this profile when adding a trade. Account and market defaults prefill fees for matching new trades.')}
+            </p>
           </div>
 
           {status ? (
-            <div className="rounded-2xl border border-emerald-400/15 bg-emerald-400/10 px-4 py-3 text-sm text-emerald-200">
+            <div role="status" className="rounded-2xl border border-emerald-400/15 bg-emerald-400/10 px-4 py-3 text-sm text-emerald-200">
               {status}
             </div>
           ) : null}

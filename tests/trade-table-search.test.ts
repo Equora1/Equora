@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { Trade } from '@/lib/types/trade'
 import { createDefaultTradeTableFilters, filterTradeTableRows } from '@/lib/utils/trade-table'
+import { getAccountOptionLabels, getTradeAccountDisplayLabels } from '@/lib/utils/account-context'
 
 function trade(overrides: Partial<Trade> = {}): Trade {
   return {
@@ -59,6 +60,21 @@ describe('trade table multi-term search', () => {
   it('searches account, setup, concept and separate tags together', () => {
     const row = trade()
     expect(search([row], 'Swing Opening Breakout Geduldig eingehalten')).toEqual([row])
+  })
+
+  it('finds a default account by its English name and preserves existing account filters', () => {
+    const main = trade({ accountLabel: null, accountTemplate: 'manual' })
+    const named = trade({ id: 'custom-account', accountLabel: 'Mein Konto', accountTemplate: 'manual' })
+    const rows = [main, named]
+    expect(getTradeAccountDisplayLabels(rows, 'en')).toEqual(new Map([
+      ['Hauptkonto', 'Main account'],
+      ['Mein Konto', 'Mein Konto'],
+    ]))
+    expect(search(rows, 'Main account BTC')).toEqual([main])
+    expect(search(rows, 'Hauptkonto BTC')).toEqual([main])
+    expect(getAccountOptionLabels(rows)).toEqual(['Hauptkonto', 'Mein Konto'])
+    expect(filterTradeTableRows(rows, tags, { ...createDefaultTradeTableFilters(), account: 'Hauptkonto' })).toEqual([main])
+    expect(filterTradeTableRows(rows, tags, { ...createDefaultTradeTableFilters(), account: 'Mein Konto' })).toEqual([named])
   })
 
   it('retains single-term substring matching and multiword field searches', () => {

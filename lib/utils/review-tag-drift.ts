@@ -1,3 +1,4 @@
+import { journalText, type JournalLocale } from '@/lib/i18n/journal'
 import type { Trade } from '@/lib/types/trade'
 import type { TradeTag } from '@/lib/types/tag'
 import { formatCurrency } from '@/lib/utils/calculations'
@@ -6,9 +7,10 @@ import type { ReviewTagComparisonItem } from '@/lib/utils/review-types'
 import { buildTagComparisons, getProcessTagShare, getTagCoverage } from '@/lib/utils/review-builder-shared'
 import { getCoreMetrics } from '@/lib/utils/analytics'
 
-export function buildTagDrift(tradesCurrent: Trade[], currentTags: TradeTag[], tradesPrevious: Trade[], previousTags: TradeTag[]): ReviewTagComparisonItem[] {
+export function buildTagDrift(tradesCurrent: Trade[], currentTags: TradeTag[], tradesPrevious: Trade[], previousTags: TradeTag[], locale: JournalLocale = 'de'): ReviewTagComparisonItem[] {
+  const text = journalText(locale)
   const currency = getCoreMetrics(tradesCurrent).currency
-  const money = (value: number) => formatCurrency(value, 0, currency)
+  const money = (value: number) => formatCurrency(value, 0, currency, locale)
   const comparisons = buildTagComparisons(currentTags, previousTags, tradesCurrent, tradesPrevious)
   const tagCoverageCurrent = getTagCoverage(tradesCurrent, currentTags)
   const tagCoveragePrevious = getTagCoverage(tradesPrevious, previousTags)
@@ -35,7 +37,7 @@ export function buildTagDrift(tradesCurrent: Trade[], currentTags: TradeTag[], t
       ? {
           label: 'Aufsteiger-Tag',
           value: strongestImprover.tag,
-          detail: `${money(strongestImprover.pnlDelta)} und ${formatDelta(strongestImprover.winRateDelta, ' pp')} zur Vorperiode.`,
+          detail: text(`${money(strongestImprover.pnlDelta)} und ${formatDelta(strongestImprover.winRateDelta, ' pp')} zur Vorperiode.`, `${money(strongestImprover.pnlDelta)} and ${formatDelta(strongestImprover.winRateDelta, ' percentage points')} vs. the previous period.`),
           tone: strongestImprover.pnlDelta >= 0 ? ('emerald' as const) : ('orange' as const),
           href: buildTradesHref({ tag: strongestImprover.tag, reviewFocus: `Review Drilldown · Aufsteiger-Tag: ${strongestImprover.tag}` }),
         }
@@ -44,7 +46,7 @@ export function buildTagDrift(tradesCurrent: Trade[], currentTags: TradeTag[], t
       ? {
           label: 'Kippender Tag',
           value: biggestSlipper.tag,
-          detail: `${money(biggestSlipper.pnlDelta)} gegenüber der Vorperiode.`,
+          detail: text(`${money(biggestSlipper.pnlDelta)} gegenüber der Vorperiode.`, `${money(biggestSlipper.pnlDelta)} vs. the previous period.`),
           tone: biggestSlipper.pnlDelta < 0 ? ('red' as const) : ('orange' as const),
           href: buildTradesHref({ tag: biggestSlipper.tag, reviewFocus: `Review Drilldown · Kippender Tag: ${biggestSlipper.tag}` }),
         }
@@ -53,7 +55,7 @@ export function buildTagDrift(tradesCurrent: Trade[], currentTags: TradeTag[], t
       ? {
           label: 'Neuer Warn-Tag',
           value: newWarning.tag,
-          detail: `${money(newWarning.current?.netPnL ?? 0)} ohne Vorperioden-Historie. Frischer Störsender im System.`,
+          detail: text(`${money(newWarning.current?.netPnL ?? 0)} ohne Vorperioden-Historie. Frischer Störsender im System.`, `${money(newWarning.current?.netPnL ?? 0)}. This tag had no trades in the previous period.`),
           tone: 'red',
           href: buildTradesHref({ tag: newWarning.tag, outcome: 'Verlierer', reviewFocus: `Review Drilldown · Neuer Warn-Tag: ${newWarning.tag}` }),
         }
@@ -62,7 +64,7 @@ export function buildTagDrift(tradesCurrent: Trade[], currentTags: TradeTag[], t
       ? {
           label: 'Prozess-Quote',
           value: `${clampNumber(processShareCurrent)}%`,
-          detail: `${formatDelta(processShareCurrent - processSharePrevious, ' pp')} vs. Vorperiode · Tag-Abdeckung ${clampNumber(tagCoverageCurrent)}%.`,
+          detail: text(`${formatDelta(processShareCurrent - processSharePrevious, ' pp')} vs. Vorperiode · Tag-Abdeckung ${clampNumber(tagCoverageCurrent)}%.`, `${formatDelta(processShareCurrent - processSharePrevious, ' percentage points')} vs. the previous period · ${clampNumber(tagCoverageCurrent)}% of trades tagged.`),
           tone: processShareCurrent >= processSharePrevious ? ('emerald' as const) : ('orange' as const),
         }
       : null,
@@ -70,7 +72,7 @@ export function buildTagDrift(tradesCurrent: Trade[], currentTags: TradeTag[], t
       ? {
           label: 'Tag-Abdeckung',
           value: `${clampNumber(tagCoverageCurrent)}%`,
-          detail: `${formatDelta(tagCoverageCurrent - tagCoveragePrevious, ' pp')} im Periodenvergleich.`,
+          detail: text(`${formatDelta(tagCoverageCurrent - tagCoveragePrevious, ' pp')} im Periodenvergleich.`, `${formatDelta(tagCoverageCurrent - tagCoveragePrevious, ' percentage points')} vs. the previous period.`),
           tone: tagCoverageCurrent >= 80 ? ('emerald' as const) : tagCoverageCurrent >= 60 ? ('orange' as const) : ('red' as const),
         }
       : null,
@@ -81,8 +83,8 @@ export function buildTagDrift(tradesCurrent: Trade[], currentTags: TradeTag[], t
     : [
         {
           label: 'Tag-Drift',
-          value: 'Noch keine Vergleichsdaten',
-          detail: 'Sobald zwei Perioden sinnvoll befüllt sind, markiert Equora hier Aufsteiger, kippende Tags und Prozess-Drift.',
+          value: text('Noch keine Vergleichsdaten', 'No comparison data yet'),
+          detail: text('Sobald zwei Perioden sinnvoll befüllt sind, markiert Equora hier Aufsteiger, kippende Tags und Prozess-Drift.', 'When both periods have comparable data, see how tag results and coverage changed.'),
           tone: 'orange',
         },
       ]

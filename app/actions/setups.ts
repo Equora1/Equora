@@ -1,5 +1,7 @@
 'use server'
 
+import { journalText, type JournalLocale } from '@/lib/i18n/journal'
+
 import { revalidatePath } from 'next/cache'
 import { createSupabaseAuthServerClient } from '@/lib/supabase/server-auth'
 import { isEquoraAdminUser } from '@/lib/server/admin'
@@ -152,10 +154,11 @@ async function fetchSetupWithMedia(supabase: Awaited<ReturnType<typeof createSup
   return buildSavedSetup(setupRow as SetupRow, signedMediaRows, (linkRows ?? []) as SetupTradeLinkRow[])
 }
 
-export async function saveSetupEntry(input: SaveSetupInput) {
+export async function saveSetupEntry(input: SaveSetupInput, locale: JournalLocale = 'de') {
+  const text = journalText(locale)
   const title = input.title.trim()
   if (!title) {
-    return { success: false, mode: hasSupabaseClientEnv() ? ('supabase' as const) : ('demo' as const), message: 'Bitte gib deinem Setup einen Namen.' }
+    return { success: false, mode: hasSupabaseClientEnv() ? ('supabase' as const) : ('demo' as const), message: text('Bitte gib deinem Setup einen Namen.', 'Enter a name for your setup.') }
   }
 
   if (!hasSupabaseClientEnv()) {
@@ -163,7 +166,7 @@ export async function saveSetupEntry(input: SaveSetupInput) {
       success: true,
       mode: 'demo' as const,
       setupId: input.id ?? crypto.randomUUID(),
-      message: `Demo-Modus: Setup „${title}“ vorbereitet.`,
+      message: text(`Demo-Modus: Setup „${title}“ vorbereitet.`, `Demo: setup “${title}” prepared.`),
     }
   }
 
@@ -173,12 +176,12 @@ export async function saveSetupEntry(input: SaveSetupInput) {
       data: { user },
     } = await supabase.auth.getUser()
 
-    if (!user) return { success: false, mode: 'supabase' as const, message: 'Bitte zuerst einloggen.' }
+    if (!user) return { success: false, mode: 'supabase' as const, message: text('Bitte zuerst einloggen.', 'Sign in to manage your setups.') }
 
     const isAdmin = await isEquoraAdminUser(user)
     const wantsMasterSetup = Boolean(input.isMaster)
     if (wantsMasterSetup && !isAdmin) {
-      return { success: false, mode: 'supabase' as const, message: 'Nur Admins können Master-Setups veröffentlichen.' }
+      return { success: false, mode: 'supabase' as const, message: text('Nur Admins können Master-Setups veröffentlichen.', 'Only admins can publish shared setups.') }
     }
 
     const normalizedChecklist = normalizeTextArray(input.checklist)
@@ -195,7 +198,7 @@ export async function saveSetupEntry(input: SaveSetupInput) {
       .eq('user_id', user.id)
       .maybeSingle()
     if (existingSetupError) {
-      return { success: false, mode: 'supabase' as const, message: 'Der bestehende Setup-Status konnte nicht sicher geprüft werden.' }
+      return { success: false, mode: 'supabase' as const, message: text('Der bestehende Setup-Status konnte nicht sicher geprüft werden.', 'The current setup status could not be checked. Reload the page before trying again.') }
     }
     const isUpdate = Boolean(existingSetup)
 
@@ -253,7 +256,7 @@ export async function saveSetupEntry(input: SaveSetupInput) {
     })
 
     if (saveError) {
-      return { success: false, mode: 'supabase' as const, message: `Setup konnte nicht atomar gespeichert werden. ${mapSetupPersistenceError(saveError.message)}` }
+      return { success: false, mode: 'supabase' as const, message: text(`Setup konnte nicht atomar gespeichert werden. ${mapSetupPersistenceError(saveError.message)}`, `The setup could not be saved. Reload the page before trying again.`) }
     }
 
     const activePaths = new Set(normalizedMedia.map((item) => item.storagePath))
@@ -269,20 +272,21 @@ export async function saveSetupEntry(input: SaveSetupInput) {
       mode: 'supabase' as const,
       setupId,
       setup: savedSetup,
-      message: `Setup gespeichert: ${title}.${cleanup.pending ? ' Die Storage-Bereinigung läuft im Hintergrund weiter.' : ''}`,
+      message: text(`Setup gespeichert: ${title}.${cleanup.pending ? ' Die Storage-Bereinigung läuft im Hintergrund weiter.' : ''}`, `Setup saved: ${title}.`),
     }
   } catch (error) {
-    return { success: false, mode: 'supabase' as const, message: `Setup konnte nicht gespeichert werden. ${mapSetupPersistenceError(error instanceof Error ? error.message : 'Unbekannter Fehler.')}` }
+    return { success: false, mode: 'supabase' as const, message: text(`Setup konnte nicht gespeichert werden. ${mapSetupPersistenceError(error instanceof Error ? error.message : 'Unbekannter Fehler.')}`, `Saving could not be confirmed. Check the setup before trying again.`) }
   }
 }
 
-export async function deleteSetupEntry(setupId: string) {
+export async function deleteSetupEntry(setupId: string, locale: JournalLocale = 'de') {
+  const text = journalText(locale)
   if (!setupId.trim()) {
-    return { success: false, mode: hasSupabaseClientEnv() ? ('supabase' as const) : ('demo' as const), message: 'Setup-ID fehlt.' }
+    return { success: false, mode: hasSupabaseClientEnv() ? ('supabase' as const) : ('demo' as const), message: text('Setup-ID fehlt.', 'Select a setup first.') }
   }
 
   if (!hasSupabaseClientEnv()) {
-    return { success: true, mode: 'demo' as const, message: 'Demo-Modus: Setup gelöscht.' }
+    return { success: true, mode: 'demo' as const, message: text('Demo-Modus: Setup gelöscht.', 'Demo: setup deleted.') }
   }
 
   try {
@@ -291,10 +295,10 @@ export async function deleteSetupEntry(setupId: string) {
       data: { user },
     } = await supabase.auth.getUser()
 
-    if (!user) return { success: false, mode: 'supabase' as const, message: 'Bitte zuerst einloggen.' }
+    if (!user) return { success: false, mode: 'supabase' as const, message: text('Bitte zuerst einloggen.', 'Sign in to manage your setups.') }
 
     const { data, error } = await supabase.rpc('equora_delete_setup_v1', { p_setup_id: setupId })
-    if (error) return { success: false, mode: 'supabase' as const, message: 'Setup konnte nicht atomar gelöscht werden.' }
+    if (error) return { success: false, mode: 'supabase' as const, message: text('Setup konnte nicht atomar gelöscht werden.', 'Could not delete the setup.') }
     const result = (data ?? {}) as { storagePaths?: string[]; alreadyAbsent?: boolean }
     const cleanup = await processMediaCleanupForPaths(result.storagePaths ?? [])
 
@@ -303,10 +307,10 @@ export async function deleteSetupEntry(setupId: string) {
       success: true,
       mode: 'supabase' as const,
       message: result.alreadyAbsent
-        ? 'Setup war bereits gelöscht.'
-        : `Setup gelöscht.${cleanup.pending ? ' Die Storage-Bereinigung läuft im Hintergrund weiter.' : ''}`,
+        ? text('Setup war bereits gelöscht.', 'The setup was already deleted.')
+        : text(`Setup gelöscht.${cleanup.pending ? ' Die Storage-Bereinigung läuft im Hintergrund weiter.' : ''}`, `Setup deleted.`),
     }
   } catch (error) {
-    return { success: false, mode: 'supabase' as const, message: `Setup konnte nicht gelöscht werden. ${error instanceof Error ? error.message : 'Unbekannter Fehler.'}` }
+    return { success: false, mode: 'supabase' as const, message: text(`Setup konnte nicht gelöscht werden. ${error instanceof Error ? error.message : 'Unbekannter Fehler.'}`, `Deletion could not be confirmed. Check the setup list before trying again.`) }
   }
 }

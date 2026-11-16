@@ -1,19 +1,10 @@
-import { getJournalSnapshotServer, TRADE_DETAIL_SELECT_COLUMNS, OWNED_TRADE_TAG_SELECT_COLUMNS } from '@/lib/server/journal'
+import { getJournalSnapshotServer, readTradeColumns, OWNED_TRADE_TAG_SELECT_COLUMNS } from '@/lib/server/journal'
 import { hasSupabaseClientEnv, hasSupabaseServerEnv } from '@/lib/supabase/config'
 import { createSupabaseAuthServerClient } from '@/lib/supabase/server-auth'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 import type { TradeMediaRow, TradeRow } from '@/lib/types/db'
 import type { TradeTag } from '@/lib/types/tag'
 import { signTradeMediaRows } from '@/lib/server/media-access'
-
-const TRADE_DETAIL_SELECT_COLUMNS_LEGACY = TRADE_DETAIL_SELECT_COLUMNS
-  .split(',')
-  .filter((column) => column !== 'import_batch_id')
-  .join(',')
-
-function isMissingColumnError(errorMessage: string | undefined, columnName: string) {
-  return Boolean(errorMessage?.toLowerCase().includes(columnName.toLowerCase()))
-}
 
 export async function getTradesServer(userId?: string | null): Promise<TradeRow[]> {
   const snapshot = await getJournalSnapshotServer(userId)
@@ -36,21 +27,12 @@ export async function getTradeByIdServer(tradeId: string, userId?: string | null
     ? createSupabaseServerClient()
     : await createSupabaseAuthServerClient()
 
-  let response = await supabase
+  const response = await readTradeColumns((columns) => supabase
     .from('trades')
-    .select(TRADE_DETAIL_SELECT_COLUMNS)
+    .select(columns)
     .eq('user_id', userId)
     .eq('id', tradeId)
-    .maybeSingle()
-
-  if (isMissingColumnError(response.error?.message, 'import_batch_id')) {
-    response = await supabase
-      .from('trades')
-      .select(TRADE_DETAIL_SELECT_COLUMNS_LEGACY)
-      .eq('user_id', userId)
-      .eq('id', tradeId)
-      .maybeSingle()
-  }
+    .maybeSingle())
 
   if (response.error || !response.data) {
     throw new Error('Trade konnte nicht geladen werden.')

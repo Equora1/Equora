@@ -106,7 +106,7 @@ export function filterTradeTableRows(trades: Trade[], tradeTagMap: Record<string
     }
     const tags = tradeTagMap[trade.id] ?? []
     const searchableValues = searchTerms.length
-      ? [trade.market, getTradeAccountLabel(trade), trade.setup, trade.emotion, trade.session, trade.concept, trade.result, trade.r, getTradeWeekdayLabel(trade), ...tags]
+      ? [trade.market, getTradeAccountLabel(trade), getTradeAccountLabel(trade, 'en'), trade.setup, trade.emotion, trade.session, trade.concept, trade.result, trade.r, getTradeWeekdayLabel(trade), ...tags]
         .filter(Boolean)
         .map((value) => value.toLowerCase())
       : []

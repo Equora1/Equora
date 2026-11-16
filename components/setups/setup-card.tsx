@@ -1,8 +1,10 @@
+import { useJournalLocale } from '@/components/layout/journal-locale-provider'
+import { journalText, type JournalLocale } from '@/lib/i18n/journal'
 import type { KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { SetupImageLightbox } from '@/components/setups/setup-image-lightbox'
 import { FuturisticCard } from '@/components/ui/futuristic-card'
 import type { SetupPerformanceRow } from '@/lib/utils/setup-analytics'
-import { getSetupPerformanceDisplay } from '@/lib/utils/setup-performance-display'
+import { getSetupPerformanceDisplay, getSetupPerformanceStatus } from '@/lib/utils/setup-performance-display'
 
 type Setup = { category: string; title: string; description: string; isMaster?: boolean; isPersonal?: boolean }
 
@@ -60,23 +62,27 @@ function clipText(text: string, maxLength = 96) {
   return `${trimmed.slice(0, maxLength - 1).trim()}…`
 }
 
-function setupSourceLabel(setup: Setup) {
-  if (setup.isMaster) return 'Master'
-  if (setup.isPersonal) return 'Eigen'
-  return 'Vorlage'
+function setupSourceLabel(setup: Setup, locale: JournalLocale) {
+  const text = journalText(locale)
+  if (setup.isMaster) return text('Master', 'Shared')
+  if (setup.isPersonal) return text('Eigen', 'Personal')
+  return text('Vorlage', 'Template')
 }
 
-function actionSignal(setup: Setup) {
+function actionSignal(setup: Setup, locale: JournalLocale) {
+  const text = journalText(locale)
   const source = `${setup.title} ${setup.description} ${setup.category}`.toLowerCase()
-  if (source.includes('reversal') || source.includes('mean') || source.includes('reclaim')) return 'Bestätigung abwarten'
-  if (source.includes('breakout') || source.includes('momentum')) return 'Retest prüfen'
-  if (source.includes('liquidity') || source.includes('sweep')) return 'Sweep bestätigen'
-  return 'Regel prüfen'
+  if (source.includes('reversal') || source.includes('mean') || source.includes('reclaim')) return text('Bestätigung abwarten', 'Wait for confirmation')
+  if (source.includes('breakout') || source.includes('momentum')) return text('Retest prüfen', 'Check the retest')
+  if (source.includes('liquidity') || source.includes('sweep')) return text('Sweep bestätigen', 'Confirm the sweep')
+  return text('Regel prüfen', 'Check the rule')
 }
 
 export function SetupCard({ setup, coverImage, performance, isActive = false, onClick }: { setup: Setup; coverImage?: string; performance?: SetupPerformanceRow; isActive?: boolean; onClick?: () => void }) {
+  const locale = useJournalLocale()
+  const text = journalText(locale)
   const image = coverImage
-  const display = getSetupPerformanceDisplay(performance)
+  const display = getSetupPerformanceDisplay(performance, locale)
 
   const handleKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
     if (!onClick) return
@@ -106,16 +112,16 @@ export function SetupCard({ setup, coverImage, performance, isActive = false, on
           <span className="rounded-full border border-[#c8823a]/20 bg-[#c8823a]/10 px-2.5 py-1 text-[11px] text-[#f0a855]">
             {setup.category}
           </span>
-          <span className="rounded-full border border-white/10 bg-white/[0.04] px-2.5 py-1 text-[11px] text-[#998a72]">{setupSourceLabel(setup)}</span>
+          <span className="rounded-full border border-white/10 bg-white/[0.04] px-2.5 py-1 text-[11px] text-[#998a72]">{setupSourceLabel(setup, locale)}</span>
         </div>
 
         <div className="overflow-hidden rounded-xl border border-[#221e1a] bg-[#1f1c1a]/35 p-2">
           {image ? (
-            <SetupImageLightbox
+            <SetupImageLightbox locale={locale}
               src={image}
-              alt={`${setup.title} Beispielchart`}
+              alt={text(`${setup.title} Beispielchart`, `${setup.title} example chart`)}
               badge={setup.category}
-              hint="Großansicht"
+              hint={text('Großansicht', 'Enlarge')}
               stopPropagation
               imageClassName="rounded-lg"
             />
@@ -125,30 +131,30 @@ export function SetupCard({ setup, coverImage, performance, isActive = false, on
         </div>
 
         <h3 className="mt-4 text-lg font-semibold tracking-tight text-white">{setup.title}</h3>
-        <p className="mt-2 min-h-[3rem] text-sm leading-6 text-[#998a72]">{clipText(setup.description || 'Setup-Regeln prüfen.')}</p>
+        <p className="mt-2 min-h-[3rem] text-sm leading-6 text-[#998a72]">{clipText(setup.description || text('Setup-Regeln prüfen.', 'Review the setup rules.'))}</p>
 
         <div className="mt-4 grid gap-2 border-t border-white/10 pt-4 text-xs">
           {performance && performance.trades > 0 ? (
             <>
               <div className="grid grid-cols-3 gap-2">
                 <CardMetric label="P&L" value={display.pnl} />
-                <CardMetric label="Winrate" value={display.winRate} />
+                <CardMetric label={text('Winrate', 'Win rate')} value={display.winRate} />
                 <CardMetric label="PF" value={display.profitFactor} />
               </div>
               <div className="flex items-center justify-between gap-3">
-                <span className="text-white/38">Risiko</span>
-                <span className="text-right text-white/72">{performance.riskCoverage}% dokumentiert</span>
+                <span className="text-white/38">{text('Risiko', 'Risk')}</span>
+                <span className="text-right text-white/72">{text(`${performance.riskCoverage}% dokumentiert`, `${performance.riskCoverage}% recorded`)}</span>
               </div>
             </>
           ) : (
             <div className="flex items-center justify-between gap-3">
               <span className="text-white/38">Signal</span>
-              <span className="text-right text-white/72">{actionSignal(setup)}</span>
+              <span className="text-right text-white/72">{actionSignal(setup, locale)}</span>
             </div>
           )}
           <div className="flex items-center justify-between gap-3">
             <span className="text-white/38">Status</span>
-            <span className={isActive ? 'text-[#f0a855]' : performance?.status === 'pause' ? 'text-red-200' : 'text-white/60'}>{performance?.statusLabel ?? (isActive ? 'Aktiv' : 'Details')}</span>
+            <span className={isActive ? 'text-[#f0a855]' : performance?.status === 'pause' ? 'text-red-200' : 'text-white/60'}>{performance ? getSetupPerformanceStatus(performance, locale).label : isActive ? text('Aktiv', 'Active') : 'Details'}</span>
           </div>
           {performance && performance.trades > 0 ? (
             <div className="flex items-center justify-between gap-3">

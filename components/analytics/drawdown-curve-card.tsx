@@ -1,10 +1,12 @@
+import { journalText, type JournalLocale } from '@/lib/i18n/journal'
 import type { Trade } from '@/lib/types/trade'
 import { buildDrawdownSeries, chartFrame } from '@/lib/utils/chart-series'
 import { formatPlainNumber } from '@/lib/utils/calculations'
 import { getTradeTrustSummary } from '@/lib/utils/trade-trust'
 import { formatMoney, getMonetaryScopeMessage } from '@/lib/utils/currency'
 
-export function DrawdownCurveCard({ trades }: { trades: Trade[] }) {
+export function DrawdownCurveCard({ trades, locale = 'de' }: { trades: Trade[]; locale?: JournalLocale }) {
+  const text = journalText(locale)
   const series = buildDrawdownSeries(trades)
   const trustSummary = getTradeTrustSummary(trades)
 
@@ -12,20 +14,20 @@ export function DrawdownCurveCard({ trades }: { trades: Trade[] }) {
     <div className="rounded-3xl border border-sky-400/15 bg-white/5 p-5 shadow-2xl">
       <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
         <div>
-          <h2 className="text-xl font-semibold text-white">Drawdown Kurve</h2>
+          <h2 className="text-xl font-semibold text-white">{text('Drawdown Kurve', 'Drawdown chart')}</h2>
           <p className="text-sm text-white/50">
-            Rückgang gegenüber dem bisherigen Höchststand. Datengrundlage: {trustSummary.trustedTrades}/{trustSummary.totalTrades} ({formatPlainNumber(trustSummary.trustedCoverage, 0)}%).
+            {text('Rückgang gegenüber dem bisherigen Höchststand. Datengrundlage:', 'Decline from the previous peak. Trades included:')} {trustSummary.trustedTrades}/{trustSummary.totalTrades} ({formatPlainNumber(trustSummary.trustedCoverage, 0, locale)}%).
           </p>
         </div>
         <div className="rounded-full border border-red-400/20 bg-red-400/10 px-3 py-1 text-xs text-red-200">
-          {series.monetaryScope.isComparable ? `tiefste Delle ${formatMoney(-series.deepestValue, series.monetaryScope.currency)}` : 'Geld-Auswertung gesperrt'}
+          {series.monetaryScope.isComparable ? text(`tiefste Delle ${formatMoney(-series.deepestValue, series.monetaryScope.currency, 0, locale)}`, `deepest drawdown ${formatMoney(-series.deepestValue, series.monetaryScope.currency, 0, locale)}`) : text('Geld-Auswertung gesperrt', 'P&L unavailable')}
         </div>
       </div>
 
       <div className="relative h-64 overflow-hidden rounded-3xl border border-white/10 bg-black/40 p-4">
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(125,211,252,0.14),transparent_38%)]" />
         {series.totalPoints ? (
-          <svg viewBox={`0 0 ${chartFrame.width} ${chartFrame.height}`} className="relative h-full w-full">
+          <svg role="img" aria-label={text('Drawdown Kurve', 'Drawdown chart')} viewBox={`0 0 ${chartFrame.width} ${chartFrame.height}`} className="relative h-full w-full">
             {[40, 90, 140, 190].map((y) => (
               <line key={y} x1="0" y1={y} x2={chartFrame.width} y2={y} stroke="rgba(255,255,255,0.08)" strokeDasharray="6 8" />
             ))}
@@ -37,7 +39,7 @@ export function DrawdownCurveCard({ trades }: { trades: Trade[] }) {
             ))}
           </svg>
         ) : (
-          <div className="flex h-full items-center justify-center px-6 text-center text-sm text-white/50">{getMonetaryScopeMessage(series.monetaryScope)}</div>
+          <div className="flex h-full items-center justify-center px-6 text-center text-sm text-white/50">{getMonetaryScopeMessage(series.monetaryScope, locale)}</div>
         )}
       </div>
     </div>

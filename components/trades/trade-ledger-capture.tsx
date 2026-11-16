@@ -1,16 +1,22 @@
 'use client'
 
+import { useJournalLocale } from '@/components/layout/journal-locale-provider'
+import { journalText, type JournalLocale } from '@/lib/i18n/journal'
 import Link from 'next/link'
 import { useEffect, useMemo, useRef, useState, useTransition } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { createTradeEntry } from '@/app/actions/trades'
-import { formatCurrency, parseTradingNumber } from '@/lib/utils/calculations'
+import { formatCurrency } from '@/lib/utils/calculations'
+import { getManualTradeNumberFormatHint, parseManualTradeNumber } from '@/lib/utils/manual-trade-number'
+import { formatTradeTimeInputValue } from '@/lib/utils/trade-time'
 import { SUPPORTED_TRADE_CURRENCIES } from '@/lib/utils/currency'
+import { getBrokerFileImportCopy } from '@/lib/i18n/broker-file'
 import { brokerFileImportCapability } from '@/lib/utils/broker-file-import-capability'
 
 type LedgerRow = {
   id: string
   tradeOccurredAt: string
+  suggestedTradeInstant: string
   market: string
   direction: '' | 'Long' | 'Short'
   entry: string
@@ -22,21 +28,14 @@ type LedgerRow = {
   setup: string
   emotion: string
   status: string
+  statusLang?: JournalLocale
 }
 
-function localDateTimeValue(date = new Date()) {
-  const year = date.getFullYear()
-  const month = String(date.getMonth() + 1).padStart(2, '0')
-  const day = String(date.getDate()).padStart(2, '0')
-  const hours = String(date.getHours()).padStart(2, '0')
-  const minutes = String(date.getMinutes()).padStart(2, '0')
-  return `${year}-${month}-${day}T${hours}:${minutes}`
-}
-
-function createBlankRow(prefill?: Partial<LedgerRow>): LedgerRow {
+function createBlankRow(prefill?: Partial<LedgerRow>, now = new Date().toISOString()): LedgerRow {
   return {
     id: crypto.randomUUID(),
-    tradeOccurredAt: localDateTimeValue(),
+    tradeOccurredAt: formatTradeTimeInputValue(now),
+    suggestedTradeInstant: now,
     market: '',
     direction: '',
     entry: '',
@@ -73,38 +72,35 @@ function ensureTrailingBlankRow(rows: LedgerRow[]) {
   return rows
 }
 
-function getLedgerManualPnL(row: LedgerRow) {
-  return parseTradingNumber(row.netPnL)
+function getLedgerManualPnLLabel(row: LedgerRow, locale: JournalLocale) {
+  const text = journalText(locale)
+  if (!row.netPnL.trim()) return text('Manueller Wert', 'Manual amount')
+  const netPnL = parseManualTradeNumber(row.netPnL, locale)
+  if (netPnL === null) return getManualTradeNumberFormatHint(locale)
+  if (!row.accountCurrency) return text('Kontowährung fehlt', 'Account currency missing')
+  return `${formatCurrency(netPnL, 2, row.accountCurrency, locale)} · ${text('manuell', 'manual')}`
 }
 
-function getLedgerManualPnLLabel(row: LedgerRow) {
-  if (!row.netPnL.trim()) return 'Manueller Wert'
-  const netPnL = getLedgerManualPnL(row)
-  if (netPnL === null) return 'Ungültige Zahl'
-  if (!row.accountCurrency) return 'Kontowährung fehlt'
-  return `${formatCurrency(netPnL, 2, row.accountCurrency)} · manuell`
-}
-
-function getLedgerManualPnLTone(row: LedgerRow) {
-  const netPnL = getLedgerManualPnL(row)
+function getLedgerManualPnLTone(row: LedgerRow, locale: JournalLocale) {
+  const netPnL = parseManualTradeNumber(row.netPnL, locale)
   if (netPnL === null) return 'empty'
   if (netPnL > 0) return 'positive'
   if (netPnL < 0) return 'negative'
   return 'flat'
 }
 
-function getMissingLedgerFields(row: LedgerRow) {
+function getMissingLedgerFields(row: LedgerRow, locale: JournalLocale = 'de') {
   const missing: string[] = []
   if (!row.setup.trim()) missing.push('Setup')
-  if (!row.direction.trim()) missing.push('Richtung')
+  if (!row.direction.trim()) missing.push(journalText(locale)('Richtung', 'Direction'))
   if (!row.entry.trim()) missing.push('Entry')
   if (!row.stopLoss.trim()) missing.push('Stop')
   return missing
 }
 
-function getLedgerCaptureStatus(row: LedgerRow) {
+function getLedgerCaptureStatus(row: LedgerRow, locale: JournalLocale) {
   const hasCloseContext = Boolean(row.exit.trim())
-  const hasReliablePnL = getLedgerManualPnL(row) !== null
+  const hasReliablePnL = parseManualTradeNumber(row.netPnL, locale) !== null
   return getMissingLedgerFields(row).length || !hasCloseContext || !hasReliablePnL ? 'incomplete' : 'complete'
 }
 
@@ -113,13 +109,14 @@ function getLedgerCaptureResult(row: LedgerRow) {
   return undefined
 }
 
-function buildFollowUpMessage(row: LedgerRow) {
-  const missing = getMissingLedgerFields(row)
+function buildFollowUpMessage(row: LedgerRow, locale: JournalLocale) {
+  const text = journalText(locale)
+  const missing = getMissingLedgerFields(row, locale)
   const hints: string[] = []
 
-  if (!row.exit.trim()) hints.push('offen')
-  if (row.exit.trim() && getLedgerManualPnL(row) === null) hints.push('manuelles P&L fehlt')
-  if (missing.length) hints.push(`fehlt: ${missing.join(', ')}`)
+  if (!row.exit.trim()) hints.push(text('offen', 'open'))
+  if (row.exit.trim() && parseManualTradeNumber(row.netPnL, locale) === null) hints.push(text('manuelles P&L fehlt', 'manual P&L missing'))
+  if (missing.length) hints.push(text(`fehlt: ${missing.join(', ')}`, `missing: ${missing.join(', ')}`))
 
   if (!hints.length) return ''
   return ` ${hints.join(' · ')}.`
@@ -129,15 +126,23 @@ export function TradeLedgerCapture({
   marketOptions,
   setupOptions,
   emotionOptions,
+  initialTradeInstant,
 }: {
   marketOptions: string[]
   setupOptions: string[]
   emotionOptions: string[]
+  initialTradeInstant: string
 }) {
+  const locale = useJournalLocale()
+  const text = journalText(locale)
+  const importCopy = getBrokerFileImportCopy(locale)
   const router = useRouter()
   const searchParams = useSearchParams()
   const marketInputRefs = useRef<Record<string, HTMLInputElement | null>>({})
-  const [rows, setRows] = useState<LedgerRow[]>(() => [createBlankRow(), createBlankRow()])
+  const [rows, setRows] = useState<LedgerRow[]>(() => [
+    createBlankRow({ id: 'initial-1' }, initialTradeInstant),
+    createBlankRow({ id: 'initial-2' }, initialTradeInstant),
+  ])
   const [isPending, startTransition] = useTransition()
   const [savingRowId, setSavingRowId] = useState<string | null>(null)
   const [isFocusedEntry, setIsFocusedEntry] = useState(false)
@@ -181,19 +186,21 @@ export function TradeLedgerCapture({
 
   function saveRow(row: LedgerRow) {
     if (!row.market.trim()) {
-      updateRow(row.id, { status: 'Bitte zuerst einen Markt eintragen.' })
+      updateRow(row.id, { status: text('Bitte zuerst einen Markt eintragen.', 'Enter a market first.'), statusLang: locale })
       return
     }
     if (!row.accountCurrency) {
-      updateRow(row.id, { status: 'Bitte eine Kontowährung auswählen.' })
+      updateRow(row.id, { status: text('Bitte eine Kontowährung auswählen.', 'Select an account currency.'), statusLang: locale })
       return
     }
-    if (row.netPnL.trim() && getLedgerManualPnL(row) === null) {
-      updateRow(row.id, { status: 'Bitte P&L als gültige Zahl eintragen.' })
+    if ([row.netPnL, row.entry, row.exit, row.stopLoss, row.positionSize].some(
+      (value) => value.trim() && parseManualTradeNumber(value, locale) === null,
+    )) {
+      updateRow(row.id, { status: getManualTradeNumberFormatHint(locale), statusLang: locale })
       return
     }
 
-    updateRow(row.id, { status: 'Speichert ...' })
+    updateRow(row.id, { status: text('Speichert ...', 'Saving …'), statusLang: locale })
     setSavingRowId(row.id)
 
     startTransition(async () => {
@@ -208,7 +215,9 @@ export function TradeLedgerCapture({
           reviewRepeatability: '',
           reviewState: '',
           reviewLesson: '',
-          tradeOccurredAt: row.tradeOccurredAt,
+          tradeOccurredAt: row.tradeOccurredAt === formatTradeTimeInputValue(row.suggestedTradeInstant)
+            ? row.suggestedTradeInstant
+            : row.tradeOccurredAt,
           entry: row.entry,
           stopLoss: row.stopLoss,
           takeProfit: '',
@@ -249,20 +258,21 @@ export function TradeLedgerCapture({
           notes: '',
           screenshotUrl: '',
           tags: [],
-          captureStatus: getLedgerCaptureStatus(row),
+          captureStatus: getLedgerCaptureStatus(row, locale),
           captureResult: getLedgerCaptureResult(row),
-        })
+        }, locale)
 
         if (!result.success) {
-          updateRow(row.id, { status: result.message })
+          updateRow(row.id, { status: result.message, statusLang: locale })
           return
         }
 
-        const followUp = buildFollowUpMessage(row)
-        setRows((current) => ensureTrailingBlankRow(current.map((item) => (item.id === row.id ? createBlankRow({ status: `${result.message}${followUp}` }) : item))))
+        const followUp = buildFollowUpMessage(row, locale)
+        const message = text(result.message, result.mode === 'demo' ? 'Trade prepared in demo mode.' : 'Trade saved.')
+        setRows((current) => ensureTrailingBlankRow(current.map((item) => (item.id === row.id ? createBlankRow({ status: `${message}${followUp}`, statusLang: locale }) : item))))
         router.refresh()
       } catch {
-        updateRow(row.id, { status: 'Speichern fehlgeschlagen. Bitte erneut versuchen.' })
+        updateRow(row.id, { status: text('Speichern fehlgeschlagen. Bitte erneut versuchen.', 'Could not save. Please try again.'), statusLang: locale })
       } finally {
         setSavingRowId(null)
       }
@@ -270,38 +280,38 @@ export function TradeLedgerCapture({
   }
 
   return (
-    <section id="ledger-capture" className={`rounded-3xl border bg-white/[0.035] p-4 shadow-2xl transition xl:p-5 ${isFocusedEntry ? 'border-orange-300/45 shadow-[0_0_0_1px_rgba(251,146,60,0.18),0_0_28px_rgba(251,146,60,0.12)]' : 'border-orange-300/18'}`}>
+    <section lang={locale} id="ledger-capture" className={`rounded-3xl border bg-white/[0.035] p-4 shadow-2xl transition xl:p-5 ${isFocusedEntry ? 'border-orange-300/45 shadow-[0_0_0_1px_rgba(251,146,60,0.18),0_0_28px_rgba(251,146,60,0.12)]' : 'border-orange-300/18'}`}>
       <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
         <div className="max-w-3xl">
-          <h2 className="text-xl font-semibold text-orange-50">Schnellerfassung</h2>
-          {isExpanded ? <p className="mt-1 text-xs leading-5 text-white/60">Ergebnis und Währung laut Abrechnung eintragen.</p> : null}
+          <h2 className="text-xl font-semibold text-orange-50">{text('Schnellerfassung', 'Quick entry')}</h2>
+          {isExpanded ? <p className="mt-1 text-xs leading-5 text-white/60">{text('Ergebnis und Währung laut Abrechnung eintragen.', 'Enter the result and currency from your statement.')}</p> : null}
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {brokerFileImportCapability.previewEnabled ? (
             <Link
               href={brokerFileImportCapability.previewHref}
-              title={brokerFileImportCapability.blockedReason}
+              title={importCopy.reason}
               className="rounded-full border border-white/10 bg-black/25 px-3 py-2 text-xs text-white/70 transition hover:border-white/20 hover:text-white"
             >
-              {brokerFileImportCapability.previewActionLabel}
+              {importCopy.preview}
             </Link>
           ) : (
             <span
               aria-disabled="true"
               className="cursor-not-allowed rounded-full border border-white/8 bg-black/20 px-3 py-2 text-xs text-white/40"
             >
-              {brokerFileImportCapability.blockedActionLabel}
+              {importCopy.blocked}
             </span>
           )}
           <Link href="/trades?capture=quick#trade-editor" className="rounded-full border border-white/10 bg-black/25 px-3 py-2 text-xs text-white/70 transition hover:border-white/20 hover:text-white">Screenshot</Link>
-          <Link href="/trades?capture=full#trade-editor" className="rounded-full border border-white/10 bg-black/25 px-3 py-2 text-xs text-white/70 transition hover:border-white/20 hover:text-white">Vollständig</Link>
+          <Link href="/trades?capture=full#trade-editor" className="rounded-full border border-white/10 bg-black/25 px-3 py-2 text-xs text-white/70 transition hover:border-white/20 hover:text-white">{text('Vollständig', 'Full form')}</Link>
           {isExpanded ? (
             <button
               type="button"
               onClick={addRow}
               className="rounded-full border border-white/10 bg-black/25 px-3 py-2 text-xs text-white/70 transition hover:border-white/20 hover:text-white"
             >
-              + Zeile
+              {text('+ Zeile', '+ Row')}
             </button>
           ) : null}
           <button
@@ -311,17 +321,24 @@ export function TradeLedgerCapture({
             onClick={() => setIsExpanded((current) => !current)}
             className="rounded-2xl border border-orange-300/25 bg-orange-400/10 px-4 py-2.5 text-sm font-medium text-white transition hover:border-orange-300/40 hover:bg-orange-400/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#f0a855]/60"
           >
-            {isExpanded ? 'Tabelle schließen' : 'Tabelle öffnen'}
+            {isExpanded ? text('Tabelle schließen', 'Close table') : text('Tabelle öffnen', 'Open table')}
           </button>
         </div>
       </div>
 
       {isExpanded ? (
-      <div id="ledger-capture-grid" className="mt-4 overflow-x-auto rounded-2xl border border-white/10 bg-black/30">
+      <>
+      <p className="mt-4 text-xs leading-5 text-white/60">
+        {text('Zeitangaben gelten für Berlin.', 'Times are in Berlin time.')} {getManualTradeNumberFormatHint(locale)}
+      </p>
+      <div id="ledger-capture-grid" className="mt-3 overflow-x-auto rounded-2xl border border-white/10 bg-black/30">
         <table className="min-w-[1100px] w-full text-sm">
           <thead className="border-b border-white/10 bg-black/40 text-left text-[11px] uppercase tracking-[0.18em] text-orange-100/60">
             <tr>
-              {['Zeit', 'Markt', 'Richtung', 'Entry', 'Exit', 'Stop', 'Size', 'Währung', 'P&L manuell', 'Setup', 'Emotion', 'Aktion'].map((label) => (
+              {[
+                text('Zeit', 'Time'), text('Markt', 'Market'), text('Richtung', 'Direction'), 'Entry', 'Exit', 'Stop', 'Size',
+                text('Währung', 'Currency'), text('P&L manuell', 'Manual P&L'), 'Setup', 'Emotion', text('Aktion', 'Actions'),
+              ].map((label) => (
                 <th key={label} className="px-3 py-3 font-medium whitespace-nowrap">{label}</th>
               ))}
             </tr>
@@ -332,7 +349,7 @@ export function TradeLedgerCapture({
                 <td className="px-3 py-3">
                   <input
                     type="datetime-local"
-                    aria-label="Trade-Zeit"
+                    aria-label={text('Trade-Zeit', 'Trade time')}
                     value={row.tradeOccurredAt}
                     onChange={(event) => updateRow(row.id, { tradeOccurredAt: event.target.value, status: '' })}
                     className="w-[180px] rounded-xl border border-orange-300/15 bg-black/25 px-3 py-2 text-sm text-white outline-none focus:border-orange-300/35"
@@ -341,7 +358,7 @@ export function TradeLedgerCapture({
                 <td className="px-3 py-3">
                   <input
                     list="ledger-markets"
-                    aria-label="Markt"
+                    aria-label={text('Markt', 'Market')}
                     value={row.market}
                     onChange={(event) => updateRow(row.id, { market: event.target.value, status: '' })}
                     placeholder="BTCUSDT"
@@ -350,12 +367,12 @@ export function TradeLedgerCapture({
                 </td>
                 <td className="px-3 py-3">
                   <select
-                    aria-label="Richtung"
+                    aria-label={text('Richtung', 'Direction')}
                     value={row.direction}
                     onChange={(event) => updateRow(row.id, { direction: event.target.value as LedgerRow['direction'], status: '' })}
                     className="w-[110px] rounded-xl border border-orange-300/15 bg-black/25 px-3 py-2 text-sm text-white outline-none focus:border-orange-300/35"
                   >
-                    <option value="" className="bg-black text-white">Offen</option>
+                    <option value="" className="bg-black text-white">{text('Offen', 'Unspecified')}</option>
                     <option value="Long" className="bg-black text-white">Long</option>
                     <option value="Short" className="bg-black text-white">Short</option>
                   </select>
@@ -363,7 +380,7 @@ export function TradeLedgerCapture({
                 {(['entry', 'exit', 'stopLoss', 'positionSize'] as const).map((field) => (
                   <td key={field} className="px-3 py-3">
                     <input
-                      aria-label={field === 'entry' ? 'Entry' : field === 'exit' ? 'Exit' : field === 'stopLoss' ? 'Stop' : 'Positionsgröße'}
+                      aria-label={field === 'entry' ? 'Entry' : field === 'exit' ? 'Exit' : field === 'stopLoss' ? 'Stop' : text('Positionsgröße', 'Position size')}
                       value={row[field]}
                       onChange={(event) => updateRow(row.id, { [field]: event.target.value, status: '' })}
                       placeholder={field === 'positionSize' ? '0.10' : '0.00'}
@@ -373,7 +390,7 @@ export function TradeLedgerCapture({
                 ))}
                 <td className="px-3 py-3">
                   <select
-                    aria-label="Kontowährung"
+                    aria-label={text('Kontowährung', 'Account currency')}
                     value={row.accountCurrency}
                     onChange={(event) => updateRow(row.id, { accountCurrency: event.target.value as LedgerRow['accountCurrency'], status: '' })}
                     className="w-[100px] rounded-xl border border-orange-300/15 bg-black/25 px-3 py-2 text-sm text-white outline-none focus:border-orange-300/35"
@@ -385,14 +402,14 @@ export function TradeLedgerCapture({
                 <td className="px-3 py-3">
                   <div className="w-[160px]">
                     <input
-                      aria-label="P&L manuell"
+                      aria-label={text('P&L manuell', 'Manual P&L')}
                       inputMode="decimal"
                       value={row.netPnL}
                       onChange={(event) => updateRow(row.id, { netPnL: event.target.value, status: '' })}
-                      placeholder="0.00"
-                      className={`w-full rounded-xl border px-3 py-2 text-sm outline-none placeholder:text-white/25 ${getLedgerManualPnLTone(row) === 'positive' ? 'border-emerald-400/20 bg-emerald-400/10 text-emerald-100' : getLedgerManualPnLTone(row) === 'negative' ? 'border-red-400/20 bg-red-400/10 text-red-100' : getLedgerManualPnLTone(row) === 'flat' ? 'border-white/15 bg-white/5 text-white/70' : 'border-orange-300/15 bg-black/25 text-white focus:border-orange-300/35'}`}
+                      placeholder={text('1234,56', '1234.56')}
+                      className={`w-full rounded-xl border px-3 py-2 text-sm outline-none placeholder:text-white/25 ${getLedgerManualPnLTone(row, locale) === 'positive' ? 'border-emerald-400/20 bg-emerald-400/10 text-emerald-100' : getLedgerManualPnLTone(row, locale) === 'negative' ? 'border-red-400/20 bg-red-400/10 text-red-100' : getLedgerManualPnLTone(row, locale) === 'flat' ? 'border-white/15 bg-white/5 text-white/70' : 'border-orange-300/15 bg-black/25 text-white focus:border-orange-300/35'}`}
                     />
-                    <span className="mt-1 block text-[10px] leading-4 text-white/35">{getLedgerManualPnLLabel(row)}</span>
+                    <span className="mt-1 block text-[10px] leading-4 text-white/35">{getLedgerManualPnLLabel(row, locale)}</span>
                   </div>
                 </td>
                 <td className="px-3 py-3">
@@ -411,7 +428,7 @@ export function TradeLedgerCapture({
                     aria-label="Emotion"
                     value={row.emotion}
                     onChange={(event) => updateRow(row.id, { emotion: event.target.value, status: '' })}
-                    placeholder="Ruhig"
+                    placeholder={text('Ruhig', 'Calm')}
                     className="w-[140px] rounded-xl border border-orange-300/15 bg-black/25 px-3 py-2 text-sm text-white outline-none placeholder:text-white/25 focus:border-orange-300/35"
                   />
                 </td>
@@ -423,16 +440,16 @@ export function TradeLedgerCapture({
                       onClick={() => saveRow(row)}
                       className="rounded-xl border border-orange-300/25 bg-orange-400/10 px-3 py-2 text-sm text-white transition hover:border-orange-300/40 hover:bg-orange-400/15 disabled:cursor-not-allowed disabled:opacity-60"
                     >
-                      {savingRowId === row.id ? 'Speichert ...' : isPending ? 'Bitte warten' : 'Speichern'}
+                      {savingRowId === row.id ? text('Speichert ...', 'Saving …') : isPending ? text('Bitte warten', 'Please wait') : text('Speichern', 'Save')}
                     </button>
                     <button
                       type="button"
                       onClick={() => removeRow(row.id)}
                       className="rounded-xl border border-white/10 bg-black/25 px-3 py-2 text-xs text-white/55 transition hover:border-white/20 hover:text-white"
                     >
-                      Entfernen
+                      {text('Entfernen', 'Remove')}
                     </button>
-                    {row.status ? <p role="status" aria-live="polite" className="max-w-[220px] text-xs leading-5 text-white/55">{row.status}</p> : null}
+                    {row.status ? <p role="status" aria-live="polite" lang={row.statusLang} className="max-w-[220px] text-xs leading-5 text-white/55">{row.status}</p> : null}
                   </div>
                 </td>
               </tr>
@@ -440,6 +457,7 @@ export function TradeLedgerCapture({
           </tbody>
         </table>
       </div>
+      </>
       ) : <div id="ledger-capture-grid" hidden /> }
       <datalist id="ledger-markets">
         {knownMarkets.map((market) => (
