@@ -1,4 +1,6 @@
 import { getJournalLocale } from '@/lib/server/journal-locale'
+import Link from 'next/link'
+import { replayStorageEnabled } from '@/lib/server/tradingview-replay-storage'
 import { journalText } from '@/lib/i18n/journal'
 import { AppShell } from '@/components/layout/app-shell'
 import { QuickTradeForm } from '@/components/trades/quick-trade-form'
@@ -194,6 +196,7 @@ export default async function TradesPage({ searchParams }: { searchParams?: Prom
   const [incomingParams, locale] = await Promise.all([searchParams, getJournalLocale()])
   const params = incomingParams ?? {}
   const text = journalText(locale)
+  const replayEnabled = replayStorageEnabled()
   const reviewFocus = getParamValue(params.reviewFocus)
   const reviewSessionId = getParamValue(params.reviewSession)
   const queryParams = new URLSearchParams()
@@ -343,6 +346,9 @@ export default async function TradesPage({ searchParams }: { searchParams?: Prom
   return (
     <AppShell>
       <div className="space-y-6">
+        {replayEnabled ? <Link href="/replay" className="inline-flex rounded-full border border-white/15 px-3 py-1.5 text-sm text-white">
+          {text('Replay-Journal', 'Replay journal')}
+        </Link> : null}
         {selectionError && !selection.drawerTradeId ? <div lang={locale} role="alert" className="rounded-2xl border border-orange-300/20 bg-orange-400/5 p-4 text-sm text-orange-50">
           <p>{selectionError[locale]}</p>
           <a href={returnHref()} className="mt-3 inline-block underline">{text('Zur Journal-Liste', 'Back to trade list')}</a>
@@ -395,7 +401,7 @@ export default async function TradesPage({ searchParams }: { searchParams?: Prom
                     tagOptions={tagOptions}
                   />
                 }
-                importCapture={<TradeImportPanel />}
+                importCapture={<TradeImportPanel replayStorageEnabled={replayEnabled} />}
                 fullCapture={
                   <TradeForm
                     key="create-trade"

@@ -213,7 +213,7 @@ async function parseSpreadsheetFile(file: File, locale: JournalLocale): Promise<
         ? text("Das Replay-Tabellenblatt überschreitet die Dateivorschaugrenzen.", "The Replay worksheet exceeds the preview limits.")
         : text("Die Spalten im Replay-Tabellenblatt wurden nicht erkannt.", "The columns in the Replay worksheet were not recognized."));
     }
-    return { delimiter: "excel", headers: [], rows: [], replay };
+    return { delimiter: "excel", headers: [], rows: [], replay, replayWorksheet: trades };
   }
   const table: string[][] = (await readSheet(file))
     .map((row) => row.map(normalizeSpreadsheetCell))
@@ -257,7 +257,12 @@ async function parseSpreadsheetFile(file: File, locale: JournalLocale): Promise<
 }
 
 const htmlReportExtensions = new Set(["html", "htm"]);
-type ParsedImportFile = ParsedCsvData & Readonly<{ notice?: string; replay?: Extract<TradingViewReplayPreview, { ok: true }> }>;
+type ReplayWorksheet = readonly (readonly unknown[])[];
+type ParsedImportFile = ParsedCsvData & Readonly<{
+  notice?: string;
+  replay?: Extract<TradingViewReplayPreview, { ok: true }>;
+  replayWorksheet?: ReplayWorksheet;
+}>;
 
 async function parseImportFile(file: File, locale: JournalLocale): Promise<ParsedImportFile> {
   const text = journalText(locale);
@@ -338,7 +343,7 @@ function BrokerImportDetectionNotice({
   );
 }
 
-export function TradeImportPanel() {
+export function TradeImportPanel({ replayStorageEnabled = false }: { replayStorageEnabled?: boolean } = {}) {
   const locale = useJournalLocale();
   const text = journalText(locale);
   const importCopy = getBrokerFileImportCopy(locale);
@@ -347,7 +352,7 @@ export function TradeImportPanel() {
   const requestedPreset = searchParams.get("preset");
   const inputRef = useRef<HTMLInputElement | null>(null);
   const fileRequest = useRef(0);
-  const [replayReport, setReplayReport] = useState<ParsedImportFile["replay"]>();
+  const [replayFile, setReplayFile] = useState<{ report: NonNullable<ParsedImportFile["replay"]>; worksheet: ReplayWorksheet; name: string }>();
   const [selectedPreset, setSelectedPreset] =
     useState<CsvImportPresetKey>(() =>
       isCsvImportPresetKey(requestedPreset) ? requestedPreset : "generic",
@@ -502,7 +507,7 @@ export function TradeImportPanel() {
 
   async function handleFileChange(file: File | null) {
     const request = ++fileRequest.current;
-    setReplayReport(undefined);
+    setReplayFile(undefined);
     setStatusMessage("");
     setLastImportReport(null);
     setRepairOverrides({});
@@ -518,8 +523,8 @@ export function TradeImportPanel() {
     try {
       const parsed = await parseImportFile(file, locale);
       if (request !== fileRequest.current) return;
-      if (parsed.replay) {
-        setReplayReport(parsed.replay);
+      if (parsed.replay && parsed.replayWorksheet) {
+        setReplayFile({ report: parsed.replay, worksheet: parsed.replayWorksheet, name: file.name });
         return;
       }
       setHeaders(parsed.headers);
@@ -693,8 +698,12 @@ export function TradeImportPanel() {
     });
   }
 
-  if (replayReport) {
-    return <TradingViewReplayFilePreview report={replayReport} onBack={() => void handleFileChange(null)} />;
+  if (replayFile) {
+    return <TradingViewReplayFilePreview
+      report={replayFile.report}
+      onBack={() => void handleFileChange(null)}
+      storage={replayStorageEnabled ? { fileName: replayFile.name, worksheet: replayFile.worksheet } : undefined}
+    />;
   }
 
   return (

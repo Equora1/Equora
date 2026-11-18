@@ -5,7 +5,7 @@ type ReplayTrade = Extract<TradingViewReplayPreview, { ok: true }>["trades"][num
 export type ReplayRiskDraft = { stopLoss: string; takeProfit: string };
 type PriceIssue = "format" | "side" | null;
 
-function readReplayPrice(input: string): number | null {
+export function readReplayPrice(input: string): number | null {
   const value = input.trim();
   if (!/^-?\d+(?:[.,]\d+)?$/.test(value)) return null;
   const price = Number(value.replace(",", "."));
