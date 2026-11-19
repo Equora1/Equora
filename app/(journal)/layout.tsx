@@ -3,6 +3,7 @@ import { JournalShell } from '@/components/layout/app-shell'
 import { PerformanceNavigationTracker } from '@/components/performance/performance-navigation-tracker'
 import { isPerformanceDiagnosticsEnabled } from '@/lib/server/performance-diagnostics'
 import { getJournalLocale } from '@/lib/server/journal-locale'
+import { replayStorageEnabled } from '@/lib/server/tradingview-replay-storage'
 
 export default async function JournalLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   const diagnosticsEnabled = isPerformanceDiagnosticsEnabled()
@@ -15,7 +16,7 @@ export default async function JournalLayout({ children }: Readonly<{ children: R
           <PerformanceNavigationTracker />
         </Suspense>
       ) : null}
-      <JournalShell locale={locale}>{children}</JournalShell>
+      <JournalShell locale={locale} replayEnabled={replayStorageEnabled()}>{children}</JournalShell>
     </>
   )
 }
