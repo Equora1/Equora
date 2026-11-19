@@ -49,6 +49,11 @@ const advancedNavItems = [
     en: { label: 'Review collections', hint: 'Group and compare reviews' },
   },
   {
+    href: '/replay', icon: 'focus',
+    de: { label: 'Replay-Backtesting', hint: 'Strategien im Replay testen und auswerten' },
+    en: { label: 'Replay backtesting', hint: 'Test and review strategies in Replay' },
+  },
+  {
     href: '/share', icon: 'vault',
     de: { label: 'Teilen', hint: 'Trades und Setups teilen' },
     en: { label: 'Share', hint: 'Share trades and setups' },
@@ -69,6 +74,8 @@ const advancedNavItems = [
     en: { label: 'Connect a broker', hint: 'Connections and file imports' },
   },
 ] satisfies NavItem[]
+
+const advancedNavItemsWithoutReplay = advancedNavItems.filter((item) => item.href !== '/replay')
 
 const settingsNavItems = [
   {
@@ -119,16 +126,18 @@ type NavItem = {
 } & Record<JournalLocale, { label: string; hint?: string }>
 type OverviewCounts = { trades: number; aSetups: number; losses: number }
 
-export function SidebarNav({ locale, changeLanguageAction }: {
+export function SidebarNav({ locale, replayEnabled, changeLanguageAction }: {
   locale: JournalLocale
+  replayEnabled: boolean
   changeLanguageAction: (formData: FormData) => Promise<void>
 }) {
   const copy = navigationCopy[locale]
   const pathname = usePathname()
   const searchParams = useSearchParams()
   const activeCapture = searchParams.get('capture')
+  const visibleAdvancedNavItems = replayEnabled ? advancedNavItems : advancedNavItemsWithoutReplay
   const [showMobileMenu, setShowMobileMenu] = useState(false)
-  const [showAdvanced, setShowAdvanced] = useState(() => advancedNavItems.some((item) => item.href === pathname))
+  const [showAdvanced, setShowAdvanced] = useState(() => visibleAdvancedNavItems.some((item) => item.href === pathname))
   const [showOverview, setShowOverview] = useState(false)
   const [overview, setOverview] = useState<OverviewCounts | null>(null)
   const [overviewState, setOverviewState] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle')
@@ -137,8 +146,11 @@ export function SidebarNav({ locale, changeLanguageAction }: {
   useEffect(() => {
     setPendingHref(null)
     setShowMobileMenu(false)
-    if (advancedNavItems.some((item) => item.href === pathname)) setShowAdvanced(true)
   }, [activeCapture, pathname])
+
+  useEffect(() => {
+    if (visibleAdvancedNavItems.some((item) => item.href === pathname)) setShowAdvanced(true)
+  }, [activeCapture, pathname, visibleAdvancedNavItems])
 
   useEffect(() => {
     if (!showOverview || overviewState !== 'idle') return
@@ -236,7 +248,7 @@ export function SidebarNav({ locale, changeLanguageAction }: {
               {showAdvanced ? (
                 <div className="mt-2">
                   <NavSection
-                    items={advancedNavItems}
+                    items={visibleAdvancedNavItems}
                     locale={locale}
                     pathname={pathname}
                     activeCapture={activeCapture}

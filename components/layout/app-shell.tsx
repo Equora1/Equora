@@ -13,6 +13,7 @@ type AppShellProps = {
 type JournalShellProps = {
   children: React.ReactNode
   locale: JournalLocale
+  replayEnabled: boolean
   contentWidth?: 'default' | 'wide'
 }
 
@@ -25,7 +26,7 @@ export function AppShell({ children }: AppShellProps) {
   return <>{children}</>
 }
 
-export function JournalShell({ children, locale, contentWidth = 'wide' }: JournalShellProps) {
+export function JournalShell({ children, locale, replayEnabled, contentWidth = 'wide' }: JournalShellProps) {
   async function changeLanguage(formData: FormData) {
     'use server'
 
@@ -40,7 +41,7 @@ export function JournalShell({ children, locale, contentWidth = 'wide' }: Journa
       <div className={`relative mx-auto ${widthClass} px-3 py-3 sm:px-5 sm:py-5 lg:px-6 xl:px-7 xl:py-6 2xl:px-9`}>
         <div className="grid min-w-0 gap-4 xl:grid-cols-[272px_minmax(0,1fr)] xl:gap-6 2xl:grid-cols-[284px_minmax(0,1fr)]">
           <aside lang={locale} className="min-w-0 xl:sticky xl:top-6 xl:self-start">
-            <SidebarNav locale={locale} changeLanguageAction={changeLanguage} />
+            <SidebarNav locale={locale} replayEnabled={replayEnabled} changeLanguageAction={changeLanguage} />
           </aside>
           <main className="min-w-0 space-y-5 pb-8 xl:space-y-6">
             {children}
