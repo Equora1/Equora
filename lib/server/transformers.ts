@@ -8,6 +8,7 @@ import { buildTradeImportSourceFacts, extractTradeImportMeta } from '@/lib/utils
 import { getTradeAccountLabel } from '@/lib/utils/account-context'
 import { getTradeCurrencyStatus } from '@/lib/utils/currency'
 import { formatTradeRValue } from '@/lib/utils/trade-r'
+import { findJournalFuturesContract, formatJournalFuturesContracts } from '@/lib/utils/journal-futures'
 import { WEIGHTED_EXIT_PRICE_BASIS } from '@/lib/utils/trade-exit-basis'
 import {
   getTradeCaptureResultLabel,
@@ -28,6 +29,7 @@ import {
   formatRMultiple,
   getPartialExitPlanInfo,
   getPartialExitSizePlan,
+  restoreRemainderExitFromStoredAverage,
   parseTradingNumber,
   getAccountTemplateLabel,
   getBrokerProfileLabel,
@@ -48,12 +50,17 @@ function getTradeScreenshotUrls(row: TradeRow, mediaRows: TradeMediaRow[] = []) 
 
 // Existing rows do not identify whether exit is a remainder price or a weighted average.
 // Keep explicit manual P&L, but do not promote an ambiguous execution calculation to a result.
-function guardStoredPartialExit(metrics: ReturnType<typeof computeTradeMetrics>, row: TradeRow) {
-  const plan = getPartialExitPlanInfo({ exit: row.exit, partialExits: row.partial_exits ?? [] })
+function guardStoredPartialExit(
+  metrics: ReturnType<typeof computeTradeMetrics>,
+  row: Partial<TradeRow>,
+  plan: ReturnType<typeof getPartialExitPlanInfo>,
+  invalidFuturesExit: boolean,
+) {
   const ambiguous = plan.count > 0 && plan.hasRemainder && parseTradingNumber(row.exit) !== null
-    && row.exit_price_basis !== WEIGHTED_EXIT_PRICE_BASIS
+    && (row.exit_price_basis !== WEIGHTED_EXIT_PRICE_BASIS || invalidFuturesExit)
   if (ambiguous) {
     metrics.rValue = null
+    metrics.realizedRValue = null
     metrics.rSource = 'missing'
     metrics.autoNetPnL = null
     metrics.grossPnL = null
@@ -69,9 +76,10 @@ function guardStoredPartialExit(metrics: ReturnType<typeof computeTradeMetrics>,
   return ambiguous
 }
 
-export function mapTradeRowToTrade(row: TradeRow, mediaRows: TradeMediaRow[] = [], linkedSetup: LinkedSetupReference | null = null): Trade {
-  const partialExits = Array.isArray(row.partial_exits) ? row.partial_exits : null
+export function getStoredTradeMetrics(row: Partial<TradeRow> & Pick<TradeRow, 'market'>) {
+  const partialExits = Array.isArray(row.partial_exits) ? row.partial_exits : []
   const metrics = computeTradeMetrics({
+    market: row.market,
     pnl: row.net_pnl,
     pnlMode: row.pnl_mode,
     costProfile: row.cost_profile,
@@ -100,18 +108,36 @@ export function mapTradeRowToTrade(row: TradeRow, mediaRows: TradeMediaRow[] = [
     fundingIntervals: row.funding_intervals,
     quoteAsset: row.quote_asset,
     leverage: row.leverage,
-    partialExits: partialExits ?? [],
+    partialExits,
   })
 
-  const ambiguousPartialExit = guardStoredPartialExit(metrics, row)
+  const wholeContracts = Boolean(findJournalFuturesContract(row.market, row.instrument_type))
+  const partialPlan = getPartialExitPlanInfo({ exit: row.exit, partialExits, futuresSize: wholeContracts ? metrics.positionSize : undefined })
+  const partialSizePlan = getPartialExitSizePlan({ positionSize: metrics.positionSize, partialExits, exit: row.exit, wholeContracts })
+  const invalidFuturesPartials = wholeContracts && partialExits.length > 0 &&
+    (partialPlan.count !== partialExits.length || partialSizePlan.realizedSize === null)
+  const invalidFuturesExit = wholeContracts && partialPlan.count > 0 && partialPlan.hasRemainder
+    && row.exit_price_basis === WEIGHTED_EXIT_PRICE_BASIS && (restoreRemainderExitFromStoredAverage({
+      exit: row.exit, partialExits, futuresSize: metrics.positionSize,
+    }) ?? 0) <= 0
+  const ambiguousPartialExit = guardStoredPartialExit(metrics, row, partialPlan, invalidFuturesExit)
+  const openFuturesRemainder = wholeContracts && partialSizePlan.hasOpenRemainder
+  const automaticFuturesOutcome = wholeContracts && metrics.pnlSource === 'derived' &&
+    !partialPlan.hasOpenRemainder && (parseTradingNumber(row.exit) !== null || partialPlan.count > 0)
+  const inferredCaptureResult = inferTradeCaptureResultFromPnL(metrics.netPnL)
+  const captureResult = openFuturesRemainder ? 'open' as const : automaticFuturesOutcome
+    ? inferredCaptureResult : normalizeTradeCaptureResult(row.capture_result) ?? inferredCaptureResult
+  return { metrics, ambiguousPartialExit, partialPlan, partialSizePlan, captureResult, invalidFuturesPartials, wholeContracts }
+}
+
+export function mapTradeRowToTrade(row: TradeRow, mediaRows: TradeMediaRow[] = [], linkedSetup: LinkedSetupReference | null = null): Trade {
+  const partialExits = Array.isArray(row.partial_exits) ? row.partial_exits : null
+  const { metrics, ambiguousPartialExit, partialPlan, partialSizePlan, captureResult } = getStoredTradeMetrics(row)
   const captureStatus = normalizeTradeCaptureStatus(row.capture_status)
-  const captureResult = normalizeTradeCaptureResult(row.capture_result) ?? inferTradeCaptureResultFromPnL(metrics.netPnL)
 
   const screenshotUrls = getTradeScreenshotUrls(row, mediaRows)
   const importMeta = extractTradeImportMeta(row.notes)
 
-  const partialPlan = getPartialExitPlanInfo({ exit: row.exit, partialExits: partialExits ?? [] })
-  const partialSizePlan = getPartialExitSizePlan({ positionSize: metrics.positionSize, partialExits: partialExits ?? [], exit: row.exit })
   const tradeOccurredAt = resolveTradeOccurredAtFromRow(row)
   const resolvedSession = row.session?.trim() || deriveTradeSessionLabel(tradeOccurredAt)
   const resolvedKillZone = deriveTradeKillZoneLabel(tradeOccurredAt)
@@ -212,41 +238,8 @@ export function mapTradeRowToTradeDetail(
   const money = (value: number, digits = 0) => formatCurrency(value, digits, displayCurrency, locale)
   const number = (value: number, digits = 2) => formatPlainNumber(value, digits, locale)
   const partialExits = Array.isArray(row.partial_exits) ? row.partial_exits : []
-  const metrics = computeTradeMetrics({
-    pnl: row.net_pnl,
-    pnlMode: row.pnl_mode,
-    costProfile: row.cost_profile,
-    brokerProfile: row.broker_profile,
-    rMultiple: row.r_multiple,
-    entry: row.entry,
-    stopLoss: row.stop_loss,
-    takeProfit: row.take_profit,
-    exit: row.exit,
-    bias: row.bias,
-    instrumentType: row.instrument_type,
-    positionSize: row.position_size,
-    pointValue: row.point_value,
-    fees: row.fees,
-    exchangeFees: row.exchange_fees,
-    fundingFees: row.funding_fees,
-    spreadCost: row.spread_cost,
-    slippage: row.slippage,
-    accountCurrency: row.account_currency,
-    riskPercent: row.risk_percent,
-    accountSize: row.account_size,
-    cryptoMarketType: row.crypto_market_type,
-    executionType: row.execution_type,
-    fundingDirection: row.funding_direction,
-    fundingRateBps: row.funding_rate_bps,
-    fundingIntervals: row.funding_intervals,
-    quoteAsset: row.quote_asset,
-    leverage: row.leverage,
-    partialExits,
-  })
-
-  const ambiguousPartialExit = guardStoredPartialExit(metrics, row)
+  const { metrics, ambiguousPartialExit, partialPlan, partialSizePlan, captureResult, invalidFuturesPartials, wholeContracts } = getStoredTradeMetrics(row)
   const captureStatus = normalizeTradeCaptureStatus(row.capture_status)
-  const captureResult = normalizeTradeCaptureResult(row.capture_result) ?? inferTradeCaptureResultFromPnL(metrics.netPnL)
 
   const costProfile = getCostProfileLabel(metrics.costProfile, locale)
   const brokerProfile = getBrokerProfileLabel(metrics.brokerProfile, locale)
@@ -276,12 +269,10 @@ export function mapTradeRowToTradeDetail(
   ].filter(Boolean)
 
   const screenshotUrls = getTradeScreenshotUrls(row, mediaRows)
-  const partialPlan = getPartialExitPlanInfo({ exit: row.exit, partialExits })
   const importMeta = extractTradeImportMeta(row.notes)
   const tradeOccurredAt = resolveTradeOccurredAtFromRow(row)
   const resolvedSession = row.session?.trim() || deriveTradeSessionLabel(tradeOccurredAt)
   const resolvedKillZone = deriveTradeKillZoneLabel(tradeOccurredAt)
-  const partialSizePlan = getPartialExitSizePlan({ positionSize: metrics.positionSize, partialExits, exit: row.exit })
   const partialExitsLabel = partialPlan.count ? formatPartialExitSummary(partialExits, locale) : null
   const hasOpenRemainder = partialPlan.hasOpenRemainder
   const recordedExit = parseTradingNumber(row.exit)
@@ -373,10 +364,18 @@ export function mapTradeRowToTradeDetail(
     sizeLabel: sizeParts.length ? sizeParts.join(' · ') : text('Keine Positionsgröße oder Punktwertangabe hinterlegt', 'Position size and point value are missing'),
     marginLabel: marginParts.length ? marginParts.join(' · ') : text('Noch keine Margin-/Hebelbasis hinterlegt', 'Margin and leverage are missing'),
     partialExitsLabel: partialExitsLabel ?? undefined,
-    partialExitCoverageLabel: partialPlan.count ? formatPartialExitCoverageLabel(partialPlan.coveredPercent, partialPlan.remainderPercent, hasOpenRemainder, locale) : undefined,
-    partialExitRealizedLabel: partialPlan.count ? formatPartialExitRealizedLabel(partialPlan.coveredPercent, partialSizePlan.realizedSize, locale) : undefined,
-    partialExitRemainingLabel: partialPlan.count ? (hasOpenRemainder ? formatPartialExitRemainingLabel(partialPlan.remainderPercent, partialSizePlan.remainingSize, locale) : text('Keine offene Restposition', 'No remaining open position')) : undefined,
-    partialExitStateLabel: partialPlan.count ? (hasOpenRemainder ? text('Teilverkäufe erfasst · Restposition offen', 'Partial exits recorded · remaining position open') : text('Position vollständig geschlossen', 'Position fully closed')) : undefined,
+    partialExitCoverageLabel: partialPlan.count && !invalidFuturesPartials ? formatPartialExitCoverageLabel(partialPlan.coveredPercent, partialPlan.remainderPercent, hasOpenRemainder, locale) : undefined,
+    partialExitRealizedLabel: partialPlan.count && !invalidFuturesPartials
+      ? wholeContracts && partialSizePlan.realizedSize !== null ? formatJournalFuturesContracts(partialSizePlan.realizedSize, locale)
+        : formatPartialExitRealizedLabel(partialPlan.coveredPercent, partialSizePlan.realizedSize, locale)
+      : undefined,
+    partialExitRemainingLabel: partialPlan.count && !invalidFuturesPartials
+      ? !hasOpenRemainder ? text('Keine offene Restposition', 'No remaining open position')
+        : wholeContracts && partialSizePlan.remainingSize !== null ? formatJournalFuturesContracts(partialSizePlan.remainingSize, locale)
+          : formatPartialExitRemainingLabel(partialPlan.remainderPercent, partialSizePlan.remainingSize, locale)
+      : undefined,
+    partialExitStateLabel: invalidFuturesPartials ? text('Kontraktzahlen der Teilabschlüsse prüfen', 'Check contract counts for the partial exits')
+      : partialPlan.count ? (hasOpenRemainder ? text('Teilverkäufe erfasst · Restposition offen', 'Partial exits recorded · remaining position open') : text('Position vollständig geschlossen', 'Position fully closed')) : undefined,
     effectiveExitLabel: recordedExit !== null
       ? `${number(recordedExit, 4)} ${text('gespeicherter Exit', 'recorded exit price')}`
       : partialPlan.effectiveExit !== null

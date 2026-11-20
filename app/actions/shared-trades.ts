@@ -7,7 +7,8 @@ import { createSupabaseAuthServerClient } from '@/lib/supabase/server-auth'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { isEquoraAdminUser } from '@/lib/server/admin'
 import { hasSupabaseClientEnv, hasSupabaseServerEnv } from '@/lib/supabase/config'
-import { computeTradeMetrics, parseTradingNumber } from '@/lib/utils/calculations'
+import { getStoredTradeMetrics } from '@/lib/server/transformers'
+import { parseTradingNumber } from '@/lib/utils/calculations'
 import { splitDraftItems, type SharedTradeShareMode, type SharedTradeStatus, type SharedTradeVisibility } from '@/lib/utils/trade-share'
 import { extractTradeImportMeta } from '@/lib/utils/trade-import-meta'
 
@@ -81,37 +82,7 @@ export async function createTradeShareSubmission(input: {
 
     const { data: tagRows } = await supabase.from('trade_tags').select('tag').eq('trade_id', input.tradeId).order('created_at', { ascending: true })
     const tags = (tagRows ?? []).map((row: { tag: string }) => row.tag)
-    const metrics = computeTradeMetrics({
-      pnl: trade.net_pnl,
-      pnlMode: trade.pnl_mode,
-      costProfile: trade.cost_profile,
-      brokerProfile: trade.broker_profile,
-      rMultiple: trade.r_multiple,
-      entry: trade.entry,
-      stopLoss: trade.stop_loss,
-      takeProfit: trade.take_profit,
-      exit: trade.exit,
-      bias: trade.bias,
-      instrumentType: trade.instrument_type,
-      positionSize: trade.position_size,
-      pointValue: trade.point_value,
-      fees: trade.fees,
-      exchangeFees: trade.exchange_fees,
-      fundingFees: trade.funding_fees,
-      spreadCost: trade.spread_cost,
-      slippage: trade.slippage,
-      accountCurrency: trade.account_currency,
-      riskPercent: trade.risk_percent,
-      accountSize: trade.account_size,
-      cryptoMarketType: trade.crypto_market_type,
-      executionType: trade.execution_type,
-      fundingDirection: trade.funding_direction,
-      fundingRateBps: trade.funding_rate_bps,
-      fundingIntervals: trade.funding_intervals,
-      quoteAsset: trade.quote_asset,
-      leverage: trade.leverage,
-      partialExits: Array.isArray(trade.partial_exits) ? trade.partial_exits : [],
-    })
+    const { metrics, captureResult } = getStoredTradeMetrics(trade)
     const timestamp = new Date().toISOString()
     const sanitizedName = input.visibility === 'named' ? input.submittedByName?.trim() || null : null
     const sharedNotes = extractTradeImportMeta(trade.notes).cleanNotes || null
@@ -127,12 +98,12 @@ export async function createTradeShareSubmission(input: {
       submitted_by_name: sanitizedName,
       shared_market: trade.market,
       shared_setup: trade.setup,
-      shared_result: deriveResultLabel(trade.capture_result, trade.net_pnl),
+      shared_result: deriveResultLabel(captureResult, metrics.netPnL),
       shared_r_multiple: metrics.rSource === 'missing' ? null : metrics.rValue,
       shared_net_pnl: metrics.netPnL,
       shared_currency: metrics.accountCurrency,
       shared_capture_status: trade.capture_status ?? null,
-      shared_capture_result: trade.capture_result ?? null,
+      shared_capture_result: captureResult,
       shared_notes: sharedNotes,
       shared_quality: trade.quality ?? null,
       shared_tags: tags,

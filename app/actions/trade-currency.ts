@@ -20,7 +20,7 @@ function validSelection(input: Selection) {
 
 async function readSelection(client: Awaited<ReturnType<typeof createSupabaseAuthServerClient>>, owner: string, input: Selection) {
   return collectJournalRows<CurrencyCorrectionRow>((from, to) => {
-    let query = client.from('trades').select('id, account_currency', { count: 'exact' }).eq('user_id', owner)
+    let query = client.from('trades').select('id, account_currency, market, instrument_type', { count: 'exact' }).eq('user_id', owner)
     if (input.tradeId) query = query.eq('id', input.tradeId)
     return query.order('id', { ascending: true }).range(from, to)
   }, 10_000)
@@ -29,7 +29,7 @@ async function readSelection(client: Awaited<ReturnType<typeof createSupabaseAut
 function fingerprint(owner: string, input: Selection, rows: CurrencyCorrectionRow[]) {
   return createHash('sha256').update(JSON.stringify([
     owner, normalizeTradeCurrency(input.currency), input.scope, input.tradeId ?? null,
-    rows.map(row => [row.id, row.account_currency]),
+    rows.map(row => [row.id, row.account_currency, row.market, row.instrument_type]),
   ])).digest('hex')
 }
 
@@ -71,6 +71,10 @@ export async function applyTradeCurrencyCorrection(input: Selection & { token: s
       // Authenticated RLS client, owner, exact IDs and original currency are all required.
       let query = client.from('trades').update({ account_currency: currency }).eq('user_id', user.id).in('id', batch.ids)
       query = batch.previous === null ? query.is('account_currency', null) : query.eq('account_currency', batch.previous)
+      if (batch.market !== undefined) query = query.eq('market', batch.market)
+      if (batch.instrumentType !== undefined) {
+        query = batch.instrumentType === null ? query.is('instrument_type', null) : query.eq('instrument_type', batch.instrumentType)
+      }
       const response = await query.select('id')
       if (response.error || !Array.isArray(response.data)) throw new Error('CURRENCY_UPDATE_UNCERTAIN')
       const returnedIds = new Set(response.data.map(row => row.id))

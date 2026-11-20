@@ -17,6 +17,7 @@ import {
   parseTradingNumber,
   derivePositionSizeFromMargin,
   deriveEffectiveExitFromPartialExitLegs,
+  includeJournalFuturesRemainder,
   normalizePartialExitLegs,
   computeTradeMetrics,
 } from '@/lib/utils/calculations'
@@ -36,6 +37,8 @@ import { assertOwnedTradeMediaPath } from '@/lib/utils/media-security'
 import { processMediaCleanupForPaths } from '@/lib/server/media-cleanup'
 import { normalizeTradeCurrency } from '@/lib/utils/currency'
 import { getExitPriceBasis } from '@/lib/utils/trade-exit-basis'
+import { applyJournalFuturesTerms, findJournalFuturesContract, hasJournalFuturesPriceBasis, isContinuousJournalFuturesSymbol, isWholeJournalFuturesSize, journalFuturesPointValue } from '@/lib/utils/journal-futures'
+import { getStoredTradeMetrics } from '@/lib/server/transformers'
 
 function toNumericField(value: string) {
   return value.trim() ? parseTradingNumber(value) : null
@@ -59,12 +62,16 @@ function resolvePartialExits(input: CreateTradeInput) {
     { percent: input.partialExit2Percent, price: input.partialExit2Price },
     { percent: input.partialExit3Percent, price: input.partialExit3Price },
   ])
-  return normalized.length ? normalized : null
+  if (!normalized.length) return null
+  return findJournalFuturesContract(input.market, input.instrumentType)
+    ? includeJournalFuturesRemainder(normalized, toNumericField(input.positionSize), toNumericField(input.exit))
+    : normalized
 }
 
 function resolveEffectiveExit(input: CreateTradeInput) {
   const effectiveExit = deriveEffectiveExitFromPartialExitLegs({
     exit: input.exit,
+    futuresSize: findJournalFuturesContract(input.market, input.instrumentType) ? toNumericField(input.positionSize) : undefined,
     partialExits: [
       { percent: input.partialExit1Percent, price: input.partialExit1Price },
       { percent: input.partialExit2Percent, price: input.partialExit2Price },
@@ -90,6 +97,7 @@ function resolveLegacyStoredRMultiple(args: {
   if (manualR === null) return null
 
   const metrics = computeTradeMetrics({
+    market: args.input.market,
     pnl: args.normalizedManualPnL,
     pnlMode: args.normalizedPnLMode,
     costProfile: args.normalizedCostProfile,
@@ -203,6 +211,7 @@ async function resolveOwnedSetupSelection(
 
 export async function createTradeEntry(input: CreateTradeInput, locale: JournalLocale = 'de') {
   const text = journalText(locale)
+  input = applyJournalFuturesTerms(input)
   const tradeId = crypto.randomUUID()
   const validation = validateTradeCaptureInput(input, undefined, locale)
 
@@ -275,6 +284,7 @@ export async function createTradeEntry(input: CreateTradeInput, locale: JournalL
       partialExits,
     })
     const resolvedMetrics = computeTradeMetrics({
+      market: input.market,
       pnl: normalizedManualPnL,
       pnlMode: normalizedPnLMode,
       costProfile: normalizedCostProfile,
@@ -309,7 +319,11 @@ export async function createTradeEntry(input: CreateTradeInput, locale: JournalL
     const requestedCaptureResult = input.captureResult === 'winner' || input.captureResult === 'loser' || input.captureResult === 'breakeven' || input.captureResult === 'open'
       ? input.captureResult
       : null
-    const resolvedCaptureResult = requestedCaptureResult ?? inferTradeCaptureResultFromPnL(resolvedMetrics.netPnL)
+    const calculatedOutcome = inferTradeCaptureResultFromPnL(resolvedMetrics.netPnL)
+    const futuresContract = findJournalFuturesContract(input.market, normalizedInstrumentType)
+    const openFuturesRemainder = futuresContract && partialExits?.length && !normalizedInput.exit.trim()
+    const automaticFuturesOutcome = futuresContract && resolvedMetrics.pnlSource === 'derived' && normalizedInput.exit.trim()
+    const resolvedCaptureResult = openFuturesRemainder ? 'open' : automaticFuturesOutcome ? calculatedOutcome : requestedCaptureResult ?? calculatedOutcome
 
     const tradePayload = {
       id: tradeId,
@@ -331,7 +345,7 @@ export async function createTradeEntry(input: CreateTradeInput, locale: JournalL
       risk_percent: toNumericField(input.riskPercent),
       account_size: toNumericField(normalizedInput.accountSize),
       partial_exits: partialExits,
-      exit_price_basis: getExitPriceBasis(input.exit, partialExits),
+      exit_price_basis: getExitPriceBasis(input.exit, partialExits, futuresContract ? resolvedPositionSize : undefined),
       r_multiple: resolvedStoredRMultiple,
       pnl_mode: normalizedPnLMode,
       cost_profile: normalizedCostProfile,
@@ -392,6 +406,7 @@ export async function createTradeEntry(input: CreateTradeInput, locale: JournalL
 
 export async function updateTradeEntry(tradeId: string, input: CreateTradeInput, locale: JournalLocale = 'de') {
   const text = journalText(locale)
+  input = applyJournalFuturesTerms(input)
   // Time validation needs the owned stored instant to preserve an unchanged DST fold.
   const validation = validateTradeCaptureInput({ ...input, tradeOccurredAt: '' }, undefined, locale)
 
@@ -491,6 +506,7 @@ export async function updateTradeEntry(tradeId: string, input: CreateTradeInput,
       partialExits,
     })
     const resolvedMetrics = computeTradeMetrics({
+      market: input.market,
       pnl: normalizedManualPnL,
       pnlMode: normalizedPnLMode,
       costProfile: normalizedCostProfile,
@@ -523,6 +539,8 @@ export async function updateTradeEntry(tradeId: string, input: CreateTradeInput,
     })
 
     const preservedImportMeta = extractTradeImportMeta(existingTrade.notes).meta
+    const futuresContract = findJournalFuturesContract(input.market, normalizedInstrumentType)
+    const openFuturesRemainder = futuresContract && partialExits?.length && !normalizedInput.exit.trim()
     const tradePayload = {
       market: input.market,
       setup: resolvedSetupTitle,
@@ -540,7 +558,7 @@ export async function updateTradeEntry(tradeId: string, input: CreateTradeInput,
       risk_percent: toNumericField(input.riskPercent),
       account_size: toNumericField(normalizedInput.accountSize),
       partial_exits: partialExits,
-      exit_price_basis: getExitPriceBasis(input.exit, partialExits),
+      exit_price_basis: getExitPriceBasis(input.exit, partialExits, futuresContract ? resolvedPositionSize : undefined),
       r_multiple: resolvedStoredRMultiple,
       pnl_mode: normalizedPnLMode,
       cost_profile: normalizedCostProfile,
@@ -568,7 +586,7 @@ export async function updateTradeEntry(tradeId: string, input: CreateTradeInput,
       leverage: toNumericField(input.leverage) ?? (normalizedInstrumentType === 'crypto' ? brokerPreset.defaultLeverage ?? null : null),
       user_cost_profile_id: input.userCostProfileId.trim() || null,
       capture_status: 'complete',
-      capture_result: inferTradeCaptureResultFromPnL(resolvedMetrics.netPnL),
+      capture_result: openFuturesRemainder ? 'open' : inferTradeCaptureResultFromPnL(resolvedMetrics.netPnL),
       captured_at: resolvedTradeOccurredAt,
       completed_at: existingTrade.completed_at ?? timestamp,
       notes: appendTradeImportMeta(normalizedInput.notes || null, preservedImportMeta),
@@ -633,6 +651,7 @@ export async function createQuickTradeEntry(input: QuickTradeCaptureInput, local
 
     const timestamp = new Date().toISOString()
     const capturedAt = input.capturedAt?.trim() || timestamp
+    const futuresContract = findJournalFuturesContract(input.market)
     const tradePayload = {
       id: tradeId,
       user_id: user.id,
@@ -652,11 +671,11 @@ export async function createQuickTradeEntry(input: QuickTradeCaptureInput, local
       pnl_mode: 'auto',
       cost_profile: 'manual',
       broker_profile: 'manual',
-      instrument_type: 'unknown',
+      instrument_type: futuresContract ? 'futures' : 'unknown',
       account_template: 'manual',
       market_template: 'manual',
       position_size: null,
-      point_value: null,
+      point_value: futuresContract ? journalFuturesPointValue(futuresContract) : null,
       fees: null,
       exchange_fees: null,
       funding_fees: null,
@@ -713,6 +732,11 @@ type CloseTradeInput = {
   notes?: string
 }
 
+const futuresCloseSnapshot = `market, instrument_type, account_currency, point_value, position_size, entry, bias,
+  notes, capture_status, capture_result, completed_at, exit, net_pnl, pnl_mode, r_multiple,
+  cost_profile, broker_profile, fees, exchange_fees, funding_fees, spread_cost, slippage,
+  crypto_market_type, execution_type, funding_direction, funding_rate_bps, funding_intervals, leverage`
+
 export async function closeTradeEntry(input: CloseTradeInput, locale: JournalLocale = 'de') {
   const text = journalText(locale)
   if (!input.tradeId.trim()) {
@@ -752,7 +776,7 @@ export async function closeTradeEntry(input: CloseTradeInput, locale: JournalLoc
 
     const { data: trade, error: tradeError } = await supabase
       .from('trades')
-      .select('id, user_id, market, setup, notes, account_currency, partial_exits')
+      .select(`id, user_id, setup, partial_exits, ${futuresCloseSnapshot}`)
       .eq('id', input.tradeId)
       .eq('user_id', user.id)
       .maybeSingle()
@@ -771,8 +795,38 @@ export async function closeTradeEntry(input: CloseTradeInput, locale: JournalLoc
     if (resolvedNetPnL !== null && !normalizeTradeCurrency(trade.account_currency)) {
       return { success: false, mode: 'supabase' as const, message: text('Der Trade hat keine unterstützte Kontowährung. Bitte zuerst im vollständigen Edit-Flow eine Währung setzen.', 'This trade needs a supported account currency. Set it in the full editor before saving P&L.') }
     }
-    const resolvedPnLMode = normalizeTradePnLMode(undefined, resolvedNetPnL)
-    const inferredResult = inferTradeCaptureResultFromPnL(resolvedNetPnL)
+    const futuresContract = findJournalFuturesContract(trade.market, trade.instrument_type)
+    const continuousSymbol = isContinuousJournalFuturesSymbol(trade.market, trade.instrument_type)
+    const guardedFuturesClose = Boolean(futuresContract) || continuousSymbol
+    const automaticFuturesClose = Boolean(futuresContract) && resolvedNetPnL === null && resolvedExit !== null
+    if (guardedFuturesClose && (
+      (trade.capture_status === 'complete' && trade.capture_result && trade.capture_result !== 'open')
+      || trade.exit != null || trade.net_pnl != null
+    )) {
+      return { success: false, mode: 'supabase' as const, message: text('Der Futures-Trade hat bereits ein Ergebnis. Änderungen sind unter „Bearbeiten“ möglich.', 'This futures trade already has an outcome. Use the full editor to make changes.') }
+    }
+    if (continuousSymbol && resolvedNetPnL === null && resolvedExit !== null) {
+      return { success: false, mode: 'supabase' as const, message: text('Wähle unter „Bearbeiten“ den gehandelten Kontrakt oder übernimm das Abrechnungsergebnis.', 'Select the traded contract in the full editor or enter the result from your statement.') }
+    }
+    if (futuresContract && automaticFuturesClose && (
+      !hasJournalFuturesPriceBasis(futuresContract, trade.account_currency, parseTradingNumber(trade.point_value))
+      || !isWholeJournalFuturesSize(parseTradingNumber(trade.position_size))
+    )) {
+      return { success: false, mode: 'supabase' as const, message: text(
+        'Für den automatischen Futures-Abschluss fehlen bestätigte USD-Kontraktdaten. Prüfe den Trade unter „Bearbeiten“ oder übernimm das Ergebnis aus deiner Abrechnung.',
+        'Automatic futures close needs verified USD contract details. Check the trade in the full editor, or enter the result from your statement.',
+      ) }
+    }
+    let netForOutcome = resolvedNetPnL
+    if (automaticFuturesClose) {
+      const { metrics } = getStoredTradeMetrics({ ...trade, exit: resolvedExit, net_pnl: null, pnl_mode: 'auto' })
+      if (metrics.netPnL === null || (parseTradingNumber(trade.entry) ?? 0) <= 0 || (resolvedExit ?? 0) <= 0) {
+        return { success: false, mode: 'supabase' as const, message: text('Für den Preisabschluss fehlen ein gültiger Einstieg, Ausstieg oder die Richtung. Ergänze die Angaben unter „Bearbeiten“.', 'The automatic close needs valid entry and exit prices and a trade direction. Add the details in the full editor.') }
+      }
+      netForOutcome = metrics.netPnL
+    }
+    const resolvedPnLMode = normalizeTradePnLMode(guardedFuturesClose && resolvedExit === null ? 'manual' : undefined, resolvedNetPnL)
+    const inferredResult = inferTradeCaptureResultFromPnL(netForOutcome)
     const resolvedCaptureResult = inferredResult && inferredResult !== 'open' ? inferredResult : input.captureResult
     const updatePayload = {
       exit: resolvedExit,
@@ -785,13 +839,21 @@ export async function closeTradeEntry(input: CloseTradeInput, locale: JournalLoc
       pnl_mode: resolvedPnLMode,
     }
 
-    const { error: updateError } = await supabase
+    let updateQuery = supabase
       .from('trades')
       .update(updatePayload)
       .eq('id', input.tradeId)
       .eq('user_id', user.id)
+    const snapshotFields = guardedFuturesClose ? futuresCloseSnapshot.split(/,\s*/) as Array<keyof typeof trade>
+      : ['market', 'instrument_type', 'notes', 'capture_status', 'capture_result', 'completed_at', 'exit', 'net_pnl'] as const
+    for (const field of snapshotFields) {
+      const stored = trade[field]
+      updateQuery = stored == null ? updateQuery.is(field, null) : updateQuery.eq(field, stored)
+    }
+    updateQuery = trade.partial_exits == null ? updateQuery.is('partial_exits', null) : updateQuery.eq('partial_exits', JSON.stringify(trade.partial_exits))
+    const updateResult = await updateQuery.select('id').maybeSingle()
 
-    if (updateError) {
+    if (updateResult.error || !updateResult.data) {
       return { success: false, mode: 'supabase' as const, message: text('Der Trade konnte nicht geschlossen werden. Lade ihn neu und prüfe den aktuellen Stand.', 'The trade could not be closed. Reload and check the trade before trying again.') }
     }
 
