@@ -73,6 +73,9 @@ export function TradeCurrencyCorrection({ editingTrade = false }: { editingTrade
           <li>{text(`${preview.summary.missing} ${preview.summary.missing === 1 ? 'fehlende Währung' : 'fehlende Währungen'} ergänzen`, `Fill in ${preview.summary.missing} missing ${preview.summary.missing === 1 ? 'currency' : 'currencies'}`)}</li>
           <li>{text(`${preview.summary.replacements} ${preview.summary.replacements === 1 ? 'vorhandene Währungsangabe' : 'vorhandene Währungsangaben'} ersetzen`, `Replace the currency on ${preview.summary.replacements} ${preview.summary.replacements === 1 ? 'trade' : 'trades'}`)}</li>
           <li>{text(`${preview.summary.alreadyCorrect} ${preview.summary.alreadyCorrect === 1 ? 'Trade hat' : 'Trades haben'} bereits ${currency}`, `${preview.summary.alreadyCorrect} ${preview.summary.alreadyCorrect === 1 ? 'trade already uses' : 'trades already use'} ${currency}`)}</li>
+          {preview.summary.futuresRequiringEditor ? (
+            <li>{text(`${preview.summary.futuresRequiringEditor} Futures-Trades bitte einzeln im Trade-Editor prüfen.`, `Check ${preview.summary.futuresRequiringEditor} futures trades in the full trade editor.`)}</li>
+          ) : null}
         </ul>
         {preview.summary.changes ? <>
           <label className="flex items-start gap-3 text-sm leading-6 text-white/80">
@@ -101,6 +104,10 @@ export function SaveTradeCurrencyOnly({ tradeId, currency, disabled = false, onB
         const selection = { tradeId, currency, scope: 'all' as const }
         const preview = await previewTradeCurrencyCorrection(selection)
         if (!preview.success) { setMessage({ text: preview.message, lang: 'de' }); return }
+        if (preview.summary.futuresRequiringEditor) {
+          setMessage({ text: text('Prüfe Währung und Ergebnis im vollständigen Trade-Editor.', 'Check the currency and P&L in the full trade editor.'), lang: locale })
+          return
+        }
         const result = await applyTradeCurrencyCorrection({ ...selection, token: preview.token, confirmed: true })
         setMessage(result.success && locale === 'en'
           ? { text: `Set ${result.saved} ${result.saved === 1 ? 'trade' : 'trades'} to ${currency}. The amounts were kept as entered.`, lang: 'en' }

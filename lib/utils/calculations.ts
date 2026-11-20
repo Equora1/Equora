@@ -13,6 +13,15 @@ import type {
   TradePnLSource,
 } from '@/lib/types/trade'
 import { formatMoney, normalizeTradeCurrency } from '@/lib/utils/currency'
+import {
+  calculateJournalFuturesNetUsd,
+  findJournalFuturesContract,
+  getJournalFuturesExitCounts,
+  hasJournalFuturesPriceBasis,
+  isContinuousJournalFuturesSymbol,
+  isWholeJournalFuturesSize,
+  journalFuturesPercentFromCount,
+} from '@/lib/utils/journal-futures'
 
 import {
   type TradeBrokerProfilePreset,
@@ -133,6 +142,13 @@ export function normalizePartialExitLegs(entries: Array<{ percent?: string | num
     .filter((entry): entry is PartialExitLeg => Boolean(entry))
 }
 
+export function includeJournalFuturesRemainder(legs: PartialExitLeg[], size: number | null, exit: number | null) {
+  if (!legs.length || exit === null || exit <= 0) return legs
+  const plan = getJournalFuturesExitCounts(size, legs)
+  const percent = plan?.remaining ? journalFuturesPercentFromCount(size, plan.remaining) : null
+  return percent === null ? legs : [...legs, { percent, price: exit }]
+}
+
 // Percent units: a remainder rounded to four decimals is meaningful above 0.0001.
 export const PARTIAL_EXIT_REMAINDER_TOLERANCE = 0.0001
 export function getPartialExitRemainderPercent(coveredPercent: number) {
@@ -142,14 +158,25 @@ export function getPartialExitRemainderPercent(coveredPercent: number) {
 export function deriveEffectiveExitFromPartialExitLegs({
   exit,
   partialExits,
+  futuresSize,
 }: {
   exit?: string | number | null
   partialExits?: Array<{ percent?: string | number | null; price?: string | number | null } | null | undefined>
+  futuresSize?: number | null
 }) {
   const normalized = normalizePartialExitLegs(partialExits ?? [])
   const explicitExit = parseTradingNumber(exit)
 
   if (!normalized.length) return explicitExit
+
+  if (futuresSize !== undefined) {
+    const plan = getJournalFuturesExitCounts(futuresSize, normalized)
+    if (!plan || (plan.remaining > 0 && (explicitExit === null || explicitExit <= 0))) return null
+    const total = plan.closed + plan.remaining
+    const average = normalized.reduce((sum, leg, index) => sum + (plan.counts[index] / total) * leg.price,
+      (plan.remaining / total) * (explicitExit ?? 0))
+    return Number.isFinite(average) ? average : null
+  }
 
   const coveredPercent = normalized.reduce((sum, leg) => sum + leg.percent, 0)
   if (coveredPercent > 100.0001) return null
@@ -178,23 +205,28 @@ export function formatPartialExitSummary(partialExits: Array<{ percent?: string 
 export function getPartialExitPlanInfo({
   exit,
   partialExits,
+  futuresSize,
 }: {
   exit?: string | number | null
   partialExits?: Array<{ percent?: string | number | null; price?: string | number | null } | null | undefined>
+  futuresSize?: number | null
 }) {
   const normalized = normalizePartialExitLegs(partialExits ?? [])
   const coveredPercent = normalized.reduce((sum, leg) => sum + leg.percent, 0)
-  const remainderPercent = getPartialExitRemainderPercent(coveredPercent)
-  const effectiveExit = deriveEffectiveExitFromPartialExitLegs({ exit, partialExits: normalized })
+  const contractPlan = futuresSize === undefined ? null : getJournalFuturesExitCounts(futuresSize, normalized)
+  const remainderPercent = contractPlan ? (contractPlan.remaining / (contractPlan.remaining + contractPlan.closed)) * 100
+    : getPartialExitRemainderPercent(coveredPercent)
+  const hasRemainder = contractPlan ? contractPlan.remaining > 0 : remainderPercent > PARTIAL_EXIT_REMAINDER_TOLERANCE
+  const effectiveExit = deriveEffectiveExitFromPartialExitLegs({ exit, partialExits: normalized, futuresSize })
 
   return {
     legs: normalized,
     count: normalized.length,
     coveredPercent: Number(coveredPercent.toFixed(4)),
     remainderPercent,
-    hasRemainder: remainderPercent > PARTIAL_EXIT_REMAINDER_TOLERANCE,
+    hasRemainder,
     // An explicit final exit closes the remainder; absent partial legs do not create one.
-    hasOpenRemainder: normalized.length > 0 && remainderPercent > PARTIAL_EXIT_REMAINDER_TOLERANCE && effectiveExit === null,
+    hasOpenRemainder: normalized.length > 0 && hasRemainder && (contractPlan ? parseTradingNumber(exit) === null : effectiveExit === null),
     effectiveExit,
     summary: formatPartialExitSummary(normalized),
   }
@@ -216,15 +248,28 @@ export function getPartialExitSizePlan({
   positionSize,
   partialExits,
   exit,
+  wholeContracts = false,
 }: {
   positionSize?: string | number | null
   partialExits?: Array<{ percent?: string | number | null; price?: string | number | null } | null | undefined>
   exit?: string | number | null
+  wholeContracts?: boolean
 }) {
   const normalized = normalizePartialExitLegs(partialExits ?? [])
   const coveredPercent = normalized.reduce((sum, leg) => sum + leg.percent, 0)
   const remainderPercent = getPartialExitRemainderPercent(coveredPercent)
   const resolvedSize = parseTradingNumber(positionSize)
+
+  if (wholeContracts) {
+    const plan = getJournalFuturesExitCounts(resolvedSize, normalized)
+    return {
+      coveredPercent: Number(coveredPercent.toFixed(4)),
+      remainderPercent: plan ? (plan.remaining / (plan.remaining + plan.closed)) * 100 : remainderPercent,
+      realizedSize: plan?.closed ?? null,
+      remainingSize: plan === null ? null : parseTradingNumber(exit) === null ? plan.remaining : 0,
+      hasOpenRemainder: Boolean(plan?.closed && plan.remaining > 0 && parseTradingNumber(exit) === null),
+    }
+  }
 
   const realizedSize = resolvedSize !== null ? Number(((resolvedSize * coveredPercent) / 100).toFixed(4)) : null
   const hasOpenRemainder = normalized.length > 0 && remainderPercent > PARTIAL_EXIT_REMAINDER_TOLERANCE && parseTradingNumber(exit) === null
@@ -240,13 +285,21 @@ export function getPartialExitSizePlan({
 }
 
 /** Rows store the weighted exit. The form edits the final remainder price, then the action weights once. */
-export function restoreRemainderExitFromStoredAverage({ exit, partialExits }: {
+export function restoreRemainderExitFromStoredAverage({ exit, partialExits, futuresSize }: {
   exit?: string | number | null
   partialExits?: Array<{ percent?: string | number | null; price?: string | number | null } | null | undefined>
+  futuresSize?: number | null
 }) {
   const average = parseTradingNumber(exit)
   const legs = normalizePartialExitLegs(partialExits ?? [])
   if (average === null || !legs.length) return average
+  if (futuresSize !== undefined) {
+    const plan = getJournalFuturesExitCounts(futuresSize, legs)
+    if (!plan || !plan.remaining) return null
+    // Solve the weighted-average equation for the remainder using the actual counts.
+    const finalExit = average + legs.reduce((sum, leg, index) => sum + plan.counts[index] * (average - leg.price), 0) / plan.remaining
+    return Number.isFinite(finalExit) ? finalExit : null
+  }
   const covered = legs.reduce((sum, leg) => sum + leg.percent, 0)
   if (getPartialExitRemainderPercent(covered) <= PARTIAL_EXIT_REMAINDER_TOLERANCE) return null
   const finalExit = (average * 100 - legs.reduce((sum, leg) => sum + leg.percent * leg.price, 0)) / (100 - covered)
@@ -277,6 +330,8 @@ export function derivePartialExitPnL({
   pointValue,
   partialExits,
   totalCosts = 0,
+  wholeContracts = false,
+  futuresCosts,
 }: {
   instrumentType?: string | null
   entry?: string | number | null
@@ -285,6 +340,8 @@ export function derivePartialExitPnL({
   pointValue?: string | number | null
   partialExits?: Array<{ percent?: string | number | null; price?: string | number | null } | null | undefined>
   totalCosts?: number
+  wholeContracts?: boolean
+  futuresCosts?: readonly number[]
 }) {
   const normalized = normalizePartialExitLegs(partialExits ?? [])
   const direction = getTradeDirection(bias)
@@ -313,9 +370,9 @@ export function derivePartialExitPnL({
   }
 
   const coveredPercent = normalized.reduce((sum, leg) => sum + leg.percent, 0)
-  const remainderPercent = getPartialExitRemainderPercent(coveredPercent)
-  const realizedSize = resolvedSize !== null ? Number(((resolvedSize * coveredPercent) / 100).toFixed(4)) : null
-  const remainingSize = resolvedSize !== null ? Number(((resolvedSize * remainderPercent) / 100).toFixed(4)) : null
+  const sizePlan = getPartialExitSizePlan({ positionSize, partialExits: normalized, wholeContracts })
+  const { realizedSize, remainingSize, remainderPercent } = sizePlan
+  const contractPlan = wholeContracts ? getJournalFuturesExitCounts(resolvedSize, normalized) : null
 
   if (
     direction === 'neutral'
@@ -324,6 +381,7 @@ export function derivePartialExitPnL({
     || resolvedSize <= 0
     || multiplier === null
     || multiplier <= 0
+    || (wholeContracts && !contractPlan)
   ) {
     return {
       grossPnL: null,
@@ -332,33 +390,38 @@ export function derivePartialExitPnL({
       remainderPercent,
       realizedSize,
       remainingSize,
-      hasOpenRemainder: remainderPercent > PARTIAL_EXIT_REMAINDER_TOLERANCE,
+      hasOpenRemainder: sizePlan.hasOpenRemainder,
       costShare: 0,
       priceMove: null,
       multiplier,
     }
   }
 
-  const grossPnL = normalized.reduce((sum, leg) => {
-    const legSize = (resolvedSize * leg.percent) / 100
+  const grossPnL = normalized.reduce((sum, leg, index) => {
+    const legSize = contractPlan?.counts[index] ?? (resolvedSize * leg.percent) / 100
     const priceMove = direction === 'short' ? entryValue - leg.price : leg.price - entryValue
     return sum + (priceMove * legSize * multiplier)
   }, 0)
 
-  const costShare = Number.isFinite(totalCosts) ? (totalCosts * coveredPercent) / 100 : 0
+  const closedFraction = contractPlan ? contractPlan.closed / resolvedSize : coveredPercent / 100
+  const costShare = Number.isFinite(totalCosts) ? totalCosts * closedFraction : 0
   const weightedPriceMove = coveredPercent > 0
     ? normalized.reduce((sum, leg) => sum + (leg.percent * (direction === 'short' ? entryValue - leg.price : leg.price - entryValue)), 0) / coveredPercent
     : null
-  const netPnL = grossPnL - costShare
+  const netPnL = contractPlan ? calculateJournalFuturesNetUsd({
+    entry: entryValue,
+    executions: normalized.map((leg, index) => ({ price: leg.price, count: contractPlan.counts[index] })),
+    positionSize: resolvedSize, pointValue: multiplier, direction, costs: futuresCosts ?? [totalCosts],
+  }) : grossPnL - costShare
 
   return {
     grossPnL: Number.isFinite(grossPnL) ? grossPnL : null,
-    netPnL: Number.isFinite(netPnL) ? netPnL : null,
+    netPnL: netPnL !== null && Number.isFinite(netPnL) ? netPnL : null,
     coveredPercent: Number(coveredPercent.toFixed(4)),
     remainderPercent,
     realizedSize,
     remainingSize,
-    hasOpenRemainder: remainderPercent > PARTIAL_EXIT_REMAINDER_TOLERANCE,
+    hasOpenRemainder: sizePlan.hasOpenRemainder,
     costShare: Number.isFinite(costShare) ? costShare : 0,
     priceMove: weightedPriceMove !== null && Number.isFinite(weightedPriceMove) ? weightedPriceMove : null,
     multiplier,
@@ -511,6 +574,9 @@ export function buildQuickPnLPreview({
   bias,
   instrumentType,
   totalCosts = 0,
+  futuresUsd = false,
+  futuresCosts,
+  futuresFullLegs,
 }: {
   entry?: string | number | null
   exit?: string | number | null
@@ -519,6 +585,9 @@ export function buildQuickPnLPreview({
   bias?: string | null
   instrumentType?: string | null
   totalCosts?: string | number | null
+  futuresUsd?: boolean
+  futuresCosts?: readonly number[]
+  futuresFullLegs?: PartialExitLeg[]
 }, locale: JournalLocale = 'de'): QuickPnLPreview {
   const text = journalText(locale)
   const normalizedInstrument = normalizeInstrumentType(instrumentType)
@@ -548,7 +617,16 @@ export function buildQuickPnLPreview({
     pointValue: pointValueNumber,
   })
 
-  const netPnL = gross.grossPnL !== null ? gross.grossPnL - costValue : null
+  const contractPlan = futuresFullLegs?.length ? getJournalFuturesExitCounts(sizeValue, futuresFullLegs) : null
+  const executions = contractPlan?.remaining === 0 && futuresFullLegs
+    ? futuresFullLegs.map(({ price }, index) => ({ price, count: contractPlan.counts[index] }))
+    : exitValue !== null && sizeValue !== null ? [{ price: exitValue, count: sizeValue }] : []
+  const netPnL = futuresUsd && entryValue !== null && exitValue !== null && sizeValue !== null && pointValueNumber !== null
+    ? calculateJournalFuturesNetUsd({
+      entry: entryValue, executions, positionSize: sizeValue,
+      pointValue: pointValueNumber, direction, costs: futuresCosts ?? [costValue],
+    })
+    : gross.grossPnL !== null ? gross.grossPnL - costValue : null
 
   return {
     netPnL: netPnL !== null && Number.isFinite(netPnL) ? netPnL : null,
@@ -562,6 +640,10 @@ export function buildQuickPnLPreview({
 
 function resolveCostValue(value: string | number | null | undefined, fallback: number | null): number {
   return parseTradingNumber(value) ?? fallback ?? 0
+}
+
+export function getExecutionCostAmounts(costs: Pick<ReturnType<typeof resolveTradeCostBreakdown>, 'fees' | 'exchangeFees' | 'fundingFees' | 'spreadCost' | 'slippage'>) {
+  return [costs.fees, costs.exchangeFees, costs.fundingFees, costs.spreadCost, costs.slippage]
 }
 
 function getExecutionRateBps(executionType: TradeExecutionType, brokerPreset: TradeBrokerProfilePreset): number | null {
@@ -1050,6 +1132,7 @@ export type TradeComputation = {
 }
 
 export function computeTradeMetrics({
+  market,
   pnl,
   pnlMode,
   costProfile,
@@ -1080,6 +1163,7 @@ export function computeTradeMetrics({
   leverage,
   partialExits,
 }: {
+  market?: string | null
   pnl?: string | number | null
   pnlMode?: string | null
   costProfile?: string | null
@@ -1112,11 +1196,22 @@ export function computeTradeMetrics({
 }): TradeComputation {
   const normalizedBroker = normalizeTradeBrokerProfile(brokerProfile)
   const brokerPreset = getTradeBrokerProfilePreset(normalizedBroker)
-  const instrumentPreset = getTradeInstrumentPreset(instrumentType ?? brokerPreset.defaultInstrumentType)
+  const futuresContract = findJournalFuturesContract(market, instrumentType)
+  const effectiveInstrumentType = futuresContract ? 'futures' : instrumentType
+  const instrumentPreset = getTradeInstrumentPreset(effectiveInstrumentType ?? brokerPreset.defaultInstrumentType)
+  const futuresSize = futuresContract ? parseTradingNumber(positionSize) : null
+  const storedPartials = partialExits ?? []
+  const normalizedPartialExits = normalizePartialExitLegs(storedPartials)
+  const invalidFuturesPartials = futuresContract && storedPartials.length > 0 &&
+    (normalizedPartialExits.length !== storedPartials.length || !getJournalFuturesExitCounts(futuresSize, normalizedPartialExits))
+  const priceMoneyUnavailable = isContinuousJournalFuturesSymbol(market, instrumentType) || (futuresContract && (
+    !hasJournalFuturesPriceBasis(futuresContract, accountCurrency, parseTradingNumber(pointValue))
+    || !isWholeJournalFuturesSize(futuresSize)
+  ))
   const pnlComputation = computeNetPnLFromExecution({
     explicitPnL: pnl,
     pnlMode,
-    entry,
+    entry: priceMoneyUnavailable || invalidFuturesPartials ? null : entry,
     exit,
     positionSize,
     pointValue,
@@ -1126,7 +1221,7 @@ export function computeTradeMetrics({
     spreadCost,
     slippage,
     bias,
-    instrumentType,
+    instrumentType: effectiveInstrumentType,
     costProfile,
     brokerProfile,
     cryptoMarketType,
@@ -1147,25 +1242,36 @@ export function computeTradeMetrics({
   const pointValueValue = parseTradingNumber(pointValue) ?? brokerPreset.defaultPointValue ?? instrumentPreset.defaultPointValue
   const riskPercentValue = parseTradingNumber(riskPercent)
   const accountSizeValue = parseTradingNumber(accountSize)
-  const partialPlan = getPartialExitPlanInfo({ exit, partialExits })
+  const partialPlan = getPartialExitPlanInfo({ exit, partialExits, futuresSize: futuresContract ? futuresSize : undefined })
   const partialRealized = derivePartialExitPnL({
     instrumentType: pnlComputation.instrumentType,
-    entry,
+    entry: priceMoneyUnavailable || invalidFuturesPartials ? null : entry,
     bias,
     positionSize,
     pointValue: pointValueValue,
     partialExits,
     totalCosts: pnlComputation.totalCosts,
+    wholeContracts: Boolean(futuresContract),
+    futuresCosts: futuresContract ? getExecutionCostAmounts(pnlComputation) : undefined,
   })
+  const finalExit = parseTradingNumber(exit)
+  const futuresAutomaticNet = futuresContract && pnlComputation.autoNetPnL !== null && entryValue !== null &&
+    positionSizeValue !== null && pointValueValue !== null && finalExit !== null
+    ? partialRealized.realizedSize === positionSizeValue && partialRealized.netPnL !== null ? partialRealized.netPnL
+      : calculateJournalFuturesNetUsd({
+        entry: entryValue, executions: [{ price: finalExit, count: positionSizeValue }], positionSize: positionSizeValue,
+        pointValue: pointValueValue, direction, costs: getExecutionCostAmounts(pnlComputation),
+      })
+    : null
   const effectiveNetPnL =
     pnlComputation.netPnL !== null
-      ? pnlComputation.netPnL
+      ? futuresContract && pnlComputation.source === 'derived' ? futuresAutomaticNet : pnlComputation.netPnL
       : partialPlan.count && partialRealized.netPnL !== null
         ? partialRealized.netPnL
         : null
   const effectiveAutoNetPnL =
     pnlComputation.autoNetPnL !== null
-      ? pnlComputation.autoNetPnL
+      ? futuresContract ? futuresAutomaticNet : pnlComputation.autoNetPnL
       : pnlComputation.source === 'missing' && partialPlan.count
         ? partialRealized.netPnL
         : null
@@ -1196,13 +1302,13 @@ export function computeTradeMetrics({
     && plannedR !== null
     && Math.abs(storedRValue - plannedR) < 0.0001
   const legacyStoredR = matchesPlannedStoredR ? null : storedRValue
-  const exposure = deriveTradeNotional({
+  const exposure = priceMoneyUnavailable ? null : deriveTradeNotional({
     instrumentType: pnlComputation.instrumentType,
     entry,
     positionSize,
     pointValue,
   })
-  const marginUsed = deriveMarginUsed({
+  const marginUsed = priceMoneyUnavailable ? null : deriveMarginUsed({
     instrumentType: pnlComputation.instrumentType,
     entry,
     positionSize,
@@ -1235,7 +1341,7 @@ export function computeTradeMetrics({
       ? pointValueValue ?? null
       : 1
   const stopRiskAmount =
-    normalizedRisk !== null && positionSizeValue !== null && positionSizeValue > 0 && effectiveRiskMultiplier !== null
+    !priceMoneyUnavailable && normalizedRisk !== null && positionSizeValue !== null && positionSizeValue > 0 && effectiveRiskMultiplier !== null
       ? Math.abs(normalizedRisk * positionSizeValue * effectiveRiskMultiplier)
       : null
 
@@ -1256,7 +1362,7 @@ export function computeTradeMetrics({
         : manualR !== null
           ? 'manual'
           : 'missing'
-  const pnlBasedRiskAmount = effectiveNetPnL !== null && rValue !== null && rValue !== 0 ? Math.abs(effectiveNetPnL / rValue) : null
+  const pnlBasedRiskAmount = !priceMoneyUnavailable && effectiveNetPnL !== null && rValue !== null && rValue !== 0 ? Math.abs(effectiveNetPnL / rValue) : null
   const riskAmount = stopRiskAmount ?? pnlBasedRiskAmount
   const plannedRiskAmount =
     accountSizeValue !== null && accountSizeValue > 0 && riskPercentValue !== null && riskPercentValue > 0
