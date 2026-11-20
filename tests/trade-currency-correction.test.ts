@@ -59,6 +59,27 @@ async function preview(input = selection) {
 beforeEach(() => { vi.clearAllMocks(); mocks.env.mockReturnValue(true) })
 
 describe('currency-only correction planning', () => {
+  it('keeps recognized contracts out of bulk currency relabeling while preserving other markets', async () => {
+    const rows = fixture(['USD', null, 'USD'])
+    Object.assign(rows[0], { market: 'MGCZ6', instrument_type: 'futures' })
+    Object.assign(rows[1], { market: 'MNQ 12-26', instrument_type: 'unknown' })
+    Object.assign(rows[2], { market: 'NAS100', instrument_type: 'cfd' })
+    const { writes } = setup(rows)
+    const { token, summary } = await preview()
+    expect(summary).toMatchObject({ changes: 1, futuresRequiringEditor: 2 })
+    expect(await applyTradeCurrencyCorrection({ ...selection, token, confirmed: true })).toMatchObject({ success: true, saved: 1 })
+    expect(writes[0].ids).toEqual([rows[2].id])
+    expect(rows.map(row => row.account_currency)).toEqual(['USD', null, 'USDT'])
+  })
+
+  it('detects a concurrent reclassification and does not relabel the trade', async () => {
+    const rows = fixture([null])
+    Object.assign(rows[0], { market: 'NAS100', instrument_type: 'cfd' })
+    setup(rows, { beforeWrite: list => { Object.assign(list[0], { market: 'NQ', instrument_type: 'futures' }) } })
+    const { token } = await preview()
+    expect(await applyTradeCurrencyCorrection({ ...selection, token, confirmed: true })).toMatchObject({ success: false, saved: 0 })
+    expect(rows[0].account_currency).toBeNull()
+  })
   it('supports all own trades, distinguishes missing from replacements and skips exact USDT', () => {
     const plan = planTradeCurrencyCorrection(fixture([null, '', ' ', 'EUR', 'XYZ', 'USDT']), 'USDT', 'all')
     expect(plan.summary).toEqual({ total: 6, changes: 5, missing: 3, replacements: 2, alreadyCorrect: 1 })

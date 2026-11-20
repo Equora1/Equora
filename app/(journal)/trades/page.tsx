@@ -22,6 +22,8 @@ import { getUserCostProfilesServer } from '@/lib/server/user-cost-profiles'
 import { mapTradeRowToTrade, mapTradeRowToTradeDetail } from '@/lib/server/transformers'
 import { extractTradeImportMeta } from '@/lib/utils/trade-import-meta'
 import { formatTradeTimeInputValue } from '@/lib/utils/trade-time'
+import { parseTradingNumber } from '@/lib/utils/calculations'
+import { getJournalFuturesEditorExits } from '@/lib/utils/journal-futures'
 import type { TradeMediaRow, TradeRow } from '@/lib/types/db'
 import {
 
@@ -73,7 +75,9 @@ function buildTradeFormInitialValues(
   mediaRows: TradeMediaRow[],
   linkedSetup?: { id: string; title: string } | null,
 ) {
-  const partialExits = Array.isArray(row.partial_exits) ? row.partial_exits : []
+  const storedPartialExits = Array.isArray(row.partial_exits) ? row.partial_exits : []
+  const futuresExits = getJournalFuturesEditorExits(row.market, row.instrument_type, parseTradingNumber(row.position_size), storedPartialExits)
+  const partialExits = futuresExits?.legs ?? storedPartialExits
   const cleanNotes = extractTradeImportMeta(row.notes).cleanNotes
   return {
     createdAt: row.created_at,
@@ -91,8 +95,9 @@ function buildTradeFormInitialValues(
     entry: toFormFieldValue(row.entry),
     stopLoss: toFormFieldValue(row.stop_loss),
     takeProfit: toFormFieldValue(row.take_profit),
-    exit: toFormFieldValue(row.exit),
-    exitPriceBasis: row.exit_price_basis ?? null,
+    exit: toFormFieldValue(futuresExits ? futuresExits.finalExit : row.exit),
+    exitPriceBasis: futuresExits ? null : row.exit_price_basis ?? null,
+    finalExitFromExecutionLeg: futuresExits?.finalExit != null,
     netPnL: toFormFieldValue(row.net_pnl),
     riskPercent: toFormFieldValue(row.risk_percent),
     accountSize: toFormFieldValue(row.account_size),

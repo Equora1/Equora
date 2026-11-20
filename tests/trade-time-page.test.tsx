@@ -32,3 +32,20 @@ it.each(['2026-10-25T00:30:17.123Z', '2026-10-25T01:30:42.987Z'])('passes the ex
   expect(validateTradeCaptureInput(values, values.capturedAt).errors.tradeOccurredAt).toBeUndefined()
   expect(validateTradeCaptureInput(values).errors.tradeOccurredAt).toContain('zweimal')
 })
+
+it('reopens the last price of a four-fill futures close in the primary exit field', async () => {
+  const id = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+  state.row = {
+    id, created_at: '2026-01-01T00:00:00Z', market: 'MGC', setup: 'Test', account_currency: 'USD',
+    instrument_type: 'futures', point_value: 10, position_size: 5, entry: 3897, exit: 3898.5,
+    pnl_mode: 'auto', bias: 'Long', exit_price_basis: null,
+    partial_exits: [{ percent: 20, price: 3897.5 }, { percent: 20, price: 3898 },
+      { percent: 20, price: 3898.5 }, { percent: 40, price: 3899.25 }],
+  }
+  renderToStaticMarkup(await TradesPage({ searchParams: Promise.resolve({ tradeId: id, editTradeId: id }) }))
+  expect(state.form?.initialValues).toMatchObject({
+    exit: '3899.25', exitPriceBasis: null, finalExitFromExecutionLeg: true,
+    partialExit1Percent: '20', partialExit1Price: '3897.5',
+    partialExit2Percent: '20', partialExit2Price: '3898', partialExit3Percent: '20', partialExit3Price: '3898.5',
+  })
+})

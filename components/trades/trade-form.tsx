@@ -1,6 +1,18 @@
 'use client'
 
 import { useJournalLocale } from '@/components/layout/journal-locale-provider'
+import {
+  findJournalFuturesContract,
+  formatJournalFuturesContracts,
+  getJournalFuturesDraftInstrument,
+  getJournalFuturesExitCounts,
+  isContinuousJournalFuturesSymbol,
+  isWholeJournalFuturesSize,
+  journalFuturesCountFromPercent,
+  journalFuturesPercentFromCount,
+  journalFuturesPointValue,
+} from '@/lib/utils/journal-futures'
+import { futuresContracts } from '@/lib/utils/futures-contracts'
 import { getManualTradeNumberFormatHint, parseManualTradeNumber } from '@/lib/utils/manual-trade-number'
 import { journalText, type JournalLocale } from '@/lib/i18n/journal'
 import Link from 'next/link'
@@ -22,7 +34,6 @@ import {
   getTradeInstrumentPreset,
   getTradeMarketTemplatePreset,
   normalizeInstrumentType,
-  deriveEffectiveExitFromPartialExitLegs,
   restoreRemainderExitFromStoredAverage,
   parseTradingNumber,
   buildQuickPnLPreview,
@@ -36,6 +47,9 @@ import {
   formatRMultiple,
   getPartialExitPlanInfo,
   getPartialExitSizePlan,
+  getExecutionCostAmounts,
+  includeJournalFuturesRemainder,
+  normalizePartialExitLegs,
   normalizeTradeAccountTemplate,
   normalizeTradeBrokerProfile,
   normalizeTradeCostProfile,
@@ -132,6 +146,7 @@ type TradeFormMode = 'create' | 'edit'
 
 type TradeFormInitialValues = Partial<TradeCaptureInput> & {
   exitPriceBasis?: string | null
+  finalExitFromExecutionLeg?: boolean
   setupId?: string
   captureStatus?: TradeCaptureStatus
   partialExit1Percent?: string
@@ -271,16 +286,31 @@ export function TradeForm({
     const matched = setupOptionByTitle.get(initialValues?.setup?.trim() || '')
     return matched?.id ?? ''
   })
-  const [accountTemplate, setAccountTemplate] = useState<TradeAccountTemplate>(initialAccountTemplate)
+  const [draftAccountTemplate, setAccountTemplate] = useState<TradeAccountTemplate>(initialAccountTemplate)
   const [marketTemplate, setMarketTemplate] = useState<TradeMarketTemplate>(initialMarketTemplate)
-  const [brokerProfile, setBrokerProfile] = useState<TradeBrokerProfile>(initialBrokerProfile)
-  const [instrumentType, setInstrumentType] = useState<TradeInstrumentType>(initialInstrumentType)
+  const [draftBrokerProfile, setBrokerProfile] = useState<TradeBrokerProfile>(initialBrokerProfile)
+  const [brokerExplicit, setBrokerExplicit] = useState(Boolean(initialValues?.brokerProfile || initialValues?.accountTemplate))
+  const [selectedInstrumentType, setInstrumentType] = useState<TradeInstrumentType>(initialInstrumentType)
+  const [instrumentExplicit, setInstrumentExplicit] = useState(Boolean(initialValues?.instrumentType))
+  const instrumentType = getJournalFuturesDraftInstrument(marketValue, selectedInstrumentType, instrumentExplicit)
+  const futuresContract = findJournalFuturesContract(marketValue, instrumentType)
+  const continuousFutures = isContinuousJournalFuturesSymbol(marketValue, instrumentType)
   const [pnlMode, setPnlMode] = useState<TradePnLMode>(initialPnlMode)
-  const [costProfile, setCostProfile] = useState<TradeCostProfile>(initialCostProfile)
+  const [draftCostProfile, setCostProfile] = useState<TradeCostProfile>(initialCostProfile)
+  const [costProfileExplicit, setCostProfileExplicit] = useState(Boolean(initialValues?.costProfile || initialValues?.userCostProfileId))
+  const newFuturesDraft = !isEditMode && instrumentType === 'futures'
+  const neutralFuturesAccount = newFuturesDraft && !brokerExplicit &&
+    draftBrokerProfile === 'trade-republic'
+  const neutralStockCosts = newFuturesDraft && !costProfileExplicit && draftCostProfile === 'stocks-light'
+  const accountTemplate = neutralFuturesAccount ? 'manual' : draftAccountTemplate
+  const brokerProfile = neutralFuturesAccount ? 'manual' : draftBrokerProfile
+  const costProfile = neutralStockCosts ? 'none' : draftCostProfile
   const initialAccountCurrency = isEditMode
     ? initialValues?.accountCurrency?.trim() || ''
     : initialValues?.accountCurrency?.trim() || initialAccountPreset.defaultCurrency || initialBrokerPreset.defaultCurrency || initialInstrumentPreset.defaultCurrency
-  const [accountCurrency, setAccountCurrency] = useState(initialAccountCurrency)
+  const [draftCurrency, setAccountCurrency] = useState(initialAccountCurrency)
+  const [currencyExplicit, setCurrencyExplicit] = useState(Boolean(initialValues?.accountCurrency))
+  const accountCurrency = (neutralFuturesAccount || (neutralStockCosts && !brokerExplicit)) && !currencyExplicit ? 'USD' : draftCurrency
   const [cryptoMarketType, setCryptoMarketType] = useState<TradeCryptoMarketType>(normalizeTradeCryptoMarketType(initialValues?.cryptoMarketType || initialAccountPreset.defaultCryptoMarketType))
   const [quoteAsset, setQuoteAsset] = useState(initialValues?.quoteAsset?.trim() || initialAccountPreset.defaultQuoteAsset || initialBrokerPreset.defaultQuoteAsset || '')
   const [leverage, setLeverage] = useState(stringifyInitialValue(initialValues?.leverage ?? initialAccountPreset.defaultLeverage))
@@ -293,11 +323,14 @@ export function TradeForm({
       { percent: initialValues?.partialExit2Percent, price: initialValues?.partialExit2Price },
       { percent: initialValues?.partialExit3Percent, price: initialValues?.partialExit3Price },
   ]
-  const initialPartialPlan = getPartialExitPlanInfo({ exit: initialValues?.exit, partialExits: initialPartialExits })
-  const storedExitBasisKnown = initialValues?.exitPriceBasis === WEIGHTED_EXIT_PRICE_BASIS
-  const needsExitBasis = isEditMode && initialPartialPlan.count > 0 && initialPartialPlan.hasRemainder && parseTradingNumber(initialValues?.exit) !== null && !storedExitBasisKnown
+  const initialFuturesSize = findJournalFuturesContract(initialValues?.market, initialValues?.instrumentType)
+    ? parseTradingNumber(initialValues?.positionSize) : undefined
+  const initialPartialPlan = getPartialExitPlanInfo({ exit: initialValues?.exit, partialExits: initialPartialExits, futuresSize: initialFuturesSize })
+  const storedExitBasisKnown = !initialValues?.finalExitFromExecutionLeg && initialValues?.exitPriceBasis === WEIGHTED_EXIT_PRICE_BASIS
+  const needsExitBasis = isEditMode && !initialValues?.finalExitFromExecutionLeg && initialPartialPlan.count > 0 &&
+    initialPartialPlan.hasRemainder && parseTradingNumber(initialValues?.exit) !== null && !storedExitBasisKnown
   const initialExitValue = storedExitBasisKnown
-    ? restoreRemainderExitFromStoredAverage({ exit: initialValues?.exit, partialExits: initialPartialExits })
+    ? restoreRemainderExitFromStoredAverage({ exit: initialValues?.exit, partialExits: initialPartialExits, futuresSize: initialFuturesSize })
     : initialValues?.exit
   const [exitBasis, setExitBasis] = useState<'unconfirmed' | 'remainder' | 'average'>(needsExitBasis ? 'unconfirmed' : 'remainder')
   const [exitValue, setExitValue] = useState(needsExitBasis ? '' : stringifyInitialValue(initialExitValue))
@@ -307,6 +340,7 @@ export function TradeForm({
   const [partialExit2Price, setPartialExit2Price] = useState(stringifyInitialValue(initialValues?.partialExit2Price))
   const [partialExit3Percent, setPartialExit3Percent] = useState(stringifyInitialValue(initialValues?.partialExit3Percent))
   const [partialExit3Price, setPartialExit3Price] = useState(stringifyInitialValue(initialValues?.partialExit3Price))
+  const [editedFuturesExitCounts, setEditedFuturesExitCounts] = useState<Partial<Record<1 | 2 | 3, string>>>({})
   const [positionSizeValue, setPositionSizeValue] = useState(stringifyInitialValue(initialValues?.positionSize))
   const [marginUsedValue, setMarginUsedValue] = useState(getInitialMarginUsed({ instrumentType: initialInstrumentType, entry: initialValues?.entry, positionSize: initialValues?.positionSize, pointValue: initialValues?.pointValue ?? initialAccountPreset.defaultPointValue ?? initialBrokerPreset.defaultPointValue ?? initialInstrumentPreset.defaultPointValue, leverage: initialValues?.leverage ?? initialAccountPreset.defaultLeverage }))
   const [riskPercentValue, setRiskPercentValue] = useState(stringifyInitialValue(initialValues?.riskPercent))
@@ -315,22 +349,38 @@ export function TradeForm({
   const [fundingDirection, setFundingDirection] = useState<TradeFundingDirection>(normalizeTradeFundingDirection(initialValues?.fundingDirection || initialAccountPreset.defaultFundingDirection))
   const [fundingRateBps, setFundingRateBps] = useState(stringifyInitialValue(initialValues?.fundingRateBps ?? initialAccountPreset.defaultFundingRateBps))
   const [fundingIntervals, setFundingIntervals] = useState(stringifyInitialValue(initialValues?.fundingIntervals ?? initialAccountPreset.defaultFundingIntervals))
-  const [pointValue, setPointValue] = useState(
+  const [manualPointValue, setPointValue] = useState(
     stringifyInitialValue(initialValues?.pointValue ?? initialAccountPreset.defaultPointValue ?? initialBrokerPreset.defaultPointValue ?? initialInstrumentPreset.defaultPointValue),
   )
-  const [fees, setFees] = useState(stringifyInitialValue(initialValues?.fees ?? initialBrokerPreset.defaultFees ?? initialCostPreset.defaultFees))
-  const [exchangeFees, setExchangeFees] = useState(
+  const contractPointValue = futuresContract ? journalFuturesPointValue(futuresContract) : null
+  const pointValue = contractPointValue === null ? manualPointValue : String(contractPointValue)
+  const priceMoneyUnavailable = continuousFutures || (Boolean(futuresContract) && normalizeTradeCurrency(accountCurrency) !== 'USD')
+  const continuousFuturesHint = text('Für die automatische Berechnung wähle den gehandelten Kontrakt, z. B. MGC oder MGCZ6.', 'For automatic calculation, select the traded contract, e.g. MGC or MGCZ6.')
+  const futuresCurrencyHint = text('Die automatische Futures-Berechnung erfolgt in USD. Für andere Währungen übernimm das Ergebnis aus deiner Abrechnung.', 'Automatic futures calculations use USD. For other currencies, enter the result from your statement.')
+  const [draftFees, setFees] = useState(stringifyInitialValue(initialValues?.fees ?? initialBrokerPreset.defaultFees ?? initialCostPreset.defaultFees))
+  const [draftExchangeFees, setExchangeFees] = useState(
     stringifyInitialValue(initialValues?.exchangeFees ?? initialBrokerPreset.defaultExchangeFees ?? initialCostPreset.defaultExchangeFees),
   )
-  const [fundingFees, setFundingFees] = useState(
+  const [draftFundingFees, setFundingFees] = useState(
     stringifyInitialValue(initialValues?.fundingFees ?? initialBrokerPreset.defaultFundingFees ?? initialCostPreset.defaultFundingFees),
   )
-  const [spreadCost, setSpreadCost] = useState(
+  const [draftSpreadCost, setSpreadCost] = useState(
     stringifyInitialValue(initialValues?.spreadCost ?? initialBrokerPreset.defaultSpreadCost ?? initialCostPreset.defaultSpreadCost),
   )
-  const [slippage, setSlippage] = useState(
+  const [draftSlippage, setSlippage] = useState(
     stringifyInitialValue(initialValues?.slippage ?? initialBrokerPreset.defaultSlippage ?? initialCostPreset.defaultSlippage),
   )
+  const [editedCosts, setEditedCosts] = useState<Partial<Record<'fees' | 'exchangeFees' | 'fundingFees' | 'spreadCost' | 'slippage', true>>>({})
+  const suppressStockBrokerFallback = newFuturesDraft && getTradeBrokerProfilePreset(brokerProfile).defaultInstrumentType === 'stocks'
+  function futuresDraftCost(draft: string, supplied: boolean) {
+    if (neutralStockCosts && !supplied) return '0'
+    return (neutralStockCosts || suppressStockBrokerFallback) && !draft.trim() ? '0' : draft
+  }
+  const fees = futuresDraftCost(draftFees, initialValues?.fees != null || Boolean(editedCosts.fees))
+  const exchangeFees = futuresDraftCost(draftExchangeFees, initialValues?.exchangeFees != null || Boolean(editedCosts.exchangeFees))
+  const fundingFees = futuresDraftCost(draftFundingFees, initialValues?.fundingFees != null || Boolean(editedCosts.fundingFees))
+  const spreadCost = futuresDraftCost(draftSpreadCost, initialValues?.spreadCost != null || Boolean(editedCosts.spreadCost))
+  const slippage = futuresDraftCost(draftSlippage, initialValues?.slippage != null || Boolean(editedCosts.slippage))
   const [netPnL, setNetPnL] = useState(stringifyInitialValue(initialValues?.netPnL))
   const [userCostProfiles, setUserCostProfiles] = useState<SavedUserCostProfile[]>(initialUserCostProfiles)
   const [selectedUserCostProfileId, setSelectedUserCostProfileId] = useState(initialValues?.userCostProfileId?.trim() || '')
@@ -395,15 +445,18 @@ export function TradeForm({
       pointValue: parseManualTradeNumber(pointValue, locale),
     })
   }, [entryValue, instrumentType, leverage, locale, marginUsedValue, pointValue, positionSizeValue])
+  const futuresSize = futuresContract ? parseManualTradeNumber(positionSizeValue, locale) : undefined
+  const futuresSizeInvalid = Boolean(futuresContract && !isWholeJournalFuturesSize(derivedPositionSize))
   const derivedExposure = useMemo(
-    () => deriveTradeNotional({ instrumentType, entry: entryValue, positionSize: derivedPositionSize, pointValue }),
-    [derivedPositionSize, entryValue, instrumentType, pointValue],
+    () => priceMoneyUnavailable ? null : deriveTradeNotional({ instrumentType, entry: entryValue, positionSize: derivedPositionSize, pointValue }),
+    [derivedPositionSize, entryValue, instrumentType, pointValue, priceMoneyUnavailable],
   )
   const derivedMargin = useMemo(
-    () => deriveMarginUsed({ instrumentType, entry: entryValue, positionSize: derivedPositionSize, leverage, pointValue }),
-    [derivedPositionSize, entryValue, instrumentType, leverage, pointValue],
+    () => priceMoneyUnavailable ? null : deriveMarginUsed({ instrumentType, entry: entryValue, positionSize: derivedPositionSize, leverage, pointValue }),
+    [derivedPositionSize, entryValue, instrumentType, leverage, pointValue, priceMoneyUnavailable],
   )
   const derivedStopRisk = useMemo(() => {
+    if (priceMoneyUnavailable || futuresSizeInvalid) return null
     const entry = parseManualTradeNumber(entryValue, locale)
     const stop = parseManualTradeNumber(stopLossValue, locale)
     if (entry === null || stop === null || !derivedPositionSize || derivedPositionSize <= 0) return null
@@ -416,21 +469,41 @@ export function TradeForm({
       : 1
     const amount = Math.abs(priceRisk * derivedPositionSize * point)
     return Number.isFinite(amount) ? amount : null
-  }, [derivedPositionSize, entryValue, instrumentType, locale, pointValue, stopLossValue, tradeDirection])
-  const partialExitPreview = useMemo(() => {
-    const partialExits = [
-      { percent: partialExit1Percent, price: partialExit1Price },
-      { percent: partialExit2Percent, price: partialExit2Price },
-      { percent: partialExit3Percent, price: partialExit3Price },
-    ]
-    const effectiveExit = deriveEffectiveExitFromPartialExitLegs({
-      exit: exitValue,
-      partialExits,
-    })
-    const summary = formatPartialExitSummary(partialExits)
-    const plan = getPartialExitPlanInfo({ exit: exitValue, partialExits })
-    const sizePlan = getPartialExitSizePlan({ positionSize: derivedPositionSize, partialExits, exit: exitValue })
-    const realizedPnL = derivePartialExitPnL({
+  }, [derivedPositionSize, entryValue, futuresSizeInvalid, instrumentType, locale, pointValue, priceMoneyUnavailable, stopLossValue, tradeDirection])
+  const futuresPartialHint = text('Trage je Teilabschluss die Anzahl ganzer Kontrakte ein. Zusammen dürfen sie die Positionsgröße nicht übersteigen.', 'Enter how many whole contracts you closed at each price. The total cannot exceed the position size.')
+  const partialDrafts = [
+    { leg: 1, percent: partialExit1Percent, price: partialExit1Price, setPercent: setPartialExit1Percent, setPrice: setPartialExit1Price },
+    { leg: 2, percent: partialExit2Percent, price: partialExit2Price, setPercent: setPartialExit2Percent, setPrice: setPartialExit2Price },
+    { leg: 3, percent: partialExit3Percent, price: partialExit3Price, setPercent: setPartialExit3Percent, setPrice: setPartialExit3Price },
+  ] as const
+  const partialRows = partialDrafts.map((row) => {
+    if (!futuresContract) return { ...row, quantity: row.percent, valid: true, legacyPercent: null }
+    const originalSize = initialFuturesSize ?? futuresSize
+    const originalPercent = parseManualTradeNumber(row.percent, locale)
+    const originalCount = originalSize != null && originalPercent !== null ? journalFuturesCountFromPercent(originalSize, originalPercent) : null
+    const editedCount = editedFuturesExitCounts[row.leg]
+    const quantity = editedCount ?? stringifyInitialValue(originalCount)
+    const enteredCount = parseManualTradeNumber(quantity, locale)
+    const percent = journalFuturesPercentFromCount(futuresSize ?? null, enteredCount)
+    const valid = quantity.trim() ? percent !== null
+      : editedCount !== undefined || !row.percent.trim()
+    const legacyPercent = editedCount === undefined && !valid && !quantity ? row.percent : null
+    return { ...row, percent: stringifyInitialValue(percent), quantity, valid, legacyPercent }
+  })
+  const partialExits = partialRows.map(({ percent, price }) => ({ percent, price }))
+  const [firstPartial, secondPartial, thirdPartial] = partialRows
+  const activeFuturesPartials = futuresContract ? partialRows.filter(({ quantity, price }) => quantity.trim() || price.trim()) : []
+  const futuresPartialsInvalid = partialRows.some(({ valid }) => !valid) ||
+    (activeFuturesPartials.length > 0 && (
+      activeFuturesPartials.some(({ percent, price }) => !percent || (parseManualTradeNumber(price, locale) ?? 0) <= 0) ||
+      !getJournalFuturesExitCounts(futuresSize ?? null, activeFuturesPartials.map(({ percent }) => ({ percent: Number(percent) })))
+    ))
+  const explicitExit = parseManualTradeNumber(exitValue, locale)
+  const invalidFuturesExit = futuresContract && explicitExit !== null && explicitExit <= 0
+  const partialExitPreview = (() => {
+    const plan = getPartialExitPlanInfo({ exit: exitValue, partialExits, futuresSize })
+    const sizePlan = getPartialExitSizePlan({ positionSize: derivedPositionSize, partialExits, exit: exitValue, wholeContracts: Boolean(futuresContract) })
+    const realised = priceMoneyUnavailable || futuresPartialsInvalid ? null : derivePartialExitPnL({
       instrumentType,
       entry: entryValue,
       bias: tradeDirection,
@@ -438,24 +511,24 @@ export function TradeForm({
       pointValue,
       partialExits,
       totalCosts: costSummary.totalCosts,
+      wholeContracts: Boolean(futuresContract),
+      futuresCosts: futuresContract ? getExecutionCostAmounts(costSummary) : undefined,
     })
-    const realizedR = realizedPnL.netPnL !== null && derivedStopRisk !== null && derivedStopRisk > 0
-      ? realizedPnL.netPnL / derivedStopRisk
-      : null
+    const realisedNet = realised?.netPnL ?? null
     return {
-      effectiveExit,
-      summary,
-      coveredPercent: plan.coveredPercent,
+      effectiveExit: futuresPartialsInvalid || invalidFuturesExit ? null : plan.effectiveExit,
+      summary: futuresPartialsInvalid ? '' : formatPartialExitSummary(partialExits, locale),
+      coveredPercent: futuresPartialsInvalid ? 0 : plan.coveredPercent,
       remainderPercent: plan.remainderPercent,
-      hasOpenRemainder: sizePlan.hasOpenRemainder,
-      realizedSize: sizePlan.realizedSize,
-      remainingSize: sizePlan.remainingSize,
-      realizedNetPnL: realizedPnL.netPnL,
-      realizedR,
+      hasOpenRemainder: !futuresPartialsInvalid && sizePlan.hasOpenRemainder,
+      realizedSize: futuresPartialsInvalid ? null : sizePlan.realizedSize,
+      remainingSize: futuresPartialsInvalid ? null : sizePlan.remainingSize,
+      realizedNetPnL: realisedNet,
+      realizedR: realisedNet !== null && derivedStopRisk !== null && derivedStopRisk > 0 ? realisedNet / derivedStopRisk : null,
     }
-  }, [costSummary.totalCosts, derivedPositionSize, derivedStopRisk, entryValue, exitValue, instrumentType, partialExit1Percent, partialExit1Price, partialExit2Percent, partialExit2Price, partialExit3Percent, partialExit3Price, pointValue, tradeDirection])
+  })()
 
-  const quickPnlPreview = useMemo(() => buildQuickPnLPreview({
+  const quickPnlPreview = buildQuickPnLPreview({
     entry: entryValue,
     exit: partialExitPreview.effectiveExit ?? exitValue,
     positionSize: derivedPositionSize,
@@ -463,15 +536,21 @@ export function TradeForm({
     bias: tradeDirection,
     instrumentType,
     totalCosts: costSummary.totalCosts,
-  }, locale), [costSummary.totalCosts, derivedPositionSize, entryValue, exitValue, instrumentType, locale, partialExitPreview.effectiveExit, pointValue, tradeDirection])
+    futuresUsd: Boolean(futuresContract),
+    futuresCosts: futuresContract ? getExecutionCostAmounts(costSummary) : undefined,
+    futuresFullLegs: futuresContract
+      ? includeJournalFuturesRemainder(normalizePartialExitLegs(partialExits), futuresSize ?? null, explicitExit) : undefined,
+  }, locale)
 
   const previewInputsValid = [
     entryValue, exitValue, positionSizeValue, pointValue, marginUsedValue, leverage,
-    partialExit1Percent, partialExit1Price, partialExit2Percent, partialExit2Price, partialExit3Percent, partialExit3Price,
+    firstPartial.percent, partialExit1Price, secondPartial.percent, partialExit2Price, thirdPartial.percent, partialExit3Price,
     fees, exchangeFees, fundingFees, fundingRateBps, fundingIntervals, spreadCost, slippage,
   ].every((value) => !value.trim() || parseManualTradeNumber(value, locale) !== null)
-  const calculatedPnL = previewInputsValid ? quickPnlPreview.netPnL : null
-  const quickPnlLabel = !previewInputsValid
+  const calculatedPnL = previewInputsValid && !priceMoneyUnavailable && !futuresPartialsInvalid && !futuresSizeInvalid && !invalidFuturesExit
+    ? quickPnlPreview.netPnL : null
+  const quickPnlLabel = continuousFutures ? continuousFuturesHint : priceMoneyUnavailable ? futuresCurrencyHint
+    : futuresPartialsInvalid ? futuresPartialHint : futuresSizeInvalid ? text('Ganze Kontrakte eingeben', 'Enter whole contracts') : !previewInputsValid
     ? manualNumberHint
     : calculatedPnL !== null
       ? displayMoney(calculatedPnL)
@@ -491,16 +570,19 @@ export function TradeForm({
         : 'text-white'
     : 'text-white/50'
 
-  const partialExitSize = partialExitPreview.coveredPercent === 0
+  const hasPartialExecution = futuresContract ? Boolean(partialExitPreview.realizedSize) : partialExitPreview.coveredPercent > 0
+  const partialExitSize = futuresPartialsInvalid ? futuresPartialHint : !hasPartialExecution
     ? text('Keine Teilverkäufe', 'No partial exits')
     : partialExitPreview.realizedSize === null
       ? `${displayNumber(partialExitPreview.coveredPercent, 0)}% ${text('ohne Size-Basis', 'with no position size recorded')}`
-      : `${displayNumber(partialExitPreview.realizedSize, 4)} ${sizeHint}`
+      : futuresContract ? formatJournalFuturesContracts(partialExitPreview.realizedSize, locale)
+        : `${displayNumber(partialExitPreview.realizedSize, 4)} ${sizeHint}`
   const partialExitRemaining = partialExitPreview.hasOpenRemainder
     ? partialExitPreview.remainingSize === null
       ? `${displayNumber(partialExitPreview.remainderPercent, 0)}%`
-      : `${displayNumber(partialExitPreview.remainingSize, 4)} ${sizeHint}`
-    : partialExitPreview.coveredPercent > 0
+      : futuresContract ? formatJournalFuturesContracts(partialExitPreview.remainingSize, locale)
+        : `${displayNumber(partialExitPreview.remainingSize, 4)} ${sizeHint}`
+    : hasPartialExecution
       ? text('Kein Rest', 'No open remainder')
       : '—'
   const partialExitMoney = partialExitPreview.realizedNetPnL === null
@@ -517,7 +599,7 @@ export function TradeForm({
     const templateMarkets = marketTemplateOptions
       .map((option) => getTradeMarketTemplatePreset(option.value).market)
       .filter(Boolean)
-    const merged = new Set([marketValue, ...markets, ...templateMarkets])
+    const merged = new Set([marketValue, ...markets, ...futuresContracts.map(({ symbol }) => symbol), ...templateMarkets])
     return Array.from(merged).filter(Boolean)
   }, [marketValue, markets])
 
@@ -590,7 +672,10 @@ export function TradeForm({
   ) {
     setSelectedUserCostProfileId(profile.id)
     setBrokerProfile(profile.brokerProfile)
+    setBrokerExplicit(true)
     setInstrumentType(profile.instrumentType)
+    setInstrumentExplicit(true)
+    setCostProfileExplicit(true)
     setCostProfile('user-custom')
 
     if (options?.keepTemplates) {
@@ -730,7 +815,10 @@ export function TradeForm({
     const nextBroker = getTradeBrokerProfilePreset(nextBrokerProfile)
     const nextInstrument = getTradeInstrumentPreset(nextInstrumentType)
     setBrokerProfile(nextBrokerProfile)
+    setBrokerExplicit(true)
     setInstrumentType(nextInstrumentType)
+    setInstrumentExplicit(true)
+    setCostProfileExplicit(true)
     setPnlMode(nextPnLMode)
     applyCostDefaults(nextCostProfile, {
       fees: nextBroker.defaultFees,
@@ -834,6 +922,7 @@ export function TradeForm({
     const previousBroker = getTradeBrokerProfilePreset(brokerProfile)
     const nextBroker = getTradeBrokerProfilePreset(nextProfile)
     setBrokerProfile(normalizeTradeBrokerProfile(nextProfile))
+    setBrokerExplicit(true)
     setAccountTemplate('manual')
     setSelectedUserCostProfileId('')
 
@@ -841,15 +930,21 @@ export function TradeForm({
       setMarketTemplate('manual')
     }
 
+    // A broker's stock defaults cannot reclassify a futures contract or supply its execution costs.
+    if (instrumentType === 'futures' && nextBroker.defaultInstrumentType !== 'futures') {
+      setAccountCurrency(accountCurrency)
+      return
+    }
+
     if (
-      nextBroker.defaultInstrumentType &&
+      !instrumentExplicit && instrumentType !== 'futures' && nextBroker.defaultInstrumentType &&
       (instrumentType === previousBroker.defaultInstrumentType || brokerProfile === 'manual')
     ) {
       setInstrumentType(nextBroker.defaultInstrumentType)
     }
 
     if (
-      costProfile === previousBroker.defaultCostProfile ||
+      neutralFuturesAccount || costProfile === previousBroker.defaultCostProfile ||
       (brokerProfile === 'manual' && costProfile === instrumentPreset.defaultCostProfile)
     ) {
       applyCostDefaults(nextBroker.defaultCostProfile, {
@@ -871,7 +966,7 @@ export function TradeForm({
     const previousPointValue = previousBroker.defaultPointValue ?? instrumentPreset.defaultPointValue
     const nextPointValue =
       nextBroker.defaultPointValue ?? getTradeInstrumentPreset(nextBroker.defaultInstrumentType ?? instrumentType).defaultPointValue
-    if (!pointValue || pointValue === String(previousPointValue ?? '')) {
+    if (!manualPointValue || manualPointValue === String(previousPointValue ?? '')) {
       setPointValue(nextPointValue !== null ? String(nextPointValue) : '')
     }
 
@@ -893,6 +988,7 @@ export function TradeForm({
     const currentBroker = getTradeBrokerProfilePreset(brokerProfile)
 
     setInstrumentType(nextType)
+    setInstrumentExplicit(true)
     setAccountTemplate('manual')
     setSelectedUserCostProfileId('')
     if (marketTemplate !== 'manual' && getTradeMarketTemplatePreset(marketTemplate).defaultInstrumentType !== nextType) {
@@ -909,7 +1005,7 @@ export function TradeForm({
 
     const previousDefaultPointValue = currentBroker.defaultPointValue ?? previousPreset.defaultPointValue
     const nextDefaultPointValue = currentBroker.defaultPointValue ?? nextPreset.defaultPointValue
-    if (!pointValue || pointValue === String(previousDefaultPointValue ?? '')) {
+    if (!manualPointValue || manualPointValue === String(previousDefaultPointValue ?? '')) {
       setPointValue(nextDefaultPointValue !== null ? String(nextDefaultPointValue) : '')
     }
 
@@ -943,6 +1039,7 @@ export function TradeForm({
     const previousProfile = getTradeCostProfilePreset(costProfile)
     const nextProfilePreset = getTradeCostProfilePreset(nextProfile)
     setCostProfile(normalizeTradeCostProfile(nextProfile))
+    setCostProfileExplicit(true)
     setAccountTemplate('manual')
     setSelectedUserCostProfileId('')
 
@@ -1064,7 +1161,13 @@ export function TradeForm({
     setAccountTemplate(defaultAccountTemplate)
     setMarketTemplate('manual')
     setBrokerProfile(account.defaultBrokerProfile)
+    setBrokerExplicit(false)
     setInstrumentType(account.defaultInstrumentType)
+    setInstrumentExplicit(false)
+    setCurrencyExplicit(false)
+    setCostProfileExplicit(false)
+    setEditedCosts({})
+    setEditedFuturesExitCounts({})
     setPnlMode(account.defaultPnLMode)
     setCostProfile(account.defaultCostProfile)
     setAccountCurrency(account.defaultCurrency || broker.defaultCurrency || preset.defaultCurrency)
@@ -1160,11 +1263,11 @@ export function TradeForm({
       fundingDirection: String(formData.get('funding_direction') ?? ''),
       quoteAsset: String(formData.get('quote_asset') ?? ''),
       leverage: String(formData.get('leverage') ?? ''),
-      partialExit1Percent,
+      partialExit1Percent: firstPartial.percent,
       partialExit1Price,
-      partialExit2Percent,
+      partialExit2Percent: secondPartial.percent,
       partialExit2Price,
-      partialExit3Percent,
+      partialExit3Percent: thirdPartial.percent,
       partialExit3Price,
       userCostProfileId: String(formData.get('user_cost_profile_id') ?? ''),
       notes: noteText,
@@ -1174,6 +1277,11 @@ export function TradeForm({
   }
 
   function handleSubmit(formData: FormData) {
+    if (futuresPartialsInvalid) {
+      setValidationErrors({ exit: futuresPartialHint })
+      setStatus(futuresPartialHint)
+      return
+    }
     if (needsExitBasis && exitBasis === 'unconfirmed') {
       setStatus(text('Bitte kläre zuerst, ob der gespeicherte Ausstiegspreis den letzten Teilverkauf oder den Durchschnitt aller Verkäufe beschreibt.', 'Choose whether the saved exit price is for the final exit or the average of all exits.'))
       return
@@ -1362,6 +1470,7 @@ export function TradeForm({
               onChange={(event) => handleMarketChange(event.target.value)}
               placeholder={text('z. B. NASDAQ, BTC/USD, EUR/USD', 'e.g. NASDAQ, BTC/USD, EUR/USD')}
             />
+            {continuousFutures ? <p className="text-xs text-orange-100 md:col-span-2">{continuousFuturesHint}</p> : null}
             <ControlledInput
               name="trade_occurred_at"
               label={text('Trade-Zeit (Berlin)', 'Trade time (Berlin)')}
@@ -1445,10 +1554,17 @@ export function TradeForm({
                 options={[text('Bitte wählen', 'Select a currency'), ...SUPPORTED_TRADE_CURRENCIES]}
                 values={['', ...SUPPORTED_TRADE_CURRENCIES]}
                 value={normalizeTradeCurrency(accountCurrency) ?? ''}
-                onChange={(event) => setAccountCurrency(event.target.value)}
+                onChange={(event) => {
+                  setCurrencyExplicit(true)
+                  setAccountCurrency(event.target.value)
+                }}
               />
             </div>
             {accountCurrency && !normalizeTradeCurrency(accountCurrency) ? <p className="text-xs text-orange-100">{text('Die gespeicherte Währung wird nicht unterstützt. Bitte wähle die Währung laut Abrechnung.', 'The saved currency is unsupported. Select the currency from your statement.')}</p> : null}
+            {priceMoneyUnavailable && !continuousFutures ? <p className="text-xs text-orange-100">{futuresCurrencyHint}</p> : null}
+            {isEditMode && contractPointValue !== null && parseTradingNumber(initialValues?.pointValue) !== contractPointValue ? (
+              <p className="text-xs text-orange-100">{text('Die Vorschau nutzt den korrekten Kontraktwert. Beim Speichern wird er für diesen Trade übernommen.', 'This preview uses the correct contract multiplier. Saving applies it to this trade.')}</p>
+            ) : null}
             {isEditMode && tradeId ? <SaveTradeCurrencyOnly tradeId={tradeId} currency={accountCurrency} disabled={isPending} onBusyChange={setCurrencySaving} /> : null}
           </section>
 
@@ -1665,13 +1781,14 @@ export function TradeForm({
 
               <ControlledInput
                 name="point_value"
-                label={text('Punktwert / Pip-Wert', 'Point or pip value')}
+                label={contractPointValue === null ? text('Punktwert / Pip-Wert', 'Point or pip value') : text('USD je Preispunkt und Kontrakt', 'USD per price point per contract')}
                 placeholder={
                   brokerPreset.defaultPointValue ?? instrumentPreset.defaultPointValue
                     ? `${text('z. B.', 'e.g.')} ${brokerPreset.defaultPointValue ?? instrumentPreset.defaultPointValue}`
                     : 'optional'
                 }
                 value={pointValue}
+                readOnly={contractPointValue !== null}
                 onChange={(event) => setPointValue(event.target.value)}
               />
               <ControlledInput
@@ -1744,35 +1861,50 @@ export function TradeForm({
                 label={text('Kommission', 'Commission')}
                 placeholder={text('z. B. 1,00', 'e.g. 1.00')}
                 value={fees}
-                onChange={(event) => setFees(event.target.value)}
+                onChange={(event) => {
+                  setEditedCosts((current) => ({ ...current, fees: true }))
+                  setFees(event.target.value)
+                }}
               />
               <ControlledInput
                 name="exchange_fees"
                 label={text('Börsengebühren', 'Exchange fees')}
                 placeholder={text('z. B. 0,35', 'e.g. 0.35')}
                 value={exchangeFees}
-                onChange={(event) => setExchangeFees(event.target.value)}
+                onChange={(event) => {
+                  setEditedCosts((current) => ({ ...current, exchangeFees: true }))
+                  setExchangeFees(event.target.value)
+                }}
               />
               <ControlledInput
                 name="funding_fees"
                 label={text('Funding absolut', 'Funding amount')}
                 placeholder={text('z. B. 1,20', 'e.g. 1.20')}
                 value={fundingFees}
-                onChange={(event) => setFundingFees(event.target.value)}
+                onChange={(event) => {
+                  setEditedCosts((current) => ({ ...current, fundingFees: true }))
+                  setFundingFees(event.target.value)
+                }}
               />
               <ControlledInput
                 name="spread_cost"
                 label={text('Spread-Kosten', 'Spread cost')}
                 placeholder={text('z. B. 0,60', 'e.g. 0.60')}
                 value={spreadCost}
-                onChange={(event) => setSpreadCost(event.target.value)}
+                onChange={(event) => {
+                  setEditedCosts((current) => ({ ...current, spreadCost: true }))
+                  setSpreadCost(event.target.value)
+                }}
               />
               <ControlledInput
                 name="slippage"
                 label="Slippage"
                 placeholder={text('z. B. 1,50', 'e.g. 1.50')}
                 value={slippage}
-                onChange={(event) => setSlippage(event.target.value)}
+                onChange={(event) => {
+                  setEditedCosts((current) => ({ ...current, slippage: true }))
+                  setSlippage(event.target.value)
+                }}
               />
               <FieldInput
                 name="r_multiple"
@@ -1808,7 +1940,7 @@ export function TradeForm({
                   const basis = event.target.value as typeof exitBasis
                   setExitBasis(basis)
                   setExitValue(basis === 'average'
-                    ? stringifyInitialValue(restoreRemainderExitFromStoredAverage({ exit: initialValues?.exit, partialExits: initialPartialExits }))
+                    ? stringifyInitialValue(restoreRemainderExitFromStoredAverage({ exit: initialValues?.exit, partialExits: initialPartialExits, futuresSize: initialFuturesSize }))
                     : basis === 'remainder' ? stringifyInitialValue(initialValues?.exit) : '')
                 }} className="mt-2 w-full rounded-xl border border-white/15 bg-black p-3 text-white">
                   <option value="unconfirmed">{text('Bitte anhand deiner Abrechnung zuordnen', 'Select the price type from your statement')}</option>
@@ -1900,9 +2032,20 @@ export function TradeForm({
               </summary>
               <div className="mt-4 space-y-3">
                 <div className="grid gap-3 md:grid-cols-3">
-                  <PartialExitRow label="TP 1" percent={partialExit1Percent} onPercentChange={setPartialExit1Percent} price={partialExit1Price} onPriceChange={setPartialExit1Price} />
-                  <PartialExitRow label="TP 2" percent={partialExit2Percent} onPercentChange={setPartialExit2Percent} price={partialExit2Price} onPriceChange={setPartialExit2Price} />
-                  <PartialExitRow label="TP 3" percent={partialExit3Percent} onPercentChange={setPartialExit3Percent} price={partialExit3Price} onPriceChange={setPartialExit3Price} />
+                  {partialRows.map(({ leg, quantity, price, setPrice, setPercent, legacyPercent }) => (
+                    <PartialExitRow
+                      key={leg}
+                      label={`TP ${leg}`}
+                      wholeContracts={Boolean(futuresContract)}
+                      quantity={quantity}
+                      onQuantityChange={futuresContract
+                        ? (value) => setEditedFuturesExitCounts((current) => ({ ...current, [leg]: value }))
+                        : setPercent}
+                      price={price}
+                      onPriceChange={setPrice}
+                      legacyPercent={legacyPercent}
+                    />
+                  ))}
                 </div>
                 <div className="grid gap-3 md:grid-cols-2">
                   <div className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-xs text-white/65">
@@ -2187,16 +2330,20 @@ function ControlledDatalistInput({
 
 function PartialExitRow({
   label,
-  percent,
-  onPercentChange,
+  quantity,
+  onQuantityChange,
+  wholeContracts,
   price,
   onPriceChange,
+  legacyPercent,
 }: {
   label: string
-  percent: string
-  onPercentChange: (value: string) => void
+  quantity: string
+  onQuantityChange: (value: string) => void
+  wholeContracts: boolean
   price: string
   onPriceChange: (value: string) => void
+  legacyPercent: string | null
 }) {
   const text = journalText(useJournalLocale())
   return (
@@ -2204,8 +2351,9 @@ function PartialExitRow({
       <p className="text-[10px] uppercase tracking-[0.2em] text-white/40">{label}</p>
       <div className="mt-3 grid gap-3 sm:grid-cols-2">
         <label>
-          <span className="text-[10px] uppercase tracking-[0.18em] text-white/35">{text('Anteil %', 'Share %')}</span>
-          <input value={percent} onChange={(event) => onPercentChange(event.target.value)} placeholder="25" className="mt-2 w-full rounded-2xl border border-orange-400/15 bg-orange-400/5 px-4 py-3 text-sm text-white outline-none placeholder:text-white/30" />
+          <span className="text-[10px] uppercase tracking-[0.18em] text-white/35">{wholeContracts ? text('Kontrakte', 'Contracts') : text('Anteil %', 'Share %')}</span>
+          <input value={quantity} onChange={(event) => onQuantityChange(event.target.value)} inputMode={wholeContracts ? 'numeric' : 'decimal'} placeholder={wholeContracts ? '1' : '25'} className="mt-2 w-full rounded-2xl border border-orange-400/15 bg-orange-400/5 px-4 py-3 text-sm text-white outline-none placeholder:text-white/30" />
+          {legacyPercent ? <span className="mt-2 block text-[11px] text-orange-100">{text(`Gespeicherter Anteil ${legacyPercent} %. Bitte die Kontraktzahl prüfen.`, `Saved share ${legacyPercent}%. Check the contract count.`)}</span> : null}
         </label>
         <label>
           <span className="text-[10px] uppercase tracking-[0.18em] text-white/35">{text('Exit-Preis', 'Exit price')}</span>

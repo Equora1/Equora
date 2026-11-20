@@ -13,6 +13,8 @@ import {
   normalizePartialExitLegs,
 } from '@/lib/utils/calculations'
 import { getTradeTimeInputError } from '@/lib/utils/trade-time'
+import { applyJournalFuturesTerms, findJournalFuturesContract, getJournalFuturesExitCounts, isContinuousJournalFuturesSymbol, isWholeJournalFuturesSize, journalFuturesPercentFromCount } from '@/lib/utils/journal-futures'
+import { normalizeTradeCurrency } from '@/lib/utils/currency'
 
 export type TradeCaptureInput = {
   market: string
@@ -122,6 +124,7 @@ function normalizeTags(tags: string[]) {
 }
 
 export function validateTradeCaptureInput(input: TradeCaptureInput, originalTradeTimeIso?: string | null, locale: JournalLocale = 'de'): TradeValidationResult {
+  input = applyJournalFuturesTerms(input)
   const text = journalText(locale)
   const errors: Partial<Record<TradeValidationField, string>> = {}
   const tradeTimeError = getTradeTimeInputError(input.tradeOccurredAt, originalTradeTimeIso, locale)
@@ -143,6 +146,8 @@ export function validateTradeCaptureInput(input: TradeCaptureInput, originalTrad
   const entry = readNumber('entry')
   const stopLoss = readNumber('stopLoss')
   const takeProfit = readNumber('takeProfit')
+  const positionSize = readNumber('positionSize')
+  const futuresContract = findJournalFuturesContract(input.market, normalizedInstrumentType)
   const partialExitRows = [
     { percent: input.partialExit1Percent, price: input.partialExit1Price },
     { percent: input.partialExit2Percent, price: input.partialExit2Price },
@@ -154,15 +159,18 @@ export function validateTradeCaptureInput(input: TradeCaptureInput, originalTrad
     readNumber('exit', price ?? '')
   }
   const partialCoverage = normalizedPartialExits.reduce((sum, leg) => sum + leg.percent, 0)
+  const futuresExitPlan = futuresContract && normalizedPartialExits.length
+    ? getJournalFuturesExitCounts(positionSize, normalizedPartialExits) : null
   const hasIncompletePartialExitRow = partialExitRows.some((row) => (isBlank(row.percent) && !isBlank(row.price)) || (!isBlank(row.percent) && isBlank(row.price)))
+  const remainderExit = readNumber('exit')
   const effectiveExitValue = deriveEffectiveExitFromPartialExitLegs({
-    exit: readNumber('exit'),
+    exit: remainderExit,
     partialExits: partialExitRows,
+    futuresSize: futuresContract ? positionSize : undefined,
   })
   const exit = effectiveExitValue
   const isExplicitAuto = input.pnlMode?.trim().toLowerCase() === 'auto'
   const netPnL = isExplicitAuto ? null : readNumber('netPnL')
-  const positionSize = readNumber('positionSize')
   const pointValue = readNumber('pointValue') ?? brokerPreset.defaultPointValue ?? instrumentPreset.defaultPointValue
   const leverage = readNumber('leverage')
   const riskPercent = readNumber('riskPercent')
@@ -210,6 +218,33 @@ export function validateTradeCaptureInput(input: TradeCaptureInput, originalTrad
       })()
     : false
   const normalizedPnLMode = netPnL === null && canAutoDerivePnL ? 'auto' : basePnLMode
+  const hasPricedFuturesRemainder = normalizedPnLMode === 'auto' && Boolean(futuresExitPlan?.remaining) && remainderExit === null
+  if (futuresContract) {
+    if (normalizedPnLMode === 'auto' && normalizeTradeCurrency(input.accountCurrency) !== 'USD') {
+      addError(errors, 'accountCurrency', text('Wähle USD für die automatische Futures-Berechnung. Ergebnisse in anderer Währung kannst du aus der Abrechnung übernehmen.', 'Choose USD for automatic futures P&L. For other currencies, enter the result from your statement.'))
+    }
+    if (effectivePositionSize !== null && !isWholeJournalFuturesSize(effectivePositionSize)) {
+      addError(errors, 'positionSize', text('Gib mindestens einen ganzen Kontrakt ein.', 'Enter at least one whole contract.'))
+    }
+    if (entry !== null && entry <= 0) {
+      addError(errors, 'entry', text('Für die Berechnung muss der Einstiegspreis größer als null sein.', 'The entry price must be greater than zero for calculation.'))
+    }
+    if (remainderExit !== null && remainderExit <= 0) {
+      addError(errors, 'exit', text('Für die Berechnung muss der Ausstiegspreis größer als null sein.', 'The exit price must be greater than zero for calculation.'))
+    }
+    const enteredPartials = partialExitRows.filter(({ percent, price }) => !isBlank(percent) || !isBlank(price))
+    if (enteredPartials.length && (
+      enteredPartials.length !== normalizedPartialExits.length || !futuresExitPlan
+    )) {
+      addError(errors, 'exit', text('Gib für jeden Futures-Teilabschluss ganze Kontrakte und einen gültigen Ausstiegspreis an. Die Teilmengen dürfen die Position nicht übersteigen.', 'Enter whole contracts and a valid exit price for each futures partial exit. The combined count cannot exceed the position.'))
+    }
+    if (futuresExitPlan?.remaining && remainderExit !== null && journalFuturesPercentFromCount(positionSize, futuresExitPlan.remaining) === null) {
+      addError(errors, 'exit', text('Die letzte Kontraktmenge kann mit dieser Positionsgröße nicht präzise gespeichert werden.', 'The final contract count cannot be stored accurately for this position size.'))
+    }
+  }
+  if (isContinuousJournalFuturesSymbol(input.market, normalizedInstrumentType) && normalizedPnLMode !== 'manual') {
+    addError(errors, 'market', text('Wähle den gehandelten Kontrakt für die automatische Berechnung. Ein fortlaufendes Chartsymbol kannst du mit dem Abrechnungsergebnis erfassen.', 'Select the traded contract for automatic calculation. You can record a continuous chart symbol with the result from your statement.'))
+  }
 
   if (isBlank(input.market)) addError(errors, 'market', text('Bitte einen Markt für den Trade angeben.', 'Enter a market for this trade.'))
   if (isBlank(input.setup)) addError(errors, 'setup', text('Bitte ein Setup für den Trade wählen.', 'Choose a setup for this trade.'))
@@ -224,7 +259,7 @@ export function validateTradeCaptureInput(input: TradeCaptureInput, originalTrad
   if (normalizedPnLMode === 'auto' || normalizedPnLMode === 'override') {
     if (!isDirectional) addError(errors, 'bias', text('Für automatische Berechnung muss die Richtung Long oder Short sein.', 'Choose Long or Short for automatic calculation.'))
     if (entry === null) addError(errors, 'entry', text('Für automatische Berechnung wird ein Entry benötigt.', 'Enter an entry price for automatic calculation.'))
-    if (exit === null) addError(errors, 'exit', text('Für automatische Berechnung wird ein Exit oder ein vollständiger Teilprofit-Plan benötigt.', 'Enter an exit price or partial exits that cover the full position.'))
+    if (exit === null && !hasPricedFuturesRemainder) addError(errors, 'exit', text('Für automatische Berechnung wird ein Exit oder ein vollständiger Teilprofit-Plan benötigt.', 'Enter an exit price or partial exits that cover the full position.'))
     if (effectivePositionSize === null || effectivePositionSize <= 0) {
       addError(errors, 'positionSize', text('Für automatische Berechnung braucht der Trade eine Positionsgröße oder Margin + Hebel.', 'Enter a position size, or enter both margin and leverage.'))
       if (!isBlank(input.marginUsed) && (marginUsed === null || marginUsed <= 0)) {
@@ -239,7 +274,7 @@ export function validateTradeCaptureInput(input: TradeCaptureInput, originalTrad
       addError(errors, 'pointValue', text('Für Futures, Forex und CFDs wird ein positiver Punkt- oder Pip-Wert benötigt.', 'Enter a point or pip value greater than 0 for futures, forex and CFDs.'))
     }
 
-    if (Object.keys(errors).length === 0) {
+    if (Object.keys(errors).length === 0 && !hasPricedFuturesRemainder) {
       const pnlCheck = computeNetPnLFromExecution({
         explicitPnL: netPnL,
         pnlMode: normalizedPnLMode,
