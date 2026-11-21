@@ -10,6 +10,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from
 import { useRouter, useSearchParams } from 'next/navigation'
 import { deleteTradeEntry } from '@/app/actions/trades'
 import { TradeDetailDrawer } from '@/components/trades/trade-detail-drawer'
+import { TradeBulkDelete } from '@/components/trades/trade-bulk-delete'
 import { TradeCurrencyCorrection } from '@/components/trades/trade-currency-correction'
 import { TradeCurrencyQualityPanel } from '@/components/trades/trade-currency-quality-panel'
 import type { TradeDetail, Trade } from '@/lib/types/trade'
@@ -236,6 +237,7 @@ export function TradesWorkbench({
   const accountLabels = useMemo(() => getTradeAccountDisplayLabels(tradeItems, locale), [tradeItems, locale])
   const tableView = useMemo(() => buildTradeTableView(tradeItems, tradeTagMap, filters, sort, requestedPage, pageSize, showReviewOnly ? spotlightTradeIds : undefined), [tradeItems, tradeTagMap, filters, sort, requestedPage, pageSize, showReviewOnly, spotlightTradeIds])
   const displayedTrades = tableView.matches
+  const bulkTradeIds = useMemo(() => displayedTrades.map((trade) => trade.id), [displayedTrades])
   const visibleTrades = tableView.rows
   const { page, totalPages, effectiveSort, canSortByPnL } = tableView
 
@@ -340,6 +342,14 @@ export function TradesWorkbench({
       setSelectedTrade(undefined)
       router.replace(buildHrefForPage(page), { scroll: false })
     })
+  }
+
+  function handleBulkTradesDeleted(tradeIds: string[], message: string) {
+    const removed = new Set(tradeIds)
+    setTradeItems((current) => current.filter((trade) => !removed.has(trade.id)))
+    setTradeTagItems((current) => current.filter((tag) => !removed.has(tag.trade_id)))
+    setStatusMessage({ text: message, lang: locale })
+    router.refresh()
   }
 
   return (
@@ -490,6 +500,15 @@ export function TradesWorkbench({
             }}
             title={text('Alle gefilterten Treffer als CSV exportieren', 'Export all matching trades as CSV')}
           />
+          {source === 'supabase' && !reviewContext && !showReviewOnly && !isEditorOpen && !selectedTrade && !dateRangeError ? (
+            <TradeBulkDelete
+              tradeIds={bulkTradeIds}
+              filtered={activeFilterCount > 0}
+              locale={locale}
+              onDeleted={handleBulkTradesDeleted}
+              onRefresh={() => router.refresh()}
+            />
+          ) : null}
         </div>
 
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start">

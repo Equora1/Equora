@@ -1,0 +1,33 @@
+name: Equora media cleanup
+
+on:
+  schedule:
+    - cron: '17,47 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: equora-production-media-cleanup
+  cancel-in-progress: false
+
+jobs:
+  cleanup:
+    if: ${{ github.repository == 'Equora1/Equora' && github.ref == 'refs/heads/main' && vars.EQUORA_MEDIA_CLEANUP_ENABLED == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - name: Check out approved revision
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+      - name: Set up Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: 24.18.0
+          package-manager-cache: false
+      - name: Process queued media
+        env:
+          EQUORA_MEDIA_MAINTENANCE_BEARER: ${{ secrets.EQUORA_MEDIA_MAINTENANCE_BEARER }}
+        run: node scripts/run-media-cleanup.mjs
