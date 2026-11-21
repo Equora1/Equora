@@ -3,7 +3,10 @@ import { hasSupabaseClientEnv } from '@/lib/supabase/config'
 import { updateSupabaseSession } from '@/lib/supabase/middleware'
 
 const publicPaths = new Set(['/login'])
-const serviceAuthenticatedPaths = new Set(['/api/internal/broker-capture'])
+const serviceAuthenticatedMethods = new Map([
+  ['/api/internal/broker-capture', 'GET'],
+  ['/api/maintenance/media-cleanup', 'POST'],
+])
 
 function redirectWithCookies(baseResponse: NextResponse, url: URL) {
   const redirectResponse = NextResponse.redirect(url)
@@ -28,7 +31,7 @@ export async function middleware(request: NextRequest) {
 
   const pathname = request.nextUrl.pathname
 
-  if (request.method === 'GET' && serviceAuthenticatedPaths.has(pathname)) {
+  if (serviceAuthenticatedMethods.get(pathname) === request.method) {
     return NextResponse.next()
   }
 

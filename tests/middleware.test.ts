@@ -47,6 +47,42 @@ describe('middleware service-authenticated route boundary', () => {
     expect(mocks.updateSupabaseSession).not.toHaveBeenCalled()
   })
 
+  it('passes the exact media cleanup POST to its own bearer authentication', async () => {
+    const response = await middleware(request('/api/maintenance/media-cleanup', 'POST'))
+
+    expect(response.status).toBe(200)
+    expect(response.headers.get('x-middleware-next')).toBe('1')
+    expect(response.headers.get('location')).toBeNull()
+    expect(mocks.updateSupabaseSession).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    '/api/maintenance/media-cleanup-extra',
+    '/api/maintenance/media-cleanup/child',
+    '/api/maintenance/other',
+  ])('still requires a session for a POST to %s', async (pathname) => {
+    const response = await middleware(request(pathname, 'POST'))
+
+    expect(response.status).toBe(307)
+    expect(response.headers.get('location')).toBe(
+      `https://preview.example.test/login?next=${encodeURIComponent(pathname)}`,
+    )
+    expect(mocks.updateSupabaseSession).toHaveBeenCalledTimes(1)
+  })
+
+  it.each(['GET', 'HEAD', 'OPTIONS', 'PUT', 'PATCH', 'DELETE'])(
+    'still requires a session for a media cleanup %s',
+    async (method) => {
+      const response = await middleware(request('/api/maintenance/media-cleanup', method))
+
+      expect(response.status).toBe(307)
+      expect(response.headers.get('location')).toBe(
+        'https://preview.example.test/login?next=%2Fapi%2Fmaintenance%2Fmedia-cleanup',
+      )
+      expect(mocks.updateSupabaseSession).toHaveBeenCalledTimes(1)
+    },
+  )
+
   it.each([
     '/api/internal/broker-capture-extra',
     '/api/internal/broker-capture/child',
