@@ -33,12 +33,13 @@ import { appendTradeImportMeta, extractTradeImportMeta } from '@/lib/utils/trade
 import { journalText, type JournalLocale } from '@/lib/i18n/journal'
 import { getManualTradeNumberFormatHint, parseManualTradeNumber } from '@/lib/utils/manual-trade-number'
 import type { TradeMediaUploadInput } from '@/lib/types/media'
-import { assertOwnedTradeMediaPath } from '@/lib/utils/media-security'
+import { assertOwnedTradeMediaPath, isCanonicalOwnedMediaPathForUser } from '@/lib/utils/media-security'
 import { processMediaCleanupForPaths } from '@/lib/server/media-cleanup'
 import { normalizeTradeCurrency } from '@/lib/utils/currency'
 import { getExitPriceBasis } from '@/lib/utils/trade-exit-basis'
 import { applyJournalFuturesTerms, findJournalFuturesContract, hasJournalFuturesPriceBasis, isContinuousJournalFuturesSymbol, isWholeJournalFuturesSize, journalFuturesPointValue } from '@/lib/utils/journal-futures'
 import { getStoredTradeMetrics } from '@/lib/server/transformers'
+import { formatTradeDeleteConfirmation, normalizeTradeDeleteSelection, type TradeBulkDeleteResult } from '@/lib/utils/trade-bulk-delete'
 
 function toNumericField(value: string) {
   return value.trim() ? parseTradingNumber(value) : null
@@ -1032,5 +1033,77 @@ export async function deleteTradeEntry(tradeId: string) {
     }
   } catch (error) {
     return { success: false, mode: 'supabase' as const, message: `Trade konnte nicht gelöscht werden. ${error instanceof Error ? error.message : 'Unbekannter Fehler.'}` }
+  }
+}
+
+export async function deleteTradeSelection(
+  selection: { tradeIds: string[]; confirmation: string },
+  locale: JournalLocale = 'de',
+): Promise<TradeBulkDeleteResult> {
+  const text = journalText(locale)
+  const tradeIds = normalizeTradeDeleteSelection(selection?.tradeIds)
+  if (!tradeIds || selection.confirmation !== formatTradeDeleteConfirmation(tradeIds.length, locale)) {
+    return { status: 'rejected', message: text('Bitte bestätige die genaue Anzahl der Trades.', 'Confirm the exact number of trades.') }
+  }
+  if (!hasSupabaseClientEnv()) {
+    return { status: 'rejected', message: text('Die Sammellöschung ist hier nicht verfügbar.', 'Bulk deletion is unavailable here.') }
+  }
+
+  const refreshResult: TradeBulkDeleteResult = {
+    status: 'refresh',
+    message: text('Das Ergebnis ist unklar. Lade das Journal neu und prüfe die Trades.', 'The result is unclear. Reload the journal and check the trades.'),
+  }
+  try {
+    const supabase = await createSupabaseAuthServerClient()
+    const { data: { user }, error: authError } = await supabase.auth.getUser()
+    if (authError || !user) {
+      return { status: 'rejected', message: text('Bitte melde dich erneut an.', 'Sign in again to continue.') }
+    }
+
+    const { data, error } = await supabase.rpc('equora_delete_trades_v1', { p_trade_ids: tradeIds })
+    if (error?.code === 'EQD02') {
+      return {
+        status: 'refresh',
+        message: text('Die Auswahl ist nicht mehr aktuell. Lade das Journal neu und prüfe den Filter.', 'The selection is out of date. Reload the journal and check the filter.'),
+      }
+    }
+    if (error?.code === 'PGRST202' || error?.code === '42883') {
+      return { status: 'rejected', message: text('Die Sammellöschung ist hier noch nicht verfügbar.', 'Bulk deletion is not available here yet.') }
+    }
+    const result = data as { deletedCount?: number; cleanupPathCount?: number; storagePaths?: unknown } | null
+    if (
+      error
+      || result?.deletedCount !== tradeIds.length
+      || !Array.isArray(result.storagePaths)
+      || typeof result.cleanupPathCount !== 'number'
+      || !Number.isSafeInteger(result.cleanupPathCount)
+      || result.cleanupPathCount < result.storagePaths.length
+    ) return refreshResult
+
+    revalidateTradeSurfaces()
+    revalidatePath('/share')
+    const storagePaths = result.storagePaths.filter(
+      (path): path is string => typeof path === 'string' && isCanonicalOwnedMediaPathForUser(user.id, path),
+    )
+    let cleanupPending = result.cleanupPathCount > storagePaths.length
+    if (storagePaths.length) {
+      try {
+        const cleanup = await processMediaCleanupForPaths(storagePaths)
+        cleanupPending = cleanupPending || cleanup.pending > 0
+      } catch {
+        cleanupPending = true
+      }
+    }
+    const deletedMessage = tradeIds.length === 1
+      ? text('1 Trade gelöscht.', '1 trade deleted.')
+      : text(`${tradeIds.length} Trades gelöscht.`, `${tradeIds.length} trades deleted.`)
+    return {
+      status: 'deleted',
+      message: cleanupPending
+        ? `${deletedMessage} ${text('Die Bereinigung einiger Anhänge steht noch aus.', 'Some attachments are still queued for cleanup.')}`
+        : deletedMessage,
+    }
+  } catch {
+    return refreshResult
   }
 }

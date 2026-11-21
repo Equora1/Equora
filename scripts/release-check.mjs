@@ -60,6 +60,7 @@ if (!envExample.includes('EQUORA_BROKER_IDENTITY_KEY=')) fail('Broker-Identität
 if (!envExample.includes('EQUORA_MEXC_RUNTIME_MODE=off')) fail('MEXC-Runtime ist in .env.example nicht default-off.')
 if (!envExample.includes('CRON_SECRET=')) fail('Vercel-Cron-Secret fehlt in .env.example.')
 if (!envExample.includes('EQUORA_MAINTENANCE_SECRET=')) fail('Maintenance-Schlüssel für Outbox-Retries fehlt in .env.example.')
+if (!/^EQUORA_MEDIA_MAINTENANCE_BEARER=\r?$/m.test(envExample)) fail('Der optionale Medienwartungsschlüssel muss in .env.example leer dokumentiert sein.')
 
 const brokerPatch = readFileSync(join(root, 'supabase/schema-patch-v57.60.sql'), 'utf8')
 if (!brokerPatch.includes('broker_credentials')) fail('SQL-Patch für den Broker-Zugangsspeicher fehlt.')
@@ -161,7 +162,7 @@ function walk(directory) {
     if (name !== '.env.example') {
       const fixedSecretPatterns = [
         /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/,
-        /(?:SUPABASE_SERVICE_ROLE_KEY|EQUORA_BROKER_SECRET_KEY|EQUORA_MAINTENANCE_SECRET)[ \t]*=[ \t]*[A-Za-z0-9+/_=-]{24,}/,
+        /(?:SUPABASE_SERVICE_ROLE_KEY|EQUORA_BROKER_SECRET_KEY|EQUORA_MAINTENANCE_SECRET|EQUORA_MEDIA_MAINTENANCE_BEARER)[ \t]*=[ \t]*[A-Za-z0-9+/_=-]{24,}/,
       ]
       const genericSecretPattern = /(?:api[_-]?key|secret|token|password|private[_-]?key)[ \t]*[:=][ \t]*["']?([A-Za-z0-9+/_=-]{24,})/gi
       const genericSecret = [...value.matchAll(genericSecretPattern)].some((match) => {

@@ -4,20 +4,25 @@ import { processPendingMediaCleanup } from '@/lib/server/media-cleanup'
 
 export const dynamic = 'force-dynamic'
 
-function isAuthorized(request: NextRequest) {
-  const expected = process.env.EQUORA_MAINTENANCE_SECRET?.trim() ?? ''
+function isAuthorized(request: NextRequest, expectedSecrets: string[]) {
   const provided = request.headers.get('authorization')?.replace(/^Bearer\s+/i, '').trim() ?? ''
-  if (!expected || !provided) return false
-  const expectedHash = createHash('sha256').update(expected).digest()
+  if (!provided) return false
   const providedHash = createHash('sha256').update(provided).digest()
-  return timingSafeEqual(expectedHash, providedHash)
+  return expectedSecrets
+    .map(secret => timingSafeEqual(createHash('sha256').update(secret).digest(), providedHash))
+    .includes(true)
 }
 
 async function runCleanup(request: NextRequest) {
-  if (!process.env.EQUORA_MAINTENANCE_SECRET?.trim()) {
+  const expectedSecrets = [
+    process.env.EQUORA_MAINTENANCE_SECRET,
+    process.env.EQUORA_MEDIA_MAINTENANCE_BEARER,
+  ].map(secret => secret?.trim() ?? '').filter(Boolean)
+
+  if (expectedSecrets.length === 0) {
     return NextResponse.json({ ok: false, error: 'maintenance_not_configured' }, { status: 503 })
   }
-  if (!isAuthorized(request)) {
+  if (!isAuthorized(request, expectedSecrets)) {
     return NextResponse.json({ ok: false, error: 'unauthorized' }, { status: 401 })
   }
 
