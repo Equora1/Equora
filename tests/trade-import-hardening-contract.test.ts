@@ -3015,12 +3015,17 @@ describe("trade import hardening release package", () => {
     expect(share).toContain("shared_notes: sharedNotes");
   });
 
-  it("labels the dashboard result as a bounded loaded window", () => {
-    expect(dashboard).toContain("DASHBOARD_TRADE_WINDOW_LIMIT");
-    expect(dashboardData).toContain(
-      "tradeLimit: DASHBOARD_TRADE_WINDOW_LIMIT",
+  it("labels the cumulative dashboard result and uses the complete owner-scoped trade read", () => {
+    const dashboardSnapshot = dashboardData.match(
+      /export function getDashboardSnapshotServer[\s\S]*?(?=\nexport function)/u,
+    )?.[0];
+    expect(dashboardSnapshot).toContain("completeTrades: true");
+    expect(dashboardSnapshot).not.toContain("tradeLimit:");
+    expect(dashboardData).toMatch(
+      /function collectOwnedTradeRows[\s\S]*?collectJournalRows<TradeRow>[\s\S]*?\.eq\('user_id', userId\)\.order\('id'\)\.range\(from, to\)[\s\S]*?\}, 10_000\);/u,
     );
-    expect(dashboard).toContain("Fenster-Summe");
+    expect(dashboard).toContain("Kumuliertes Netto-P&L");
+    expect(dashboard).not.toContain("Fenster-Summe");
     expect(dashboard).not.toContain("Journal-Summe");
   });
 });
