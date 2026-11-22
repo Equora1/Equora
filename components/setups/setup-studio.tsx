@@ -2,7 +2,7 @@
 
 import { useJournalLocale } from '@/components/layout/journal-locale-provider'
 import { journalText, type JournalLocale } from '@/lib/i18n/journal'
-import { useEffect, useMemo, useRef, useState, useTransition, type ChangeEvent, type DragEvent } from 'react'
+import { useEffect, useId, useMemo, useRef, useState, useTransition, type ChangeEvent, type DragEvent } from 'react'
 import { deleteSetupEntry, saveSetupEntry } from '@/app/actions/setups'
 import { requestUncommittedMediaCleanup } from '@/app/actions/media-cleanup'
 import { uploadSetupImages } from '@/lib/supabase/storage'
@@ -16,6 +16,7 @@ import { type DraftSetup, type DraftSetupMedia, type StudioView, type TradeLinkO
 
 type SetupMediaEditEventDetail = {
   setupId?: string | null
+  intent?: 'delete'
   copyAsOwn?: boolean
   title?: string
   category?: string
@@ -153,14 +154,23 @@ export function SetupStudio({ initialSetups, initialTrades, source, canManageMas
   const [isPending, startTransition] = useTransition()
   const [tradeLinkQuery, setTradeLinkQuery] = useState('')
   const [activeExtraSection, setActiveExtraSection] = useState<'playbook' | 'checklist' | 'trades' | 'status' | null>(null)
+  const [deleteTarget, setDeleteTarget] = useState<Pick<SavedSetup, 'id' | 'title'> | null>(null)
+  const [deleteError, setDeleteError] = useState('')
+  const deleteDialogRef = useRef<HTMLDialogElement | null>(null)
+  const deleteInFlight = useRef(false)
+  const deleteHeading = useId()
   const fileInputRef = useRef<HTMLInputElement | null>(null)
+  const addImageRef = useRef<HTMLButtonElement | null>(null)
   const editorRef = useRef<HTMLDivElement | null>(null)
   const titleInputRef = useRef<HTMLInputElement | null>(null)
 
   useEffect(() => {
     setSetups(initialSetups)
+  }, [initialSetups])
+
+  useEffect(() => {
     if (isCreatingNew) return
-    const studioSetups = getStudioSetups(initialSetups, canManageMaster, studioView)
+    const studioSetups = getStudioSetups(setups, canManageMaster, studioView)
     if (!studioSetups.length) {
       setSelectedId(null)
       setDraft(buildDraft(null))
@@ -170,12 +180,26 @@ export function SetupStudio({ initialSetups, initialTrades, source, canManageMas
       setSelectedId(studioSetups[0].id)
       setDraft(buildDraft(studioSetups[0]))
     }
-  }, [initialSetups, selectedId, canManageMaster, studioView, isCreatingNew])
+  }, [setups, selectedId, canManageMaster, studioView, isCreatingNew])
+
+  useEffect(() => {
+    const dialog = deleteDialogRef.current
+    if (deleteTarget && dialog && !dialog.open) dialog.showModal()
+    if (!deleteTarget && dialog?.open) dialog.close()
+  }, [deleteTarget])
 
   useEffect(() => {
     function handleMediaEdit(event: Event) {
       const detail = (event as CustomEvent<SetupMediaEditEventDetail>).detail ?? {}
       const targetSetup = detail.setupId ? setups.find((setup) => setup.id === detail.setupId) : null
+      if (detail.intent === 'delete') {
+        if (targetSetup && !targetSetup.isMaster && !isPending && !deleteInFlight.current) {
+          setDeleteError('')
+          setDeleteTarget(targetSetup)
+        }
+        return
+      }
+      if (detail.setupId && (!targetSetup || (targetSetup.isMaster && !canManageMaster))) return
 
       if (targetSetup && (!targetSetup.isMaster || canManageMaster)) {
         setIsExpanded(true)
@@ -185,7 +209,7 @@ export function SetupStudio({ initialSetups, initialTrades, source, canManageMas
         setRemovedStoragePaths([])
         setActiveExtraSection(null)
         setDraft(buildDraft(targetSetup))
-        setStatus(text('Bilderbereich geöffnet. Cover, Beispiel oder Fehlerbild bearbeiten.', 'Images opened. Choose a cover, example or mistake image.'))
+        setStatus('')
       } else {
         setIsExpanded(true)
         setStudioView('active')
@@ -208,18 +232,18 @@ export function SetupStudio({ initialSetups, initialTrades, source, canManageMas
           isMaster: false,
           media: templateMedia,
         })
-        setStatus(templateMedia.length ? text('Eigene Setup-Version vorbereitet. Dummy-Bilder sind übernommen. Entfernen, ersetzen oder ergänzen und speichern.', 'Your setup copy is ready to edit. You can keep, replace or remove the example images.') : text('Eigene Setup-Version vorbereitet. Bild hinzufügen und speichern.', 'Your setup copy is ready to edit. Add an image and save it.'))
+        setStatus(text('Eigene Kopie vorbereitet. Bilder wählen und speichern.', 'Your copy is ready. Choose images and save.'))
       }
 
       window.setTimeout(() => {
-        editorRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-        fileInputRef.current?.focus()
+        addImageRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+        addImageRef.current?.focus({ preventScroll: true })
       }, 0)
     }
 
     window.addEventListener('equora:setup-media-edit', handleMediaEdit)
     return () => window.removeEventListener('equora:setup-media-edit', handleMediaEdit)
-  }, [setups, canManageMaster, locale])
+  }, [setups, canManageMaster, locale, isPending])
 
   const orderedSetups = useMemo(
     () => [...getStudioSetups(setups, canManageMaster, studioView)].sort((left, right) => left.sortOrder - right.sortOrder || left.title.localeCompare(right.title, 'de')),
@@ -541,29 +565,76 @@ export function SetupStudio({ initialSetups, initialTrades, source, canManageMas
       return
     }
 
-    const confirmed = window.confirm(text(`Setup „${draft.title}“ wirklich löschen?`, `Delete the setup “${draft.title}”?`))
-    if (!confirmed) return
+    const target = setups.find((setup) => setup.id === draft.id)
+    if (!target || isPending || deleteInFlight.current) return
+    setDeleteError('')
+    setDeleteTarget(target)
+  }
 
+  function confirmDelete() {
+    if (!deleteTarget || isPending || deleteInFlight.current) return
+    const target = deleteTarget
+    deleteInFlight.current = true
+    setDeleteError('')
     startTransition(async () => {
-      const result = await deleteSetupEntry(draft.id as string, locale)
-      setStatus(result.message)
-      if (!result.success) return
-      const remainingInView = orderedSetups.filter((setup) => setup.id !== draft.id)
-      setSetups((current) => current.filter((setup) => setup.id !== draft.id))
-      setSelectedId(remainingInView[0]?.id ?? null)
-      setDraft(buildDraft(remainingInView[0] ?? null))
-      setRemovedStoragePaths([])
+      try {
+        const result = await deleteSetupEntry(target.id, locale)
+        if (!result.success) {
+          setDeleteError(result.message)
+          return
+        }
+        setStatus(result.message)
+        setSetups((current) => current.filter((setup) => setup.id !== target.id))
+        if (selectedId === target.id) {
+          const nextSetup = orderedSetups.find((setup) => setup.id !== target.id)
+          setSelectedId(nextSetup?.id ?? null)
+          setDraft(buildDraft(nextSetup))
+          setRemovedStoragePaths([])
+        }
+        window.dispatchEvent(new CustomEvent('equora:setup-deleted', { detail: { setupId: target.id } }))
+        setDeleteTarget(null)
+      } catch {
+        setDeleteError(text('Löschung konnte nicht bestätigt werden. Bitte lade die Setup-Liste neu.', 'Deletion could not be confirmed. Reload the setup list.'))
+      } finally {
+        deleteInFlight.current = false
+      }
     })
   }
 
   return (
     <section id="setup-studio" className="scroll-mt-6 rounded-3xl border border-orange-400/15 bg-white/5 p-5 shadow-2xl">
+      <dialog ref={deleteDialogRef} aria-labelledby={deleteHeading}
+        onClose={() => setDeleteTarget(null)}
+        onCancel={(event) => { if (deleteInFlight.current) event.preventDefault() }}
+        className="m-auto w-[calc(100%_-_2rem)] max-w-[30rem] rounded-2xl border border-red-300/25 bg-[#181413] p-5 text-white backdrop:bg-black/75">
+        {deleteTarget && (
+          <>
+            <h2 id={deleteHeading} className="break-words text-lg font-semibold">
+              {text(`„${deleteTarget.title}“ löschen?`, `Delete “${deleteTarget.title}”?`)}
+            </h2>
+            <p className="mt-2 text-sm leading-6 text-white/70">
+              {text('Das Setup, seine Bilder und die Zuordnungen zu Trades werden dauerhaft entfernt.', 'The setup, its images and its links to trades will be removed permanently.')}
+            </p>
+            {deleteError && <p role="alert" className="mt-3 text-sm text-red-200">{deleteError}</p>}
+            <div className="mt-5 flex flex-wrap justify-end gap-2">
+              <button type="button" disabled={isPending} onClick={() => setDeleteTarget(null)}
+                className="rounded-lg border border-white/15 px-3 py-2 text-sm hover:bg-white/5">
+                {text('Abbrechen', 'Cancel')}
+              </button>
+              <button type="button" disabled={isPending} onClick={confirmDelete}
+                className="rounded-lg border border-red-300/30 bg-red-400/15 px-3 py-2 text-sm font-medium text-red-100 hover:bg-red-400/25 disabled:opacity-50">
+                {isPending ? text('Wird gelöscht …', 'Deleting…') : text('Endgültig löschen', 'Delete permanently')}
+              </button>
+            </div>
+          </>
+        )}
+      </dialog>
       <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
         <div>
           <p className="text-[10px] uppercase tracking-[0.24em] text-[#998a72]">Setup Studio</p>
           <h3 className="mt-2 text-xl font-semibold text-white">{text('Regeln und Bilder bearbeiten', 'Edit rules and images')}</h3>
           <p className="mt-2 max-w-2xl text-sm leading-6 text-white/58">
-            {text('Eigene Setups bearbeitest du direkt hier. Als Admin kannst du in der Master-Bibliothek auch Dummy-Bilder dauerhaft ersetzen.', 'Edit your setup rules, example images and linked trades here.')}
+            {text('Bearbeite Regeln, Bilder und verknüpfte Trades.', 'Edit rules, images and linked trades.')}
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -590,14 +661,11 @@ export function SetupStudio({ initialSetups, initialTrades, source, canManageMas
         <div className="mt-5 rounded-2xl border border-white/10 bg-black/20 p-4 text-sm leading-6 text-white/58">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <div>
-              <p>{text('Der Setup-Bereich wurde gestrafft. Öffne das Studio nur dann, wenn du Regeln oder Bilder wirklich bearbeiten willst.', 'Open the studio to edit your setups.')}</p>
+              {status && <p role="status">{status}</p>}
               <p className="mt-2 text-xs text-white/42">{text(
                 `${orderedSetups.length} Setups · ${orderedSetups.reduce((sum, setup) => sum + setup.media.length, 0)} Bilder · Ansicht: ${activeViewLabel}`,
                 `${orderedSetups.length} setups · ${orderedSetups.reduce((sum, setup) => sum + setup.media.length, 0)} images · ${activeViewLabel}`,
               )}</p>
-            </div>
-            <div className="rounded-2xl border border-emerald-300/15 bg-emerald-400/[0.06] px-4 py-3 text-xs text-emerald-100/80">
-              {text('Tipp: Öffne oben in der Bibliothek ein Master-Setup und klicke als Admin auf „Master-Bilder bearbeiten“.', 'To edit shared images, choose a shared setup in the library and select Edit shared images.')}
             </div>
           </div>
         </div>
@@ -644,6 +712,7 @@ export function SetupStudio({ initialSetups, initialTrades, source, canManageMas
               editorRef={editorRef}
               titleInputRef={titleInputRef}
               fileInputRef={fileInputRef}
+              addImageRef={addImageRef}
               isCreatingNew={isCreatingNew}
               draftTitle={draftTitle}
               draft={draft}
