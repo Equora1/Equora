@@ -8,29 +8,27 @@ import { getJournalLocale } from '@/lib/server/journal-locale'
 import { getDashboardSnapshotServer } from '@/lib/server/journal'
 import { mapTradeRowToTrade } from '@/lib/server/transformers'
 import { getBerlinTodayDateKey } from '@/lib/utils/daily-notes'
+import type { DashboardSearchParams } from '@/lib/utils/dashboard'
 
 export const dynamic = 'force-dynamic'
 
-async function DashboardContent() {
+async function DashboardContent({ params }: { params?: Promise<DashboardSearchParams> }) {
   const [access, locale] = await Promise.all([getJournalAccess(), getJournalLocale()])
   const snapshot = await getDashboardSnapshotServer(access.user?.id)
   const trades = snapshot.tradeRows.map((row) => mapTradeRowToTrade(row))
+  const today = getBerlinTodayDateKey()
 
   return (
-    <>
-      {access.mode === 'supabase' && (
-        <div className="mb-4 flex justify-end">
-          <TradingCheckIn dateKey={getBerlinTodayDateKey()} />
-        </div>
-      )}
-      <DashboardOverview
-        trades={trades}
-        dailyNotes={snapshot.dailyNotes}
-        source={snapshot.source}
-        availability={snapshot.availability}
-        locale={locale}
-      />
-    </>
+    <DashboardOverview
+      trades={trades}
+      dailyNotes={snapshot.dailyNotes}
+      source={snapshot.source}
+      availability={snapshot.availability}
+      locale={locale}
+      params={await params}
+      today={today}
+      checkIn={access.mode === 'supabase' ? <TradingCheckIn dateKey={today} /> : undefined}
+    />
   )
 }
 
@@ -44,18 +42,18 @@ function DashboardFallback() {
           <div className="h-4 w-full max-w-xl rounded-full bg-white/[0.07]" />
         </div>
       </FuturisticCard>
-      <div className="grid animate-pulse gap-3 sm:grid-cols-2 xl:grid-cols-5">
-        {Array.from({ length: 5 }, (_, index) => <div key={index} className="h-36 rounded-[1.1rem] border border-white/[0.06] bg-white/[0.035]" />)}
+      <div className="grid animate-pulse gap-3 sm:grid-cols-3">
+        {Array.from({ length: 3 }, (_, index) => <div key={index} className="h-24 rounded-[1.1rem] border border-white/[0.06] bg-white/[0.035]" />)}
       </div>
     </div>
   )
 }
 
-export default function DashboardPage() {
+export default function DashboardPage({ searchParams }: { searchParams?: Promise<DashboardSearchParams> }) {
   return (
     <AppShell>
       <Suspense fallback={<DashboardFallback />}>
-        <DashboardContent />
+        <DashboardContent params={searchParams} />
       </Suspense>
     </AppShell>
   )
