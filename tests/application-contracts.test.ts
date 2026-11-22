@@ -55,12 +55,19 @@ describe('v57.60.1 application safety contracts', () => {
     expect(form).toContain("initialValues?.accountCurrency?.trim() || ''")
   })
 
-  it('uploads setup media before one atomic graph save', () => {
+  it('creates the owned setup before registering images and saves the complete setup afterward', () => {
     const studio = source('components/setups/setup-studio.tsx')
     const saveBlock = studio.slice(studio.indexOf('function handleSave()'), studio.indexOf('function handleSetMaster'))
+    const saveParent = saveBlock.indexOf('await saveSetupEntry({ ...setupFields, media: [], linkedTradeIds: [], isMaster: false }')
+    const upload = saveBlock.indexOf('uploaded = await uploadSetupImages(setupId,')
+    const saveImages = saveBlock.indexOf('const result = await saveSetupEntry(')
 
-    expect(saveBlock).toContain('uploaded = await uploadSetupImages')
-    expect(saveBlock.match(/saveSetupEntry\(/g)).toHaveLength(1)
+    expect(saveParent).toBeGreaterThan(-1)
+    expect(upload).toBeGreaterThan(saveParent)
+    expect(saveImages).toBeGreaterThan(upload)
+    expect(saveBlock).toContain('if (hosted && pendingItems.length) {\n          if (!draft.id) {')
+    expect(saveBlock).toContain('showSavedSetup(savedWithoutImages, { ...draft, id: savedWithoutImages.id,')
+    expect(saveBlock).toContain('requestUncommittedMediaCleanup({ kind: \'setup\', parentId: setupId,')
   })
 
   it('fails closed when cleanup reference checks fail', () => {

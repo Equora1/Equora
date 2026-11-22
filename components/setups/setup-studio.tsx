@@ -158,6 +158,8 @@ export function SetupStudio({ initialSetups, initialTrades, source, canManageMas
   const [deleteError, setDeleteError] = useState('')
   const deleteDialogRef = useRef<HTMLDialogElement | null>(null)
   const deleteInFlight = useRef(false)
+  const saveInFlight = useRef(false)
+  const newSetupId = useRef<string | null>(null)
   const deleteHeading = useId()
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const addImageRef = useRef<HTMLButtonElement | null>(null)
@@ -190,6 +192,7 @@ export function SetupStudio({ initialSetups, initialTrades, source, canManageMas
 
   useEffect(() => {
     function handleMediaEdit(event: Event) {
+      if (saveInFlight.current) return
       const detail = (event as CustomEvent<SetupMediaEditEventDetail>).detail ?? {}
       const targetSetup = detail.setupId ? setups.find((setup) => setup.id === detail.setupId) : null
       if (detail.intent === 'delete') {
@@ -211,6 +214,7 @@ export function SetupStudio({ initialSetups, initialTrades, source, canManageMas
         setDraft(buildDraft(targetSetup))
         setStatus('')
       } else {
+        newSetupId.current = null
         setIsExpanded(true)
         setStudioView('active')
         setIsCreatingNew(true)
@@ -279,6 +283,7 @@ export function SetupStudio({ initialSetups, initialTrades, source, canManageMas
   }
 
   function selectSetup(setupId: string | null) {
+    if (saveInFlight.current) return
     setIsCreatingNew(false)
     if (setupId === null && studioView !== 'active') setStudioView('active')
     setSelectedId(setupId)
@@ -287,6 +292,8 @@ export function SetupStudio({ initialSetups, initialTrades, source, canManageMas
   }
 
   function handleCreateSetup(options?: { master?: boolean }) {
+    if (saveInFlight.current) return
+    newSetupId.current = null
     const createMaster = Boolean(options?.master && canManageMaster)
     setIsExpanded(true)
     setStudioView(createMaster ? 'master' : 'active')
@@ -303,6 +310,7 @@ export function SetupStudio({ initialSetups, initialTrades, source, canManageMas
   }
 
   function handleCancelCreate() {
+    if (saveInFlight.current) return
     const nextSetup = orderedSetups[0] ?? null
     setIsCreatingNew(false)
     setSelectedId(nextSetup?.id ?? null)
@@ -406,20 +414,62 @@ export function SetupStudio({ initialSetups, initialTrades, source, canManageMas
   }
 
   function handleSave() {
+    if (isPending || saveInFlight.current) return
+    saveInFlight.current = true
     startTransition(async () => {
       setStatus(text('Setup wird gespeichert …', 'Saving setup…'))
       const pendingItems = draft.media.filter((item) => !item.persisted && item.file)
-      const setupId = draft.id ?? crypto.randomUUID()
+      const hosted = hasSupabaseClientEnv()
+      const setupId = draft.id ?? (newSetupId.current ??= crypto.randomUUID())
+      const setupFields = {
+        id: hosted ? setupId : draft.id,
+        title: draft.title,
+        category: draft.category,
+        description: draft.description,
+        entry: draft.entry,
+        exit: draft.exit,
+        invalidation: draft.invalidation,
+        playbook: draft.playbook,
+        checklist: textToArray(draft.checklist),
+        mistakes: textToArray(draft.mistakes),
+        isArchived: draft.isArchived,
+        isMaster: canManageMaster ? draft.isMaster : undefined,
+        sortOrder: draft.sortOrder,
+        linkedTradeIds: draft.linkedTradeIds,
+      }
+      let savedWithoutImages: SavedSetup | null = null
       let uploaded: Awaited<ReturnType<typeof uploadSetupImages>> = []
+      let saveError: string | null = null
+
+      function showSavedSetup(setup: SavedSetup, nextDraft: DraftSetup) {
+        setSetups((current) => [...current.filter((item) => item.id !== setup.id), setup])
+        setIsCreatingNew(false)
+        setStudioView(getStudioViewForSetup(setup))
+        setSelectedId(setup.id)
+        setDraft(nextDraft)
+        setRemovedStoragePaths([])
+      }
 
       try {
-        if (pendingItems.length && hasSupabaseClientEnv()) {
+        if (hosted && pendingItems.length) {
+          if (!draft.id) {
+            // Upload intents require an existing, owned setup. Defer sharing
+            // and trade links until the images can be saved with the setup.
+            const created = await saveSetupEntry({ ...setupFields, media: [], linkedTradeIds: [], isMaster: false }, locale)
+            if (!created.success || !created.setup) {
+              setStatus(created.success
+                ? text('Das Setup wurde gespeichert. Bitte lade die Liste neu, bevor du Bilder hinzufügst.', 'The setup was saved. Reload the list before adding images.')
+                : created.message)
+              return
+            }
+            savedWithoutImages = created.setup
+          }
           uploaded = await uploadSetupImages(setupId, pendingItems.map((item) => item.file as File))
         }
 
         let uploadIndex = 0
         const combinedMedia = draft.media
-          .filter((item) => item.persisted || (hasSupabaseClientEnv() && item.file))
+          .filter((item) => item.persisted || (hosted && item.file))
           .map<SavedSetupMedia>((item, index) => {
             const uploadedItem = !item.persisted && item.file ? uploaded[uploadIndex++] : null
             return {
@@ -436,49 +486,36 @@ export function SetupStudio({ initialSetups, initialTrades, source, canManageMas
           })
 
         const result = await saveSetupEntry({
-          id: hasSupabaseClientEnv() ? setupId : draft.id,
-          title: draft.title,
-          category: draft.category,
-          description: draft.description,
-          entry: draft.entry,
-          exit: draft.exit,
-          invalidation: draft.invalidation,
-          playbook: draft.playbook,
-          checklist: textToArray(draft.checklist),
-          mistakes: textToArray(draft.mistakes),
-          isArchived: draft.isArchived,
-          isMaster: canManageMaster ? draft.isMaster : undefined,
-          sortOrder: draft.sortOrder,
+          ...setupFields,
+          sortOrder: savedWithoutImages?.sortOrder ?? setupFields.sortOrder,
           media: combinedMedia,
           removedStoragePaths,
-          linkedTradeIds: draft.linkedTradeIds,
         }, locale)
 
         if (!result.success) {
-          if (uploaded.length) {
-            await requestUncommittedMediaCleanup({ kind: 'setup', parentId: setupId, storagePaths: uploaded.map((item) => item.storagePath) })
-          }
-          setStatus(result.message)
-          return
+          saveError = result.message
+          throw new Error(result.message)
         }
 
         if (result.setup) {
-          setSetups((current) => {
-            const rest = current.filter((item) => item.id !== result.setup?.id)
-            return [...rest, result.setup]
-          })
-          setIsCreatingNew(false)
-          setStudioView(getStudioViewForSetup(result.setup))
-          setSelectedId(result.setup.id)
-          setDraft(buildDraft(result.setup))
-          setRemovedStoragePaths([])
+          showSavedSetup(result.setup, buildDraft(result.setup))
         }
         setStatus(result.message)
       } catch (error) {
-        if (uploaded.length) {
-          await requestUncommittedMediaCleanup({ kind: 'setup', parentId: setupId, storagePaths: uploaded.map((item) => item.storagePath) })
+        if (savedWithoutImages) {
+          showSavedSetup(savedWithoutImages, { ...draft, id: savedWithoutImages.id, sortOrder: savedWithoutImages.sortOrder })
+          setStatus(text(
+            'Setup gespeichert. Die Bilder konnten noch nicht bestätigt werden. Prüfe das Setup, bevor du erneut speicherst.',
+            'Setup saved. The images could not be confirmed. Check the setup before saving again.',
+          ))
+        } else {
+          setStatus(saveError ?? (locale === 'de' && error instanceof Error ? error.message : text('Setup konnte nicht gespeichert werden.', 'Could not save the setup. Check the setup before trying again.')))
         }
-        setStatus(locale === 'de' && error instanceof Error ? error.message : text('Setup konnte nicht gespeichert werden.', 'Could not save the setup. Check the setup before trying again.'))
+        if (uploaded.length) {
+          await requestUncommittedMediaCleanup({ kind: 'setup', parentId: setupId, storagePaths: uploaded.map((item) => item.storagePath) }).catch(() => undefined)
+        }
+      } finally {
+        saveInFlight.current = false
       }
     })
   }
