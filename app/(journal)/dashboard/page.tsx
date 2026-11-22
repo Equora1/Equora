@@ -1,11 +1,13 @@
 import { Suspense } from 'react'
 import { AppShell } from '@/components/layout/app-shell'
 import { DashboardOverview } from '@/components/dashboard/dashboard-overview'
+import { TradingCheckIn } from '@/components/daily-notes/trading-check-in'
 import { FuturisticCard } from '@/components/ui/futuristic-card'
 import { getJournalAccess } from '@/lib/server/auth'
 import { getJournalLocale } from '@/lib/server/journal-locale'
 import { getDashboardSnapshotServer } from '@/lib/server/journal'
 import { mapTradeRowToTrade } from '@/lib/server/transformers'
+import { getBerlinTodayDateKey } from '@/lib/utils/daily-notes'
 
 export const dynamic = 'force-dynamic'
 
@@ -15,13 +17,20 @@ async function DashboardContent() {
   const trades = snapshot.tradeRows.map((row) => mapTradeRowToTrade(row))
 
   return (
-    <DashboardOverview
-      trades={trades}
-      dailyNotes={snapshot.dailyNotes}
-      source={snapshot.source}
-      availability={snapshot.availability}
-      locale={locale}
-    />
+    <>
+      {access.mode === 'supabase' && (
+        <div className="mb-4 flex justify-end">
+          <TradingCheckIn dateKey={getBerlinTodayDateKey()} />
+        </div>
+      )}
+      <DashboardOverview
+        trades={trades}
+        dailyNotes={snapshot.dailyNotes}
+        source={snapshot.source}
+        availability={snapshot.availability}
+        locale={locale}
+      />
+    </>
   )
 }
 
