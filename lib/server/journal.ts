@@ -17,7 +17,6 @@ import type { TradeTag } from "@/lib/types/tag";
 import { normalizeTradeDate } from "@/lib/utils/calendar";
 import { measurePerformance } from "@/lib/server/performance";
 import { signSetupMediaRows, signTradeMediaRows } from "@/lib/server/media-access";
-import { DASHBOARD_TRADE_WINDOW_LIMIT } from "@/lib/utils/dashboard";
 import { collectJournalRows, type JournalRowPage } from '@/lib/server/collect-journal-rows';
 
 export type JournalSnapshot = {
@@ -470,6 +469,7 @@ type SnapshotFetchOptions = {
   includeSetupMedia?: boolean;
   includeSetupTradeLinks?: boolean;
   includeDailyNotes?: boolean;
+  completeTrades?: boolean;
   tradeLimit?: number;
   tradeOffset?: number;
   tradeOccurredFrom?: string;
@@ -570,6 +570,17 @@ async function fetchTradeRows(
   options: SnapshotFetchOptions,
 ) {
   return readTradeColumns((columns) => buildTradeQuery(supabase, scopedUserId, columns, options));
+}
+
+function collectOwnedTradeRows(
+  supabase: ReturnType<typeof createSupabaseServerClient>,
+  userId: string,
+) {
+  return collectJournalRows<TradeRow>(async (from, to) => {
+    const response = await readTradeColumns((columns) => supabase.from('trades')
+      .select(columns, { count: 'exact' }).eq('user_id', userId).order('id').range(from, to));
+    return response as unknown as JournalRowPage<TradeRow>;
+  }, 10_000);
 }
 
 function buildDailyNotesQuery(
@@ -680,7 +691,9 @@ async function loadJournalSnapshotServer(
     const { data: tradeRows, error: tradesError } = await measurePerformance(
       "database.trades",
       "database",
-      () => fetchTradeRows(supabase, scopedUserId, fetchOptions),
+      async () => fetchOptions.completeTrades
+        ? { data: await collectOwnedTradeRows(supabase, scopedUserId), error: null }
+        : fetchTradeRows(supabase, scopedUserId, fetchOptions),
       { route: fetchOptions.diagnosticRoute, meta: { limit: fetchOptions.tradeLimit ?? 0, offset: fetchOptions.tradeOffset ?? 0 } },
     );
     if (tradesError || !tradeRows) {
@@ -840,7 +853,7 @@ export function getDashboardSnapshotServer(userId?: string | null) {
       includeSetupMedia: false,
       includeSetupTradeLinks: false,
       includeDailyNotes: true,
-      tradeLimit: DASHBOARD_TRADE_WINDOW_LIMIT,
+      completeTrades: true,
       dailyNotesLimit: 7,
       diagnosticRoute: '/dashboard',
       failOnRelatedDataError: true,
@@ -899,8 +912,7 @@ export function getTradesSnapshotServer(
   }), { route: '/trades', meta: { limit: pagination?.limit ?? 0, offset: pagination?.offset ?? 0 } })
 }
 
-// Whole-journal reads are shared by the trade list and statistics. Dashboard and
-// review window reads retain their own contracts. Counts verify collection;
+// Whole-journal reads verify collection with exact counts;
 // multiple requests do not constitute a transactional point-in-time snapshot.
 export function getTradesWorkspaceSnapshotServer(userId?: string | null) {
   return loadCompleteJournalSnapshotServer(userId, true);
@@ -925,11 +937,7 @@ async function loadCompleteJournalSnapshotServer(userId: string | null | undefin
     if (!userId) return { ...unavailable(), availability: 'unauthenticated' } satisfies WorkspaceSnapshot;
     const supabase = hasSupabaseServerEnv() ? createSupabaseServerClient() : await createSupabaseAuthServerClient();
     const owner = userId;
-    const tradeRows = await collectJournalRows<TradeRow>(async (from, to) => {
-      const query = (columns: string) => supabase.from('trades').select(columns, { count: 'exact' }).eq('user_id', owner).order('id').range(from, to);
-      const response = await readTradeColumns(query);
-      return response as unknown as JournalRowPage<TradeRow>;
-    }, 10_000);
+    const tradeRows = await collectOwnedTradeRows(supabase, owner);
     const readRelated = <T extends { id: string }>(table: string, columns: string) => collectJournalRows<T>(async (from, to) => (
       await supabase.from(table).select(columns, { count: 'exact' }).eq('user_id', owner).order('id').range(from, to)
     ) as unknown as JournalRowPage<T>, 100_000);

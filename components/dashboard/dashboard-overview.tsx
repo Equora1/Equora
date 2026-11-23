@@ -1,9 +1,11 @@
 import { journalText, type JournalLocale } from '@/lib/i18n/journal'
+import type { ReactNode } from 'react'
+import Link from 'next/link'
 import type { DailyNoteRow } from '@/lib/types/db'
 import type { Trade } from '@/lib/types/trade'
 import { EquityCurveCard } from '@/components/dashboard/equity-curve-card'
 import { RecentTradesCard } from '@/components/dashboard/recent-trades-card'
-import { SimpleStartCard } from '@/components/dashboard/simple-start-card'
+import { DashboardDetails } from '@/components/dashboard/dashboard-details'
 import { StatsGrid } from '@/components/dashboard/stats-grid'
 import { TodaySummaryCard } from '@/components/dashboard/today-summary-card'
 import { FuturisticCard } from '@/components/ui/futuristic-card'
@@ -12,9 +14,11 @@ import {
   buildDashboardMetricModel,
   getDashboardMoneyLockReason,
   resolveDashboardDataState,
+  scopeDashboardTrades,
   type DashboardAvailability,
+  type DashboardSearchParams,
 } from '@/lib/utils/dashboard'
-import { MIN_ANALYTICS_SAMPLE_SIZE } from '@/lib/utils/statistics-scope'
+import { getBerlinTodayDateKey } from '@/lib/utils/daily-notes'
 import { getTradeTrustSummary } from '@/lib/utils/trade-trust'
 
 type DashboardOverviewProps = {
@@ -23,37 +27,34 @@ type DashboardOverviewProps = {
   source: 'supabase' | 'mock'
   availability: DashboardAvailability
   locale?: JournalLocale
+  params?: DashboardSearchParams
+  today?: string
+  checkIn?: ReactNode
 }
 
-export function DashboardOverview({ trades, dailyNotes, source, availability, locale = 'de' }: DashboardOverviewProps) {
+export function DashboardOverview({ trades: allTrades, dailyNotes, source, availability, locale = 'de',
+  params = {}, today = getBerlinTodayDateKey(), checkIn }: DashboardOverviewProps) {
   const text = journalText(locale)
-  const dataState = resolveDashboardDataState({ source, availability, tradeCount: trades.length })
+  const dataState = resolveDashboardDataState({ source, availability, tradeCount: allTrades.length })
   if (dataState === 'unavailable' || dataState === 'unauthenticated') {
     return <UnavailableDashboard state={dataState} locale={locale} />
   }
 
-  const { trustedTrades, metrics, moneyComparable, documentedR, evidenceState } = buildDashboardMetricModel(trades)
+  const scope = scopeDashboardTrades(allTrades, params, today, locale)
+  const { trades } = scope
+  const { trustedTrades, metrics, monetaryScope, moneyComparable, documentedR, evidenceState } = buildDashboardMetricModel(trades)
   const hasDescriptiveSample = evidenceState === 'descriptive'
   const moneyLockReason = getDashboardMoneyLockReason({
-    scopeKind: metrics.monetaryScope.kind,
+    scopeKind: monetaryScope.kind,
     trustedTradeCount: trustedTrades.length,
   }, locale)
-  const evidenceLabel = evidenceState === 'descriptive'
-    ? text('Bisherige Ergebnisse', 'Results so far')
-    : evidenceState === 'empty'
-      ? text('Noch keine Datengrundlage', 'No trade data yet')
-      : evidenceState === 'untrusted'
-        ? text('Noch keine auswertbaren Abschlüsse', 'No closed trades to analyse yet')
-        : text(`Kleine Stichprobe · ${trustedTrades.length}/${MIN_ANALYTICS_SAMPLE_SIZE}`, `Small sample · ${trustedTrades.length}/${MIN_ANALYTICS_SAMPLE_SIZE}`)
   const metricItems = [
     {
-      label: text('Netto P&L', 'Net P&L'),
+      label: text('Netto-P&L', 'Net P&L'),
       value: trustedTrades.length && moneyComparable
         ? formatCurrency(metrics.netPnL, 0, metrics.currency, locale)
-        : trustedTrades.length
-          ? text('Gesperrt', 'Unavailable')
-          : '—',
-      hint: moneyComparable ? text(`${metrics.resolvedTrades} belastbare Abschlüsse`, `${metrics.resolvedTrades} closed ${metrics.resolvedTrades === 1 ? 'trade' : 'trades'} with reliable results`) : moneyLockReason ?? text('Keine monetären Abschlüsse', 'No closed trades with P&L'),
+        : '—',
+      hint: moneyComparable ? text(`${metrics.resolvedTrades} ${metrics.resolvedTrades === 1 ? 'abgeschlossener Trade' : 'abgeschlossene Trades'}`, `${metrics.resolvedTrades} closed ${metrics.resolvedTrades === 1 ? 'trade' : 'trades'}`) : moneyLockReason ?? text('Keine Ergebnisse', 'No results'),
       tone: hasDescriptiveSample && moneyComparable && metrics.netPnL !== 0
         ? (metrics.netPnL > 0 ? 'positive' : 'negative')
         : 'gold',
@@ -74,16 +75,16 @@ export function DashboardOverview({ trades, dailyNotes, source, availability, lo
       hint: moneyLockReason
         ? moneyLockReason
         : metrics.resolvedTrades && !metrics.losers
-          ? text('Keine Verlusttrades für einen Quotienten', 'No losing trades to calculate a ratio')
-          : text('Bruttogewinn zu Bruttoverlust', 'Gross profit divided by gross loss'),
+          ? text('Keine Verlusttrades', 'No losing trades')
+          : text('Gewinne im Verhältnis zu Verlusten', 'Total wins divided by total losses'),
       tone: 'neutral',
     },
     {
       label: text('Ø dokumentiertes R', 'Average recorded R'),
       value: documentedR.averageR !== null ? formatRMultiple(documentedR.averageR, 2, locale) : '—',
       hint: text(
-        `${documentedR.documentedCount} von ${documentedR.eligibleCount} belastbaren Trades mit realisiertem oder manuell dokumentiertem R`,
-        `${documentedR.documentedCount} of ${documentedR.eligibleCount} reliable trades have realised or manually recorded R`,
+        `${documentedR.documentedCount} von ${documentedR.eligibleCount} mit erfasstem R`,
+        `${documentedR.documentedCount} of ${documentedR.eligibleCount} with recorded R`,
       ),
       tone: hasDescriptiveSample && documentedR.averageR !== null
         ? documentedR.averageR > 0
@@ -106,24 +107,64 @@ export function DashboardOverview({ trades, dailyNotes, source, availability, lo
   ] as const
 
   return (
-    <div lang={locale} className="space-y-5 xl:space-y-6">
+    <div lang={locale} className="min-w-0 space-y-5 xl:space-y-6">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h1 className="text-2xl font-semibold tracking-tight text-white sm:text-3xl">{text('Trading-Übersicht', 'Trading overview')}</h1>
+        <div className="flex flex-wrap items-center gap-2">
+          {checkIn}
+          <Link href="/trades?focus=ledger#ledger-capture" className="inline-flex min-h-10 items-center rounded-xl border border-[#c8823a]/45 bg-[#f0a855] px-3.5 py-2 text-sm font-semibold text-[#1b1006] hover:bg-[#ffc57d] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#f0a855]">
+            {text('Trade erfassen', 'Log a trade')}
+          </Link>
+        </div>
+      </div>
       {dataState === 'demo' ? <DemoDataBanner locale={locale} /> : null}
-      <SimpleStartCard
-        tradeCount={trades.length}
-        trustedTradeCount={trustedTrades.length}
-        evidenceLabel={evidenceLabel}
-        locale={locale}
-      />
-      <TodaySummaryCard trades={trades} dailyNotes={dailyNotes} locale={locale} />
-      <StatsGrid items={metricItems} />
-
-      <div className="grid gap-5 xl:grid-cols-[minmax(0,1.55fr)_minmax(300px,0.65fr)]">
-        <EquityCurveCard trades={trades} locale={locale} />
-        <DataQualityCard trades={trades} locale={locale} />
+      <DashboardFilters scope={scope} locale={locale} />
+      <StatsGrid items={metricItems.slice(0, 3)} />
+      {evidenceState === 'insufficient' && <p className="text-xs text-white/60">{text('Kleine Stichprobe', 'Small sample')}</p>}
+      <div className="grid min-w-0 gap-5 xl:grid-cols-[minmax(0,1.65fr)_minmax(270px,1fr)]">
+        <EquityCurveCard trades={trades} locale={locale} monetaryScope={monetaryScope} />
+        <RecentTradesCard trades={trades.slice(0, 5)} locale={locale} />
       </div>
 
-      <RecentTradesCard trades={trades.slice(0, 7)} locale={locale} />
+      <DashboardDetails trades={trades} trustedTrades={trustedTrades} metrics={metrics} moneyComparable={moneyComparable} locale={locale} today={today} />
+      <details className="rounded-2xl border border-white/10 bg-white/[0.025] px-4 py-3">
+        <summary className="cursor-pointer py-1 text-sm font-medium text-white/80">{text('Weitere Kennzahlen und Datenqualität', 'More metrics and data quality')}</summary>
+        <div className="mt-4 space-y-4">
+          <StatsGrid items={metricItems.slice(3)} />
+          <DataQualityCard trades={trades} locale={locale} />
+          <TodaySummaryCard trades={allTrades} dailyNotes={dailyNotes} locale={locale} />
+        </div>
+      </details>
     </div>
+  )
+}
+
+function DashboardFilters({ scope, locale }: { scope: ReturnType<typeof scopeDashboardTrades>; locale: JournalLocale }) {
+  const text = journalText(locale)
+  const control = 'min-h-10 w-full min-w-0 rounded-lg border border-white/15 bg-[#171412] px-2.5 py-1.5 text-sm text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#f0a855]'
+  return (
+    <form action="/dashboard" method="get" className="grid grid-cols-2 items-end gap-2 rounded-2xl border border-white/10 bg-[#151210] p-3 sm:flex sm:flex-wrap sm:gap-3">
+      <label className="min-w-0 text-xs text-white/70 sm:w-40">
+        {text('Zeitraum', 'Period')}
+        <select name="period" defaultValue={scope.period} className={`mt-1 block ${control}`}>
+          <option value="all">{text('Gesamter Verlauf', 'All time')}</option>
+          <option value="7">{text('Letzte 7 Tage', 'Last 7 days')}</option>
+          <option value="30">{text('Letzte 30 Tage', 'Last 30 days')}</option>
+          <option value="90">{text('Letzte 90 Tage', 'Last 90 days')}</option>
+        </select>
+      </label>
+      <label className="min-w-0 text-xs text-white/70 sm:w-44">
+        {text('Konto', 'Account')}
+        <select name="account" defaultValue={scope.account} className={`mt-1 block ${control}`}>
+          <option value="">{text('Alle Konten', 'All accounts')}</option>
+          {!scope.isKnownAccount && <option value={scope.account} disabled>{text('Konto nicht verfügbar', 'Account unavailable')}</option>}
+          {scope.accounts.map(({ key, label }) => <option key={key} value={key}>{label}</option>)}
+        </select>
+      </label>
+      <button type="submit" className="col-span-2 min-h-10 rounded-lg border border-[#c8823a]/40 bg-[#c8823a]/10 px-3 text-sm font-medium text-[#f3bd7f] hover:bg-[#c8823a]/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#f0a855]">
+        {text('Anwenden', 'Apply')}
+      </button>
+    </form>
   )
 }
 
@@ -195,11 +236,8 @@ function DataQualityCard({ trades, locale }: { trades: Trade[]; locale: JournalL
 function DemoDataBanner({ locale }: { locale: JournalLocale }) {
   const text = journalText(locale)
   return (
-    <FuturisticCard glow="orange" className="border-[#c8823a]/25 bg-[#c8823a]/[0.07] px-5 py-4" role="status">
-      <p className="text-sm font-semibold text-[#f3bd7f]">{text('Demo-Daten aktiv', 'Demo data')}</p>
-      <p className="mt-1 text-xs leading-5 text-white/70">
-        {text('Alle sichtbaren Trades und Kennzahlen sind Beispiele. Sie stellen keine reale Konto- oder Trading-Performance dar.', 'These trades and metrics are examples. They do not reflect real account or trading performance.')}
-      </p>
+    <FuturisticCard glow="orange" className="border-[#c8823a]/25 bg-[#c8823a]/[0.07] px-3 py-2" role="status">
+      <p className="text-xs font-medium text-[#f3bd7f]">{text('Demo-Daten · Beispieltrades', 'Demo data · sample trades')}</p>
     </FuturisticCard>
   )
 }
