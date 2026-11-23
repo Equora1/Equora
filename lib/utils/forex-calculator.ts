@@ -27,7 +27,15 @@ export function forexPairDetails(pair: ForexPair) {
   return { base, quote, priceDecimals, pipSize: quote === 'JPY' ? 0.01 : 0.0001 }
 }
 
-export type ForexPositionValues = { pipValue: number; grossPnl: number }
+type ForexPositionValues = {
+  pipValueUnits: bigint
+  grossPnlUnits: bigint
+  fractionDigits: number
+}
+
+type ForexMoveResult =
+  | { ok: false; reason: 'entry' | 'exit' }
+  | { ok: true; pips: number; pipettes: number; position: ForexPositionValues | null; positionIssue?: 'size' | 'range' }
 
 export function calculateForexMove({ pair, direction, entry, exit, size = '', sizeUnit = 'units' }: {
   pair: ForexPair
@@ -36,7 +44,7 @@ export function calculateForexMove({ pair, direction, entry, exit, size = '', si
   exit: string
   size?: string
   sizeUnit?: ForexSizeUnit
-}) {
+}): ForexMoveResult {
   const { priceDecimals } = forexPairDetails(pair)
   const entryPipettes = parseScaledPositive(entry, priceDecimals)
   if (entryPipettes === null) return { ok: false, reason: 'entry' } as const
@@ -44,35 +52,54 @@ export function calculateForexMove({ pair, direction, entry, exit, size = '', si
   if (exitPipettes === null) return { ok: false, reason: 'exit' } as const
 
   const pipettes = direction === 'long' ? exitPipettes - entryPipettes : entryPipettes - exitPipettes
-  const pips = pipettes / 10
-  if (!size.trim()) return { ok: true, pips, pipettes, position: null } as const
+  const movement = { ok: true, pips: pipettes / 10, pipettes, position: null } as const
+  if (!size.trim()) return movement
 
   // Five decimal places in lots make the smallest accepted size one base unit.
   const units = parseScaledPositive(size, sizeUnit === 'lots' ? 5 : 0)
-  if (units === null) return { ok: false, reason: 'size' } as const
+  if (units === null) return { ...movement, positionIssue: 'size' }
 
   const gross = pipettes * units
   const valuePerPip = units * 10
   if (!Number.isSafeInteger(gross * 2) || !Number.isSafeInteger(valuePerPip * 2)) {
-    return { ok: false, reason: 'range' } as const
+    return { ...movement, positionIssue: 'range' }
   }
-  const priceScale = 10 ** priceDecimals
+
   return {
-    ok: true,
-    pips,
-    pipettes,
-    position: { pipValue: valuePerPip / priceScale, grossPnl: gross / priceScale },
-  } as const
+    ...movement,
+    position: { pipValueUnits: BigInt(valuePerPip), grossPnlUnits: BigInt(gross), fractionDigits: priceDecimals },
+  }
 }
 
 /** The rate is target-currency units for one unit of the pair's quote currency. */
 export function convertForexValues(position: ForexPositionValues, input: string): ForexPositionValues | null {
-  const parsed = parseScaledPositive(input, 8)
+  const rateDigits = 8
+  const parsed = parseScaledPositive(input, rateDigits)
   if (parsed === null) return null
 
-  const rate = parsed / 10 ** 8
-  const pipValue = position.pipValue * rate
-  const grossPnl = position.grossPnl * rate
-  if (!Number.isFinite(pipValue) || !Number.isFinite(grossPnl)) return null
-  return { pipValue, grossPnl }
+  const rateUnits = BigInt(parsed)
+  return {
+    pipValueUnits: position.pipValueUnits * rateUnits,
+    grossPnlUnits: position.grossPnlUnits * rateUnits,
+    fractionDigits: position.fractionDigits + rateDigits,
+  }
+}
+
+export function formatForexAmount(units: bigint, fractionDigits: number, locale: string): string {
+  const zero = BigInt(0)
+  const negative = units < zero
+  const absolute = negative ? -units : units
+  const shownDigits = Math.min(fractionDigits, 8)
+  const scale = BigInt(10 ** shownDigits)
+  const divisor = BigInt(10 ** (fractionDigits - shownDigits))
+  const tiny = absolute > zero && absolute < divisor
+  // Round positive magnitudes at the decimal midpoint before applying their sign.
+  const rounded = tiny ? BigInt(1) : (absolute + divisor / BigInt(2)) / divisor
+  const integer = rounded / scale
+  const fraction = (rounded % scale).toString().padStart(shownDigits, '0').replace(/0+$/, '').padEnd(2, '0')
+  const signedInteger = negative && !tiny ? (integer === zero ? -0 : -integer) : integer
+  const parts = new Intl.NumberFormat(locale, { minimumFractionDigits: 2 }).formatToParts(signedInteger)
+  const formatted = parts.map((part) => part.type === 'fraction' ? fraction : part.value).join('')
+  if (!tiny) return formatted
+  return (negative ? '−<' : '<') + formatted
 }
