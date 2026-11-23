@@ -51,7 +51,11 @@ describe('actual review route read boundary',()=>{
 describe('actual dynamic review drilldown retains every matching trade',()=>{
  it('keeps 45 matching IDs through pagination and export selection',async()=>{
   state.rows=Array.from({length:45},(_,i)=>({id:'trade-'+i,created_at:'2026-10-18T12:00:00Z',market:'TEST',setup:'Test',net_pnl:1,pnl_mode:'manual',account_currency:'USDT',capture_status:'complete'}))
-  renderToStaticMarkup(await TradesPage({searchParams:Promise.resolve({reviewFocus:'Test',reviewOnly:'1'})}))
+  const html=renderToStaticMarkup(await TradesPage({searchParams:Promise.resolve({reviewFocus:'Test',reviewOnly:'1'})}))
+  expect(html).toContain('href="/rechner"')
+  expect(html).toContain('Rechner öffnen')
+  expect(html).not.toContain('Futures-Risikorechner')
+  expect(html).not.toContain('Forex-Pip-Rechner')
   const p=state.props;expect(p.spotlightTradeIds).toHaveLength(45);expect(p.spotlightTotalCount).toBe(45)
   const view=buildTradeTableView(p.trades,{},p.initialFilters,'newest',2,30,p.spotlightTradeIds)
   expect(view.totalMatches).toBe(45);expect(view.rows).toHaveLength(15);expect(view.matches).toHaveLength(45)

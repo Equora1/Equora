@@ -52,6 +52,20 @@ describe('Replay navigation in the journal layout', () => {
     expect(await renderJournalNavigation()).not.toContain('href="/replay"')
   })
 
+  it.each([['de', 'Rechner'], ['en', 'Calculators']] as const)('places %s calculators directly below trades', async (locale, label) => {
+    navigation.locale = locale
+    navigation.pathname = '/rechner'
+    const markup = await renderJournalNavigation()
+    const trades = markup.indexOf('href="/trades"')
+    const calculators = markup.indexOf('href="/rechner"')
+    const review = markup.indexOf('href="/review"')
+    expect(trades).toBeGreaterThanOrEqual(0)
+    expect(calculators).toBeGreaterThan(trades)
+    expect(review).toBeGreaterThan(calculators)
+    expect(markup.match(/<a\b[^>]*href="\/rechner"[^>]*>/)?.[0]).toContain('aria-current="page"')
+    expect(markup).toContain(`>${label}<`)
+  })
+
   it.each([
     ['de', 'Erweitert', 'Replay-Backtesting', 'Strategien im Replay testen und auswerten'],
     ['en', 'More', 'Replay backtesting', 'Test and review strategies in Replay'],
