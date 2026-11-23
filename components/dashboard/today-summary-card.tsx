@@ -3,20 +3,21 @@ import type { DailyNoteRow } from '@/lib/types/db'
 import type { Trade } from '@/lib/types/trade'
 import { FuturisticCard } from '@/components/ui/futuristic-card'
 import { formatCurrency, formatRMultiple } from '@/lib/utils/calculations'
-import { buildStreakMetrics, getCoreMetrics } from '@/lib/utils/analytics'
-import { resolveTradeOccurredAt } from '@/lib/utils/trade-time'
+import { buildStreakMetrics } from '@/lib/utils/analytics'
 import { getTrustedTrades } from '@/lib/utils/trade-trust'
+import { getCalendarTradeDay } from '@/lib/utils/calendar'
+import { buildDashboardMetricModel } from '@/lib/utils/dashboard'
+import { getBerlinTodayDateKey } from '@/lib/utils/daily-notes'
 
 export function TodaySummaryCard({ trades, dailyNotes, locale = 'de' }: { trades: Trade[]; dailyNotes: DailyNoteRow[]; locale?: JournalLocale }) {
   const text = journalText(locale)
-  const todayKey = toLocalDateKey(new Date())
-  const todaysTrades = trades.filter((trade) => toLocalDateKey(resolveTradeOccurredAt(trade)) === todayKey)
-  const trustedToday = getTrustedTrades(todaysTrades)
-  const metrics = getCoreMetrics(trustedToday)
+  const todayKey = getBerlinTodayDateKey()
+  const todaysTrades = trades.filter((trade) => getCalendarTradeDay(trade) === todayKey)
+  const { trustedTrades: trustedToday, metrics, moneyComparable } = buildDashboardMetricModel(todaysTrades)
   const documentedRCount = metrics.rCount
-  const note = dailyNotes.find((entry) => toLocalDateKey(entry.trade_date) === todayKey)
-  const headline = buildTodayHeadline(todaysTrades.length, trustedToday.length, metrics.netPnL, metrics.monetaryScope.isComparable, locale)
-  const closingLine = buildClosingLine(todaysTrades.length, trustedToday.length, metrics.netPnL, metrics.monetaryScope.isComparable, locale)
+  const note = dailyNotes.find((entry) => entry.trade_date === todayKey)
+  const headline = buildTodayHeadline(todaysTrades.length, trustedToday.length, metrics.netPnL, moneyComparable, locale)
+  const closingLine = buildClosingLine(todaysTrades.length, trustedToday.length, metrics.netPnL, moneyComparable, locale)
   const reviewState = getReviewState(todaysTrades.length, note, locale)
   const streak = buildStreakMetrics(getTrustedTrades(trades))
   const streakLine = buildStreakLine(streak.currentWinStreak, streak.currentLossStreak, locale)
@@ -25,7 +26,7 @@ export function TodaySummaryCard({ trades, dailyNotes, locale = 'de' }: { trades
     <FuturisticCard glow="none" className="p-5 xl:p-6">
       <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-center">
         <div>
-          <p className="text-[10px] uppercase tracking-[0.28em] text-[#998a72]">{text('Heute', 'Today')}</p>
+          <p className="text-[10px] uppercase tracking-[0.18em] text-[#c0ab8e]">{text('Heute · alle Konten', 'Today · all accounts')}</p>
           <h2 className="eq-display mt-3 text-2xl text-white">{headline}</h2>
           <p className="mt-3 max-w-2xl text-sm leading-6 text-white/58">{closingLine}</p>
           {streakLine ? (
@@ -39,9 +40,9 @@ export function TodaySummaryCard({ trades, dailyNotes, locale = 'de' }: { trades
           <TodayStat label="Trades" value={String(todaysTrades.length)} detail={text('heute', 'today')} />
           <TodayStat
             label="P&L"
-            value={trustedToday.length ? metrics.monetaryScope.isComparable ? formatCurrency(metrics.netPnL, 0, metrics.currency, locale) : text('Gesperrt', 'Unavailable') : '—'}
+            value={moneyComparable ? formatCurrency(metrics.netPnL, 0, metrics.currency, locale) : '—'}
             detail={trustedToday.length ? (documentedRCount ? `Ø ${formatRMultiple(metrics.averageR, 2, locale)}` : text('R offen', 'R unavailable')) : text('offen', 'pending')}
-            tone={trustedToday.length ? (metrics.netPnL >= 0 ? 'green' : 'red') : 'neutral'}
+            tone={moneyComparable && metrics.netPnL !== 0 ? (metrics.netPnL > 0 ? 'green' : 'red') : 'neutral'}
           />
           <TodayStat
             label="Review"
@@ -116,11 +117,3 @@ function getReviewState(todayTrades: number, note: DailyNoteRow | undefined, loc
   return { value: '—', detail: text('kein Trade', 'No trades'), tone: 'neutral' }
 }
 
-function toLocalDateKey(value: string | Date) {
-  const date = value instanceof Date ? value : new Date(value)
-  if (Number.isNaN(date.getTime())) return ''
-  const year = date.getFullYear()
-  const month = String(date.getMonth() + 1).padStart(2, '0')
-  const day = String(date.getDate()).padStart(2, '0')
-  return `${year}-${month}-${day}`
-}

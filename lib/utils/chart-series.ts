@@ -68,16 +68,19 @@ export function buildEquitySeries(trades: Trade[]) {
     cumulative += trade.netPnL ?? 0
     return cumulative
   })
-  const points = buildChartPoints(values)
+  const referenceValues = values.length ? [0, ...values] : []
+  const points = buildChartPoints(referenceValues)
+  const zeroLineY = projectValueToY(0, buildChartScale(referenceValues))
 
   return {
     points,
     linePath: buildPath(points),
     areaPath: points.length
-      ? `${buildPath(points)} L ${points[points.length - 1]?.x.toFixed(2)} ${SVG_HEIGHT - PADDING_Y} L ${points[0]?.x.toFixed(2)} ${SVG_HEIGHT - PADDING_Y} Z`
+      ? `${buildPath(points)} L ${points[points.length - 1]?.x.toFixed(2)} ${zeroLineY.toFixed(2)} L ${points[0]?.x.toFixed(2)} ${zeroLineY.toFixed(2)} Z`
       : '',
     latestValue: values.at(-1) ?? 0,
-    totalPoints: points.length,
+    totalPoints: values.length,
+    zeroLineY,
     monetaryScope,
   }
 }
