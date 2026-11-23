@@ -26,7 +26,14 @@ export default async function DailyNotePage({ searchParams }: {
       filteredASetupsCount={trades.filter((trade) => trade.quality === 'A-Setup').length}
       filteredLossesCount={trades.filter((trade) => (trade.netPnL ?? 0) < 0).length}
     >
-      <DailyNoteFlowCard key={initialDateKey} trades={trades} dailyNotes={snapshot.dailyNotes} source={snapshot.source} initialDateKey={initialDateKey} />
+      <DailyNoteFlowCard
+        key={initialDateKey}
+        trades={trades}
+        dailyNotes={snapshot.dailyNotes}
+        source={snapshot.source}
+        initialDateKey={initialDateKey}
+        showTradingCheckIn={access.mode === 'supabase'}
+      />
     </AppShell>
   )
 }

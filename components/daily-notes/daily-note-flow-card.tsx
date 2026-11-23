@@ -7,6 +7,7 @@ import Link from 'next/link'
 import { useEffect, useMemo, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { deleteDailyNote, saveDailyNote } from '@/app/actions/daily-notes'
+import { TradingCheckIn } from '@/components/daily-notes/trading-check-in'
 import { SectionHeader } from '@/components/layout/section-header'
 import { FuturisticCard } from '@/components/ui/futuristic-card'
 import type { DailyNoteRow } from '@/lib/types/db'
@@ -20,6 +21,7 @@ import {
   parseDailyNoteStorage,
 } from '@/lib/utils/daily-notes'
 import { formatCurrency, formatPlainNumber } from '@/lib/utils/calculations'
+import { isCalendarDateKey } from '@/lib/utils/calendar'
 
 type DailyNoteFlowCardProps = {
   trades: Trade[]
@@ -28,6 +30,7 @@ type DailyNoteFlowCardProps = {
   initialDateKey?: string
   compact?: boolean
   initialFocusValue?: string
+  showTradingCheckIn?: boolean
 }
 
 export function DailyNoteFlowCard({
@@ -37,6 +40,7 @@ export function DailyNoteFlowCard({
   initialDateKey = getBerlinTodayDateKey(),
   compact = false,
   initialFocusValue,
+  showTradingCheckIn = false,
 }: DailyNoteFlowCardProps) {
   const router = useRouter()
   const locale = useJournalLocale()
@@ -124,6 +128,7 @@ export function DailyNoteFlowCard({
               />
             </label>
           </div>
+          {showTradingCheckIn && isCalendarDateKey(dateKey) && <TradingCheckIn key={dateKey} dateKey={dateKey} />}
 
           <details className="rounded-2xl border border-white/10 bg-black/20 p-4">
             <summary className="cursor-pointer text-sm font-medium text-white">{text('Tagesüberblick und Kennzahlen · optional', 'Daily overview and metrics')}</summary>
