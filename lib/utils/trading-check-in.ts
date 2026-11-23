@@ -4,6 +4,7 @@ const afterQuestions = ['confidence', 'plan_adherence'] as const
 export const checkInPhases = ['before', 'after'] as const
 export const checkInRatings = [1, 2, 3, 4, 5] as const
 export const checkInQuestions = [...beforeQuestions, ...afterQuestions, 'entry_signal'] as const
+export const tradingCheckInLoginCookie = 'equora-trading-check-in-login'
 
 export type CheckInPhase = (typeof checkInPhases)[number]
 export type CheckInRating = (typeof checkInRatings)[number]
@@ -13,6 +14,13 @@ export type CheckInDraft = {
   noTrades: boolean
 }
 export type TradingCheckInDay = Record<CheckInPhase, CheckInDraft | null>
+
+export function consumeTradingCheckInLoginCookie(storage: Pick<Document, 'cookie'>) {
+  const marker = `${tradingCheckInLoginCookie}=1`
+  if (!storage.cookie.split(';').some((cookie) => cookie.trim() === marker)) return false
+  storage.cookie = `${tradingCheckInLoginCookie}=; Max-Age=0; Path=/; SameSite=Lax`
+  return true
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value)

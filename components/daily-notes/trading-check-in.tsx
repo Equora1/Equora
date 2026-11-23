@@ -9,11 +9,13 @@ import {
   changeCheckInAnswer,
   checkInPhases,
   checkInRatings,
+  consumeTradingCheckInLoginCookie,
   getCheckInQuestions,
   hasCheckInContent,
   type CheckInDraft,
   type CheckInPhase,
   type CheckInRating,
+  type TradingCheckInDay,
 } from '@/lib/utils/trading-check-in'
 
 const emptyDraft: CheckInDraft = { answers: {}, noTrades: false }
@@ -21,23 +23,54 @@ const emptyDraft: CheckInDraft = { answers: {}, noTrades: false }
 const quietButton = 'min-h-10 rounded-xl border border-white/15 px-3 text-sm text-white/80 hover:border-orange-300/65 focus-visible:outline focus-visible:outline-2 focus-visible:outline-orange-300 disabled:opacity-45'
 const actionButton = 'min-h-10 rounded-xl bg-orange-300 px-4 text-sm font-semibold text-[#1b130b] hover:bg-orange-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-orange-300 disabled:opacity-45'
 
-export function TradingCheckIn({ dateKey }: { dateKey: string }) {
+type LoginCheckIn = { dateKey: string; initialDay: TradingCheckInDay }
+
+export function TradingCheckInAfterLogin({ dateKey }: { dateKey: string }) {
+  const pending = useRef<Promise<LoginCheckIn | null> | null>(null)
+  const [prompt, setPrompt] = useState<LoginCheckIn | null>(null)
+
+  useEffect(() => {
+    let current = true
+
+    // Retain the request across the extra effect cycle in React Strict Mode.
+    pending.current ??= (async () => {
+      if (!consumeTradingCheckInLoginCookie(document)) return null
+      const result = await loadTradingCheckIn(dateKey)
+      if (!result.ok || result.day.before !== null || result.day.after !== null) return null
+      return { dateKey, initialDay: result.day }
+    })().catch(() => null)
+
+    void pending.current.then((result) => {
+      if (current && result && !document.querySelector('dialog[open]')) setPrompt(result)
+    })
+
+    return () => { current = false }
+  }, [dateKey])
+
+  return prompt && <TradingCheckIn {...prompt} />
+}
+
+export function TradingCheckIn({ dateKey, initialDay }: { dateKey: string; initialDay?: TradingCheckInDay }) {
   const dialog = useRef<HTMLDialogElement>(null)
   const trigger = useRef<HTMLButtonElement>(null)
   const pendingSave = useRef(false)
-  const [open, setOpen] = useState(false)
+  const [open, setOpen] = useState(Boolean(initialDay))
   const titleId = useId()
   const locale = useJournalLocale()
   const text = journalText(locale)
 
+  useEffect(() => {
+    if (initialDay && dialog.current && !dialog.current.open) dialog.current.showModal()
+  }, [initialDay])
+
   return (
     <>
-      <button ref={trigger} type="button" aria-haspopup="dialog" className={quietButton} onClick={() => {
+      {!initialDay && <button ref={trigger} type="button" aria-haspopup="dialog" className={quietButton} onClick={() => {
         dialog.current?.showModal()
         setOpen(true)
       }}>
         {text('Trading-Check-in', 'Trading check-in')}
-      </button>
+      </button>}
       <dialog
         ref={dialog}
         aria-labelledby={titleId}
@@ -46,7 +79,7 @@ export function TradingCheckIn({ dateKey }: { dateKey: string }) {
         className="m-auto max-h-[calc(100dvh_-_1.5rem)] w-[calc(100%_-_1.5rem)] max-w-md overflow-y-auto rounded-3xl border border-orange-300/20 bg-[#191411] p-4 text-orange-50 shadow-2xl backdrop:bg-black/75 sm:p-6"
       >
         {open && (
-          <CheckInDialogContent dateKey={dateKey} titleId={titleId} pendingSave={pendingSave}
+          <CheckInDialogContent dateKey={dateKey} titleId={titleId} pendingSave={pendingSave} initialDay={initialDay}
             close={() => dialog.current?.close()} />
         )}
       </dialog>
@@ -54,21 +87,24 @@ export function TradingCheckIn({ dateKey }: { dateKey: string }) {
   )
 }
 
-function CheckInDialogContent({ dateKey, titleId, pendingSave, close }: {
+function CheckInDialogContent({ dateKey, titleId, pendingSave, initialDay, close }: {
   dateKey: string
   titleId: string
   pendingSave: { current: boolean }
+  initialDay?: TradingCheckInDay
   close: () => void
 }) {
   const locale = useJournalLocale()
   const text = journalText(locale)
   const copy = tradingCheckInCopy[locale]
-  const [result, setResult] = useState<Awaited<ReturnType<typeof loadTradingCheckIn>> | null>(null)
+  const [result, setResult] = useState<Awaited<ReturnType<typeof loadTradingCheckIn>> | null>(
+    initialDay ? { ok: true, day: initialDay } : null,
+  )
   const [loadAttempt, setLoadAttempt] = useState(0)
-  const [phase, setPhase] = useState<CheckInPhase | null>(null)
+  const [phase, setPhase] = useState<CheckInPhase | null>(initialDay ? 'before' : null)
   const [draft, setDraft] = useState<CheckInDraft>(emptyDraft)
   const [step, setStep] = useState(0)
-  const [editing, setEditing] = useState(false)
+  const [editing, setEditing] = useState(Boolean(initialDay))
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState<'changed' | 'other' | null>(null)
@@ -86,6 +122,7 @@ function CheckInDialogContent({ dateKey, titleId, pendingSave, close }: {
   }).format(new Date(`${dateKey}T00:00:00Z`))
 
   useEffect(() => {
+    if (initialDay && loadAttempt === 0) return
     let ignore = false
     async function load() {
       try {
@@ -97,7 +134,7 @@ function CheckInDialogContent({ dateKey, titleId, pendingSave, close }: {
     }
     void load()
     return () => { ignore = true }
-  }, [dateKey, loadAttempt])
+  }, [dateKey, initialDay, loadAttempt])
 
   const waiting = result === null
   useEffect(() => { heading.current?.focus() }, [waiting, phase, question, editing])

@@ -20,6 +20,7 @@ vi.mock('@/lib/server/journal-locale', () => ({
   setJournalLocale: vi.fn(),
 }))
 vi.mock('@/lib/supabase/config', () => ({
+  hasSupabaseClientEnv: () => true,
   hasSupabaseServerEnv: () => navigation.serverConfigured,
 }))
 
