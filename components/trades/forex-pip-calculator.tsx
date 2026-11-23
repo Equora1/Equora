@@ -6,6 +6,7 @@ import { journalNumberLocale, journalText } from '@/lib/i18n/journal'
 import {
   calculateForexMove,
   convertForexValues,
+  formatForexAmount,
   forexCurrencies,
   forexPairDetails,
   forexPairs,
@@ -45,7 +46,8 @@ export function ForexPipCalculator() {
   const number = new Intl.NumberFormat(language, { maximumFractionDigits: 1, signDisplay: 'exceptZero' })
   const price = new Intl.NumberFormat(language, { maximumFractionDigits: priceDecimals, useGrouping: false })
   const result = entry.trim() && exit.trim() ? calculateForexMove({ pair, direction, entry, exit, size, sizeUnit }) : null
-  const issue = result && !result.ok ? result.reason : null
+  const issue = result?.ok ? result.positionIssue : result?.reason
+  const sizeInvalid = issue === 'size' || issue === 'range'
   const position = result?.ok ? result.position : null
   const converted = position && accountCurrency && rate.trim() ? convertForexValues(position, rate) : null
   const rateInvalid = Boolean(position && accountCurrency && rate.trim() && !converted)
@@ -56,15 +58,6 @@ export function ForexPipCalculator() {
       ? text('Gib eine positive Lotgröße mit höchstens fünf Nachkommastellen ein.', 'Enter a positive lot size with up to five decimal places.')
       : text('Gib eine positive Anzahl ganzer Einheiten ein.', 'Enter a positive whole number of units.'),
     range: text('Der Betrag ist zu groß. Prüfe die Eingaben.', 'The result is too large. Check your inputs.'),
-  }
-
-  function money(value: number, currency: string, digits: number) {
-    const formatter = new Intl.NumberFormat(language, { minimumFractionDigits: 2, maximumFractionDigits: digits })
-    const threshold = 10 ** -digits
-    if (value !== 0 && Math.abs(value) < threshold) {
-      return `${value < 0 ? '−' : ''}<${formatter.format(threshold)} ${currency}`
-    }
-    return `${formatter.format(value)} ${currency}`
   }
 
   return (
@@ -112,8 +105,8 @@ export function ForexPipCalculator() {
           <label className="text-sm text-white/75">
             {text('Positionsgröße (optional)', 'Position size (optional)')}
             <input className={fieldClass} inputMode={sizeUnit === 'lots' ? 'decimal' : 'numeric'} value={size}
-              onChange={(event) => setSize(event.target.value)} aria-invalid={issue === 'size'}
-              aria-describedby={issue === 'size' ? `${hintId} ${errorId}` : hintId} />
+              onChange={(event) => setSize(event.target.value)} aria-invalid={sizeInvalid}
+              aria-describedby={sizeInvalid ? `${hintId} ${errorId}` : hintId} />
           </label>
           <label className="text-sm text-white/75">
             {text('Größe eingeben in', 'Size entered in')}
@@ -138,8 +131,8 @@ export function ForexPipCalculator() {
               <Metric label={text('Bewegung in Pips', 'Move in pips')} value={number.format(result.pips)} />
               <Metric label={text('Bewegung in Pipetten', 'Move in pipettes')} value={number.format(result.pipettes)} />
               {position && <>
-                <Metric label={text('Pip-Wert der Position', 'Pip value of position')} value={money(position.pipValue, quote, priceDecimals)} />
-                <Metric label={text('Brutto-P&L', 'Gross P&L')} value={money(position.grossPnl, quote, priceDecimals)} />
+                <Metric label={text('Pip-Wert der Position', 'Pip value of position')} value={formatForexAmount(position.pipValueUnits, position.fractionDigits, language) + ' ' + quote} />
+                <Metric label={text('Brutto-P&L', 'Gross P&L')} value={formatForexAmount(position.grossPnlUnits, position.fractionDigits, language) + ' ' + quote} />
               </>}
             </dl>
           )}
@@ -172,8 +165,8 @@ export function ForexPipCalculator() {
               {rateInvalid && <p id={conversionId} className="mt-2 text-orange-100">{text('Gib einen positiven Kurs mit höchstens acht Nachkommastellen ein.', 'Enter a positive rate with up to eight decimal places.')}</p>}
               {converted && (
                 <dl className="mt-3 grid gap-3 rounded-xl bg-black/30 p-3 sm:grid-cols-2">
-                  <Metric label={text('Pip-Wert umgerechnet', 'Converted pip value')} value={money(converted.pipValue, accountCurrency, 8)} />
-                  <Metric label={text('Brutto-P&L umgerechnet', 'Converted gross P&L')} value={money(converted.grossPnl, accountCurrency, 8)} />
+                  <Metric label={text('Pip-Wert umgerechnet', 'Converted pip value')} value={formatForexAmount(converted.pipValueUnits, converted.fractionDigits, language) + ' ' + accountCurrency} />
+                  <Metric label={text('Brutto-P&L umgerechnet', 'Converted gross P&L')} value={formatForexAmount(converted.grossPnlUnits, converted.fractionDigits, language) + ' ' + accountCurrency} />
                 </dl>
               )}
             </div>

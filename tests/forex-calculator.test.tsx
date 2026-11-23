@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest'
 import CalculatorsPage from '@/app/(journal)/rechner/page'
 import { JournalLocaleProvider } from '@/components/layout/journal-locale-provider'
 import { ForexPipCalculator } from '@/components/trades/forex-pip-calculator'
-import { calculateForexMove, convertForexValues, forexPairs, forexPairDetails } from '@/lib/utils/forex-calculator'
+import { calculateForexMove, convertForexValues, formatForexAmount, forexPairs, forexPairDetails } from '@/lib/utils/forex-calculator'
 
 const requireUser = vi.hoisted(() => vi.fn(async () => null))
 vi.mock('@/lib/server/auth', () => ({ requireUser }))
@@ -30,16 +30,16 @@ describe('Forex pip calculator', () => {
     const byUnits = calculateForexMove({ ...eurUsd, size: units })
     const byLots = calculateForexMove({ ...eurUsd, size: lots, sizeUnit: 'lots' })
     expect(byLots).toEqual(byUnits)
-    expect(byLots).toMatchObject({ ok: true, position: { pipValue, grossPnl } })
+    expect(byLots).toMatchObject({ ok: true, position: { pipValueUnits: BigInt(pipValue * 100000), grossPnlUnits: BigInt(grossPnl * 100000), fractionDigits: 5 } })
   })
 
   it('uses the yen pip size and reports the gross result in the quote currency', () => {
     expect(forexPairDetails('GBP/JPY')).toEqual({ base: 'GBP', quote: 'JPY', pipSize: 0.01, priceDecimals: 3 })
     expect(calculateForexMove({ pair: 'GBP/JPY', direction: 'short', entry: '154.020', exit: '154,017', size: '10000' }))
-      .toEqual({ ok: true, pips: 0.3, pipettes: 3, position: { pipValue: 100, grossPnl: 30 } })
+      .toEqual({ ok: true, pips: 0.3, pipettes: 3, position: { pipValueUnits: BigInt(100000), grossPnlUnits: BigInt(30000), fractionDigits: 3 } })
     expect(forexPairDetails('EUR/CHF').pipSize).toBe(0.0001)
     expect(calculateForexMove({ ...eurUsd, direction: 'short', size: '10000' }))
-      .toMatchObject({ position: { pipValue: 1, grossPnl: -12.5 } })
+      .toMatchObject({ position: { pipValueUnits: BigInt(100000), grossPnlUnits: BigInt(-1250000), fractionDigits: 5 } })
   })
 
   it.each(['0', '-1.08', '1.080004', '1e0', '1.000,08', '1 000', '999999999999999999'])('rejects invalid entry %s', entry => {
@@ -49,19 +49,40 @@ describe('Forex pip calculator', () => {
   it('checks yen price precision, zero sizes, fractional units and sub-unit lots', () => {
     expect(calculateForexMove({ pair: 'USD/JPY', direction: 'long', entry: '154.01', exit: '154.0155' }))
       .toEqual({ ok: false, reason: 'exit' })
-    expect(calculateForexMove({ ...eurUsd, size: '0' })).toEqual({ ok: false, reason: 'size' })
-    expect(calculateForexMove({ ...eurUsd, size: '1.1' })).toEqual({ ok: false, reason: 'size' })
-    expect(calculateForexMove({ ...eurUsd, size: '0.000001', sizeUnit: 'lots' })).toEqual({ ok: false, reason: 'size' })
-    expect(calculateForexMove({ ...eurUsd, size: '100000000000000' })).toEqual({ ok: false, reason: 'range' })
+    expect(calculateForexMove({ ...eurUsd, size: '0' })).toEqual({ ok: true, pips: 12.5, pipettes: 125, position: null, positionIssue: 'size' })
+    expect(calculateForexMove({ ...eurUsd, size: '1.1' })).toEqual({ ok: true, pips: 12.5, pipettes: 125, position: null, positionIssue: 'size' })
+    expect(calculateForexMove({ ...eurUsd, size: '0.000001', sizeUnit: 'lots' })).toEqual({ ok: true, pips: 12.5, pipettes: 125, position: null, positionIssue: 'size' })
+    expect(calculateForexMove({ ...eurUsd, size: '100000000000000' })).toEqual({ ok: true, pips: 12.5, pipettes: 125, position: null, positionIssue: 'range' })
   })
 
   it('multiplies by the explicitly entered rate from quote to account currency', () => {
-    expect(convertForexValues({ pipValue: 1000, grossPnl: -300 }, '0,00625')).toEqual({
-      pipValue: 6.25, grossPnl: -1.875,
-    })
+    const trade = calculateForexMove({ pair: 'GBP/JPY', direction: 'short', entry: '154.020', exit: '154.023', size: '100000' })
+    expect(trade.ok).toBe(true)
+    if (!trade.ok || !trade.position) throw new Error('Expected a valid position')
+    const converted = convertForexValues(trade.position, '0,00625')
+    expect(converted).toEqual({ pipValueUnits: BigInt(625000000000), grossPnlUnits: BigInt(-187500000000), fractionDigits: 11 })
     for (const input of ['', '0', '1e-3', '1.234,5', '0.000000001']) {
-      expect(convertForexValues({ pipValue: 1000, grossPnl: -300 }, input)).toBeNull()
+      expect(convertForexValues(trade.position, input)).toBeNull()
     }
+  })
+
+  it.each([
+    ['long', 'de-DE', '0,27410267'],
+    ['short', 'en-US', '-0.27410267'],
+  ] as const)('rounds exact currency midpoints away from zero for %s', (direction, language, expected) => {
+    const move = calculateForexMove({ ...eurUsd, direction, exit: '1.08503', size: '10000' })
+    if (!move.ok || !move.position) throw new Error('Expected a valid position')
+    const converted = convertForexValues(move.position, '0,91367555')
+    if (!converted) throw new Error('Expected a conversion')
+    expect(formatForexAmount(converted.grossPnlUnits, converted.fractionDigits, language)).toBe(expected)
+  })
+
+  it('preserves a tiny value, exact zero and large decimal values in the display', () => {
+    expect(formatForexAmount(BigInt(1), 13, 'de-DE')).toBe('<0,00000001')
+    expect(formatForexAmount(BigInt(-1), 13, 'en-US')).toBe('−<0.00000001')
+    expect(formatForexAmount(BigInt(0), 13, 'de-DE')).toBe('0,00')
+    expect(formatForexAmount(BigInt('9999999950000'), 13, 'de-DE')).toBe('1,00')
+    expect(formatForexAmount(BigInt('71992547409912013000000001'), 13, 'en-US')).toBe('7,199,254,740,991.2013')
   })
 
   it.each([
