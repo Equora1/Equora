@@ -7,6 +7,7 @@ import { ReviewRhythmCard } from '@/components/review/review-rhythm-card'
 import { ReviewEmptyStateCard } from '@/components/review/review-empty-state-card'
 import { getJournalAccess } from '@/lib/server/auth'
 import { getReviewSnapshotServer } from '@/lib/server/journal'
+import { getReviewCheckInSummaries } from '@/lib/server/review-check-in'
 import { getReviewSessionsServer } from '@/lib/server/review-sessions'
 import { mapTradeRowToTrade } from '@/lib/server/transformers'
 import { buildLinkedSetupByTradeId } from '@/lib/utils/trade-setup-links'
@@ -40,7 +41,6 @@ export default async function ReviewPage({
       <a href={needsLogin ? '/login' : '/review'} className="mt-4 inline-flex rounded-full border border-white/15 px-4 py-2 text-sm">{needsLogin ? text('Einloggen', 'Sign in') : text('Erneut laden', 'Reload')}</a>
     </section></AppShell>
   }
-  const savedSessions = await measurePerformance('database.review_sessions.recent', 'database', () => getReviewSessionsServer(access.user?.id), { route: '/review' })
   const { trades, reviewSnapshots } = measurePerformanceSync('transform.review', 'transform', () => {
     const linkedSetupByTradeId = buildLinkedSetupByTradeId(snapshot.setupRows, snapshot.setupTradeLinkRows)
     const mappedTrades = snapshot.tradeRows.map((row) => mapTradeRowToTrade(row, [], linkedSetupByTradeId[row.id] ?? null))
@@ -49,6 +49,12 @@ export default async function ReviewPage({
       reviewSnapshots: buildReviewSnapshots(mappedTrades, snapshot.tradeTags, snapshot.dailyNotes, snapshot.source, locale),
     }
   }, { route: '/review', meta: { trades: snapshot.tradeRows.length, tags: snapshot.tradeTags.length, notes: snapshot.dailyNotes.length } })
+  const [savedSessions, checkInSummaries] = await Promise.all([
+    measurePerformance('database.review_sessions.recent', 'database', () => getReviewSessionsServer(access.user?.id), { route: '/review' }),
+    snapshot.source === 'supabase' && access.user
+      ? getReviewCheckInSummaries(access.user.id, reviewSnapshots)
+      : undefined,
+  ])
 
   return (
     <AppShell
@@ -58,7 +64,7 @@ export default async function ReviewPage({
     >
       <div className="space-y-12">
         <ReviewEmptyStateCard trades={trades} locale={locale} />
-        <ReviewSummaryCard snapshots={reviewSnapshots} savedSessions={savedSessions} source={snapshot.source} initialPreset={initialPreset} referenceDateKey={referenceDateKey} />
+        <ReviewSummaryCard snapshots={reviewSnapshots} savedSessions={savedSessions} source={snapshot.source} initialPreset={initialPreset} referenceDateKey={referenceDateKey} checkInSummaries={checkInSummaries} />
         <details className="rounded-3xl border border-white/10 bg-black/20 p-5">
           <summary className="cursor-pointer text-sm font-medium text-white">{text('Einzelne Trades nachbereiten', 'Review individual trades')}</summary>
           <div className="mt-4"><ReviewStartPanel trades={trades} locale={locale} /></div>

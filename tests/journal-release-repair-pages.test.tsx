@@ -1,7 +1,7 @@
 import React from 'react'
 import {renderToStaticMarkup} from 'react-dom/server'
 import {beforeEach,describe,expect,it,vi} from 'vitest'
-const state=vi.hoisted(()=>({availability:'ready',rows:[] as any[],tags:[] as any[],props:null as any,sessions:vi.fn()}))
+const state=vi.hoisted(()=>({availability:'ready',rows:[] as any[],tags:[] as any[],props:null as any,sessions:vi.fn(),checkIns:vi.fn()}))
 vi.mock('next/link',()=>({default:({children,href}:any)=><a href={href}>{children}</a>}))
 vi.mock('@/lib/server/auth',()=>({getJournalAccess:async()=>({user:{id:'owner'}})}))
 vi.mock('@/lib/server/journal',()=>{
@@ -9,6 +9,7 @@ vi.mock('@/lib/server/journal',()=>{
  return {getReviewSnapshotServer:read,getTradesWorkspaceSnapshotServer:read}
 })
 vi.mock('@/lib/server/review-sessions',()=>({getReviewSessionsServer:async()=>{state.sessions();return []},getReviewSessionByIdServer:async()=>null}))
+vi.mock('@/lib/server/review-check-in',()=>({getReviewCheckInSummaries:state.checkIns}))
 vi.mock('@/lib/server/user-cost-profiles',()=>({getUserCostProfilesServer:async()=>[]}))
 vi.mock('@/lib/server/trades',()=>({getTradeByIdServer:async()=>null,getTradeMediaServer:async()=>[],getTradeTagsServer:async()=>[]}))
 vi.mock('@/lib/server/performance',()=>({measurePerformance:(_n:any,_k:any,run:any)=>run(),measurePerformanceSync:(_n:any,_k:any,run:any)=>run()}))
@@ -30,16 +31,21 @@ import {buildTradeTableView,buildTradeTagMap} from '@/lib/utils/trade-table'
 import {buildReviewSnapshot} from '@/lib/utils/review'
 import {mapTradeRowToTrade} from '@/lib/server/transformers'
 import {readReviewDrilldownScope} from '@/lib/utils/review-drilldown-scope'
-beforeEach(()=>{state.availability='ready';state.rows=[];state.tags=[];state.props=null;state.sessions.mockClear()})
+beforeEach(()=>{state.availability='ready';state.rows=[];state.tags=[];state.props=null;state.sessions.mockClear();state.checkIns.mockReset()})
 describe('actual review route read boundary',()=>{
  it.each(['unavailable','unauthenticated'])('renders %s as an alert rather than an empty Journal',async availability=>{
   state.availability=availability
   const html=renderToStaticMarkup(await ReviewPage({}))
   expect(html).toContain('role="alert"');expect(html).toContain(availability==='unavailable'?'href="/review"':'href="/login"')
   expect(html).not.toContain('Noch keine Trades');expect(state.sessions).not.toHaveBeenCalled()
+  expect(state.checkIns).not.toHaveBeenCalled()
  })
  it('allows the genuine successful empty state',async()=>{
   const html=renderToStaticMarkup(await ReviewPage({}));expect(html).not.toContain('role="alert"');expect(state.sessions).toHaveBeenCalledTimes(1)
+  expect(state.checkIns).toHaveBeenCalledExactlyOnceWith('owner',expect.objectContaining({
+   '7d':expect.objectContaining({periodStart:expect.any(String),periodEnd:expect.any(String)}),
+   '90d':expect.objectContaining({periodStart:expect.any(String),periodEnd:expect.any(String)}),
+  }))
  })
 })
 describe('actual dynamic review drilldown retains every matching trade',()=>{
