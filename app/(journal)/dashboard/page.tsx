@@ -1,6 +1,7 @@
 import { Suspense } from 'react'
 import { AppShell } from '@/components/layout/app-shell'
 import { DashboardOverview } from '@/components/dashboard/dashboard-overview'
+import { TradingCheckIn } from '@/components/daily-notes/trading-check-in'
 import { FuturisticCard } from '@/components/ui/futuristic-card'
 import { getJournalAccess } from '@/lib/server/auth'
 import { getJournalLocale } from '@/lib/server/journal-locale'
@@ -26,6 +27,7 @@ async function DashboardContent({ params }: { params?: Promise<DashboardSearchPa
       locale={locale}
       params={await params}
       today={today}
+      checkIn={access.mode === 'supabase' ? <TradingCheckIn dateKey={today} /> : undefined}
     />
   )
 }
