@@ -21,6 +21,11 @@ const primaryNavItems = [
     en: { label: 'Trades', hint: 'Log and find trades' },
   },
   {
+    href: '/rechner', icon: 'calculator',
+    de: { label: 'Rechner', hint: 'Futures und Forex' },
+    en: { label: 'Calculators', hint: 'Futures and Forex' },
+  },
+  {
     href: '/review', icon: 'review',
     de: { label: 'Review', hint: 'Entscheidungen nachbereiten' },
     en: { label: 'Review', hint: 'Review your decisions' },
