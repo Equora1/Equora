@@ -2,7 +2,7 @@ export type SetupCategory = string
 
 export type SetupImageRole = 'example' | 'best-practice' | 'mistake'
 
-export type SetupLibraryItem = { category: SetupCategory; title: string; description: string; isMaster?: boolean; isPersonal?: boolean }
+export type SetupLibraryItem = { category: SetupCategory; title: string; description: string; isMaster?: boolean; isPersonal?: boolean; setupId?: string }
 
 export type SetupImageItem = {
   id?: string

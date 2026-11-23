@@ -10,6 +10,7 @@ type SetupStudioEditorProps = {
   editorRef: RefObject<HTMLDivElement | null>
   titleInputRef: RefObject<HTMLInputElement | null>
   fileInputRef: RefObject<HTMLInputElement | null>
+  addImageRef?: RefObject<HTMLButtonElement | null>
   isCreatingNew: boolean
   draftTitle: string
   draft: DraftSetup
@@ -46,6 +47,7 @@ export function SetupStudioEditor({
   editorRef,
   titleInputRef,
   fileInputRef,
+  addImageRef,
   isCreatingNew,
   draftTitle,
   draft,
@@ -232,10 +234,10 @@ export function SetupStudioEditor({
             <div className="flex items-center justify-between gap-3">
               <div>
                 <p className="text-sm font-medium text-emerald-100">{text('Setup-Bilder', 'Setup images')}</p>
-                <p className="mt-1 text-xs leading-5 text-white/45">{text('Cover, Beispiel und Fehlerbild werden über vorhandenes Setup Media gespeichert.', 'Use images to show the setup and what to watch for.')}</p>
+                <p className="mt-1 text-xs leading-5 text-white/65">{text('PNG, JPG oder WebP. Wähle ein Titelbild und ergänze Beispiele oder Fehlerbilder.', 'PNG, JPG or WebP. Choose a cover and add examples or common mistakes.')}</p>
                 
               </div>
-              <button type="button" onClick={() => fileInputRef.current?.click()} className="rounded-full border border-emerald-400/20 bg-black/25 px-4 py-2 text-sm text-emerald-100 transition hover:border-emerald-400/35 hover:bg-black/35">{text('Bild hinzufügen', 'Add image')}</button>
+              <button ref={addImageRef} type="button" onClick={() => fileInputRef.current?.click()} className="rounded-full border border-emerald-400/20 bg-black/25 px-4 py-2 text-sm text-emerald-100 transition hover:border-emerald-400/35 hover:bg-black/35 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300">{text('Bild hinzufügen', 'Add image')}</button>
             </div>
             <input ref={fileInputRef} type="file" accept="image/png,image/jpeg,image/webp" multiple className="hidden" onChange={onFileChange} />
             <div
@@ -253,15 +255,13 @@ export function SetupStudioEditor({
               <div className="grid gap-4 lg:grid-cols-2">
                 {draft.media.map((item, index) => (
                   <div key={item.tempId} className="overflow-hidden rounded-3xl border border-white/10 bg-black/30">
-                    <div className="relative">
-                      <img src={item.previewUrl} alt={item.fileName ?? text(`Setup Media ${index + 1}`, `Setup image ${index + 1}`)} className="h-40 w-full object-cover" />
-                      <div className="absolute left-3 top-3 flex flex-wrap gap-2">
+                    <img src={item.previewUrl} alt={item.fileName ?? text(`Setup-Bild ${index + 1}`, `Setup image ${index + 1}`)} className="h-40 w-full bg-[#0d0d0e] object-contain" />
+                    <div className="space-y-3 p-4">
+                      <div className="flex flex-wrap gap-2">
                         {item.isCover ? <span className="rounded-full border border-orange-400/20 bg-orange-400/90 px-2 py-1 text-[10px] uppercase tracking-[0.18em] text-black">Cover</span> : null}
                         {!item.persisted ? <span className="rounded-full border border-white/15 bg-black/50 px-2 py-1 text-[10px] uppercase tracking-[0.18em] text-white/80">{text('Neu', 'New')}</span> : null}
                         <span className="rounded-full border border-white/15 bg-black/50 px-2 py-1 text-[10px] uppercase tracking-[0.18em] text-white/80">{getSetupImageRoleLabel(item.mediaRole, locale)}</span>
                       </div>
-                    </div>
-                    <div className="space-y-3 p-4">
                       <div className="flex items-center justify-between gap-3 text-xs text-white/45">
                         <span className="truncate">{item.fileName ?? text('Bild', 'Image')}</span>
                         <span>{bytesToLabel(item.byteSize, locale)}</span>
