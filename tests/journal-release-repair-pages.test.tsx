@@ -2,7 +2,7 @@ import React from 'react'
 import {renderToStaticMarkup} from 'react-dom/server'
 import {beforeEach,describe,expect,it,vi} from 'vitest'
 const state=vi.hoisted(()=>({availability:'ready',rows:[] as any[],tags:[] as any[],props:null as any,sessions:vi.fn(),checkIns:vi.fn()}))
-vi.mock('next/link',()=>({default:({children,href}:any)=><a href={href}>{children}</a>}))
+vi.mock('next/link',()=>({default:({children,href,target,rel}:React.ComponentProps<'a'>)=><a href={href} target={target} rel={rel}>{children}</a>}))
 vi.mock('@/lib/server/auth',()=>({getJournalAccess:async()=>({user:{id:'owner'}})}))
 vi.mock('@/lib/server/journal',()=>{
  const read=async()=>({availability:state.availability,tradeRows:state.rows,tradeTags:state.tags,setupRows:[],setupTradeLinkRows:[],dailyNotes:[],tradeMediaCounts:{},source:'supabase'})
@@ -52,8 +52,9 @@ describe('actual dynamic review drilldown retains every matching trade',()=>{
  it('keeps 45 matching IDs through pagination and export selection',async()=>{
   state.rows=Array.from({length:45},(_,i)=>({id:'trade-'+i,created_at:'2026-10-18T12:00:00Z',market:'TEST',setup:'Test',net_pnl:1,pnl_mode:'manual',account_currency:'USDT',capture_status:'complete'}))
   const html=renderToStaticMarkup(await TradesPage({searchParams:Promise.resolve({reviewFocus:'Test',reviewOnly:'1'})}))
-  expect(html).toContain('href="/rechner"')
-  expect(html).toContain('Rechner öffnen')
+  const calculatorLink = html.match(/<a\b[^>]*\bhref="\/rechner"[^>]*>Rechner in neuem Tab öffnen<\/a>/)?.[0]
+  expect(calculatorLink).toContain('target="_blank"')
+  expect(calculatorLink).toContain('rel="noopener noreferrer"')
   expect(html).not.toContain('Futures-Risikorechner')
   expect(html).not.toContain('Forex-Pip-Rechner')
   const p=state.props;expect(p.spotlightTradeIds).toHaveLength(45);expect(p.spotlightTotalCount).toBe(45)

@@ -354,8 +354,8 @@ export default async function TradesPage({ searchParams }: { searchParams?: Prom
           {replayEnabled && <Link href="/replay" className="inline-flex rounded-full border border-white/15 px-3 py-1.5 text-sm text-white">
             {text('Replay-Journal', 'Replay journal')}
           </Link>}
-          <Link href="/rechner" className="inline-flex rounded-full border border-white/15 px-3 py-1.5 text-sm text-white">
-            {text('Rechner öffnen', 'Open calculators')}
+          <Link href="/rechner" target="_blank" rel="noopener noreferrer" className="inline-flex rounded-full border border-white/15 px-3 py-1.5 text-sm text-white">
+            {text('Rechner in neuem Tab öffnen', 'Open calculators in a new tab')}
           </Link>
         </div>
         {selectionError && !selection.drawerTradeId ? <div lang={locale} role="alert" className="rounded-2xl border border-orange-300/20 bg-orange-400/5 p-4 text-sm text-orange-50">
