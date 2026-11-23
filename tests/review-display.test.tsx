@@ -20,6 +20,44 @@ const zones = ['UTC', 'Europe/Berlin', 'America/New_York', 'Asia/Tokyo', 'Pacifi
 const rows: Trade[] = [{ id:'synthetic-trade',date:'2026-05-08T22:30:00Z',tradeOccurredAt:'2026-05-08T22:30:00Z',market:'TEST',setup:'Synthetic',result:'',r:'',emotion:'',quality:'B-Setup',session:'London',concept:'',captureStatus:'complete',netPnL:0,accountCurrency:'EUR' }]
 const saved: SavedReviewSession = {id:'synthetic-review',title:'Synthetischer Review',note:'',createdAt:'2026-10-17T22:52:00Z',focusTitle:null,focusDescription:null,chips:[],labels:[],tradeIds:[],tradeCount:0,visibleTradeCount:0,netPnL:0,currency:null,monetaryScopeKind:'empty',averageR:null,winRate:0,winners:0,losers:0,breakeven:0,topTags:[],bestTradeId:null,worstTradeId:null,sessionType:'review',sessionStatus:'open',isPinned:false,periodPreset:'7d',periodLabel:null,periodStart:null,periodEnd:null,source:'mock'}
 
+describe('plan adherence in the trade review', () => {
+  const empty = { ratedDays: 0, averageAdherence: null, reportedNoTradeDays: 0 }
+  const summaries = {
+    '7d': { ratedDays: 2, averageAdherence: 4.5, reportedNoTradeDays: 1 },
+    '14d': { ratedDays: 3, averageAdherence: 3.5, reportedNoTradeDays: 2 },
+    '30d': empty,
+    '90d': empty,
+  }
+
+  it.each([
+    ['de', '7d', 'Ø 4,5 von 5', '2 bewertete Tage', '1 Tag im Check-in als „Keine Trades“ markiert'],
+    ['en', '14d', 'Avg. 3.5 out of 5', '3 days rated', '2 days marked as no trades in the check-in'],
+  ] as const)('renders the %s summary for period %s alongside the trade review', (locale, preset, score, coverage, noTrades) => {
+    const snapshots = buildReviewSnapshots(rows, [], [], 'supabase', locale)
+    const html = renderToStaticMarkup(
+      <JournalLocaleProvider locale={locale}>
+        <ReviewSummaryCard snapshots={snapshots} source="supabase" referenceDateKey="2026-10-18" initialPreset={preset} checkInSummaries={summaries} />
+      </JournalLocaleProvider>,
+    )
+    expect(html).toContain(score)
+    expect(html).toContain(coverage)
+    expect(html).toContain(noTrades)
+    expect(html).toContain('href="/daily-note"')
+    expect(html).toContain('P&amp;L')
+  })
+
+  it('shows different states for an empty period, a read failure and demo mode', () => {
+    const snapshots = buildReviewSnapshots(rows, [], [], 'supabase')
+    const view = (data: typeof summaries | null | undefined) => renderToStaticMarkup(
+      <ReviewSummaryCard snapshots={snapshots} source={data === undefined ? 'mock' : 'supabase'}
+        referenceDateKey="2026-10-18" initialPreset="30d" checkInSummaries={data} />,
+    )
+    expect(view(summaries)).toContain('Für diesen Zeitraum ist noch keine Plantreue erfasst.')
+    expect(view(null)).toContain('Die Plantreue konnte nicht geladen werden.')
+    expect(view(undefined)).not.toContain('review-plan-adherence')
+  })
+})
+
 describe.sequential('Review display has an explicit day contract across server and browser zones', () => {
   it.each(zones)('formats saved instants and civil days independently of %s', zone => {
     process.env.TZ = zone

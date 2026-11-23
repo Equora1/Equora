@@ -3,7 +3,7 @@ import { getSavedReviewRState } from '@/lib/utils/review-snapshot-summary'
 
 import Link from 'next/link'
 import { useJournalLocale } from '@/components/layout/journal-locale-provider'
-import { journalText } from '@/lib/i18n/journal'
+import { journalText, type JournalLocale } from '@/lib/i18n/journal'
 import { useEffect, useMemo, useState, useTransition } from 'react'
 import { saveReviewSession as persistReviewSession } from '@/app/actions/review-sessions'
 import { PatternFinderCard } from '@/components/analytics/pattern-finder-card'
@@ -17,7 +17,8 @@ import { TagRadarCard } from '@/components/review/tag-radar-card'
 import { ReviewActionEngineCard } from '@/components/review/review-action-engine-card'
 import { ReviewLayerBridgeCard } from '@/components/review/review-layer-bridge-card'
 import type { SavedReviewSession } from '@/lib/types/review-session'
-import { formatCurrency } from '@/lib/utils/calculations'
+import { formatCurrency, formatPlainNumber } from '@/lib/utils/calculations'
+import type { ReviewCheckInSummaries } from '@/lib/server/review-check-in'
 import { getReviewPeriodPresetLabel, REVIEW_PERIOD_OPTIONS } from '@/lib/utils/review'
 import { buildReviewActionPlan } from '@/lib/utils/review-to-action'
 import type { ReviewPeriodPreset, ReviewSnapshotCollection } from '@/lib/utils/review'
@@ -68,18 +69,68 @@ function pickSignal(items: Array<{ value: string; detail: string }> | string[], 
   }
 }
 
+function ReviewCheckInCard({ summary, locale }: {
+  summary: ReviewCheckInSummaries[ReviewPeriodPreset] | null
+  locale: JournalLocale
+}) {
+  const text = journalText(locale)
+  const rating = summary?.averageAdherence
+  const formattedRating = rating == null ? null : formatPlainNumber(rating, 1, locale)
+  const ratedDays = summary?.ratedDays ?? 0
+  const noTradeDays = summary?.reportedNoTradeDays ?? 0
+  return (
+    <section aria-labelledby="review-plan-adherence" className="rounded-3xl border border-white/10 bg-black/20 p-5">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h2 id="review-plan-adherence" className="text-base font-semibold text-white">{text('Plantreue', 'Following the plan')}</h2>
+          <p className="mt-1 text-sm text-white/60">{text('Deine Einschätzung aus der Nachbereitung.', 'Your own assessment after trading.')}</p>
+        </div>
+        <Link href="/daily-note" className="inline-flex min-h-10 items-center rounded-xl border border-white/15 px-3 text-sm text-white/80 hover:border-orange-300/60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-orange-300">
+          {text('Zur Tagesnotiz', 'Open daily note')}
+        </Link>
+      </div>
+      {formattedRating !== null ? (
+        <div className="mt-4 flex flex-wrap items-baseline gap-x-4 gap-y-1">
+          <p className="text-2xl font-semibold tabular-nums text-orange-200">
+            {text(`Ø ${formattedRating} von 5`, `Avg. ${formattedRating} out of 5`)}
+          </p>
+          <p className="text-sm text-white/65">
+            {text(ratedDays === 1 ? '1 bewerteter Tag' : `${ratedDays} bewertete Tage`, ratedDays === 1 ? '1 day rated' : `${ratedDays} days rated`)}
+          </p>
+        </div>
+      ) : (
+        <p className="mt-4 text-sm text-white/70">
+          {summary
+            ? text('Für diesen Zeitraum ist noch keine Plantreue erfasst.', 'No plan adherence ratings for this period yet.')
+            : text('Die Plantreue konnte nicht geladen werden.', 'Plan adherence could not be loaded.')}
+        </p>
+      )}
+      {noTradeDays > 0 && (
+        <p className="mt-2 text-xs text-white/60">
+          {text(
+            noTradeDays === 1 ? '1 Tag im Check-in als „Keine Trades“ markiert' : `${noTradeDays} Tage im Check-in als „Keine Trades“ markiert`,
+            noTradeDays === 1 ? '1 day marked as no trades in the check-in' : `${noTradeDays} days marked as no trades in the check-in`,
+          )}
+        </p>
+      )}
+    </section>
+  )
+}
+
 export function ReviewSummaryCard({
   snapshots,
   savedSessions = [],
   source,
   initialPreset = '7d',
   referenceDateKey,
+  checkInSummaries,
 }: {
   snapshots: ReviewSnapshotCollection
   savedSessions?: SavedReviewSession[]
   source: 'supabase' | 'mock'
   initialPreset?: ReviewPeriodPreset
   referenceDateKey: string
+  checkInSummaries?: ReviewCheckInSummaries | null
 }) {
   const locale = useJournalLocale()
   const text = journalText(locale)
@@ -262,6 +313,10 @@ export function ReviewSummaryCard({
           ))}
         </div>
       </div>
+
+      {checkInSummaries !== undefined && (
+        <ReviewCheckInCard summary={checkInSummaries?.[activePreset] ?? null} locale={locale} />
+      )}
 
       <details className="rounded-3xl border border-white/10 bg-black/20 p-5">
         <summary className="cursor-pointer text-sm font-medium text-white">{text('Empfehlungen und Muster', 'Recommendations and patterns')}</summary>
