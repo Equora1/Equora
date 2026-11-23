@@ -96,13 +96,10 @@ export function SetupImageLightbox({
         )}
         aria-label={text(`${alt} in Großansicht öffnen`, `Enlarge ${alt}`)}
       >
-        <Image unoptimized src={src} alt={alt} width={1280} height={720} sizes="(min-width: 1024px) 640px, 100vw" className={joinClasses('aspect-video w-full object-cover transition duration-300 group-hover:scale-[1.015]', imageClassName)} />
-        <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent px-3 py-3 opacity-100 transition duration-200 md:opacity-0 md:group-hover:opacity-100">
-          <div className="flex items-center justify-between gap-3 text-[11px] uppercase tracking-[0.18em] text-white/78">
-            <span>{hint ?? text('Klick oder Doppelklick für Großansicht', 'Click to enlarge')}</span>
-            <span>Zoom</span>
-          </div>
-        </div>
+        <Image unoptimized src={src} alt={alt} width={1280} height={720} sizes="(min-width: 1024px) 640px, 100vw" className={joinClasses('aspect-video w-full bg-[#0d0d0e] object-contain', imageClassName)} />
+        <span className="block px-3 py-2 text-right text-xs text-[#b8a58b] transition group-hover:text-[#f0a855]">
+          {hint ?? text('Großansicht', 'Enlarge')}
+        </span>
       </button>
 
       {isOpen ? (
@@ -114,7 +111,7 @@ export function SetupImageLightbox({
           aria-describedby={descriptionId}
           onClick={() => setIsOpen(false)}
         >
-          <div className={joinClasses('relative w-full max-w-[min(99vw,2200px)]', dialogClassName)} onClick={(event) => event.stopPropagation()}>
+          <div className={joinClasses('relative max-h-[calc(100dvh-2rem)] w-full max-w-[min(99vw,2200px)] overflow-y-auto', dialogClassName)} onClick={(event) => event.stopPropagation()}>
             <button
               type="button"
               onClick={() => setIsOpen(false)}
@@ -133,7 +130,7 @@ export function SetupImageLightbox({
                 </p>
               </div>
               <div className="bg-[#040404] p-2 md:p-3">
-                <Image unoptimized src={src} alt={alt} width={1920} height={1080} sizes="100vw" className={joinClasses('max-h-[96vh] w-full rounded-[1.65rem] object-contain', dialogImageClassName)} />
+                <Image unoptimized src={src} alt={alt} width={1920} height={1080} sizes="100vw" className={joinClasses('max-h-[calc(100dvh-9rem)] w-full rounded-[1.65rem] object-contain', dialogImageClassName)} />
               </div>
             </div>
           </div>

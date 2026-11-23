@@ -270,27 +270,31 @@ export function buildSavedSetups(setupRows: SetupRow[], setupMediaRows: SetupMed
 
 export function buildSetupLibraryFromSources(baseSetups: SetupLibraryItem[], setupRows: SetupRow[], trades: Trade[], locale: JournalLocale = 'de') {
   const text = journalText(locale)
-  const prioritizedSetupRows = [...setupRows].sort((left, right) => Number(Boolean(left.is_master)) - Number(Boolean(right.is_master)))
-
-  const ordered = [
-    ...baseSetups.map((setup) => ({ ...setup, isMaster: false, isPersonal: false })),
-    ...prioritizedSetupRows.map((setup) => ({
+  const library = new Map<string, SetupLibraryItem>(
+    baseSetups.map((setup) => [setup.title, { ...setup, isMaster: false, isPersonal: false }]),
+  )
+  const prioritizedSetupRows = [...setupRows].sort((left, right) => Number(Boolean(right.is_master)) - Number(Boolean(left.is_master)))
+  for (const setup of prioritizedSetupRows) {
+    library.set(setup.title, {
       title: setup.title,
       category: normalizeCategory(setup.category),
       description: setup.description?.trim() || (setup.is_master ? text('Master-Setup', 'Shared setup') : text('Persönliches Setup', 'Personal setup')),
       isMaster: Boolean(setup.is_master),
       isPersonal: Boolean(setup.created_at && !setup.is_master),
-    })),
-    ...Array.from(new Set(trades.map((trade) => trade.setup))).map((title) => ({
-      title,
-      category: normalizeCategory(trades.find((trade) => trade.setup === title)?.concept),
+      setupId: setup.created_at ? setup.id : undefined,
+    })
+  }
+  for (const trade of trades) {
+    if (!trade.setup || library.has(trade.setup)) continue
+    library.set(trade.setup, {
+      title: trade.setup,
+      category: normalizeCategory(trade.concept),
       description: text('Aus Trades erkannt', 'Found in your trades'),
       isMaster: false,
       isPersonal: false,
-    })),
-  ]
-
-  return Array.from(new Map(ordered.map((setup) => [setup.title, setup])).values())
+    })
+  }
+  return [...library.values()]
 }
 
 export function buildDynamicSetupDetail(
@@ -326,7 +330,7 @@ export function buildDynamicSetupDetail(
         }))
     : base?.exampleImageItems ?? (base?.exampleImages ?? []).map((url, index) => ({ url, isCover: index === 0, mediaRole: 'example' as const }))
 
-  const coverImage = imageItems.find((item) => item.isCover)?.url ?? row?.cover_image_url ?? base?.coverImage
+  const coverImage = imageItems.find((item) => item.isCover)?.url ?? row?.cover_image_url ?? imageItems[0]?.url ?? base?.coverImage
 
   return {
     category: normalizeCategory(row?.category ?? base?.category),

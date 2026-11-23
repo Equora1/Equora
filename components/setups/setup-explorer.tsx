@@ -36,26 +36,37 @@ export function SetupExplorer({
 }) {
   const locale = useJournalLocale()
   const text = journalText(locale)
-  const hasMasterSetups = setupLibrary.some((setup) => setup.isMaster)
-  const hasPersonalSetups = setupLibrary.some((setup) => setup.isPersonal)
-  const [libraryView, setLibraryView] = useState<LibraryView>(hasMasterSetups ? 'master' : 'all')
+  const [deletedSetupIds, setDeletedSetupIds] = useState<string[]>([])
+  const currentLibrary = useMemo(
+    () => setupLibrary.filter((setup) => !setup.setupId || !deletedSetupIds.includes(setup.setupId)),
+    [setupLibrary, deletedSetupIds],
+  )
+  const hasMasterSetups = currentLibrary.some((setup) => setup.isMaster)
+  const hasPersonalSetups = currentLibrary.some((setup) => setup.isPersonal)
+  const [libraryView, setLibraryView] = useState<LibraryView>('all')
   const visibleSetups = useMemo(() => {
-    if (libraryView === 'master') return setupLibrary.filter((setup) => setup.isMaster)
-    if (libraryView === 'own') return setupLibrary.filter((setup) => setup.isPersonal)
-    return setupLibrary
-  }, [libraryView, setupLibrary])
+    if (libraryView === 'master' && hasMasterSetups) return currentLibrary.filter((setup) => setup.isMaster)
+    if (libraryView === 'own' && hasPersonalSetups) return currentLibrary.filter((setup) => setup.isPersonal)
+    return currentLibrary
+  }, [libraryView, currentLibrary, hasMasterSetups, hasPersonalSetups])
   const [selectedSetup, setSelectedSetup] = useState(visibleSetups[0]?.title || setupLibrary[0]?.title || 'Liquidity Sweep')
 
   useEffect(() => {
-    if (!visibleSetups.length) {
-      setSelectedSetup(setupLibrary[0]?.title || 'Liquidity Sweep')
-      return
+    function onSetupDeleted(event: Event) {
+      const setupId = (event as CustomEvent<{ setupId?: string }>).detail?.setupId
+      if (setupId) setDeletedSetupIds((current) => [...current, setupId])
     }
-    if (!visibleSetups.some((setup) => setup.title === selectedSetup)) setSelectedSetup(visibleSetups[0].title)
-  }, [selectedSetup, setupLibrary, visibleSetups])
+    window.addEventListener('equora:setup-deleted', onSetupDeleted)
+    return () => window.removeEventListener('equora:setup-deleted', onSetupDeleted)
+  }, [])
+
+  useEffect(() => {
+    if ((libraryView === 'own' && !hasPersonalSetups) || (libraryView === 'master' && !hasMasterSetups)) setLibraryView('all')
+    if (!visibleSetups.some((setup) => setup.title === selectedSetup)) setSelectedSetup(visibleSetups[0]?.title ?? '')
+  }, [selectedSetup, visibleSetups, libraryView, hasMasterSetups, hasPersonalSetups])
 
   const linkedTrades = useMemo(() => getTradesForSetupTitle(selectedSetup, trades, savedSetups), [selectedSetup, trades, savedSetups])
-  const selectedLibraryItem = setupLibrary.find((setup) => setup.title === selectedSetup)
+  const selectedLibraryItem = currentLibrary.find((setup) => setup.title === selectedSetup)
   const selectedDetail = setupDetails[selectedSetup]
   const selectedPerformance = setupPerformanceRows.find((row) => row.title === selectedSetup)
   const display = getSetupPerformanceDisplay(selectedPerformance, locale)
@@ -77,9 +88,9 @@ export function SetupExplorer({
     : selectedPerformance?.status === 'active'
       ? 'border-emerald-300/18 bg-emerald-400/[0.06] text-emerald-100/82'
       : 'border-orange-300/18 bg-orange-400/[0.07] text-orange-100/82'
-  const selectedSavedSetup = savedSetups.find((setup) => setup.title === selectedSetup)
+  const selectedSavedSetup = savedSetups.find((setup) => setup.id === selectedLibraryItem?.setupId && !setup.isArchived)
   const canEditSelectedMedia = Boolean(selectedSavedSetup && (!selectedSavedSetup.isMaster || canManageMaster))
-  const isAdminEditingMaster = Boolean(selectedSavedSetup?.isMaster && canManageMaster)
+  const canDeleteSelected = Boolean(selectedSavedSetup && !selectedSavedSetup.isMaster)
 
   function handleMediaEdit(copyAsOwn: boolean) {
     const detail = setupDetails[selectedSetup]
@@ -104,6 +115,13 @@ export function SetupExplorer({
     window.dispatchEvent(event)
   }
 
+  function requestDeleteSelected() {
+    if (!selectedSavedSetup || selectedSavedSetup.isMaster) return
+    window.dispatchEvent(new CustomEvent('equora:setup-media-edit', {
+      detail: { setupId: selectedSavedSetup.id, intent: 'delete' },
+    }))
+  }
+
   return (
     <div className="space-y-6">
       <section className="rounded-3xl border border-[#221e1a] bg-[#0d0d0d]/95 p-5 shadow-[0_20px_60px_rgba(0,0,0,0.42)] xl:p-6">
@@ -122,6 +140,7 @@ export function SetupExplorer({
           </div>
         ) : null}
 
+        {selectedLibraryItem ? (
         <div className="mt-5 rounded-3xl border border-orange-400/15 bg-orange-400/[0.05] p-5 xl:p-6">
           <div className="flex flex-col gap-5">
             <div className="space-y-3">
@@ -172,14 +191,6 @@ export function SetupExplorer({
               </details>
             ) : null}
 
-            <div className="rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm leading-6 text-white/58">
-              {isAdminEditingMaster
-                ? text('Admin-Modus aktiv. Du bearbeitest die Master-Bilder direkt. Änderungen ersetzen die Dummy-Bilder dauerhaft für alle.', 'You are editing the shared setup images. Changes are visible to all users.')
-                : canEditSelectedMedia
-                  ? text('Dieses Setup gehört dir. Bilder kannst du direkt bearbeiten.', 'You can edit images for your own setup.')
-                  : text('Vorlage bleibt geschützt. Mit „Kopie bearbeiten“ übernimmst du Regel und Dummy-Bilder in deine eigene Version.', 'Choose Edit a copy to use the rules and example images in your own setup.')}
-            </div>
-
             <div className="flex flex-wrap gap-2">
               <Link
                 href={`/trades?setup=${encodeURIComponent(selectedSetup)}`}
@@ -199,7 +210,11 @@ export function SetupExplorer({
                   onClick={() => handleMediaEdit(false)}
                   className="rounded-full border border-emerald-300/20 bg-emerald-400/10 px-4 py-2 text-xs font-medium text-emerald-100 transition hover:border-emerald-200/40"
                 >
-                  {isAdminEditingMaster ? text('Master-Bilder bearbeiten', 'Edit shared images') : text('Bilder bearbeiten', 'Edit images')}
+                  {selectedSavedSetup?.isMaster
+                    ? text('Master-Bilder bearbeiten', 'Edit shared images')
+                    : selectedSavedSetup?.media.length
+                      ? text('Bilder bearbeiten', 'Edit images')
+                      : text('Bilder hinzufügen', 'Add images')}
                 </button>
               ) : (
                 <button
@@ -207,13 +222,22 @@ export function SetupExplorer({
                   onClick={() => handleMediaEdit(true)}
                   className="rounded-full border border-emerald-300/20 bg-emerald-400/10 px-4 py-2 text-xs font-medium text-emerald-100 transition hover:border-emerald-200/40"
                 >
-                  {text('Kopie bearbeiten', 'Edit a copy')}
+                  {text('Als eigenes Setup kopieren', 'Copy to my setups')}
+                </button>
+              )}
+              {canDeleteSelected && (
+                <button type="button" onClick={requestDeleteSelected}
+                  className="rounded-full border border-red-300/25 px-4 py-2 text-xs font-medium text-red-200 hover:bg-red-400/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-300">
+                  {text('Setup löschen', 'Delete setup')}
                 </button>
               )}
             </div>
           </div>
         </div>
+        ) : <p className="mt-5 text-sm text-white/65">{text('Noch keine Setups in dieser Auswahl.', 'No setups in this view yet.')}</p>}
       </section>
+
+      {selectedLibraryItem && <SetupDetailCard title={selectedSetup} data={selectedDetail} linkedTrades={linkedTrades} performance={selectedPerformance} />}
 
       <section className="rounded-3xl border border-[#221e1a] bg-[#0d0d0d]/95 p-5 shadow-[0_20px_60px_rgba(0,0,0,0.42)] xl:p-6">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
@@ -234,8 +258,6 @@ export function SetupExplorer({
           <div className="mt-5 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-[#998a72]">{text('Noch keine Setup-Historie.', 'No setup history yet.')}</div>
         )}
       </section>
-
-      <SetupDetailCard title={selectedSetup} data={selectedDetail} linkedTrades={linkedTrades} performance={selectedPerformance} />
 
       <section className="rounded-3xl border border-[#221e1a] bg-[#0d0d0d]/95 p-5 shadow-[0_20px_60px_rgba(0,0,0,0.42)] xl:p-6">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
