@@ -5,7 +5,6 @@ import { journalText } from '@/lib/i18n/journal'
 import { AppShell } from '@/components/layout/app-shell'
 import { QuickTradeForm } from '@/components/trades/quick-trade-form'
 import { TradeLedgerCapture } from '@/components/trades/trade-ledger-capture'
-import { FuturesRiskCalculator } from '@/components/trades/futures-risk-calculator'
 import { TradeForm } from '@/components/trades/trade-form'
 import { TradesWorkbench } from '@/components/trades/trades-workbench'
 import { TradeCaptureDeck } from '@/components/trades/trade-capture-deck'
@@ -351,9 +350,14 @@ export default async function TradesPage({ searchParams }: { searchParams?: Prom
   return (
     <AppShell>
       <div className="space-y-6">
-        {replayEnabled ? <Link href="/replay" className="inline-flex rounded-full border border-white/15 px-3 py-1.5 text-sm text-white">
-          {text('Replay-Journal', 'Replay journal')}
-        </Link> : null}
+        <div className="flex flex-wrap gap-2">
+          {replayEnabled && <Link href="/replay" className="inline-flex rounded-full border border-white/15 px-3 py-1.5 text-sm text-white">
+            {text('Replay-Journal', 'Replay journal')}
+          </Link>}
+          <Link href="/rechner" className="inline-flex rounded-full border border-white/15 px-3 py-1.5 text-sm text-white">
+            {text('Rechner öffnen', 'Open calculators')}
+          </Link>
+        </div>
         {selectionError && !selection.drawerTradeId ? <div lang={locale} role="alert" className="rounded-2xl border border-orange-300/20 bg-orange-400/5 p-4 text-sm text-orange-50">
           <p>{selectionError[locale]}</p>
           <a href={returnHref()} className="mt-3 inline-block underline">{text('Zur Journal-Liste', 'Back to trade list')}</a>
@@ -366,7 +370,6 @@ export default async function TradesPage({ searchParams }: { searchParams?: Prom
             initialTradeInstant={new Date().toISOString()}
           />
         ) : null}
-        <FuturesRiskCalculator />
         {closeTradeRow || (editTradeInitialValues && editTradeRow) || activeCaptureMode ? (
           <section id="trade-editor" className="rounded-3xl border border-orange-300/18 bg-white/[0.05] p-5 shadow-2xl">
             {closeTradeRow ? (

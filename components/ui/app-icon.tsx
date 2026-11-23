@@ -3,6 +3,7 @@ import type { SVGProps } from 'react'
 export type AppIconName =
   | 'dashboard'
   | 'trades'
+  | 'calculator'
   | 'setups'
   | 'review'
   | 'stats'
@@ -49,6 +50,15 @@ export function AppIcon({ name, className, ...props }: { name: AppIconName } & S
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className={resolvedClassName} {...props}>
         <path d="M4 17l5-5 4 4 7-8" strokeLinecap="round" strokeLinejoin="round" />
         <path d="M15 8h5v5" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    )
+  }
+
+  if (name === 'calculator') {
+    return (
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" className={resolvedClassName} {...props}>
+        <rect x="6" y="3.5" width="12" height="17" rx="2" />
+        <path d="M9 8h6M9 12h.1m5.9 0h.1M9 16h.1m5.9 0h.1" />
       </svg>
     )
   }

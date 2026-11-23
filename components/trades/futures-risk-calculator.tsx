@@ -41,8 +41,8 @@ export function FuturesRiskCalculator() {
   }
 
   return (
-    <details className="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-      <summary className="cursor-pointer text-sm font-semibold text-white">{text('Futures-Risikorechner', 'Futures risk calculator')}</summary>
+    <section className="rounded-2xl border border-white/10 bg-white/[0.03] p-4 sm:p-5">
+      <h2 className="text-lg font-semibold text-white">{text('Futures-Risikorechner', 'Futures risk calculator')}</h2>
       <div className="mt-4 space-y-4">
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           <label className="text-sm text-white/75">
@@ -111,6 +111,6 @@ export function FuturesRiskCalculator() {
           ) : issue ? <p id={issueId} className="text-sm text-orange-100">{issues[issue]}</p> : null}
         </div>
       </div>
-    </details>
+    </section>
   )
 }
