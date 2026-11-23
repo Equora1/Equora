@@ -3,8 +3,10 @@ import { loadTradingCheckIn, saveTradingCheckIn } from '@/app/actions/trading-ch
 import {
   changeCheckInAnswer,
   checkInColumns,
+  consumeTradingCheckInLoginCookie,
   getCheckInQuestions,
   parseCheckInDraft,
+  tradingCheckInLoginCookie,
   type CheckInDraft,
 } from '@/lib/utils/trading-check-in'
 
@@ -34,6 +36,30 @@ const userId = '11111111-1111-1111-1111-111111111111'
 const ratedBefore: CheckInDraft = { answers: { recovery: 4, focus: 5 }, noTrades: false }
 const noTrades: CheckInDraft = { answers: {}, noTrades: true }
 const skipped: CheckInDraft = { answers: {}, noTrades: false }
+
+describe('post-login check-in marker', () => {
+  it('consumes the exact login marker and leaves other cookies alone', () => {
+    let cookies = `language=en; ${tradingCheckInLoginCookie}=1`
+    const storage = {
+      get cookie() { return cookies },
+      set cookie(value: string) {
+        expect(value).toBe(`${tradingCheckInLoginCookie}=; Max-Age=0; Path=/; SameSite=Lax`)
+        cookies = 'language=en'
+      },
+    }
+
+    expect(consumeTradingCheckInLoginCookie(storage)).toBe(true)
+    expect(consumeTradingCheckInLoginCookie(storage)).toBe(false)
+    expect(storage.cookie).toBe('language=en')
+  })
+
+  it('ignores unrelated cookies and unrecognized values', () => {
+    const storage = { cookie: `other-${tradingCheckInLoginCookie}=1; ${tradingCheckInLoginCookie}=0` }
+    const original = storage.cookie
+    expect(consumeTradingCheckInLoginCookie(storage)).toBe(false)
+    expect(storage.cookie).toBe(original)
+  })
+})
 const json = (value: unknown, status = 200) => new Response(JSON.stringify(value), {
   status, headers: { 'Content-Type': 'application/json' },
 })

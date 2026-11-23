@@ -1,10 +1,23 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
+import { cookies } from 'next/headers'
 import { redirect } from 'next/navigation'
 import { getLoginNextPath } from '@/lib/i18n/auth'
 import { createSupabaseAuthServerClient } from '@/lib/supabase/server-auth'
 import { hasSupabaseClientEnv } from '@/lib/supabase/config'
+import { tradingCheckInLoginCookie } from '@/lib/utils/trading-check-in'
+
+async function requestTradingCheckIn() {
+  const cookieStore = await cookies()
+  // The browser consumes this flag. It contains no session or account information.
+  cookieStore.set(tradingCheckInLoginCookie, '1', {
+    path: '/',
+    sameSite: 'lax',
+    secure: process.env.NODE_ENV === 'production',
+    maxAge: 120,
+  })
+}
 
 function authRedirect(path: string, params: Record<string, string>) {
   const query = new URLSearchParams(params)
@@ -30,6 +43,7 @@ export async function loginWithPassword(formData: FormData) {
   const { error } = await supabase.auth.signInWithPassword({ email, password })
   if (error) authRedirect('/login', { error: getAuthErrorCode(error.message), next })
 
+  await requestTradingCheckIn()
   revalidatePath('/', 'layout')
   redirect(next)
 }
@@ -46,6 +60,7 @@ export async function signupWithPassword(formData: FormData) {
   if (error) authRedirect('/login', { error: getAuthErrorCode(error.message) })
   if (!data.session) authRedirect('/login', { success: 'confirm-email' })
 
+  await requestTradingCheckIn()
   revalidatePath('/', 'layout')
   redirect('/dashboard')
 }
